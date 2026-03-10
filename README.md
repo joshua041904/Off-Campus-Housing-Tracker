@@ -1,0 +1,4 @@
+# Project Overview
+
+The Off-Campus Housing Tracker is a web-based platform designed to help students in the Five College community efficiently find, compare, and secure off-campus housing. Students often rely on fragmented sources such as social media groups, word-of-mouth, or outdated listings, leading to misinformation, scams, and inefficient searches. This system centralizes housing listings, enabling students to filter by price, distance, amenities, and availability while ensuring trust and transparency.
+The primary stakeholders are students, landlords, and administrators. Students benefit from structured search, booking capabilities, and reputation systems. Landlords gain a streamlined listing and communication platform. Administrators ensure moderation and listing integrity. The system improves accessibility, transparency, and safety in the local housing ecosystem.
