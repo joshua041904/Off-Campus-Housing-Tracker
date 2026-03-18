@@ -17,8 +17,10 @@ message MessageSentV1 {
   string sender_id = 3;
   string recipient_id = 4;
   string sent_at = 5;
+  string media_id = 6;  // optional; set when message references an attachment
 }
 
+// Emit for analytics / engagement only. Do NOT use Kafka to drive read receipts or chat sync; keep read logic local (conversation_participants.last_read_at).
 message MessageReadV1 {
   string message_id = 1;
   string user_id = 2;

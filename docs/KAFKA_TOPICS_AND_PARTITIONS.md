@@ -41,20 +41,23 @@ All events about the same listing (or booking) stay in order per partition; cons
 
 ---
 
-## Domain event topics (dev.*.events) + EventEnvelope
+## Domain event topics (ENV_PREFIX.*.events) + EventEnvelope
 
-**Strong discipline:** One topic per domain; every message is a serialized **EventEnvelope** (see **proto/events/envelope.proto**). No raw domain messages on topics. Partition key = **entity_id**.
+**Strong discipline:** One topic per domain; every message is a serialized **EventEnvelope** (see **proto/events/envelope.proto**). No raw domain messages on topics. Partition key = **entity_id** (Kafka key = entity_id; not event_id, not random).
 
 | Topic | Producer | Partition key | Event protos |
 |-------|----------|---------------|--------------|
-| **dev.booking.events** | booking-service | entity_id (booking_id) | proto/events/booking.proto |
-| **dev.listing.events** | listings-service | entity_id (listing_id) | proto/events/listing.proto |
-| **dev.trust.events** | trust-service | entity_id | proto/events/trust.proto |
-| **dev.auth.events** | auth-service | entity_id (user_id) | proto/events/auth.proto |
-| **dev.messaging.events** | messaging-service | entity_id (conversation_id / message_id) | proto/events/messaging.proto |
-| **dev.notification.events** | notification-service (optional) | entity_id | proto/events/notification.proto |
+| **{ENV_PREFIX}.booking.events** | booking-service | entity_id (booking_id) | proto/events/booking.proto |
+| **{ENV_PREFIX}.listing.events** | listings-service | entity_id (listing_id) | proto/events/listing.proto |
+| **{ENV_PREFIX}.trust.events** | trust-service | entity_id | proto/events/trust.proto |
+| **{ENV_PREFIX}.auth.events** | auth-service | entity_id (user_id) | proto/events/auth.proto |
+| **{ENV_PREFIX}.messaging.events** | messaging-service | entity_id (**conversation_id** only; see docs/MESSAGING_KAFKA_ARCHITECTURE.md) | proto/events/messaging.proto |
+| **{ENV_PREFIX}.notification.events** | notification-service (optional) | entity_id | proto/events/notification.proto |
+| **{ENV_PREFIX}.media.events** | media-service | entity_id (media_id) | proto/events/media.proto |
 
-EventEnvelope fields: event_id, type, version, source, entity_id, timestamp, payload (bytes = serialized domain message). Create topics with **scripts/create-kafka-event-topics.sh** (or equivalent). Transactional outbox: see **proto/events/README.md** and **infra/db/*-outbox.sql**.
+**ENV_PREFIX** defaults to `dev`; use `staging`/`prod` for other envs so topic names are not hardcoded. Create: `ENV_PREFIX=dev ./scripts/create-kafka-event-topics.sh`.
+
+EventEnvelope: event_id (= outbox.id), type, version, source, entity_id, timestamp, payload (serialized proto bytes). Publisher and consumer contract: **docs/OUTBOX_PUBLISHER_AND_CONSUMER_CONTRACT.md**. Transactional outbox: **proto/events/README.md**, **infra/db/*-outbox.sql**. Every consumer must use **processed_events** for idempotency (analytics, notification, listings, trust have it).
 
 ---
 

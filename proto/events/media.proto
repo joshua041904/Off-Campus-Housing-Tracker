@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package events.media;
+
+option go_package = "github.com/yourorg/off-campus-housing-tracker/proto/events/media";
+
+// Emitted by media-service to ${ENV_PREFIX}.media.events after successful upload. No bytes in event.
+message MediaUploadedV1 {
+  string media_id = 1;
+  string user_id = 2;
+  string content_type = 3;
+  string uploaded_at = 4;
+}

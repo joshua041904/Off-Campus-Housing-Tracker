@@ -1,55 +1,38 @@
-feat(event-layer): codify stability, add intentional break tests, verification-before-freeze
+docs(messaging+kafka): lock messaging/Kafka role, media split, DLQ, observability, exactly-once
 
-What we are doing
------------------
-We are locking the event layer as production-grade and testable, then freezing it.
+Messaging + Kafka architecture (docs/MESSAGING_KAFKA_ARCHITECTURE.md)
+--------------------------------------------------------------------
+- One-sentence model: Messaging is synchronous (gRPC); Kafka is asynchronous fanout (side-effect propagation).
+- Responsibility table: send/store/read via gRPC/Postgres; read receipts via last_read_at; emit event via outbox; analytics/notification/trust consume (messaging service does NOT consume its own topic).
+- What Kafka is NOT: chat delivery, UI updates, read receipts, RPC, message broker between users.
+- SendMessage flow: gRPC → insert message → insert outbox (MessageSentV1) → commit → publisher → produce to ${ENV_PREFIX}.messaging.events with key = conversation_id.
+- Partition key: conversation_id only (6 partitions; ordering per conversation; do not use message_id or random key).
+- Payload discipline: no message content in events; MessageSentV1 stays small.
+- Exactly-once: effectively exactly-once effect via outbox + idempotent consumers; do NOT add Kafka transactions, EOS, 2PC, sagas, distributed locking.
+- Messaging service design: gRPC + Postgres + outbox + publisher + Kafka producer + health; no consumer inside messaging.
+- Media split: messaging stores metadata + media_id; Media service handles upload/storage/signed URLs; no media bytes in Kafka/Postgres/gRPC.
+- gRPC/HTTP/3: keep unary RPC over HTTP/2; do not attempt gRPC over HTTP/3 manually.
+- DLQ: ${ENV_PREFIX}.messaging.dlq; on N consumer failures publish to DLQ, log, alert.
+- Observability: metrics for messaging (messages_sent_total, conversation_count, db_latency, kafka_publish_latency), media (uploads_total, upload_failures, upload_bytes_total), notification (notifications_sent_total, failures_total).
+- Break tests: referenced as verification of event spine (no loss, at-least-once, idempotent consumers, health).
 
-1. Stability document (docs/EVENT_LAYER_STABILITY.md)
-   - Critical ordering is codified: produce → UPDATE published = true → commit. Never mark published before produce; never commit the update before produce success.
-   - Failure scenarios are documented: produce fails → retry; produce succeeds but DB update/commit fails → duplicate, idempotent consumers absorb; update-before-produce → forbidden (event loss).
-   - Guarantees are explicit: no lost events, at-least-once delivery, idempotent consumption, deterministic retry.
-   - Anti-patterns and freeze criteria are written down. "Do NOT add" list: Kafka transactions, exactly-once producer, saga orchestrators, choreography engines.
+Outbox + messaging (docs, proto, schema)
+----------------------------------------
+- OUTBOX_PUBLISHER_AND_CONSUMER_CONTRACT.md: aggregate_id for messaging = conversation_id; link to MESSAGING_KAFKA_ARCHITECTURE.
+- services/messaging-service/README.md: link to MESSAGING_KAFKA_ARCHITECTURE; outbox step 2 explicitly set aggregate_id = conversation_id.
+- proto/messaging.proto: SendMessageRequest.media_id (optional); Message.media_id (optional).
+- proto/events/messaging.proto: MessageSentV1.media_id (optional).
+- infra/db/04-messaging-media-id.sql: ADD COLUMN media_id to messaging.messages.
 
-2. Verification before freeze (same doc)
-   - Design does not freeze the layer; verification does. The doc now states that explicitly and lists the exact steps: implement → run → test → break intentionally → verify idempotency/retry/health → then freeze.
-   - The three intentional break tests are specified in full:
-     - Test 1 — Kill after produce: inject crash after Kafka produce success, before UPDATE published = true. Expected: row still published = false; restart republishes; consumer idempotency absorbs duplicate.
-     - Test 2 — Kill after UPDATE but before commit: simulate transaction rollback. Expected: row still published = false; retry works.
-     - Test 3 — Kafka down: publish fails, published remains false, health NOT_SERVING when Kafka required; when Kafka returns, retries succeed.
-   - After all three pass, the event layer is considered battle-tested and frozen. Focus then shifts to search/filtering, recommendation engine, UX, observability—not event-layer tweaking.
+Media service stub
+------------------
+- proto/media.proto: MediaService (UploadFile, GeneratePresignedUploadURL, GeneratePresignedDownloadURL); request/response messages.
+- proto/events/media.proto: MediaUploadedV1 (media_id, user_id, content_type, uploaded_at).
+- services/media-service/README.md: responsibilities (upload, presigned URLs, validate, emit event); storage MinIO/S3; metrics; no media bytes in Postgres/Kafka/gRPC.
 
-3. Architecture rules (ARCHITECTURE_RULES.md)
-   - Rule 9 — Event layer ordering (outbox) is already in place: publisher must produce → update published → commit; consumers must be idempotent (processed_events, insert event_id before handle, on conflict skip). No Kafka transactions, exactly-once, sagas, or choreography. This makes the event layer a system invariant, not a suggestion.
+Kafka topics + DLQ
+------------------
+- scripts/create-kafka-event-topics.sh: add ${ENV_PREFIX}.media.events and ${ENV_PREFIX}.messaging.dlq; comment on partition key for messaging.events and DLQ purpose.
+- docs/KAFKA_TOPICS_AND_PARTITIONS.md: messaging.events partition key = conversation_id only; add media.events row.
 
-4. Automated break tests (services/event-layer-verification)
-   - New package with vitest that encodes the three break tests as automated tests.
-   - Uses in-memory mocks (MockOutboxDb, MockProducer, MockKafkaHealthCheck) so no real Kafka or Postgres is required. The same ordering and failure hooks can be used against real infra for manual or CI integration runs.
-   - Test 1: Crash after produce → assert row stays false, produce called once; "restart" (run again without crash) → assert row now true, produce called twice; consumer dedupe → assert only one logical process (duplicate skipped).
-   - Test 2: Crash after UPDATE but before commit → assert row stays false (rollback); retry → assert row true and produce called again.
-   - Test 3: Kafka down (producer fails) → assert published stays false, health check false; Kafka back → retry succeeds, row true.
-   - All six tests pass. Run with: pnpm --filter event-layer-verification test (or from services/event-layer-verification: pnpm test).
-
-Why we are doing this
----------------------
-- Most teams never codify ordering, failure cases, and freeze criteria for their event backbone. We are doing it so the system stays predictable and maintainable.
-- Freezing by verification (not by design alone) is the correct order of maturity: implement, run, test, break intentionally, verify idempotency and retry and health, then freeze. That is behavior-driven architecture instead of docs-driven wishful thinking.
-- Putting Rule 9 in ARCHITECTURE_RULES.md makes the event layer governance-level. It prevents future "let's try Kafka transactions," random choreography experiments, and half-baked exactly-once changes. That is how stable systems are maintained.
-- The intentional break tests prove that (1) we never lose events when we follow the order, (2) duplicates are safe because consumers are idempotent, and (3) when Kafka is down we do not mark published and health correctly reflects NOT_SERVING. Once these pass, further complexity in the event layer decreases reliability; the architecture is at equilibrium.
-
-What we are not doing
----------------------
-- We are not adding Kafka transactions, exactly-once producer mode, saga orchestrators, or choreography engines. The stability doc and Rule 9 explicitly forbid these unless there is an explicit architecture decision.
-- We are not touching the ordering or adding extra layers. The spine is built; the next work is the body: search, recommendations, UX, observability.
-
-Summary of changes in this commit
----------------------------------
-- docs/EVENT_LAYER_STABILITY.md: Verification-before-freeze section expanded with "Design does not freeze the layer; verification does"; three break tests written out in full with expected outcomes; explicit freeze and shift-focus wording.
-- services/event-layer-verification (new): package.json, tsconfig.json, vitest.config.ts; src/types.ts (OutboxRow, EventEnvelope); src/mocks.ts (MockOutboxDb with staged commit/rollback, MockProducer with fail-next, MockKafkaHealthCheck); src/publisher-core.ts (processOneRow with afterProduce and afterUpdateBeforeCommit hooks); src/consumer-idempotent.ts (MockProcessedEvents, consumeIdempotent); src/event-layer-break-tests.test.ts (6 tests for Test 1, Test 2, Test 3); README.md with purpose, test descriptions, and run instructions.
-
-References
-----------
-- docs/EVENT_LAYER_STABILITY.md
-- docs/OUTBOX_PUBLISHER_IMPLEMENTATION.md
-- docs/OUTBOX_PUBLISHER_AND_CONSUMER_CONTRACT.md
-- docs/CONSUMER_WIRING.md
-- ARCHITECTURE_RULES.md (Rule 9)
+No code implementation in this commit; docs and contracts only. Next: implement messaging publisher, wire media service, consumers, DLQ handling.
