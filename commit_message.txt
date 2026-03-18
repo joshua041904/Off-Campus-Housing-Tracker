@@ -1,78 +1,80 @@
-feat(infra): DB schemas, one-shot setup, and proto contract layer (DB + proto + events aligned)
+feat(infra): DB schemas, proto contract, resume-tier Kafka/analytics, state machine, trust scoring, search strategy, and team rules
 
 Database layer
 --------------
 - infra/db: SQL schemas for all six raw-Postgres housing DBs (listings, booking,
-  trust, messaging, notification, analytics). Listings: 01-listings-schema-and-tuning.sql
-  + 02-listings-pgbench-trigram-knn.sql; each other service: single 01-*-schema.sql.
-  Ports 5442–5447 per README; auth (5441) remains Prisma + optional legacy restore.
-- scripts/ensure-*-schema.sh: one script per DB (ensure-listings-schema, ensure-booking-schema,
-  ensure-messaging-schema, ensure-notification-schema, ensure-trust-schema, ensure-analytics-schema).
-  Each applies the corresponding infra/db SQL to the correct port and database.
-- scripts/setup-all-dbs.sh: one-shot setup that runs all six ensure scripts in order.
-  Usage: PGPASSWORD=postgres ./scripts/setup-all-dbs.sh. Optional DO_DOCKER_UP=1 to
-  start all seven Postgres containers before applying schemas. Auth is skipped (Prisma/restore).
-- scripts/restore-good-db-settings.sh: applies system-level, database-level, and session-level
-  Postgres tuning to all seven instances (localhost 5441–5447). Includes search_path per
-  schema (auth, listings, booking, messaging, notification, trust, analytics). Idempotent.
-- infra/db/README.md: documents one-shot setup (setup-all-dbs.sh), per-DB apply commands,
-  and optional restore-good-db-settings.sh. Port table and schema summaries unchanged.
+  trust, messaging, notification, analytics). Listings: 01 + 02 (pgbench/trigram);
+  booking: 01 + 02 (state machine); trust: 01 + 02 (scoring); messaging, notification,
+  analytics: 01 + 02 (idempotency/projections). Ports 5442–5447; auth (5441) Prisma/restore.
+- scripts/ensure-*-schema.sh: one per DB; each runs 01 then 02 when present (booking state
+  machine, trust scoring, analytics projections, notification idempotency).
+- scripts/setup-all-dbs.sh: one-shot PGPASSWORD=postgres ./scripts/setup-all-dbs.sh;
+  optional DO_DOCKER_UP=1. Auth skipped.
+- scripts/restore-good-db-settings.sh: system/database/session Postgres tuning for all
+  seven instances (5441–5447), search_path per schema. Idempotent.
+- infra/db/README.md: one-shot setup, per-DB apply, 02 summaries (state machine, scoring,
+  projections, idempotency).
 
-Proto contract layer (no drift with DB or Kafka)
------------------------------------------------
-- proto/common.proto (infra-grade): Shared types only. No domain messages.
-  - Identifiers: UUID (string value).
-  - Money: amount_cents (int64) + currency; no floats/decimals.
-  - Pagination: PaginationRequest (page, limit), PaginationResponse (total, page, limit).
-  - Metadata: RequestMetadata (correlation_id, user_id, role), ResponseMetadata
-    (correlation_id, timestamp via google.protobuf.Timestamp). Optional; supports
-    tracing and gateway-injected identity.
-  - Errors: ErrorDetail (field, issue), ErrorResponse (code, message, details, status),
-    StatusCode enum (UNKNOWN, OK, INVALID_ARGUMENT, NOT_FOUND, UNAUTHORIZED, FORBIDDEN,
-    CONFLICT, INTERNAL_ERROR). Single structured error format across services.
-  - SoftDelete: deleted + deleted_at (Timestamp) for messaging, listings, etc.
-  - Empty for RPCs with no body. Import: google/protobuf/timestamp.proto.
+Booking state machine (DB-enforced)
+-----------------------------------
+- infra/db/02-booking-state-machine.sql: trigger booking.enforce_booking_transition()
+  on booking.bookings. Legal: created → pending_confirmation | cancelled;
+  pending_confirmation → confirmed | rejected | cancelled | expired;
+  confirmed → completed | cancelled. Terminal states (rejected, cancelled, expired,
+  completed) allow no further transitions; trigger raises on illegal transition.
 
-- proto/listings.proto: ListingsService — CreateListing, GetListing, SearchListings.
-  Messages: CreateListingRequest (user_id, title, description, price_cents, amenities,
-  smoke_free, pet_friendly, furnished, effective_from/until), GetListingRequest,
-  ListingResponse (listing_id through status, created_at; no search_norm or DB internals),
-  SearchListingsRequest/Response. Aligned to listings.listings columns; no implementation leakage.
+Trust scoring (deterministic, event-driven)
+-------------------------------------------
+- infra/db/02-trust-scoring.sql: reputation_score as NUMERIC(4,2) 0–5. Formula
+  trust.compute_reputation_score(positive, negative, completed_bookings, flags):
+  average_rating*0.6 + completed_bookings*0.2 - flags_count*0.3, LEAST(GREATEST(...,0),5).
+  Trigger recomputes on insert/update of reputation; backfill for existing rows.
 
-- proto/booking.proto: BookingService — CreateBooking, ConfirmBooking, CancelBooking, GetBooking.
-  Messages: CreateBookingRequest (listing_id, tenant_id, start_date, end_date), confirm/cancel/get
-  requests, BookingResponse (booking_id, listing_id, tenant_id, status, created_at). Status
-  reflects state machine (CREATED, CONFIRMED, CANCELLED, COMPLETED; DB also has
-  pending_confirmation, rejected, expired). Aligned to booking.bookings and Kafka booking.* events.
+Resume-tier Kafka, analytics, gateway, events, tracing, replay
+----------------------------------------------------------------
+- docs/KAFKA_STRATEGY.md: partition by entity key (booking_id, listing_id, etc.),
+  idempotent consumers (processed_events by event_id), versioned topic naming
+  housing.<domain>.v1.*, retention by domain, event envelope (event_id, type, version,
+  source, entity_id, timestamp, data), two-broker dev (replication-factor=2).
+- infra/db/02-analytics-projections.sql: events.event_id (unique, for dedup/replay),
+  analytics.processed_events, projection_state, projection_versions. ensure-analytics
+  runs 02 after 01.
+- infra/db/02-notification-idempotency.sql: notification.processed_events (event_id
+  PK). ensure-notification runs 02 after 01.
+- docs/GATEWAY_POLICY.md: middleware stack (TLS → JWT → policy → rate limit →
+  correlation/trace → gRPC), policy matrix (RPC vs role + ownership).
+- docs/EVENT_VERSIONING_AND_TRACING.md: event envelope and versioning (backward-
+  compatible same version; breaking = new version; consumer switch(version)),
+  Protobuf event contracts, OpenTelemetry correlation/trace propagation, replay/
+  rebuild strategy (REPLAY_FROM_BEGINNING, projection_versions).
+- proto/events/: booking.proto (BookingConfirmedV1, BookingCreatedV1, etc.),
+  README pointing to EVENT_VERSIONING and KAFKA_STRATEGY.
+- docs/KAFKA_TOPICS_AND_PARTITIONS.md: link to KAFKA_STRATEGY for production
+  partitioning, idempotency, envelope.
 
-- proto/trust.proto: TrustService — FlagListing, SubmitReview, GetReputation. Messages:
-  FlagListingRequest/FlagResponse, SubmitReviewRequest (booking_id, reviewer_id, rating, comment),
-  ReviewResponse, GetReputationRequest, ReputationResponse (user_id, score). No DB internals
-  or scoring algorithm exposed. Aligned to trust.listing_flags, trust.reviews, trust.reputation.
+Search architecture and team rules
+----------------------------------
+- docs/SEARCH_ARCHITECTURE.md: Phase 1 Postgres only (pg_trgm, search_norm, similarity);
+  Phase 2 event-fed Elastic/OpenSearch via Kafka (listing.created/updated/deleted),
+  no sync coupling to listing write path.
+- ARCHITECTURE_RULES.md (repo root): Rule 1 Proto is contract; 2 Event immutable;
+  3 No dual writes; 4 DB per service; 5 Gateway only public entry; 6 Kafka not RPC;
+  7 State machines enforced in DB; 8 Observability (correlation_id, entity_id,
+  event_type). Pointers to contract, Kafka, gateway, search docs.
 
-- proto/messaging.proto: MessagingService — SendMessage, GetConversation. Messages:
-  SendMessageRequest (conversation_id, sender_id, content), MessageResponse (message_id, sent_at),
-  GetConversationRequest, ConversationResponse (repeated Message), Message (message_id, sender_id,
-  content, sent_at, read). Soft delete and read state handled server-side. Aligned to
-  messaging.conversations, messaging.messages, messaging.conversation_participants.
+Proto contract layer (unchanged summary)
+----------------------------------------
+- proto/common.proto: UUID, Money, Pagination, Request/ResponseMetadata, ErrorDetail/
+  ErrorResponse, StatusCode enum, SoftDelete, Empty. google.protobuf.Timestamp.
+- Service protos (listings, booking, trust, messaging, notification, analytics, auth):
+  full RPCs and messages aligned to DB and events; no implementation leakage.
+- proto/health.proto: unchanged (grpc.health.v1).
 
-- proto/notification.proto: NotificationService — GetUserPreferences only. Messages:
-  GetUserPreferencesRequest (user_id), UserPreferencesResponse (email_enabled, sms_enabled,
-  push_enabled). No SendNotification RPC; delivery is Kafka-triggered only. Consumer contract.
+Webapp and .gitignore
+---------------------
+- webapp/.gitkeep and webapp/README.md so webapp/ is tracked (folder had only
+  .DS_Store before). .gitignore comment: webapp/ is part of repo; do not add
+  rules that ignore it.
 
-- proto/analytics.proto: AnalyticsService — GetDailyMetrics only (read-only). Messages:
-  GetDailyMetricsRequest (date), DailyMetricsResponse (new_users, new_listings, new_bookings,
-  completed_bookings). No mutating RPCs. Aligned to analytics.daily_metrics.
-
-- proto/auth.proto: AuthService — Register, Login, ValidateToken. Messages: RegisterRequest,
-  LoginRequest, AuthResponse (user_id, jwt), ValidateTokenRequest, ValidateTokenResponse
-  (user_id, role, valid). Minimal and secure; gateway may validate JWT locally.
-
-- proto/health.proto: Unchanged (grpc.health.v1 Health.Check, Health.Watch).
-
-Design rule: DB = source of truth, proto = public contract, Kafka = externalized state
-transition. Emit events after transaction commit; proto models reflect business state, not
-DB implementation. common.proto is infra-only; domain-specific types stay in domain protos.
-
-Ports (unchanged): auth 5441, listings 5442, bookings 5443, messaging 5444, notification 5445,
+Ports: auth 5441, listings 5442, bookings 5443, messaging 5444, notification 5445,
 trust 5446, analytics 5447.

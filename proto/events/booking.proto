@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package events.booking;
+
+option go_package = "github.com/yourorg/off-campus-housing-tracker/proto/events/booking";
+
+// Versioned event payloads for housing.booking.v1.* Kafka topics.
+// Envelope (event_id, type, version, source, entity_id, timestamp) is wrapper; data is one of these.
+// Backward compatible only; breaking changes = new version.
+
+message BookingConfirmedV1 {
+  string booking_id = 1;
+  string listing_id = 2;
+  string tenant_id = 3;
+  string landlord_id = 4;
+  string start_date = 5;
+  string end_date = 6;
+}
+
+message BookingCreatedV1 {
+  string booking_id = 1;
+  string listing_id = 2;
+  string tenant_id = 3;
+  string start_date = 4;
+  string end_date = 5;
+}
+
+message BookingCancelledV1 {
+  string booking_id = 1;
+  string listing_id = 2;
+}
+
+message BookingCompletedV1 {
+  string booking_id = 1;
+  string listing_id = 2;
+  string tenant_id = 3;
+  string landlord_id = 4;
+}

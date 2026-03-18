@@ -1,0 +1,2 @@
+# Keeps webapp/ tracked in git (directory would be untracked if empty).
+# Frontend app lives here; do not add a .gitignore rule that ignores webapp/.

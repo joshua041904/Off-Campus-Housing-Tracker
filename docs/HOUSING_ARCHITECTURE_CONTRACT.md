@@ -90,6 +90,7 @@ Single source of truth for how the Off-Campus-Housing-Tracker platform is struct
 
 - **gRPC + HTTP:** API gateway; strict TLS; mTLS for gRPC where configured.
 - **Auth:** JWT from auth-service; `sub` = user id; services use it as tenant_id / landlord_id / user_id (no cross-DB lookup required for identity).
+- **Service-to-service:** mTLS mandatory; internal identity via x-service-name + cert CN validation; capability matrix (who may call whom). **Errors:** gRPC status codes only; structured detail; no boolean success flags; uniform error logging. See **docs/SERVICE_AUTH_AND_ERRORS.md**.
 
 ---
 

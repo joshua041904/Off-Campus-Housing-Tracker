@@ -52,6 +52,7 @@ Files:
 - **Database:** `bookings` on port **5443** (postgres-bookings). Consumer-driven request lifecycle; tenant requests time on listing.
 - **Schema:** `booking`. Table: `booking.bookings` with listing_id, tenant_id, landlord_id (auth user UUIDs; no cross-DB FK), start_date, end_date, status enum, price_cents_snapshot, version. Overlap prevention via `btree_gist` EXCLUDE on (listing_id, daterange).
 - **Apply:** `PGPASSWORD=postgres ./scripts/ensure-booking-schema.sh` or `psql -h 127.0.0.1 -p 5443 -U postgres -d bookings -f infra/db/01-booking-schema.sql`
+- **State machine (02):** `infra/db/02-booking-state-machine.sql` enforces legal transitions (created → pending_confirmation | cancelled; pending_confirmation → confirmed | rejected | cancelled | expired; confirmed → completed | cancelled). Terminal states allow no further changes. Applied by ensure-booking-schema.sh after 01.
 - **Events:** booking-service emits `booking.created`, `booking.confirmed`, `booking.rejected`, `booking.cancelled`, `booking.completed`, `booking.expired` (minimal payload). See docs/KAFKA_TOPICS_AND_PARTITIONS.md.
 
 ## Messaging (5444)
@@ -80,8 +81,9 @@ Files:
   - **listing_flags** — listing_id, reporter_id, reason, description, status (pending → reviewed → resolved | dismissed), reviewed_by, reviewed_at. When resolved as confirmed → emit `listing.flagged`; listing service sets status=flagged.
   - **user_flags** — user_id, reporter_id, reason, description, status. Emit `user.warned` / `user.suspended` as needed.
   - **reviews** — booking_id, reviewer_id, target_type (listing | user), target_id, rating 1–5, comment. Only after `booking.completed`; Trust consumes event and stores review; emits `review.created`, updates **reputation**.
-  - **reputation** — user_id PK, completed_bookings, positive_reviews, negative_reviews, flags_count, reputation_score, updated_at. Materialized; updated on booking.completed, review created, flags.
+  - **reputation** — user_id PK, completed_bookings, positive_reviews, negative_reviews, flags_count, reputation_score (NUMERIC 0–5), updated_at. Materialized; updated on booking.completed, review created, flags.
   - **user_suspensions** — user_id, reason, suspended_at, expires_at, suspended_by. Trust owns suspension state; emits `user.suspended` / `user.unsuspended`.
+- **Scoring (02):** `infra/db/02-trust-scoring.sql` adds deterministic formula: score = LEAST(GREATEST(average_rating*0.6 + completed_bookings*0.2 - flags_count*0.3, 0), 5). Trigger recomputes on insert/update of reputation row. Applied by ensure-trust-schema.sh after 01.
 - **Apply:** `PGPASSWORD=postgres ./scripts/ensure-trust-schema.sh` or `psql -h 127.0.0.1 -p 5446 -U postgres -d trust -f infra/db/01-trust-schema.sql`
 
 ## Analytics (5447)
@@ -93,6 +95,8 @@ Files:
   - **user_activity** — user_id PK, listings_created, bookings_made, messages_sent, updated_at. Optional; for dashboards.
 - **Apply:** `PGPASSWORD=postgres ./scripts/ensure-analytics-schema.sh` or `psql -h 127.0.0.1 -p 5447 -U postgres -d analytics -f infra/db/01-analytics-schema.sql`
 - **Discipline:** Consume all domain events; project into aggregates. Do not normalize raw events into fixed columns; store payload as JSONB.
+- **Projections (02):** `infra/db/02-analytics-projections.sql` adds `event_id` (unique) on events, `processed_events` (idempotency), `projection_state`, `projection_versions` for replay and versioned rebuilds. Applied by `ensure-analytics-schema.sh` after 01.
+- **Notification idempotency (02):** `infra/db/02-notification-idempotency.sql` adds `notification.processed_events` for event_id dedup. Applied by `ensure-notification-schema.sh` after 01.
 
 ## Kafka and architecture
 

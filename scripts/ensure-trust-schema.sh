@@ -20,4 +20,9 @@ if ! psql -h "$PGHOST" -p "$PGPORT" -U postgres -d trust -tAc "SELECT 1" >/dev/n
   exit 1
 fi
 psql -h "$PGHOST" -p "$PGPORT" -U postgres -d trust -v ON_ERROR_STOP=1 -f "$SQL"
+SQL2="$REPO_ROOT/infra/db/02-trust-scoring.sql"
+if [[ -f "$SQL2" ]]; then
+  psql -h "$PGHOST" -p "$PGPORT" -U postgres -d trust -v ON_ERROR_STOP=1 -f "$SQL2"
+  echo "✅ Trust scoring (02) applied."
+fi
 echo "✅ Trust schema applied (port $PGPORT, database trust)."

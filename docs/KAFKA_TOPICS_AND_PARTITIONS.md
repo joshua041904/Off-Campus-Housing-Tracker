@@ -2,6 +2,8 @@
 
 Strict TLS + mTLS; single broker (Docker 29094) or multi-broker later. This doc locks down **topic names**, **partition keys**, and **consumer groups** for the housing platform.
 
+**Production-grade strategy:** See **docs/KAFKA_STRATEGY.md** for entity-key partitioning, idempotent consumers (`processed_events`), versioned topic naming (`housing.<domain>.v1.*`), retention by domain, and event envelope (event_id, version, source, entity_id, timestamp).
+
 ---
 
 ## Topic naming

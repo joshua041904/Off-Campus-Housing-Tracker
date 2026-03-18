@@ -20,4 +20,9 @@ if ! psql -h "$PGHOST" -p "$PGPORT" -U postgres -d analytics -tAc "SELECT 1" >/d
   exit 1
 fi
 psql -h "$PGHOST" -p "$PGPORT" -U postgres -d analytics -v ON_ERROR_STOP=1 -f "$SQL"
+SQL2="$REPO_ROOT/infra/db/02-analytics-projections.sql"
+if [[ -f "$SQL2" ]]; then
+  psql -h "$PGHOST" -p "$PGPORT" -U postgres -d analytics -v ON_ERROR_STOP=1 -f "$SQL2"
+  echo "✅ Analytics projections (02) applied."
+fi
 echo "✅ Analytics schema applied (port $PGPORT, database analytics)."

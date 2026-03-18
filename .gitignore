@@ -2,6 +2,9 @@
 node_modules/
 .pnpm-store/
 
+# webapp/ is part of the repo — do not add rules that ignore webapp/ or its contents
+# (e.g. avoid ignoring webapp/ or **/webapp). Use webapp/.gitkeep so the folder is tracked.
+
 # Build / dist
 dist/
 build/
