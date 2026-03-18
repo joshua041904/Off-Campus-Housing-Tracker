@@ -1,0 +1,118 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bootstrap-from-basebackup
+  namespace: record-platform
+  labels:
+    app: postgres-bootstrap
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: Never
+      serviceAccountName: postgres-bootstrap
+      containers:
+      - name: bootstrap
+        image: postgres:16
+        env:
+        - { name: PGHOST, value: "postgres" }
+        envFrom:
+        - { secretRef: { name: postgres-superuser } }
+        volumeMounts:
+        - { name: backups, mountPath: /backups }
+        - { name: data, mountPath: /pgdata }
+        - { name: wal-archive, mountPath: /wal-archive }
+        command: ["bash","-lc"]
+        args:
+        - |
+          set -euo pipefail
+          echo "[$(date -Is)] Starting bootstrap from basebackup"
+          
+          # Find latest basebackup
+          LATEST=$(ls -1t /backups/basebackup-*.bundle.tar.gz | head -n1)
+          if [ -z "$LATEST" ]; then
+            echo "ERROR: No basebackup found in /backups"
+            exit 1
+          fi
+          echo "Using: $LATEST"
+          
+          # Scale down postgres deployment
+          echo "Scaling down postgres deployment..."
+          kubectl -n record-platform scale deploy/postgres --replicas=0
+          kubectl -n record-platform rollout status deploy/postgres --timeout=120s || true
+          
+          # Wait a bit for pod to terminate
+          sleep 5
+          
+          # Check if PGDATA is empty or has existing cluster
+          if [ -f /pgdata/PG_VERSION ]; then
+            echo "WARNING: PGDATA contains existing cluster. This will be wiped!"
+            echo "Removing existing cluster..."
+            rm -rf /pgdata/*
+          fi
+          
+          # Extract basebackup
+          echo "Extracting basebackup..."
+          WORKDIR=/tmp/basebackup
+          rm -rf "$WORKDIR" && mkdir -p "$WORKDIR"
+          tar -xzf "$LATEST" -C "$WORKDIR"
+          BACKUPDIR=$(find "$WORKDIR" -mindepth 1 -maxdepth 1 -type d | head -n1)
+          
+          # Extract base.tar.gz and pg_wal.tar.gz to PGDATA
+          if [ -f "$BACKUPDIR/base.tar.gz" ]; then
+            echo "Extracting base.tar.gz to /pgdata..."
+            tar -xzf "$BACKUPDIR/base.tar.gz" -C /pgdata
+          fi
+          
+          if [ -f "$BACKUPDIR/pg_wal.tar.gz" ]; then
+            echo "Extracting pg_wal.tar.gz to /pgdata/pg_wal..."
+            mkdir -p /pgdata/pg_wal
+            tar -xzf "$BACKUPDIR/pg_wal.tar.gz" -C /pgdata/pg_wal
+          fi
+          
+          # Create recovery.signal for PG16
+          echo "Creating recovery.signal..."
+          touch /pgdata/recovery.signal
+          
+          # Configure recovery
+          echo "Configuring recovery..."
+          cat >> /pgdata/postgresql.auto.conf <<'EOF'
+          restore_command = 'cp /wal-archive/%f %p'
+          recovery_target_timeline = 'latest'
+          EOF
+          
+          # Set permissions
+          chown -R 999:999 /pgdata || true
+          chmod 0700 /pgdata || true
+          
+          # Scale up postgres deployment
+          echo "Scaling up postgres deployment..."
+          kubectl -n record-platform scale deploy/postgres --replicas=1
+          
+          # Wait for recovery
+          echo "Waiting for postgres to recover..."
+          for i in {1..120}; do
+            if kubectl -n record-platform exec deploy/postgres -c db -- pg_isready -U postgres -d records -t 1 >/dev/null 2>&1; then
+              echo "Postgres is ready!"
+              break
+            fi
+            sleep 2
+          done
+          
+          # Check recovery status
+          echo "Checking recovery status..."
+          kubectl -n record-platform exec deploy/postgres -c db -- psql -U postgres -d records -c "SELECT pg_is_in_recovery();" || true
+          
+          echo "[$(date -Is)] Bootstrap complete"
+      volumes:
+      - name: backups
+        persistentVolumeClaim:
+          claimName: pgbackups
+      - name: data
+        persistentVolumeClaim:
+          claimName: pgdata-big
+      - name: wal-archive
+        persistentVolumeClaim:
+          claimName: pg-wal-archive
+

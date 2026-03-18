@@ -1,0 +1,70 @@
+# FRR BGP router for MetalLB. MetalLB speaker peers with this pod.
+# Deploy, get pod IP, then apply bgppeer.example.yaml with peerAddress = that IP.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frr
+  namespace: metallb-system
+  labels:
+    app: frr
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frr
+  template:
+    metadata:
+      labels:
+        app: frr
+    spec:
+      # Privileged for FRR netlink; required for some BGP operations
+      containers:
+      - name: frr
+        # Prefer local build (no registry). Override: FRR_IMAGE=quay.io/frrouting/frr:8.4.2
+        image: frr-metallb:local
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          privileged: true
+          capabilities:
+            add: ["NET_ADMIN", "NET_RAW", "SYS_ADMIN"]
+        ports:
+        - name: bgp
+          containerPort: 179
+          protocol: TCP
+        volumeMounts:
+        - name: frr-config
+          mountPath: /etc/frr/frr.conf
+          subPath: frr.conf
+          readOnly: true
+        - name: frr-run
+          mountPath: /var/run/frr
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+      volumes:
+      - name: frr-config
+        configMap:
+          name: frr-config
+      - name: frr-run
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frr
+  namespace: metallb-system
+  labels:
+    app: frr
+spec:
+  type: ClusterIP
+  ports:
+  - name: bgp
+    port: 179
+    targetPort: 179
+    protocol: TCP
+  selector:
+    app: frr

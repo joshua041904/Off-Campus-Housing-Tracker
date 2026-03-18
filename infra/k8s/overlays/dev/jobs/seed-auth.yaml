@@ -1,0 +1,60 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seed-auth
+  namespace: record-platform
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 600
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: Never
+      initContainers:
+        # 1) ensure schema exists (connects as superuser via POSTGRES_URL_AUTH)
+        - name: create-schema
+          image: postgres:16-alpine
+          envFrom:
+            - configMapRef: { name: app-config }
+            - secretRef:    { name: app-secrets }
+          command: ["sh","-lc"]
+          args:
+            - |
+              set -e
+              BASE_URL="${POSTGRES_URL_AUTH%%\?*}"
+              echo "CREATE SCHEMA IF NOT EXISTS auth;" | psql "$BASE_URL"
+        # 2) pull repo into an emptyDir
+        - name: fetch-code
+          image: alpine:3.20
+          volumeMounts: [{ name: work, mountPath: /work }]
+          command: ["sh","-lc"]
+          args:
+            - |
+              set -e
+              apk add --no-cache ca-certificates wget tar
+              wget -qO- https://github.com/TomWang22/record-platform/archive/refs/heads/main.tar.gz \
+                | tar xz -C /work --strip-components=1
+      containers:
+        # 3) run prisma migrate with baseline fallback on P3005
+        - name: seed
+          image: node:20-bookworm-slim
+          workingDir: /work/services/auth-service
+          envFrom:
+            - configMapRef: { name: app-config }
+            - secretRef:    { name: app-secrets }
+          volumeMounts: [{ name: work, mountPath: /work }]
+          command: ["sh","-lc"]
+          args:
+            - |
+              set -e
+              apt-get update -y >/dev/null && apt-get install -y -qq openssl ca-certificates >/dev/null
+              # Try migrate deploy; if DB isn't empty (P3005), mark first migration as applied, then deploy again.
+              if ! npx -y prisma@6.18.0 migrate deploy --schema prisma/schema.prisma; then
+                echo "P3005 (non-empty DB) → baselining initial migration"
+                M=$(ls -1 prisma/migrations | head -n1)
+                npx -y prisma@6.18.0 migrate resolve --applied "$M" --schema prisma/schema.prisma
+                npx -y prisma@6.18.0 migrate deploy --schema prisma/schema.prisma
+              fi
+      volumes:
+        - name: work
+          emptyDir: {}

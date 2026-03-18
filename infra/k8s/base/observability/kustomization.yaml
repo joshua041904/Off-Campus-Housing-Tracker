@@ -1,0 +1,23 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: observability
+
+resources:
+  - namespace.yaml
+  - otel-collector-deploy.yaml
+  - jaeger-deploy.yaml
+  - prometheus-deploy.yaml
+  - grafana-deploy.yaml
+  - grafana-dashboards.yaml
+  # ServiceMonitor/PodMonitor require Prometheus Operator CRDs. Excluded from default apply so
+  # overlays/dev applies cleanly. After installing CRDs: kubectl apply -f infra/k8s/base/observability/servicemonitors.yaml
+  # - servicemonitors.yaml
+  # - podmonitors.yaml
+  - newrelic-secret.yaml
+  - splunk-secret.yaml
+
+# Replace placeholder values for production:
+#   New Relic: kubectl create secret generic newrelic-secret --from-literal=license-key='YOUR_KEY' -n observability --dry-run=client -o yaml | kubectl apply -f -
+#   Splunk:    Update splunk-secret hec-url and hec-token, or: kubectl create secret generic splunk-secret --from-literal=hec-url='https://...' --from-literal=hec-token='...' -n observability --dry-run=client -o yaml | kubectl apply -f -
+

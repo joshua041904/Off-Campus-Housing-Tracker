@@ -1,0 +1,560 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-postinit-sql
+  namespace: record-platform
+data:
+  postinit.sql: |-
+    -- Idempotent Postgres post-init (safe to rerun)
+
+    -- 1) Extensions
+    CREATE EXTENSION IF NOT EXISTS pg_trgm;
+    CREATE EXTENSION IF NOT EXISTS pgcrypto;
+    CREATE EXTENSION IF NOT EXISTS citext;
+    CREATE EXTENSION IF NOT EXISTS unaccent;
+    CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+    CREATE EXTENSION IF NOT EXISTS pg_prewarm;
+    CREATE EXTENSION IF NOT EXISTS btree_gist;
+
+    -- 2) Schemas
+    CREATE SCHEMA IF NOT EXISTS auth;
+    CREATE SCHEMA IF NOT EXISTS records;
+
+    -- 3) Roles (idempotent)
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='record_owner') THEN
+        CREATE ROLE record_owner NOLOGIN;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='record_app') THEN
+        CREATE ROLE record_app LOGIN PASSWORD 'SUPER_STRONG_APP_PASSWORD';
+      END IF;
+    END
+    $$ LANGUAGE plpgsql;
+
+    GRANT USAGE ON SCHEMA public  TO record_app;
+    GRANT USAGE ON SCHEMA auth    TO record_app;
+    GRANT USAGE ON SCHEMA records TO record_app;
+
+    -- 4) Tables (baseline)
+    CREATE TABLE IF NOT EXISTS auth.users (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      email CITEXT UNIQUE NOT NULL,
+      password_hash TEXT,
+      settings JSONB DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
+    CREATE TABLE IF NOT EXISTS records.records (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+      artist TEXT NOT NULL,
+      name   TEXT NOT NULL,
+      format TEXT NOT NULL,
+      catalog_number TEXT,
+      record_grade   TEXT,
+      sleeve_grade   TEXT,
+      has_insert         BOOLEAN DEFAULT FALSE,
+      has_booklet        BOOLEAN DEFAULT FALSE,
+      has_obi_strip      BOOLEAN DEFAULT FALSE,
+      has_factory_sleeve BOOLEAN DEFAULT FALSE,
+      is_promo BOOLEAN DEFAULT FALSE,
+      notes TEXT,
+      purchased_at DATE,
+      price_paid NUMERIC(10,2),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
+    -- 5) Columns added over time
+    ALTER TABLE records.records
+      ADD COLUMN IF NOT EXISTS insert_grade         TEXT,
+      ADD COLUMN IF NOT EXISTS booklet_grade        TEXT,
+      ADD COLUMN IF NOT EXISTS obi_strip_grade      TEXT,
+      ADD COLUMN IF NOT EXISTS factory_sleeve_grade TEXT,
+      ADD COLUMN IF NOT EXISTS release_year         INT,
+      ADD COLUMN IF NOT EXISTS release_date         DATE,
+      ADD COLUMN IF NOT EXISTS pressing_year        INT,
+      ADD COLUMN IF NOT EXISTS label                TEXT,
+      ADD COLUMN IF NOT EXISTS label_code           TEXT,
+      ADD COLUMN IF NOT EXISTS artist_norm          TEXT,
+      ADD COLUMN IF NOT EXISTS name_norm            TEXT,
+      ADD COLUMN IF NOT EXISTS label_norm           TEXT,
+      ADD COLUMN IF NOT EXISTS catalog_norm         TEXT,
+      ADD COLUMN IF NOT EXISTS search_norm          TEXT;
+
+    -- 6) Normalization helpers + triggers
+    CREATE OR REPLACE FUNCTION public.norm_text(t text) RETURNS text
+    LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+      SELECT regexp_replace(lower(unaccent(coalesce(t,''))), '\\s+', ' ', 'g')
+    $$;
+
+    CREATE OR REPLACE FUNCTION records.touch_updated_at() RETURNS trigger AS $$
+    BEGIN
+      NEW.updated_at := now();
+      RETURN NEW;
+    END
+    $$ LANGUAGE plpgsql;
+
+    DROP TRIGGER IF EXISTS trg_records_touch ON records.records;
+    CREATE TRIGGER trg_records_touch BEFORE UPDATE ON records.records
+      FOR EACH ROW EXECUTE FUNCTION records.touch_updated_at();
+
+    CREATE OR REPLACE FUNCTION records.set_norm_cols() RETURNS trigger AS $$
+    BEGIN
+      NEW.artist_norm  := norm_text(NEW.artist);
+      NEW.name_norm    := norm_text(NEW.name);
+      NEW.label_norm   := norm_text(NEW.label);
+      NEW.catalog_norm := norm_text(NEW.catalog_number);
+      NEW.search_norm  := btrim(concat_ws(' ', NEW.artist_norm, NEW.name_norm,
+                                          coalesce(NEW.catalog_norm,''), coalesce(NEW.label_norm,'')));
+      RETURN NEW;
+    END
+    $$ LANGUAGE plpgsql;
+
+    DROP TRIGGER IF EXISTS trg_records_norm ON records.records;
+    CREATE TRIGGER trg_records_norm BEFORE INSERT OR UPDATE ON records.records
+      FOR EACH ROW EXECUTE FUNCTION records.set_norm_cols();
+
+    -- Seed normalization on existing rows (no-op if already set)
+    UPDATE records.records SET artist = artist WHERE search_norm IS NULL;
+
+    -- 7) Indexes
+    CREATE INDEX IF NOT EXISTS idx_records_user                 ON records.records(user_id);
+    CREATE INDEX IF NOT EXISTS idx_records_user_updated         ON records.records(user_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_records_artist_trgm          ON records.records USING gin(artist gin_trgm_ops);
+    CREATE INDEX IF NOT EXISTS idx_records_name_trgm            ON records.records USING gin(name   gin_trgm_ops);
+    CREATE INDEX IF NOT EXISTS idx_records_search_gin_trgm      ON records.records USING gin(search_norm gin_trgm_ops);
+    CREATE INDEX IF NOT EXISTS idx_records_artist_gist_trgm     ON records.records USING gist (artist_norm  gist_trgm_ops);
+    CREATE INDEX IF NOT EXISTS idx_records_name_gist_trgm       ON records.records USING gist (name_norm    gist_trgm_ops);
+    CREATE INDEX IF NOT EXISTS idx_records_label_gist_trgm      ON records.records USING gist (label_norm   gist_trgm_ops);
+    CREATE INDEX IF NOT EXISTS idx_records_catalog_gist_trgm    ON records.records USING gist (catalog_norm gist_trgm_ops);
+    CREATE INDEX IF NOT EXISTS idx_records_user_search_gist_trgm ON records.records USING gist (user_id, search_norm gist_trgm_ops);
+    CREATE INDEX IF NOT EXISTS idx_records_knn_user_search_gist  ON records.records USING gist (search_norm gist_trgm_ops, user_id);
+
+    -- 8) Aliases + MV + compatibility view
+    CREATE TABLE IF NOT EXISTS records.aliases (
+      record_id UUID NOT NULL REFERENCES records.records(id) ON DELETE CASCADE,
+      alias     TEXT NOT NULL,
+      PRIMARY KEY(record_id, alias)
+    );
+
+    CREATE MATERIALIZED VIEW IF NOT EXISTS records.aliases_mv AS
+      SELECT a.record_id, norm_text(a.alias) AS alias_norm
+      FROM records.aliases a
+    WITH NO DATA;
+
+    CREATE INDEX IF NOT EXISTS aliases_mv_alias_norm_gist
+      ON records.aliases_mv USING gist (alias_norm gist_trgm_ops);
+
+    CREATE OR REPLACE VIEW public.record_aliases AS
+    SELECT record_id, alias_norm AS term_norm FROM records.aliases_mv;
+
+    -- 9) Query functions (recent, autocomplete, facets, stats, structured, fuzzy_ids)
+    CREATE OR REPLACE FUNCTION public.records_recent(p_user UUID, p_limit INT DEFAULT 50)
+    RETURNS SETOF records.records
+    LANGUAGE sql STABLE PARALLEL SAFE AS $$
+      SELECT *
+      FROM records.records
+      WHERE user_id = p_user
+      ORDER BY updated_at DESC
+      LIMIT GREATEST(1, LEAST(200, COALESCE(p_limit,50)));
+    $$;
+
+    CREATE OR REPLACE FUNCTION public.search_autocomplete(
+      p_user UUID, p_q TEXT, p_k INT DEFAULT 10, p_field TEXT DEFAULT 'artist'
+    ) RETURNS TABLE(term TEXT, hits int, dist real)
+    LANGUAGE sql STABLE PARALLEL SAFE AS $$
+      WITH p AS (
+        SELECT norm_text(COALESCE(p_q,'')) AS qn,
+               CASE WHEN p_field IN ('label','catalog') THEN p_field ELSE 'artist' END AS fld
+      ),
+      base AS (
+        SELECT CASE
+                 WHEN (SELECT fld FROM p)='label'   THEN r.label
+                 WHEN (SELECT fld FROM p)='catalog' THEN r.catalog_number
+                 ELSE r.artist
+               END AS term_raw,
+               CASE
+                 WHEN (SELECT fld FROM p)='label'   THEN r.label_norm
+                 WHEN (SELECT fld FROM p)='catalog' THEN r.catalog_norm
+                 ELSE r.artist_norm
+               END AS term_norm
+        FROM records.records r
+        WHERE r.user_id = p_user
+      ),
+      alias AS (
+        SELECT NULL::text AS term_raw, a.alias_norm AS term_norm
+        FROM records.aliases_mv a
+        JOIN records.records r ON r.id = a.record_id
+        WHERE r.user_id = p_user
+      ),
+      unioned AS (SELECT * FROM base UNION ALL SELECT * FROM alias)
+      SELECT COALESCE(term_raw, term_norm) AS term,
+             COUNT(*)::int AS hits,
+             MIN(similarity(term_norm, (SELECT qn FROM p))) AS dist
+      FROM unioned
+      WHERE term_norm IS NOT NULL AND term_norm <> ''
+        AND (
+          (length((SELECT qn FROM p)) <= 2 AND term_norm LIKE (SELECT qn FROM p) || '%') OR
+          (length((SELECT qn FROM p)) >  2 AND term_norm %   (SELECT qn FROM p))
+        )
+      GROUP BY 1
+      ORDER BY dist DESC, hits DESC
+      LIMIT LEAST(50, GREATEST(1, p_k));
+    $$;
+
+    CREATE OR REPLACE FUNCTION public.search_facets(p_user UUID, p_q TEXT)
+    RETURNS JSONB
+    LANGUAGE plpgsql STABLE AS $$
+    DECLARE qn TEXT := norm_text(p_q);
+    BEGIN
+      RETURN jsonb_build_object(
+        'format', (
+          SELECT jsonb_agg(jsonb_build_object('format',format,'count',cnt) ORDER BY cnt DESC)
+          FROM (
+            SELECT format, COUNT(*) AS cnt
+            FROM records.records r
+            WHERE r.user_id=p_user
+              AND ((length(qn)<=2 AND r.search_norm LIKE qn||'%')
+                OR (length(qn)>2  AND r.search_norm % qn))
+            GROUP BY 1 ORDER BY 2 DESC LIMIT 20
+          ) t
+        ),
+        'label', (
+          SELECT jsonb_agg(jsonb_build_object('label',label,'count',cnt) ORDER BY cnt DESC)
+          FROM (
+            SELECT label, COUNT(*) AS cnt
+            FROM records.records r
+            WHERE r.user_id=p_user AND label IS NOT NULL AND label<>''
+              AND ((length(qn)<=2 AND r.label_norm LIKE qn||'%')
+                OR (length(qn)>2  AND r.label_norm % qn))
+            GROUP BY 1 ORDER BY 2 DESC LIMIT 20
+          ) t
+        ),
+        'year', (
+          SELECT jsonb_agg(
+                   jsonb_build_object('bucket',
+                     CASE
+                       WHEN release_year BETWEEN 1970 AND 1979 THEN '70s'
+                       WHEN release_year BETWEEN 1980 AND 1989 THEN '80s'
+                       WHEN release_year BETWEEN 1990 AND 1999 THEN '90s'
+                       WHEN release_year BETWEEN 2000 AND 2009 THEN '00s'
+                       WHEN release_year BETWEEN 2010 AND 2019 THEN '10s'
+                       WHEN release_year BETWEEN 2020 AND 2029 THEN '20s'
+                       ELSE 'unknown'
+                     END,
+                     'count',cnt) ORDER BY cnt DESC)
+          FROM (
+            SELECT release_year, COUNT(*) AS cnt
+            FROM records.records r
+            WHERE r.user_id=p_user AND release_year IS NOT NULL
+              AND ((length(qn)<=2 AND r.search_norm LIKE qn||'%')
+                OR (length(qn)>2  AND r.search_norm % qn))
+            GROUP BY 1 ORDER BY 2 DESC LIMIT 20
+          ) t
+        )
+      );
+    END;
+    $$;
+
+    CREATE OR REPLACE FUNCTION public.search_price_stats(p_user UUID, p_q TEXT)
+    RETURNS TABLE(n int, min numeric, p50 numeric, avg numeric, p90 numeric, max numeric)
+    LANGUAGE sql STABLE PARALLEL SAFE AS $$
+      WITH qn AS (SELECT norm_text(COALESCE(p_q,'')) AS q),
+      hits AS (
+        SELECT r.price_paid::numeric AS price
+        FROM records.records r, qn
+        WHERE r.user_id = p_user
+          AND r.price_paid IS NOT NULL
+          AND (
+            (length(q.q) <= 2 AND r.search_norm LIKE q.q || '%')
+            OR (length(q.q) >  2 AND r.search_norm %   q.q)
+          )
+      )
+      SELECT COUNT(*)::int, MIN(price),
+             percentile_cont(0.5) WITHIN GROUP (ORDER BY price),
+             AVG(price),
+             percentile_cont(0.9) WITHIN GROUP (ORDER BY price),
+             MAX(price)
+      FROM hits;
+    $$;
+
+    CREATE OR REPLACE FUNCTION public.search_structured(
+      p_user UUID, p_artist TEXT, p_name TEXT, p_format TEXT, p_limit INT DEFAULT 100, p_offset INT DEFAULT 0
+    ) RETURNS SETOF records.records
+    LANGUAGE sql STABLE PARALLEL SAFE AS $$
+      SELECT *
+      FROM records.records r
+      WHERE r.user_id = p_user
+        AND (p_artist IS NULL OR r.artist ILIKE '%'||p_artist||'%')
+        AND (p_name   IS NULL OR r.name   ILIKE '%'||p_name||'%')
+        AND (p_format IS NULL OR r.format ILIKE '%'||p_format||'%')
+      ORDER BY r.updated_at DESC
+      LIMIT GREATEST(1, LEAST(200, COALESCE(p_limit,100)))
+      OFFSET GREATEST(0, COALESCE(p_offset,0));
+    $$;
+
+    CREATE OR REPLACE FUNCTION public.search_records_fuzzy_ids(
+      p_user UUID, p_q TEXT, p_limit bigint DEFAULT 100, p_offset bigint DEFAULT 0
+    ) RETURNS TABLE(id UUID, rank real)
+    LANGUAGE sql STABLE PARALLEL SAFE AS $$
+      WITH norm AS (SELECT norm_text(COALESCE(p_q,'')) AS qn),
+      cand_main AS (
+        SELECT r.id, 1 - (r.search_norm <-> (SELECT qn FROM norm)) AS knn_rank
+        FROM records.records r
+        WHERE r.user_id = p_user
+          AND (
+            (length((SELECT qn FROM norm)) <= 2 AND r.search_norm LIKE (SELECT qn FROM norm) || '%') OR
+            (length((SELECT qn FROM norm))  > 2 AND r.search_norm %    (SELECT qn FROM norm))
+          )
+        ORDER BY r.search_norm <-> (SELECT qn FROM norm)
+        LIMIT LEAST(1000, GREATEST(1, p_limit*10))
+      ),
+      cand_alias AS (
+        SELECT DISTINCT r.id, max(similarity(a.term_norm,(SELECT qn FROM norm))) AS alias_sim
+        FROM public.record_aliases a
+        JOIN records.records r ON r.id = a.record_id
+        WHERE r.user_id = p_user
+          AND (
+            (length((SELECT qn FROM norm)) <= 2 AND a.term_norm LIKE (SELECT qn FROM norm) || '%') OR
+            (length((SELECT qn FROM norm))  > 2 AND a.term_norm %    (SELECT qn FROM norm))
+          )
+        GROUP BY r.id
+      )
+      SELECT r.id,
+             GREATEST(
+               similarity(r.artist_norm,(SELECT qn FROM norm)),
+               similarity(r.name_norm,  (SELECT qn FROM norm)),
+               similarity(r.search_norm,(SELECT qn FROM norm)),
+               COALESCE(ca.alias_sim,0)
+             ) AS rank
+      FROM (SELECT DISTINCT id FROM cand_main) cm
+      JOIN records.records r ON r.id = cm.id
+      LEFT JOIN cand_alias ca ON ca.id = r.id
+      WHERE GREATEST(
+        similarity(r.artist_norm,(SELECT qn FROM norm)),
+        similarity(r.name_norm,  (SELECT qn FROM norm)),
+        similarity(r.search_norm,(SELECT qn FROM norm)),
+        COALESCE(ca.alias_sim,0)
+      ) > 0.2
+      ORDER BY rank DESC
+      LIMIT LEAST(1000, GREATEST(1, p_limit))
+      OFFSET GREATEST(0, p_offset);
+    $$;
+
+    -- 10) Grants
+    GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA auth    TO record_app;
+    GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA records TO record_app;
+    GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA records TO record_app;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA records GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO record_app;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA records GRANT USAGE, SELECT ON SEQUENCES TO record_app;
+
+    -- 11) First non-concurrent MV refresh & analyze
+    REFRESH MATERIALIZED VIEW records.aliases_mv;
+    ANALYZE;
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: postgres-postinit-          # <— generateName avoids immutable errors on re-run
+  namespace: record-platform
+  labels: { app: postgres-postinit }
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 1200
+  template:
+    metadata:
+      labels: { app: postgres-postinit }
+    spec:
+      restartPolicy: Never
+      volumes:
+        - name: postinit-sql
+          configMap:
+            name: postgres-postinit-sql
+            items:
+              - key: postinit.sql
+                path: postinit.sql
+      initContainers:
+        - name: wait-pg
+          image: postgres:16
+          env:
+            - { name: PGHOST,     value: postgres.record-platform.svc.cluster.local }
+            - { name: PGUSER,     value: postgres }
+            - { name: PGDATABASE, value: postgres }   # <— wait on postgres, not records
+            - name: PGPASSWORD
+              valueFrom: { secretKeyRef: { name: postgres-secret, key: POSTGRES_PASSWORD } }
+          command: ["bash","-lc"]
+          args:
+            - |
+              set -euo pipefail
+              echo "→ Waiting for Postgres..."
+              for i in {1..240}; do
+                pg_isready -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" && exit 0 || true
+                sleep 2
+              done
+              echo "Postgres not ready in time"; exit 1
+      containers:
+        - name: psql
+          image: postgres:16
+          env:
+            - { name: PGHOST,     value: postgres.record-platform.svc.cluster.local }
+            - { name: PGUSER,     value: postgres }
+            - { name: PGDATABASE, value: postgres }
+            - name: PGPASSWORD
+              valueFrom: { secretKeyRef: { name: postgres-secret, key: POSTGRES_PASSWORD } }
+          volumeMounts:
+            - { name: postinit-sql, mountPath: /postinit, readOnly: true }
+          command: ["bash","-lc"]
+          args:
+            - |
+              set -euo pipefail
+              PSQL="psql -v ON_ERROR_STOP=1 -X -h \"$PGHOST\" -U \"$PGUSER\""
+              echo "→ Ensuring DB 'records' exists..."
+              echo "SELECT 'CREATE DATABASE records' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname='records') \gexec" \
+                | $PSQL -d postgres
+              echo "→ Running postinit.sql..."
+              $PSQL -d records -f /postinit/postinit.sql
+              echo "→ Post-init complete."
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: postgres-postinit-debugger
+  namespace: record-platform
+spec:
+  restartPolicy: Never
+  containers:
+  - name: psql
+    image: postgres:16
+    env:
+    - { name: PGHOST,     value: postgres.record-platform.svc.cluster.local }
+    - { name: PGUSER,     value: postgres }
+    - { name: PGDATABASE, value: records }
+    - name: PGPASSWORD
+      valueFrom: { secretKeyRef: { name: postgres-secret, key: POSTGRES_PASSWORD } }
+    command: ["bash","-lc"]
+    args:
+    - |
+      echo "Debugger pod ready. Use: kubectl -n record-platform exec -it postgres-postinit-debugger -- bash";
+      sleep 36000
+    volumeMounts:
+    - { name: postinit-sql, mountPath: /postinit }
+  volumes:
+  - name: postinit-sql
+    configMap:
+      name: postgres-postinit-sql
+      items:
+      - { key: postinit.sql, path: postinit.sql }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pg-backups
+  namespace: record-platform
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: pg-daily-backup
+  namespace: record-platform
+spec:
+  schedule: "20 3 * * *"
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: dump
+            image: postgres:16
+            env:
+            - { name: PGHOST,     value: postgres.record-platform.svc.cluster.local }
+            - { name: PGUSER,     value: postgres }
+            - { name: PGDATABASE, value: records }
+            - name: PGPASSWORD
+              valueFrom: { secretKeyRef: { name: postgres-secret, key: POSTGRES_PASSWORD } }
+            command: ["bash","-lc"]
+            args:
+            - |
+              set -euo pipefail
+              TS="$(date +%Y%m%d-%H%M%S)"
+              FILE="/backups/records-${TS}.sql.gz"
+              pg_dump --no-owner --no-privileges -d "$PGDATABASE" | gzip -9 > "$FILE"
+              ls -lh "$FILE"
+              ls -1t /backups/records-*.sql.gz | tail -n +15 | xargs -r rm -f
+            volumeMounts:
+            - { name: backups, mountPath: /backups }
+          volumes:
+          - name: backups
+            persistentVolumeClaim: { claimName: pg-backups }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cluster-snapshot
+  namespace: record-platform
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cluster-snapshot
+  namespace: record-platform
+rules:
+- apiGroups: ["", "apps", "batch", "autoscaling", "monitoring.coreos.com", "networking.k8s.io"]
+  resources: ["*"]
+  verbs: ["get","list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cluster-snapshot
+  namespace: record-platform
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: cluster-snapshot
+subjects:
+- kind: ServiceAccount
+  name: cluster-snapshot
+  namespace: record-platform
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: k8s-daily-snapshot
+  namespace: record-platform
+spec:
+  schedule: "35 3 * * *"
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: cluster-snapshot
+          containers:
+          - name: kubectl
+            image: bitnami/kubectl:1.30
+            command: ["bash","-lc"]
+            args:
+            - |
+              set -euo pipefail
+              TS="$(date +%Y%m%d-%H%M%S)"
+              OUT="/backups/cluster-${TS}.yaml"
+              kubectl -n record-platform get all,cm,secret,ing,svcmon.job,job,cronjob,hpa,pvc -o yaml > "$OUT"
+              ls -lh "$OUT"
+              ls -1t /backups/cluster-*.yaml | tail -n +15 | xargs -r rm -f
+            volumeMounts:
+            - { name: backups, mountPath: /backups }
+          volumes:
+          - name: backups
+            persistentVolumeClaim: { claimName: pg-backups }

@@ -1,0 +1,371 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: envoy-test
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: envoy-config
+  namespace: envoy-test
+data:
+  envoy.yaml: |
+    static_resources:
+      listeners:
+      - name: listener_0
+        address:
+          socket_address:
+            address: 0.0.0.0
+            port_value: 10000
+        filter_chains:
+        - filters:
+          - name: envoy.filters.network.http_connection_manager
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+              stat_prefix: grpc_json
+              codec_type: AUTO
+              route_config:
+                name: local_route
+                virtual_hosts:
+                - name: local_service
+                  domains: ["*"]
+                  routes:
+                  # Explicit route for gRPC health protocol (avoids 404/hang; timeout 15s for stability under load)
+                  - match:
+                      prefix: "/grpc.health.v1.Health/"
+                    route:
+                      cluster: auth_service
+                      timeout: 15s
+                  # Route by service name in path (e.g., /auth.AuthService/HealthCheck)
+                  - match:
+                      path: "/auth."
+                    route:
+                      cluster: auth_service
+                      timeout: 15s
+                  - match:
+                      path: "/records."
+                    route:
+                      cluster: records_service
+                      timeout: 15s
+                  - match:
+                      path: "/social."
+                    route:
+                      cluster: social_service
+                      timeout: 15s
+                  - match:
+                      path: "/listings."
+                    route:
+                      cluster: listings_service
+                      timeout: 15s
+                  - match:
+                      path: "/analytics."
+                    route:
+                      cluster: analytics_service
+                      timeout: 15s
+                  - match:
+                      path: "/shopping."
+                    route:
+                      cluster: shopping_service
+                      timeout: 15s
+                  - match:
+                      path: "/auction_monitor."
+                    route:
+                      cluster: auction_monitor_service
+                      timeout: 15s
+                  - match:
+                      path: "/auction-monitor."
+                    route:
+                      cluster: auction_monitor_service
+                      timeout: 15s
+                  - match:
+                      path: "/python_ai."
+                    route:
+                      cluster: python_ai_service
+                      timeout: 15s
+                  - match:
+                      path: "/python-ai."
+                    route:
+                      cluster: python_ai_service
+                      timeout: 15s
+                  # Default route (fallback to auth for backward compatibility)
+                  - match:
+                      prefix: "/"
+                    route:
+                      cluster: auth_service
+                      timeout: 15s
+              http_filters:
+              - name: envoy.filters.http.router
+                typed_config:
+                  "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+      clusters:
+      # Auth Service (port 50051)
+      - name: auth_service
+        connect_timeout: 5s
+        type: LOGICAL_DNS
+        lb_policy: ROUND_ROBIN
+        http2_protocol_options: {}
+        load_assignment:
+          cluster_name: auth_service
+          endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: auth-service.record-platform.svc.cluster.local
+                    port_value: 50051
+        transport_socket:
+          name: envoy.transport_sockets.tls
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+            sni: record.local
+            common_tls_context:
+              validation_context:
+                trusted_ca:
+                  filename: /etc/certs/ca/dev-root.pem
+      
+      # Records Service (port 50051)
+      - name: records_service
+        connect_timeout: 5s
+        type: LOGICAL_DNS
+        lb_policy: ROUND_ROBIN
+        http2_protocol_options: {}
+        load_assignment:
+          cluster_name: records_service
+          endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: records-service.record-platform.svc.cluster.local
+                    port_value: 50051
+        transport_socket:
+          name: envoy.transport_sockets.tls
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+            sni: record.local
+            common_tls_context:
+              validation_context:
+                trusted_ca:
+                  filename: /etc/certs/ca/dev-root.pem
+      
+      # Social Service (port 50056)
+      - name: social_service
+        connect_timeout: 5s
+        type: LOGICAL_DNS
+        lb_policy: ROUND_ROBIN
+        http2_protocol_options: {}
+        load_assignment:
+          cluster_name: social_service
+          endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: social-service.record-platform.svc.cluster.local
+                    port_value: 50056
+        transport_socket:
+          name: envoy.transport_sockets.tls
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+            sni: record.local
+            common_tls_context:
+              validation_context:
+                trusted_ca:
+                  filename: /etc/certs/ca/dev-root.pem
+      
+      # Listings Service (port 50057)
+      - name: listings_service
+        connect_timeout: 5s
+        type: LOGICAL_DNS
+        lb_policy: ROUND_ROBIN
+        http2_protocol_options: {}
+        load_assignment:
+          cluster_name: listings_service
+          endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: listings-service.record-platform.svc.cluster.local
+                    port_value: 50057
+        transport_socket:
+          name: envoy.transport_sockets.tls
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+            sni: record.local
+            common_tls_context:
+              validation_context:
+                trusted_ca:
+                  filename: /etc/certs/ca/dev-root.pem
+      
+      # Analytics Service (port 50054)
+      - name: analytics_service
+        connect_timeout: 5s
+        type: LOGICAL_DNS
+        lb_policy: ROUND_ROBIN
+        http2_protocol_options: {}
+        load_assignment:
+          cluster_name: analytics_service
+          endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: analytics-service.record-platform.svc.cluster.local
+                    port_value: 50054
+        transport_socket:
+          name: envoy.transport_sockets.tls
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+            sni: record.local
+            common_tls_context:
+              validation_context:
+                trusted_ca:
+                  filename: /etc/certs/ca/dev-root.pem
+      
+      # Shopping Service (port 50058)
+      - name: shopping_service
+        connect_timeout: 5s
+        type: LOGICAL_DNS
+        lb_policy: ROUND_ROBIN
+        http2_protocol_options: {}
+        load_assignment:
+          cluster_name: shopping_service
+          endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: shopping-service.record-platform.svc.cluster.local
+                    port_value: 50058
+        transport_socket:
+          name: envoy.transport_sockets.tls
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+            sni: record.local
+            common_tls_context:
+              validation_context:
+                trusted_ca:
+                  filename: /etc/certs/ca/dev-root.pem
+      
+      # Auction Monitor Service (port 50059)
+      - name: auction_monitor_service
+        connect_timeout: 5s
+        type: LOGICAL_DNS
+        lb_policy: ROUND_ROBIN
+        http2_protocol_options: {}
+        load_assignment:
+          cluster_name: auction_monitor_service
+          endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: auction-monitor.record-platform.svc.cluster.local
+                    port_value: 50059
+        transport_socket:
+          name: envoy.transport_sockets.tls
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+            sni: record.local
+            common_tls_context:
+              validation_context:
+                trusted_ca:
+                  filename: /etc/certs/ca/dev-root.pem
+      
+      # Python AI Service (port 50060)
+      - name: python_ai_service
+        connect_timeout: 5s
+        type: LOGICAL_DNS
+        lb_policy: ROUND_ROBIN
+        http2_protocol_options: {}
+        load_assignment:
+          cluster_name: python_ai_service
+          endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: python-ai-service.record-platform.svc.cluster.local
+                    port_value: 50060
+        transport_socket:
+          name: envoy.transport_sockets.tls
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+            sni: record.local
+            common_tls_context:
+              validation_context:
+                trusted_ca:
+                  filename: /etc/certs/ca/dev-root.pem
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: envoy-ca-cert
+  namespace: envoy-test
+data:
+  dev-root.pem: |
+    # This will be populated from the dev-root-ca secret
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: envoy-test
+  namespace: envoy-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: envoy-test
+  template:
+    metadata:
+      labels:
+        app: envoy-test
+    spec:
+      containers:
+      - name: envoy
+        image: envoyproxy/envoy:v1.28-latest
+        ports:
+        - containerPort: 10000
+          name: grpc
+        command:
+        - /usr/local/bin/envoy
+        - -c
+        - /etc/envoy/envoy.yaml
+        - --service-cluster
+        - envoy-test
+        - --service-node
+        - envoy-test
+        - --log-level
+        - info
+        volumeMounts:
+        - name: envoy-config
+          mountPath: /etc/envoy
+        - name: ca-cert
+          mountPath: /etc/certs/ca
+          readOnly: true
+      volumes:
+      - name: envoy-config
+        configMap:
+          name: envoy-config
+      - name: ca-cert
+        secret:
+          secretName: dev-root-ca
+          items:
+          - key: dev-root.pem
+            path: dev-root.pem
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: envoy-test
+  namespace: envoy-test
+spec:
+  type: ClusterIP
+  ports:
+  - port: 10000
+    targetPort: 10000
+    protocol: TCP
+    name: grpc
+  selector:
+    app: envoy-test

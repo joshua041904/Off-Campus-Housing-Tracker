@@ -1,0 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# ServiceMonitor resources require Prometheus Operator CRDs. Excluded from default apply so
+# overlays/dev applies cleanly without CRDs. After installing CRDs, apply manually:
+#   kubectl apply -k infra/k8s/base/monitoring (or apply -f base/monitoring/servicemonitors.yaml)
+# resources:
+#   - servicemonitors.yaml
+resources: []

@@ -1,0 +1,29 @@
+# FILE: k8s/caddy-h3-service-loadbalancer.yaml
+# MetalLB LoadBalancer: TCP + UDP 443 for HTTP/3 (QUIC). No hostPort on pods — use with caddy-h3-deploy-loadbalancer.yaml.
+# Apply: CADDY_USE_LOADBALANCER=1 ./scripts/rollout-caddy.sh
+apiVersion: v1
+kind: Service
+metadata:
+  name: caddy-h3
+  namespace: ingress-nginx
+spec:
+  type: LoadBalancer
+  selector:
+    app: caddy-h3
+  ports:
+  - name: https
+    port: 443
+    targetPort: 443
+    protocol: TCP
+  - name: https-udp
+    port: 443
+    targetPort: 443
+    protocol: UDP
+  - name: grpc-h2c
+    port: 5000
+    targetPort: 5000
+    protocol: TCP
+  - name: admin
+    port: 2019
+    targetPort: 2019
+    protocol: TCP

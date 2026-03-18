@@ -1,0 +1,62 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: postgres-postinit-debug
+  namespace: record-platform
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: Never
+      volumes:
+      - name: postinit-sql
+        configMap:
+          name: postgres-postinit-sql
+          items:
+          - key: postinit.sql
+            path: postinit.sql
+      initContainers:
+      - name: wait-pg
+        image: postgres:16
+        env:
+        - { name: PGHOST,     value: postgres.record-platform.svc.cluster.local }
+        - { name: PGUSER,     value: postgres }
+        - { name: PGDATABASE, value: records }
+        - name: PGPASSWORD
+          valueFrom: { secretKeyRef: { name: postgres-secret, key: POSTGRES_PASSWORD } }
+        command: [bash, -lc]
+        args:
+        - |
+          set -euo pipefail
+          echo "Checking PG connectivity..."
+          for i in {1..60}; do
+            if pg_isready -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE"; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Postgres is NOT ready after timeout"
+          exit 1
+      containers:
+      - name: psql
+        image: postgres:16
+        env:
+        - { name: PGHOST,     value: postgres.record-platform.svc.cluster.local }
+        - { name: PGUSER,     value: postgres }
+        - { name: PGDATABASE, value: records }
+        - name: PGPASSWORD
+          valueFrom: { secretKeyRef: { name: postgres-secret, key: POSTGRES_PASSWORD } }
+        volumeMounts:
+        - { name: postinit-sql, mountPath: /postinit }
+        command: [bash, -lc]
+        args:
+        - |
+          set -euo pipefail
+          echo "== ENV"; env | sort
+          echo "== Listing /postinit"; ls -lah /postinit
+          echo "== Head of SQL"; sed -n '1,80p' /postinit/postinit.sql
+          echo "== Running psql"
+          psql -V
+          psql -v ON_ERROR_STOP=1 -X -f /postinit/postinit.sql
+          echo "== DONE"

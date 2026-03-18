@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: haproxy-exporter
+  namespace: record-platform
+  labels: { app: haproxy-exporter }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: haproxy-exporter } }
+  template:
+    metadata:
+      labels: { app: haproxy-exporter }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9101"
+    spec:
+      containers:
+        - name: exporter
+          image: prom/haproxy-exporter:v0.14.0
+          args: ["--haproxy.scrape-uri=http://haproxy:8404/;csv"]
+          ports: [{ name: http, containerPort: 9101 }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: haproxy-exporter
+  namespace: record-platform
+  labels: { app: haproxy-exporter }
+spec:
+  selector: { app: haproxy-exporter }
+  ports: [{ name: http, port: 9101, targetPort: http }]

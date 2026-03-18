@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "types": ["node"],
+    "typeRoots": ["./node_modules/@types", "./src/types"],
+    "baseUrl": ".",
+    "paths": {
+      "@prisma/client": ["./prisma/generated/client/index"],
+      "@prisma/client/*": ["./prisma/generated/client/*"]
+    },
+    "incremental": true,
+    "tsBuildInfoFile": "dist/.tsbuildinfo"
+  },
+  "include": ["src/**/*.ts", "src/types/**/*.d.ts", "prisma/generated/**/*"],
+  "references": [{ "path": "../common" }]
+}

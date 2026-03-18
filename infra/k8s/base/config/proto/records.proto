@@ -1,0 +1,104 @@
+syntax = "proto3";
+
+package records;
+
+option go_package = "github.com/yourorg/record-platform/proto/records";
+
+// Records service for gRPC
+service RecordsService {
+  // Search records using fuzzy matching
+  rpc SearchRecords(SearchRecordsRequest) returns (SearchRecordsResponse);
+  
+  // Get record by ID
+  rpc GetRecord(GetRecordRequest) returns (GetRecordResponse);
+  
+  // Create a new record
+  rpc CreateRecord(CreateRecordRequest) returns (CreateRecordResponse);
+  
+  // Update an existing record
+  rpc UpdateRecord(UpdateRecordRequest) returns (UpdateRecordResponse);
+  
+  // Delete a record
+  rpc DeleteRecord(DeleteRecordRequest) returns (DeleteRecordResponse);
+  
+  // Health check
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+message SearchRecordsRequest {
+  string user_id = 1;
+  string query = 2;
+  int32 limit = 3;
+  int32 offset = 4;
+}
+
+message SearchRecordsResponse {
+  repeated Record records = 1;
+  int32 total = 2;
+}
+
+message GetRecordRequest {
+  string record_id = 1;
+  string user_id = 2;
+}
+
+message GetRecordResponse {
+  Record record = 1;
+}
+
+message CreateRecordRequest {
+  string user_id = 1;
+  Record record = 2;
+}
+
+message CreateRecordResponse {
+  Record record = 1;
+}
+
+message UpdateRecordRequest {
+  string record_id = 1;
+  string user_id = 2;
+  Record record = 3;
+}
+
+message UpdateRecordResponse {
+  Record record = 1;
+}
+
+message DeleteRecordRequest {
+  string record_id = 1;
+  string user_id = 2;
+}
+
+message DeleteRecordResponse {
+  bool success = 1;
+}
+
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+  bool healthy = 1;
+  string version = 2;
+}
+
+message Record {
+  string id = 1;
+  string user_id = 2;
+  string artist = 3;
+  string name = 4;
+  string format = 5;
+  string catalog_number = 6;
+  string record_grade = 7;
+  string sleeve_grade = 8;
+  bool has_insert = 9;
+  bool has_booklet = 10;
+  bool has_obi_strip = 11;
+  bool has_factory_sleeve = 12;
+  bool is_promo = 13;
+  string notes = 14;
+  string purchased_at = 15;
+  double price_paid = 16;
+  string created_at = 17;
+  string updated_at = 18;
+}
+

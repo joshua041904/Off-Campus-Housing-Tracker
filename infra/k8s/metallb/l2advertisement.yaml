@@ -1,0 +1,10 @@
+# L2 advertisement for record-platform-pool. Optional: set nodeSelector for multi-node priority (see docs/METALLB_TRAFFIC_POLICY_AND_SCALE.md).
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: record-platform-l2
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - record-platform-pool
+  # nodeSelector: {}   # Uncomment and set to limit which nodes announce L2 (e.g. metallb-priority: high)

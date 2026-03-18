@@ -1,0 +1,21 @@
+datasource db {
+  provider = "postgresql"
+  // points at the records DB, but schema=auth
+  url      = env("POSTGRES_URL_AUTH")
+}
+
+generator client {
+  provider      = "prisma-client-js"
+  // Write this service's client to its own folder to avoid monorepo conflicts
+  output        = "../generated/auth-client"
+  binaryTargets = ["native", "linux-arm64-openssl-3.0.x"]
+}
+
+model User {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email        String   @unique
+  passwordHash String?  @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@map("users") // maps to table auth.users
+}

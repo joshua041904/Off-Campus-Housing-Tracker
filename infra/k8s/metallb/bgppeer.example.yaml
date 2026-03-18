@@ -1,0 +1,12 @@
+# BGPPeer: MetalLB speaker will connect to this BGP router.
+# Replace peerAddress with your FRR pod or Service IP (install-metallb-frr-bgp.sh does this automatically).
+# myASN / peerASN: use same AS for single router (e.g. 64512); adjust for your topology.
+apiVersion: metallb.io/v1beta2
+kind: BGPPeer
+metadata:
+  name: record-platform-frr
+  namespace: metallb-system
+spec:
+  myASN: 64512
+  peerASN: 64512
+  peerAddress: "10.96.0.100"   # Replace with FRR service ClusterIP (see install-metallb-frr-bgp.sh)

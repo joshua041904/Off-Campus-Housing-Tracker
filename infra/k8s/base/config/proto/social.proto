@@ -1,0 +1,296 @@
+syntax = "proto3";
+
+package social;
+
+option go_package = "github.com/yourorg/record-platform/proto/social";
+
+// Social service for gRPC (Forum + Messaging)
+service SocialService {
+  // Forum methods
+  rpc ListPosts(ListPostsRequest) returns (ListPostsResponse);
+  rpc GetPost(GetPostRequest) returns (GetPostResponse);
+  rpc CreatePost(CreatePostRequest) returns (CreatePostResponse);
+  rpc UpdatePost(UpdatePostRequest) returns (UpdatePostResponse);
+  rpc DeletePost(DeletePostRequest) returns (DeletePostResponse);
+  rpc VotePost(VotePostRequest) returns (VotePostResponse);
+  rpc ListComments(ListCommentsRequest) returns (ListCommentsResponse);
+  rpc CreateComment(CreateCommentRequest) returns (CreateCommentResponse);
+  rpc UpdateComment(UpdateCommentRequest) returns (UpdateCommentResponse);
+  rpc DeleteComment(DeleteCommentRequest) returns (DeleteCommentResponse);
+  rpc VoteComment(VoteCommentRequest) returns (VoteCommentResponse);
+  
+  // Messaging methods
+  rpc ListMessages(ListMessagesRequest) returns (ListMessagesResponse);
+  rpc GetMessage(GetMessageRequest) returns (GetMessageResponse);
+  rpc SendMessage(SendMessageRequest) returns (SendMessageResponse);
+  rpc ReplyMessage(ReplyMessageRequest) returns (ReplyMessageResponse);
+  rpc UpdateMessage(UpdateMessageRequest) returns (UpdateMessageResponse);
+  rpc DeleteMessage(DeleteMessageRequest) returns (DeleteMessageResponse);
+  rpc GetThread(GetThreadRequest) returns (GetThreadResponse);
+  rpc MarkMessageRead(MarkMessageReadRequest) returns (MarkMessageReadResponse);
+  
+  // Health check
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+// Forum messages
+message ListPostsRequest {
+  string user_id = 1;
+  int32 page = 2;
+  int32 limit = 3;
+  string flair = 4;
+}
+
+message ListPostsResponse {
+  repeated Post posts = 1;
+  Pagination pagination = 2;
+}
+
+message GetPostRequest {
+  string post_id = 1;
+  string user_id = 2;
+}
+
+message GetPostResponse {
+  Post post = 1;
+}
+
+message CreatePostRequest {
+  string user_id = 1;
+  string title = 2;
+  string content = 3;
+  string flair = 4;
+}
+
+message CreatePostResponse {
+  Post post = 1;
+}
+
+message UpdatePostRequest {
+  string post_id = 1;
+  string user_id = 2;
+  string title = 3;
+  string content = 4;
+  string flair = 5;
+}
+
+message UpdatePostResponse {
+  Post post = 1;
+}
+
+message DeletePostRequest {
+  string post_id = 1;
+  string user_id = 2;
+}
+
+message DeletePostResponse {
+  bool success = 1;
+}
+
+message VotePostRequest {
+  string post_id = 1;
+  string user_id = 2;
+  string vote = 3; // "up" or "down"
+}
+
+message VotePostResponse {
+  string post_id = 1;
+  int32 upvotes = 2;
+  int32 downvotes = 3;
+}
+
+message ListCommentsRequest {
+  string post_id = 1;
+  string user_id = 2;
+}
+
+message ListCommentsResponse {
+  string post_id = 1;
+  repeated Comment comments = 2;
+}
+
+message CreateCommentRequest {
+  string post_id = 1;
+  string user_id = 2;
+  string content = 3;
+  string parent_id = 4; // optional, for nested replies
+}
+
+message CreateCommentResponse {
+  Comment comment = 1;
+}
+
+message UpdateCommentRequest {
+  string comment_id = 1;
+  string user_id = 2;
+  string content = 3;
+}
+
+message UpdateCommentResponse {
+  Comment comment = 1;
+}
+
+message DeleteCommentRequest {
+  string comment_id = 1;
+  string user_id = 2;
+}
+
+message DeleteCommentResponse {
+  bool success = 1;
+}
+
+message VoteCommentRequest {
+  string comment_id = 1;
+  string user_id = 2;
+  string vote = 3; // "up" or "down"
+}
+
+message VoteCommentResponse {
+  string comment_id = 1;
+  int32 upvotes = 2;
+  int32 downvotes = 3;
+}
+
+// Messaging messages
+message ListMessagesRequest {
+  string user_id = 1;
+  int32 page = 2;
+  int32 limit = 3;
+  string message_type = 4;
+}
+
+message ListMessagesResponse {
+  repeated Message messages = 1;
+  Pagination pagination = 2;
+}
+
+message GetMessageRequest {
+  string message_id = 1;
+  string user_id = 2;
+}
+
+message GetMessageResponse {
+  Message message = 1;
+}
+
+message SendMessageRequest {
+  string sender_id = 1;
+  string recipient_id = 2;
+  string message_type = 3;
+  string subject = 4;
+  string content = 5;
+  string parent_message_id = 6; // optional, for replies
+}
+
+message SendMessageResponse {
+  Message message = 1;
+}
+
+message ReplyMessageRequest {
+  string message_id = 1;
+  string sender_id = 2;
+  string message_type = 3;
+  string subject = 4;
+  string content = 5;
+}
+
+message ReplyMessageResponse {
+  Message message = 1;
+}
+
+message UpdateMessageRequest {
+  string message_id = 1;
+  string user_id = 2;
+  string subject = 3;
+  string content = 4;
+}
+
+message UpdateMessageResponse {
+  Message message = 1;
+}
+
+message DeleteMessageRequest {
+  string message_id = 1;
+  string user_id = 2;
+}
+
+message DeleteMessageResponse {
+  bool success = 1;
+}
+
+message GetThreadRequest {
+  string thread_id = 1;
+  string user_id = 2;
+}
+
+message GetThreadResponse {
+  string thread_id = 1;
+  repeated Message messages = 2;
+}
+
+message MarkMessageReadRequest {
+  string message_id = 1;
+  string user_id = 2;
+}
+
+message MarkMessageReadResponse {
+  bool success = 1;
+}
+
+// Common messages
+message Post {
+  string id = 1;
+  string user_id = 2;
+  string title = 3;
+  string content = 4;
+  string flair = 5;
+  int32 upvotes = 6;
+  int32 downvotes = 7;
+  int32 comment_count = 8;
+  bool is_pinned = 9;
+  bool is_locked = 10;
+  string created_at = 11;
+  string updated_at = 12;
+}
+
+message Comment {
+  string id = 1;
+  string post_id = 2;
+  string user_id = 3;
+  string parent_id = 4;
+  string content = 5;
+  int32 upvotes = 6;
+  int32 downvotes = 7;
+  string created_at = 8;
+  string updated_at = 9;
+}
+
+message Message {
+  string id = 1;
+  string sender_id = 2;
+  string recipient_id = 3;
+  string parent_message_id = 4;
+  string thread_id = 5;
+  string message_type = 6;
+  string subject = 7;
+  string content = 8;
+  bool is_read = 9;
+  string created_at = 10;
+  string updated_at = 11;
+}
+
+message Pagination {
+  int32 page = 1;
+  int32 limit = 2;
+  int32 total = 3;
+  int32 total_pages = 4;
+}
+
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+  bool healthy = 1;
+  string version = 2;
+}
+
+

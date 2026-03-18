@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgbouncer
+  namespace: record-platform
+spec:
+  template:
+    spec:
+      containers:
+      - name: pgbouncer
+        # Use the local image you just loaded into kind
+        image: pgbouncer:dev
+        imagePullPolicy: IfNotPresent
+        # Ensure we don't inherit the old "apk add ..." model
+        command: null
+        args: ["pgbouncer","/etc/pgbouncer/pgbouncer.ini"]
+        securityContext:
+          runAsUser: 1000
+          runAsGroup: 1000
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true

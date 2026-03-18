@@ -1,0 +1,54 @@
+# FRR deployment and service for in-cluster BGP peer. MetalLB speaker connects to this service (port 179).
+# Image is built by install-metallb-frr-bgp.sh: frr-metallb:local from infra/k8s/metallb/frr/Dockerfile.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frr
+  namespace: metallb-system
+  labels:
+    app: frr
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frr
+  template:
+    metadata:
+      labels:
+        app: frr
+    spec:
+      containers:
+        - name: frr
+          image: frr-metallb:local
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            capabilities:
+              add: ["NET_ADMIN", "NET_RAW", "SYS_ADMIN"]
+          ports:
+            - containerPort: 179
+              name: bgp
+          volumeMounts:
+            - name: frr-config
+              mountPath: /etc/frr/frr.conf
+              subPath: frr.conf
+              readOnly: true
+      volumes:
+        - name: frr-config
+          configMap:
+            name: frr-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frr
+  namespace: metallb-system
+  labels:
+    app: frr
+spec:
+  type: ClusterIP
+  ports:
+    - port: 179
+      targetPort: 179
+      name: bgp
+  selector:
+    app: frr

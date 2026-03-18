@@ -1,0 +1,18 @@
+# ConfigMap for caddy-h3 (HTTP/2 + HTTP/3) - used by caddy-h3-deploy.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: caddy-h3
+  namespace: ingress-nginx
+data:
+  Caddyfile: |
+    {
+      servers {
+        protocols h1 h2 h3
+      }
+    }
+    record.local {
+      tls /etc/caddy/certs/tls.crt /etc/caddy/certs/tls.key
+      respond /_caddy/healthz 200
+      respond "ok" 200
+    }

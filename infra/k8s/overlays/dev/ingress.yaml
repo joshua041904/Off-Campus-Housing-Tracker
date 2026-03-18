@@ -1,0 +1,56 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: record-platform
+  namespace: record-platform
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    # Enable HTTP/2
+    nginx.ingress.kubernetes.io/http2-push-preload: "true"
+    # Force HTTP/2 upstream (no HTTP/1.1 fallback)
+    nginx.ingress.kubernetes.io/upstream-keepalive-connections: "100"
+    nginx.ingress.kubernetes.io/upstream-keepalive-timeout: "60"
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts: [record.local]
+    secretName: record-local-tls
+  rules:
+  # Catch-all rule for any hostname (ngrok, etc.)
+  - http:
+      paths:
+      - path: /api(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: api-gateway
+            port:
+              number: 4000
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: nginx
+            port:
+              number: 8080
+  # Specific rule for record.local (for backwards compatibility)
+  - host: record.local
+    http:
+      paths:
+      - path: /api(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: api-gateway
+            port:
+              number: 4000
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: nginx
+            port:
+              number: 8080

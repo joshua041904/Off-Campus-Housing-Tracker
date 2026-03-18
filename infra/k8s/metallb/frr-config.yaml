@@ -1,0 +1,19 @@
+# FRR BGP config: listen for MetalLB speaker connections from pod CIDR (k3s default 10.42.0.0/16).
+# MetalLB speaker uses myASN 64512; FRR uses AS 64513. peerAddress in BGPPeer is this FRR service.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frr-config
+  namespace: metallb-system
+data:
+  frr.conf: |
+    router bgp 64513
+     neighbor metallb peer-group
+     neighbor metallb remote-as 64512
+     bgp listen range 10.42.0.0/16 peer-group metallb
+     address-family ipv4 unicast
+      neighbor metallb activate
+     exit-address-family
+    !
+    line vty
+    !

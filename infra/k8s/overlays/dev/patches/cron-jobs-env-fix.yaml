@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cron-jobs
+  namespace: record-platform
+spec:
+  template:
+    spec:
+      containers:
+      - name: app
+        env:
+          - $patch: replace
+          # keep whatever you need explicitly, but no $(...) expansions
+          - name: NODE_ENV
+            valueFrom:
+              configMapKeyRef: { name: app-config, key: NODE_ENV }
+
+          # If your worker reads DATABASE_URL, just give it the same app DSN:
+          - name: DATABASE_URL
+            valueFrom:
+              configMapKeyRef: { name: app-config, key: DATABASE_URL }
+
+          # If the worker scripts use libpq envs for psql/pg_dump, wire them too:
+          - name: PGHOST
+            value: postgres.record-platform.svc.cluster.local
+          - name: PGPORT
+            value: "5432"
+          - name: PGUSER
+            value: postgres
+          - name: PGDATABASE
+            value: records
+          - name: PGPASSWORD
+            valueFrom:
+              secretKeyRef: { name: postgres-secret, key: POSTGRES_PASSWORD }

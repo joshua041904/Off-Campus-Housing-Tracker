@@ -1,0 +1,58 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: postgres-postinit-debugger
+  namespace: record-platform
+  labels: { app: postgres-postinit-debugger }
+spec:
+  restartPolicy: Never
+  volumes:
+    - name: postinit-sql
+      configMap:
+        name: postgres-postinit-sql
+        items:
+          - key: postinit.sql
+            path: postinit.sql
+  initContainers:
+    - name: wait-pg
+      image: postgres:16
+      env:
+        - { name: PGHOST,     value: postgres.record-platform.svc.cluster.local }
+        - { name: PGUSER,     value: postgres }
+        - { name: PGDATABASE, value: records }
+        - name: PGPASSWORD
+          valueFrom: { secretKeyRef: { name: postgres-secret, key: POSTGRES_PASSWORD } }
+      command: [bash, -lc]
+      args:
+        - |
+          set -euo pipefail
+          echo "Waiting for Postgres..."
+          for i in {1..120}; do
+            if pg_isready -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE"; then exit 0; fi
+            sleep 2
+          done
+          echo "Postgres NOT ready after timeout"
+          exit 1
+  containers:
+    - name: psql
+      image: postgres:16
+      env:
+        - { name: PGHOST,     value: postgres.record-platform.svc.cluster.local }
+        - { name: PGUSER,     value: postgres }
+        - { name: PGDATABASE, value: records }
+        - name: PGPASSWORD
+          valueFrom: { secretKeyRef: { name: postgres-secret, key: POSTGRES_PASSWORD } }
+      volumeMounts:
+        - { name: postinit-sql, mountPath: /postinit }
+      command: [bash, -lc]
+      args:
+        - |
+          set -euo pipefail
+          echo "== ENV (trimmed)"
+          env | grep -E 'PG(HOST|USER|DATABASE)=' | sort
+          echo "== Listing /postinit"; ls -lah /postinit
+          echo "== Head of SQL"; sed -n '1,80p' /postinit/postinit.sql
+          echo "== Running psql from file (supports DO $$ blocks)"
+          psql -v ON_ERROR_STOP=1 -X -f /postinit/postinit.sql || echo "__PSQL_FAILED__"
+          echo "== DONE. Keeping pod alive for inspection."
+          tail -f /dev/null

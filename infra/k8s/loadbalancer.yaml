@@ -1,0 +1,32 @@
+# Caddy LoadBalancer service for MetalLB (Colima L2 / k3s).
+# Apply after MetalLB is installed and pool is configured; MetalLB assigns an IP to this service.
+# Usage: kubectl apply -f infra/k8s/loadbalancer.yaml
+# Then: kubectl -n ingress-nginx get svc caddy-h3  (EXTERNAL-IP will be set)
+# See: scripts/verify-metallb-and-traffic-policy.sh, scripts/setup-lb-ip-host-access.sh
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: caddy-h3
+  namespace: ingress-nginx
+spec:
+  type: LoadBalancer
+  selector:
+    app: caddy-h3
+  ports:
+  - name: https
+    port: 443
+    targetPort: 443
+    protocol: TCP
+  - name: https-udp
+    port: 443
+    targetPort: 443
+    protocol: UDP
+  - name: grpc-h2c
+    port: 5000
+    targetPort: 5000
+    protocol: TCP
+  - name: admin
+    port: 2019
+    targetPort: 2019
+    protocol: TCP

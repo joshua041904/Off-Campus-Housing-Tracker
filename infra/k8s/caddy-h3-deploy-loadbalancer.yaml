@@ -1,0 +1,93 @@
+# FILE: k8s/caddy-h3-deploy-loadbalancer.yaml
+# Colima + MetalLB: no hostPort, soft anti-affinity — 2 replicas on 1 node, zero downtime.
+# Use: CADDY_USE_LOADBALANCER=1 ./scripts/rollout-caddy.sh
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: caddy-h3
+  namespace: ingress-nginx
+spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  replicas: 2  # Both can run on single node (soft anti-affinity)
+  selector: { matchLabels: { app: caddy-h3 } }
+  template:
+    metadata: { labels: { app: caddy-h3 } }
+    spec:
+      dnsPolicy: ClusterFirst
+      terminationGracePeriodSeconds: 30
+      # Soft anti-affinity: prefer different nodes; allow 2 on 1 node (Colima single-node)
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - caddy-h3
+              topologyKey: kubernetes.io/hostname
+      containers:
+      - name: caddy
+        # Same as caddy-h3-deploy: includes HTTP/3 + tcpdump for capture. Build: docker build -t caddy-with-tcpdump:dev docker/caddy-with-tcpdump . k3d: k3d image import caddy-with-tcpdump:dev -c record-platform
+        image: caddy-with-tcpdump:dev
+        imagePullPolicy: IfNotPresent
+        # QUIC is CPU-heavy; 1000m requests for H3 under load (Session open refused = stream exhaustion / CPU throttle).
+        resources:
+          requests: { cpu: "1000m", memory: "512Mi" }
+          limits: { cpu: "2000m", memory: "1Gi" }
+        securityContext:
+          runAsNonRoot: false
+          runAsUser: 0
+          capabilities: { add: ["NET_BIND_SERVICE"] }
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+        ports:
+        - { name: https, containerPort: 443, protocol: TCP }
+        - { name: https-udp, containerPort: 443, protocol: UDP }
+        - { name: grpc-h2c, containerPort: 5000, protocol: TCP }
+        - { name: admin, containerPort: 2019, protocol: TCP }
+        volumeMounts:
+        - { name: caddy-conf,  mountPath: /etc/caddy }
+        - { name: caddy-certs, mountPath: /etc/caddy/certs, readOnly: true }
+        - { name: caddy-ca,    mountPath: /etc/caddy/ca,    readOnly: true }
+        readinessProbe:
+          httpGet:
+            path: /_caddy/healthz
+            port: 443
+            scheme: HTTPS
+          periodSeconds: 2
+          failureThreshold: 3
+          initialDelaySeconds: 2
+          timeoutSeconds: 1
+        livenessProbe:
+          tcpSocket: { port: 443 }
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          failureThreshold: 3
+          timeoutSeconds: 1
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sh", "-c", "sleep 5"]
+      volumes:
+      - name: caddy-conf
+        configMap:
+          name: caddy-h3
+          items: [{ key: Caddyfile, path: Caddyfile }]
+      - name: caddy-certs
+        secret:
+          secretName: record-local-tls
+          items:
+            - { key: tls.crt, path: tls.crt }
+            - { key: tls.key, path: tls.key }
+      - name: caddy-ca
+        secret:
+          secretName: dev-root-ca
+          items:
+            - { key: dev-root.pem, path: dev-root.pem }

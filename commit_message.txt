@@ -1,0 +1,22 @@
+Housing Platform v1: align docs, proto, and runbook with 7-service architecture
+
+- README: Replace with Housing Platform — Global-Scale Architecture (v1).
+  Vision, 7 domain services (auth, listings, booking, messaging, notification,
+  trust, analytics), communication rules, DB policy, event-driven model, common
+  package, tech stack, scaling, deployment, non-negotiables.
+
+- Proto: Remove record-platform–specific protos (social, shopping, records,
+  python-ai, auction-monitor). Keep health.proto. Add minimal placeholder
+  protos for all 7 services: auth, listings, booking, messaging, notification,
+  trust, analytics. Use go_package for off-campus-housing-tracker.
+
+- Runbook: Cluster-only focus. Remove app-specific items (social suite,
+  shopping order_number, carts/orders, Platform AI, social roles). Genericize
+  namespace (record-platform → your app namespace / housing-platform),
+  external Postgres (8-DB → per-service), and validation/CI tiers. Keep
+  TLS/mTLS, Colima, MetalLB, Caddy, Envoy, API gateway req.path, control
+  plane, disaster recovery, validation/SLO.
+
+- Services: Add Architecture (v1) foundation to each service README (auth,
+  listings, booking, messaging, notification, trust, analytics) and to
+  services/README.md. Create auth-service/README.md.

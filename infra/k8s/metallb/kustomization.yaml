@@ -1,0 +1,7 @@
+# MetalLB pool and L2 advertisement. MetalLB controller must be installed first (see scripts/install-metallb*.sh).
+# Traffic policy and priority: docs/METALLB_TRAFFIC_POLICY_AND_SCALE.md
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ipaddresspool.yaml
+  - l2advertisement.yaml

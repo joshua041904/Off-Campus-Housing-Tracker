@@ -1,0 +1,97 @@
+{
+  "name": "@common/utils",
+  "version": "0.3.1",
+  "type": "commonjs",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./logger": {
+      "types": "./dist/logger.d.ts",
+      "default": "./dist/logger.js"
+    },
+    "./metrics": {
+      "types": "./dist/metrics.d.ts",
+      "default": "./dist/metrics.js"
+    },
+    "./auth": {
+      "types": "./dist/auth.d.ts",
+      "default": "./dist/auth.js"
+    },
+    "./kafka": {
+      "types": "./dist/kafka.d.ts",
+      "default": "./dist/kafka.js"
+    },
+    "./redis": {
+      "types": "./dist/redis.d.ts",
+      "default": "./dist/redis.js"
+    },
+    "./grpc-clients": {
+      "types": "./dist/grpc-clients.d.ts",
+      "default": "./dist/grpc-clients.js"
+    },
+    "./grpc-reflection": {
+      "types": "./dist/grpc-reflection.d.ts",
+      "default": "./dist/grpc-reflection.js"
+    },
+    "./proto": {
+      "types": "./dist/proto.d.ts",
+      "default": "./dist/proto.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      ".": [
+        "./dist/index.d.ts"
+      ],
+      "./logger": [
+        "./dist/logger.d.ts"
+      ],
+      "./metrics": [
+        "./dist/metrics.d.ts"
+      ],
+      "./auth": [
+        "./dist/auth.d.ts"
+      ],
+      "./kafka": [
+        "./dist/kafka.d.ts"
+      ],
+      "./redis": [
+        "./dist/redis.d.ts"
+      ],
+      "./grpc-clients": [
+        "./dist/grpc-clients.d.ts"
+      ],
+      "./grpc-reflection": [
+        "./dist/grpc-reflection.d.ts"
+      ],
+      "./proto": [
+        "./dist/proto.d.ts"
+      ]
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepare": "pnpm run build"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  },
+  "dependencies": {
+    "@grpc/grpc-js": "^1.9.0",
+    "@grpc/proto-loader": "^0.7.10",
+    "@grpc/reflection": "^1.0.4",
+    "@types/jsonwebtoken": "^9.0.10",
+    "ioredis": "^5.3.2",
+    "jsonwebtoken": "^9.0.2",
+    "kafkajs": "^2.2.4",
+    "pino": "^9.3.2",
+    "prom-client": "^15.1.3"
+  }
+}

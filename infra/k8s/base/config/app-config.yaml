@@ -1,0 +1,66 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data:
+  NODE_ENV: production
+  ALLOW_MOCK_PASSKEY_DATA: "false"  # Production mode - requires real WebAuthn data (set to "true" for testing)
+  WEBAUTHN_RP_ID: "record.local"  # Relying Party ID (your domain)
+  WEBAUTHN_ORIGIN: "https://record.local:8443"  # WebAuthn origin (must match actual origin)
+  
+  # SMS Provider Configuration
+  # Using Mock SMS Provider (FREE - like MailHog for email)
+  # Perfect for development/testing - no external services needed
+  # Access sent messages via: GET /api/auth/sms/mock/messages
+  SMS_PROVIDER: "mock"  # Mock provider - FREE, works immediately, no setup needed
+  SMS_USE_MOCK: "true"  # Force mock mode (FREE - logs to console, accessible via API)
+  NEXT_PUBLIC_GATEWAY_URL: http://localhost:8080
+
+  GATEWAY_PORT: "4000"
+  AUTH_PORT: "4001"
+  RECORDS_PORT: "4002"
+  LISTINGS_PORT: "4003"
+  ANALYTICS_PORT: "4004"
+  AI_PORT: "5005"
+  SHOPPING_PORT: "4007"
+
+  # Redis URL (Docker Compose Redis has NO password configured)
+  # Format: redis://host:port/db
+  # CRITICAL: From Colima/k3s pods, host.docker.internal is not in DNS. Deployments include hostAliases
+  # (host.docker.internal → 192.168.5.2) so pods reach externalized Redis on the host. Override the alias
+  # in a Colima overlay if your VM uses a different gateway (e.g. 192.168.106.1 for host networking).
+  REDIS_URL: redis://host.docker.internal:6379/0
+
+  PROTO_ROOT: /app/proto
+
+  # EXTERNAL Postgres (Docker) - Direct connection, no K8s service, persistent tuning
+  # Connection from K8s pods: Use host.docker.internal:5433 (Docker Compose main DB)
+  # CRITICAL: Docker Compose exposes main DB as 5433:5432, so pods must use :5433
+  # CRITICAL: auth-service uses POSTGRES_URL_AUTH → database "auth" on port 5437 (see infra/docs/EIGHT-DATABASES-ARCHITECTURE.md)
+  DATABASE_URL:         postgresql://postgres:postgres@host.docker.internal:5433/records?connect_timeout=5
+
+  # optional compatibility (literal duplicates, not $(…))
+  POSTGRES_URL:         postgresql://postgres:postgres@host.docker.internal:5433/records?connect_timeout=5
+  POSTGRES_URL_AUTH:    postgresql://postgres:postgres@host.docker.internal:5437/auth?connect_timeout=5
+  POSTGRES_URL_RECORDS: postgresql://postgres:postgres@host.docker.internal:5433/records?connect_timeout=10
+  POSTGRES_URL_SOCIAL:  postgresql://postgres:postgres@host.docker.internal:5434/social?connect_timeout=5
+  # Database port mappings (external:internal):
+  # Python AI DB: 5440:5432
+  # Analytics DB: 5439:5432
+  # Listings DB: 5435:5432 (standalone, separate from Analytics)
+  POSTGRES_URL_LISTINGS: postgresql://postgres:postgres@host.docker.internal:5435/listings?connect_timeout=5
+  # Shopping service: port 5436, database "shopping" (see infra/docs/EIGHT-DATABASES-ARCHITECTURE.md)
+  POSTGRES_URL_SHOPPING: postgresql://postgres:postgres@host.docker.internal:5436/shopping?connect_timeout=5
+  POSTGRES_URL_AUCTION_MONITOR: postgresql://postgres:postgres@host.docker.internal:5438/postgres?connect_timeout=5
+  POSTGRES_URL_ANALYTICS: postgresql://postgres:postgres@host.docker.internal:5439/analytics?connect_timeout=10
+  # NOTE: asyncpg doesn't support connect_timeout parameter - removed for Python AI service
+  POSTGRES_URL_PYTHON_AI: postgresql://postgres:postgres@host.docker.internal:5440/python_ai
+  
+  # Kafka: strict TLS only (no plaintext/cleartext). All client connections use port 9093 (SSL).
+  # Broker PLAINTEXT is bound to 127.0.0.1 only (healthcheck); clients must use SSL.
+  # Required when KAFKA_SSL_ENABLED=true: set KAFKA_CA_CERT to path to CA PEM (e.g. kafka-ssl-secret).
+  # Optional mTLS: KAFKA_CLIENT_CERT, KAFKA_CLIENT_KEY. Mount certs via Secret and set env in deployment.
+  # Single broker (Docker Compose: one Kafka, SSL on 9093 / host 29093). Multi-broker when cluster exists — see docs/KAFKA_CURRENT_AND_ROADMAP.md.
+  KAFKA_BROKER: kafka-external.record-platform.svc.cluster.local:9093
+  KAFKA_USE_SSL: "true"
+  KAFKA_SSL_ENABLED: "true"

@@ -1,0 +1,50 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: otel-collector
+  namespace: observability
+  labels:
+    app: otel-collector
+spec:
+  selector:
+    matchLabels:
+      app: otel-collector
+  endpoints:
+    - port: prometheus
+      path: /metrics
+      interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: jaeger
+  namespace: observability
+  labels:
+    app: jaeger
+spec:
+  selector:
+    matchLabels:
+      app: jaeger
+  endpoints:
+    - port: http-query
+      path: /metrics
+      interval: 30s
+---
+# Linkerd ServiceMonitor - will be created when Linkerd is installed
+# Uncomment after installing Linkerd:
+# apiVersion: monitoring.coreos.com/v1
+# kind: ServiceMonitor
+# metadata:
+#   name: linkerd-prometheus
+#   namespace: linkerd
+#   labels:
+#     linkerd.io/monitoring: "true"
+# spec:
+#   selector:
+#     matchLabels:
+#       app: prometheus
+#   endpoints:
+#     - port: admin-http
+#       path: /metrics
+#       interval: 30s
+

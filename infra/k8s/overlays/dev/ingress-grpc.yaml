@@ -1,0 +1,70 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: record-platform-grpc
+  namespace: record-platform
+  annotations:
+    # CRITICAL: Backend protocol must be GRPC
+    nginx.ingress.kubernetes.io/backend-protocol: "GRPC"
+    nginx.ingress.kubernetes.io/grpc-backend: "true"
+    # Enable HTTP/2
+    nginx.ingress.kubernetes.io/http2-push-preload: "true"
+    # No body size limit for gRPC streaming
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    # Force HTTP/2 upstream
+    nginx.ingress.kubernetes.io/upstream-hash-by: "$request_uri"
+    # ALPN negotiation
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - record.local
+    secretName: record-local-tls
+  rules:
+  - host: record.local
+    http:
+      paths:
+      - path: /records.RecordsService
+        pathType: Prefix
+        backend:
+          service:
+            name: records-service
+            port:
+              number: 50051
+      - path: /auth.AuthService
+        pathType: Prefix
+        backend:
+          service:
+            name: auth-service
+            port:
+              number: 50051
+      - path: /social.SocialService
+        pathType: Prefix
+        backend:
+          service:
+            name: social-service
+            port:
+              number: 50056
+      - path: /listings.ListingsService
+        pathType: Prefix
+        backend:
+          service:
+            name: listings-service
+            port:
+              number: 50057
+      - path: /shopping.ShoppingService
+        pathType: Prefix
+        backend:
+          service:
+            name: shopping-service
+            port:
+              number: 50058
+      - path: /analytics.AnalyticsService
+        pathType: Prefix
+        backend:
+          service:
+            name: analytics-service
+            port:
+              number: 50054

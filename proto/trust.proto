@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package trust;
+
+option go_package = "github.com/yourorg/off-campus-housing-tracker/proto/trust";
+
+// Trust service – reviews, ratings, abuse reports, moderation, listing flags.
+// Emits: listing_flagged, user_suspended. Add RPCs as needed.
+service TrustService {}

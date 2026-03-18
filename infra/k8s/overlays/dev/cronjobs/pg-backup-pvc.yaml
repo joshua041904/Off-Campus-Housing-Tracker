@@ -1,0 +1,38 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: pg-backup-pvc
+  namespace: record-platform
+spec:
+  schedule: "30 5 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          volumes:
+          - name: backups
+            persistentVolumeClaim: { claimName: pgbackups }
+          containers:
+          - name: pgdump
+            image: postgres:16
+            env:
+            - { name: PGHOST,     value: postgres.record-platform.svc.cluster.local }
+            - { name: PGUSER,     value: postgres }
+            - { name: PGDATABASE, value: records }
+            - name: PGPASSWORD
+              valueFrom: { secretKeyRef: { name: postgres-secret, key: POSTGRES_PASSWORD } }
+            volumeMounts: [ { name: backups, mountPath: /backups } ]
+            command: [bash, -lc]
+            args:
+            - |
+              set -euo pipefail
+              ts="$(date -u +%Y%m%dT%H%M%SZ)"
+              fn="/backups/records_${ts}.dump"
+              pg_dump -Fc -Z 0 -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" -f "$fn"
+              ln -sf "$(basename "$fn")" /backups/LATEST.dump
+              find /backups -type f -name 'records_*.dump' -mtime +7 -delete

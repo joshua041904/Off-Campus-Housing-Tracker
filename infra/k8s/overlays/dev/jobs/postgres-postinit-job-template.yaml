@@ -1,0 +1,57 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: postgres-postinit-
+  namespace: record-platform
+  labels: { app: pg-postinit }
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 1200
+  template:
+    metadata:
+      labels: { app: pg-postinit }
+    spec:
+      restartPolicy: Never
+      initContainers:
+      - name: wait-pg
+        image: postgres:16
+        env:
+        - { name: PGHOST,     value: postgres.record-platform.svc.cluster.local }
+        - { name: PGUSER,     value: postgres }
+        - { name: PGDATABASE, value: postgres }
+        - name: PGPASSWORD
+          valueFrom: { secretKeyRef: { name: postgres-secret, key: POSTGRES_PASSWORD } }
+        command: ["bash","-lc"]
+        args:
+        - |
+          set -euo pipefail
+          for i in {1..240}; do
+            pg_isready -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" && exit 0 || true
+            sleep 2
+          done
+          echo "Postgres not ready"; exit 1
+      containers:
+      - name: psql
+        image: postgres:16
+        env:
+        - { name: PGHOST,     value: postgres.record-platform.svc.cluster.local }
+        - { name: PGUSER,     value: postgres }
+        - { name: PGDATABASE, value: postgres }
+        - name: PGPASSWORD
+          valueFrom: { secretKeyRef: { name: postgres-secret, key: POSTGRES_PASSWORD } }
+        command: ["bash","-lc"]
+        args:
+        - |
+          set -euo pipefail
+          PSQL='psql -v ON_ERROR_STOP=1 -X -h "$PGHOST" -U "$PGUSER"'
+          # create DB if missing
+          echo "SELECT 'CREATE DATABASE records' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname=''records'') \gexec" | eval "$PSQL -d postgres"
+          # run your postinit SQL (idempotent)
+          eval "$PSQL -d records -f /postinit/postinit.sql"
+        volumeMounts:
+        - { name: postinit-sql, mountPath: /postinit, readOnly: true }
+      volumes:
+      - name: postinit-sql
+        configMap:
+          name: postgres-postinit-sql
+          items: [{ key: postinit.sql, path: postinit.sql }]

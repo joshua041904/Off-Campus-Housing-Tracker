@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package auth;
+
+option go_package = "github.com/yourorg/off-campus-housing-tracker/proto/auth";
+
+// Auth service – user accounts, roles, JWT, MFA/passkeys.
+// Add RPCs as needed (e.g. Authenticate, Register, ValidateToken).
+service AuthService {}

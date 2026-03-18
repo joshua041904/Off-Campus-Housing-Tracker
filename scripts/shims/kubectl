@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# kubectl shim: timeouts and colima-ssh fallback. Do NOT set server to 6443 — pipeline uses native port only
+# (6443 tunnel drops under load; see Runbook "Colima API"). Use colima-forward-6443.sh only if you need 6443 manually.
+
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+
+KUBECTL_REQUEST_TIMEOUT="${KUBECTL_REQUEST_TIMEOUT:-15s}"
+REAL_KUBECTL=""
+for d in /opt/homebrew/bin /usr/local/bin; do
+  [[ -x "$d/kubectl" ]] && REAL_KUBECTL="$d/kubectl" && break
+done
+[[ -z "$REAL_KUBECTL" ]] && REAL_KUBECTL="$(command -v kubectl 2>/dev/null | grep -v scripts/shims | head -1)"
+
+_run() {
+  local args=("$@")
+  case "${args[0]:-}" in
+    apply) args+=("--validate=false");;
+    get|describe|logs|exec|port-forward|proxy|cluster-info|rollout|wait|patch|delete|create|scale)
+      args=("${args[@]:0:1}" "--request-timeout=$KUBECTL_REQUEST_TIMEOUT" "${args[@]:1}");;
+  esac
+  if [[ -x "$REAL_KUBECTL" ]] && "$REAL_KUBECTL" "${args[@]}" 2>/dev/null; then return 0; fi
+  ctx=$("$REAL_KUBECTL" config current-context 2>/dev/null || true)
+  if [[ "$ctx" == *"colima"* ]] && command -v colima >/dev/null 2>&1; then
+    colima ssh -- kubectl "${args[@]}" 2>/dev/null && return 0
+  fi
+  if [[ "${args[0]:-}" != "config" ]] && [[ -x "$REAL_KUBECTL" ]]; then
+    "$REAL_KUBECTL" --insecure-skip-tls-verify=true "${args[@]}" 2>/dev/null && return 0
+  fi
+  return 1
+}
+
+_run "$@"

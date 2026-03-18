@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+  namespace: record-platform
+  labels: { app: nginx }
+spec:
+  selector: { app: nginx }
+  ports:
+    - { name: http, port: 8080, targetPort: http }
+    - { name: perf, port: 8082, targetPort: perf }

@@ -1,0 +1,37 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: postgres-restore-from-pvc
+  namespace: record-platform
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      volumes:
+      - name: backups
+        persistentVolumeClaim: { claimName: pgbackups }
+      containers:
+      - name: pgrestore
+        image: postgres:16
+        env:
+        - { name: PGHOST,     value: postgres.record-platform.svc.cluster.local }
+        - { name: PGUSER,     value: postgres }
+        - { name: PGDATABASE, value: records }
+        - name: PGPASSWORD
+          valueFrom: { secretKeyRef: { name: postgres-secret, key: POSTGRES_PASSWORD } }
+        - name: BACKUP_FILE
+          value: ""
+        volumeMounts: [ { name: backups, mountPath: /backups } ]
+        command: [bash, -lc]
+        args:
+        - |
+          set -euo pipefail
+          file="${BACKUP_FILE:-/backups/LATEST.dump}"
+          if [[ ! -f "$file" ]]; then
+            echo "Backup file not found: $file"
+            ls -la /backups
+            exit 2
+          fi
+          pg_restore -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" -c -v "$file"
+          ANALYZE;

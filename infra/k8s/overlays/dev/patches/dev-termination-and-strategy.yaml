@@ -1,0 +1,119 @@
+# one file, six docs – apply to all your services
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: record-platform
+spec:
+  strategy:
+    type: Recreate
+  template:
+    spec:
+      terminationGracePeriodSeconds: 5
+      containers:
+      - name: app
+        lifecycle:
+          preStop:
+            exec:
+              command: ["sh","-lc","sleep 1"]
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+  namespace: record-platform
+spec:
+  strategy:
+    type: Recreate
+  template:
+    spec:
+      terminationGracePeriodSeconds: 5
+      containers:
+      - name: app
+        lifecycle:
+          preStop:
+            exec:
+              command: ["sh","-lc","sleep 1"]
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: records-service
+  namespace: record-platform
+spec:
+  strategy:
+    type: Recreate
+  template:
+    spec:
+      terminationGracePeriodSeconds: 5
+      containers:
+      - name: app
+        lifecycle:
+          preStop:
+            exec:
+              command: ["sh","-lc","sleep 1"]
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: listings-service
+  namespace: record-platform
+spec:
+  strategy:
+    type: Recreate
+  template:
+    spec:
+      terminationGracePeriodSeconds: 5
+      containers:
+      - name: app
+        lifecycle:
+          preStop:
+            exec:
+              command: ["sh","-lc","sleep 1"]
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analytics-service
+  namespace: record-platform
+spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0  # Zero-downtime deployments
+  template:
+    spec:
+      terminationGracePeriodSeconds: 30  # Increased from 5s for graceful shutdown
+      containers:
+      - name: app
+        lifecycle:
+          preStop:
+            exec:
+              command: ["sh","-lc","sleep 10"]  # Give time for graceful shutdown
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: python-ai-service
+  namespace: record-platform
+spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+      - name: app
+        lifecycle:
+          preStop:
+            exec:
+              command: ["sh","-lc","sleep 5"]

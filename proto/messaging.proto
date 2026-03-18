@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package messaging;
+
+option go_package = "github.com/yourorg/off-campus-housing-tracker/proto/messaging";
+
+// Messaging service – conversations, messages, read receipts, attachments.
+// Add RPCs as needed. No booking/listing logic.
+service MessagingService {}

@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: record-platform
+resources:
+  - app-config.yaml
+  - app-secrets.yaml
+generatorOptions:
+  disableNameSuffixHash: true
+configMapGenerator:
+  - name: proto-files
+    files:
+      # Proto files copied to this directory (updated via scripts)
+      - auth.proto=proto/auth.proto
+      - records.proto=proto/records.proto
+      - social.proto=proto/social.proto
+      - listings.proto=proto/listings.proto
+      - shopping.proto=proto/shopping.proto
+      - analytics.proto=proto/analytics.proto
+      - auction-monitor.proto=proto/auction-monitor.proto
+      - python-ai.proto=proto/python-ai.proto
+      - health.proto=proto/health.proto

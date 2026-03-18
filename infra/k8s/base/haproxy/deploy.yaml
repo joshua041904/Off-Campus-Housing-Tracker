@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: haproxy
+  namespace: record-platform
+  labels: { app: haproxy }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: haproxy } }
+  template:
+    metadata:
+      labels: { app: haproxy }
+    spec:
+      containers:
+        - name: proxy
+          image: haproxy:2.9
+          args: ["-f","/usr/local/etc/haproxy/haproxy.cfg","-db"]
+          ports:
+            - { name: http,  containerPort: 8081 }
+            - { name: stats, containerPort: 8404 }
+          volumeMounts:
+            - name: haproxy-cm
+              mountPath: /usr/local/etc/haproxy/haproxy.cfg
+              subPath: haproxy.cfg
+      volumes:
+        - name: haproxy-cm
+          configMap:
+            name: haproxy-cm
+            items:
+              - key: haproxy.cfg
+                path: haproxy.cfg

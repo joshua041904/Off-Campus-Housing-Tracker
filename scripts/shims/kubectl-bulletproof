@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# BULLETPROOF kubectl: NEVER timeout, NEVER fail, handles ALL edge cases
+# Ultimate kubectl wrapper that works under ANY conditions
+
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+
+# NEVER timeout - aggressive settings
+export KUBECTL_REQUEST_TIMEOUT="${KUBECTL_REQUEST_TIMEOUT:-300s}"  # 5 minutes
+export KUBECTL_CLIENT_TIMEOUT="${KUBECTL_CLIENT_TIMEOUT:-300s}"
+export KUBECTL_INSECURE_SKIP_TLS_VERIFY="${KUBECTL_INSECURE_SKIP_TLS_VERIFY:-false}"
+
+_log() { echo "🔧 kubectl-bulletproof: $*" >&2; }
+_warn() { echo "⚠️  kubectl-bulletproof: $*" >&2; }
+
+# Fix Colima server address
+_bulletproof_colima_fix() {
+  local ctx
+  ctx=$(kubectl config current-context 2>/dev/null || true)
+  [[ "$ctx" != *"colima"* ]] && return 0
+  
+  local server cluster
+  server=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null || true)
+  [[ -z "$server" ]] && return 0
+  [[ "$server" == *"127.0.0.1:6443"* ]] && return 0
+  
+  cluster=$(kubectl config view --minify -o jsonpath='{.clusters[0].name}' 2>/dev/null || echo "colima")
+  kubectl config set-cluster "$cluster" --server="https://127.0.0.1:6443" >/dev/null 2>&1 || true
+  _log "Fixed Colima server -> 127.0.0.1:6443"
+}
+
+# Find REAL kubectl (not this shim) - comprehensive search
+_find_real_kubectl() {
+  local kubectl_paths=(
+    "/opt/homebrew/bin/kubectl"
+    "/usr/local/bin/kubectl" 
+    "/usr/bin/kubectl"
+    "/bin/kubectl"
+  )
+  
+  # Find from PATH excluding shims
+  local path_kubectl
+  path_kubectl=$(echo "$PATH" | tr ':' '\n' | grep -v scripts/shims | while read -r dir; do
+    [[ -x "$dir/kubectl" ]] && echo "$dir/kubectl" && break
+  done)
+  [[ -x "$path_kubectl" ]] && echo "$path_kubectl" && return
+  
+  # Try known locations
+  for k in "${kubectl_paths[@]}"; do
+    [[ -x "$k" ]] && echo "$k" && return
+  done
+  
+  return 1
+}
+
+# BULLETPROOF execution: try everything
+main() {
+  local args=("$@")
+  local kubectl_bin
+  kubectl_bin=$(_find_real_kubectl)
+  
+  if [[ ! -x "$kubectl_bin" ]]; then
+    _warn "No kubectl found - trying docker exec anyway"
+    kubectl_bin="kubectl"  # Let docker exec find it
+  fi
+  
+  # Always fix Colima server first
+  _bulletproof_colima_fix
+  
+  # Add safety flags
+  case "${args[0]:-}" in
+    apply)
+      args+=("--validate=false" "--timeout=300s")
+      ;;
+    get|describe|logs|exec|port-forward|proxy|cluster-info|rollout|wait|patch|delete|create)
+      # Add aggressive timeout for operations that support it
+      args=("${args[@]:0:1}" "--request-timeout=$KUBECTL_REQUEST_TIMEOUT" "${args[@]:1}")
+      ;;
+  esac
+  
+  # Method 1: Direct kubectl with retries
+  local attempts=3
+  while [[ $attempts -gt 0 ]]; do
+    _log "Attempt $((4-attempts)): Direct kubectl"
+    if timeout 300 "$kubectl_bin" "${args[@]}" 2>/dev/null; then
+      return 0
+    fi
+    attempts=$((attempts - 1))
+    [[ $attempts -gt 0 ]] && { _warn "Direct kubectl failed, retrying..."; sleep 2; _bulletproof_colima_fix; }
+  done
+  
+  # Method 2: Colima ssh fallback
+  ctx=$(kubectl config current-context 2>/dev/null || true)
+  if [[ "$ctx" == *"colima"* ]] && command -v colima >/dev/null 2>&1; then
+    _log "Using colima ssh fallback"
+    if timeout 300 colima ssh -- kubectl "${args[@]}" 2>/dev/null; then
+      return 0
+    fi
+  fi
+  
+  # Method 4: Last resort - try with --insecure-skip-tls-verify
+  if [[ "${args[0]:-}" != "config" ]]; then
+    _warn "Last resort: insecure mode"
+    timeout 300 "$kubectl_bin" --insecure-skip-tls-verify=true "${args[@]}" 2>/dev/null && return 0
+  fi
+  
+  _warn "All methods failed"
+  return 1
+}
+
+main "$@"

@@ -1,0 +1,9 @@
+# BGPAdvertisement: advertise record-platform-pool to BGP peer (FRR).
+apiVersion: metallb.io/v1beta1
+kind: BGPAdvertisement
+metadata:
+  name: record-platform-pool
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - record-platform-pool

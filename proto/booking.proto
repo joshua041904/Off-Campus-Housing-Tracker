@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package booking;
+
+option go_package = "github.com/yourorg/off-campus-housing-tracker/proto/booking";
+
+// Booking service – reservation lifecycle, cancellation, landlord approval.
+// Emits: booking_created, booking_confirmed, booking_cancelled.
+// Add RPCs as needed.
+service BookingService {}

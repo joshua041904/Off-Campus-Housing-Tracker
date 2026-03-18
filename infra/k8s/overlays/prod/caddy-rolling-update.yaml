@@ -1,0 +1,117 @@
+# Production Caddy deployment with RollingUpdate strategy for zero-downtime CA rotation
+# This replaces the Recreate strategy with RollingUpdate + multiple replicas
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: caddy-h3
+  namespace: ingress-nginx
+spec:
+  # Production: RollingUpdate for zero-downtime deployments
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1          # Allow 1 extra pod during update (new pod starts before old one terminates)
+      maxUnavailable: 0    # Keep at least 1 pod available at all times (zero-downtime)
+      # NOTE: With 2 replicas + hostNetwork, pods must be on different nodes
+      # Pod anti-affinity ensures this - each pod binds to port 443 on its node
+      # Old pod stays up while new pod starts = zero-downtime
+  # Production: 2+ replicas for high availability and zero-downtime
+  # NOTE: With hostNetwork: true, only 1 pod per node can bind to port 443
+  # Pod anti-affinity ensures pods are scheduled on different nodes
+  # This allows zero-downtime: old pod stays up while new pod starts
+  replicas: 2  # Requires multiple nodes with hostNetwork (one pod per node)
+  selector:
+    matchLabels:
+      app: caddy-h3
+  template:
+    metadata:
+      labels:
+        app: caddy-h3
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      terminationGracePeriodSeconds: 30  # Longer grace period for graceful shutdown
+      # Pod anti-affinity: prefer pods on different nodes (but allow same node if needed)
+      # With hostNetwork, only 1 pod per node can bind to port 443
+      # Using "preferred" instead of "required" allows scheduling even if only 1 node available
+      # Note: With 1 node, only 1 pod will actually run (the other will be Pending)
+      # But during rotation, the old pod stays up while new pod starts = zero-downtime
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - caddy-h3
+              topologyKey: kubernetes.io/hostname
+      containers:
+      - name: caddy
+        image: caddy:2.8
+        securityContext:
+          runAsNonRoot: false
+          capabilities:
+            add: ["NET_BIND_SERVICE"]
+        ports:
+        - name: https
+          containerPort: 443
+          protocol: TCP
+        - name: https-udp
+          containerPort: 443
+          protocol: UDP
+        - name: grpc-h2c
+          containerPort: 5000
+          protocol: TCP
+        volumeMounts:
+        - name: caddy-conf
+          mountPath: /etc/caddy
+        - name: caddy-certs
+          mountPath: /etc/caddy/certs
+          readOnly: true
+        - name: caddy-ca
+          mountPath: /etc/caddy/ca
+          readOnly: true
+        readinessProbe:
+          httpGet:
+            scheme: HTTPS
+            path: /_caddy/healthz
+            port: 443
+          periodSeconds: 5
+          failureThreshold: 3
+          initialDelaySeconds: 5
+        livenessProbe:
+          tcpSocket:
+            port: 443
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          failureThreshold: 3
+        # Graceful shutdown: drain connections before termination
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sh", "-c", "sleep 5"]  # Give time for connections to drain
+      volumes:
+      - name: caddy-conf
+        configMap:
+          name: caddy-h3
+          items:
+          - key: Caddyfile
+            path: Caddyfile
+      - name: caddy-certs
+        secret:
+          secretName: record-local-tls
+          items:
+          - key: tls.crt
+            path: tls.crt
+          - key: tls.key
+            path: tls.key
+      - name: caddy-ca
+        secret:
+          secretName: dev-root-ca
+          items:
+          - key: dev-root.pem
+            path: dev-root.pem
+

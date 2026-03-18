@@ -1,0 +1,151 @@
+syntax = "proto3";
+
+package analytics;
+
+option go_package = "github.com/yourorg/record-platform/proto/analytics";
+
+// Analytics service for gRPC (Search analytics, price predictions, trends)
+service AnalyticsService {
+  // Price prediction
+  rpc PredictPrice(PredictPriceRequest) returns (PredictPriceResponse);
+  
+  // User search history
+  rpc GetUserSearchHistory(GetUserSearchHistoryRequest) returns (GetUserSearchHistoryResponse);
+  
+  // Recommendations: similar searches
+  rpc GetSimilarSearches(GetSimilarSearchesRequest) returns (GetSimilarSearchesResponse);
+  
+  // Trending searches
+  rpc GetTrendingSearches(GetTrendingSearchesRequest) returns (GetTrendingSearchesResponse);
+  
+  // Price trends for a specific record
+  rpc GetPriceTrend(GetPriceTrendRequest) returns (GetPriceTrendResponse);
+  
+  // Log a search (for building history)
+  rpc LogSearch(LogSearchRequest) returns (LogSearchResponse);
+  
+  // Health check
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+// Price prediction
+message PredictPriceRequest {
+  repeated PriceItem items = 1;
+}
+
+message PriceItem {
+  string query = 1;
+  double base_price = 2;
+  string format = 3;
+}
+
+message PredictPriceResponse {
+  double suggested = 1;
+  int32 samples = 2;
+}
+
+// User search history
+message GetUserSearchHistoryRequest {
+  string user_id = 1;
+  int32 limit = 2;
+}
+
+message GetUserSearchHistoryResponse {
+  string user_id = 1;
+  repeated SearchHistoryEntry history = 2;
+  int32 count = 3;
+}
+
+message SearchHistoryEntry {
+  int64 id = 1;
+  string user_id = 2;
+  string source = 3;
+  string query = 4;
+  int32 results = 5;
+  string created_at = 6;
+}
+
+// Similar searches
+message GetSimilarSearchesRequest {
+  string query = 1;
+  string user_id = 2;
+  int32 limit = 3;
+}
+
+message GetSimilarSearchesResponse {
+  string query = 1;
+  repeated SimilarSearch recommendations = 2;
+  int32 count = 3;
+}
+
+message SimilarSearch {
+  string query = 1;
+  int32 count = 2;
+  double similarity = 3;
+}
+
+// Trending searches
+message GetTrendingSearchesRequest {
+  int32 days = 1;
+  int32 limit = 2;
+}
+
+message GetTrendingSearchesResponse {
+  int32 days = 1;
+  repeated TrendingSearch trending = 2;
+  int32 count = 3;
+}
+
+message TrendingSearch {
+  string query = 1;
+  int32 count = 2;
+}
+
+// Price trend
+message GetPriceTrendRequest {
+  string artist = 1;
+  string name = 2;
+  string format = 3;
+  int32 days = 4;
+}
+
+message GetPriceTrendResponse {
+  string artist = 1;
+  string name = 2;
+  string format = 3;
+  int32 days = 4;
+  repeated PriceSnapshot trends = 5;
+  int32 count = 6;
+}
+
+message PriceSnapshot {
+  int64 id = 1;
+  string snap_date = 2;
+  string artist = 3;
+  string name = 4;
+  string format = 5;
+  double median_price = 6;
+  int32 sample_count = 7;
+}
+
+// Log search
+message LogSearchRequest {
+  string user_id = 1;
+  string source = 2;
+  string query = 3;
+  int32 results = 4;
+}
+
+message LogSearchResponse {
+  bool ok = 1;
+  bool logged = 2;
+}
+
+// Health check
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+  bool healthy = 1;
+  string version = 2;
+}
+

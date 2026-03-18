@@ -1,0 +1,17 @@
+# Service for FRR BGP (port 179). BGPPeer peerAddress should be this service's ClusterIP.
+apiVersion: v1
+kind: Service
+metadata:
+  name: frr
+  namespace: metallb-system
+  labels:
+    app: frr
+spec:
+  type: ClusterIP
+  ports:
+  - port: 179
+    targetPort: 179
+    name: bgp
+    protocol: TCP
+  selector:
+    app: frr

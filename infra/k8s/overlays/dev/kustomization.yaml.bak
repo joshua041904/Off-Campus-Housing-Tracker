@@ -1,0 +1,77 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: record-platform
+
+resources:
+  - ../../base/config
+  - ../../base/haproxy
+  - ../../base/nginx
+  - ../../base/postgres
+  - ../../base/redis
+  - ../../base/exporters
+  - ../../base/api-gateway
+  - ../../base/auth-service
+  - ../../base/records-service
+  - ../../base/listings-service
+  - ../../base/analytics-service
+  - ../../base/python-ai-service
+  - ../../base/monitoring
+
+  # overlay additions
+  - ingress.yaml
+  - hpa-api-gateway.yaml      # <-- ensure this line exists
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+images:
+  - name: ghcr.io/yourorg/api-gateway
+    newTag: dev
+  - name: ghcr.io/yourorg/auth-service
+    newTag: dev
+  - name: ghcr.io/yourorg/records-service
+    newTag: dev
+  - name: ghcr.io/yourorg/listings-service
+    newTag: dev
+  - name: ghcr.io/yourorg/analytics-service
+    newTag: dev
+  - name: ghcr.io/yourorg/python-ai-service
+    newTag: dev
+
+# modern replacement for patchesStrategicMerge
+patches:
+  - path: patches/api-gateway-resources.yaml
+    target:
+      kind: Deployment
+      name: api-gateway
+      namespace: record-platform  - path: patches/envfrom-api-gateway.yaml
+    target:
+      kind: Deployment
+      name: api-gateway
+      namespace: record-platform
+  - path: patches/envfrom-auth-service.yaml
+    target:
+      kind: Deployment
+      name: auth-service
+      namespace: record-platform
+  - path: patches/envfrom-records-service.yaml
+    target:
+      kind: Deployment
+      name: records-service
+      namespace: record-platform
+  - path: patches/envfrom-listings-service.yaml
+    target:
+      kind: Deployment
+      name: listings-service
+      namespace: record-platform
+  - path: patches/envfrom-analytics-service.yaml
+    target:
+      kind: Deployment
+      name: analytics-service
+      namespace: record-platform
+  - path: patches/envfrom-python-ai-service.yaml
+    target:
+      kind: Deployment
+      name: python-ai-service
+      namespace: record-platform

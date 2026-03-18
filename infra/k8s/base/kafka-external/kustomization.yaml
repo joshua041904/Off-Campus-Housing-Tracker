@@ -1,0 +1,6 @@
+# External Kafka only (Docker Compose on host :29092). No in-cluster Kafka/Zookeeper.
+# Run scripts/patch-kafka-external-host.sh after apply to set Endpoints to host IP (Colima/Docker).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - external-service.yaml

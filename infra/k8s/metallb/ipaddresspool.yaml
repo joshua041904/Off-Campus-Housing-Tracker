@@ -1,0 +1,10 @@
+# MetalLB IP pool for LoadBalancer services. Substitute METALLB_POOL via install script.
+# Example: METALLB_POOL=192.168.5.240-192.168.5.250 ./scripts/install-metallb-colima.sh
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: record-platform-pool
+  namespace: metallb-system
+spec:
+  addresses:
+    - $METALLB_POOL

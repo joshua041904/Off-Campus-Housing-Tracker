@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Prefer Homebrew curl (has --http3-only); fall back to system curl.
+# So scripts that use PATH="$SCRIPT_DIR/shims:..." get HTTP/3 when available.
+
+CURL_BIN=""
+for _c in /opt/homebrew/opt/curl/bin/curl /usr/local/opt/curl/bin/curl; do
+  if [[ -x "$_c" ]] && "$_c" --help all 2>/dev/null | grep -q -- "--http3"; then
+    CURL_BIN="$_c"
+    break
+  fi
+done
+[[ -z "$CURL_BIN" ]] && CURL_BIN="$(command -v curl 2>/dev/null)"
+[[ -z "$CURL_BIN" ]] && CURL_BIN="curl"
+exec "$CURL_BIN" "$@"

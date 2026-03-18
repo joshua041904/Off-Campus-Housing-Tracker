@@ -1,0 +1,47 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: record-platform-privacy-terms
+  namespace: record-platform
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+spec:
+  ingressClassName: nginx
+  rules:
+  # Catch-all rule for any hostname (ngrok, etc.)
+  - http:
+      paths:
+      - path: /privacy
+        pathType: Exact
+        backend:
+          service:
+            name: auth-service
+            port:
+              number: 4001
+      - path: /terms
+        pathType: Exact
+        backend:
+          service:
+            name: auth-service
+            port:
+              number: 4001
+  # Specific rule for record.local
+  - host: record.local
+    http:
+      paths:
+      - path: /privacy
+        pathType: Exact
+        backend:
+          service:
+            name: auth-service
+            port:
+              number: 4001
+      - path: /terms
+        pathType: Exact
+        backend:
+          service:
+            name: auth-service
+            port:
+              number: 4001
+

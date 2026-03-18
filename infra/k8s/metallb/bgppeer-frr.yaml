@@ -1,0 +1,10 @@
+# Auto-generated BGPPeer for FRR (peerAddress from FRR Service ClusterIP)
+apiVersion: metallb.io/v1beta2
+kind: BGPPeer
+metadata:
+  name: record-platform-frr
+  namespace: metallb-system
+spec:
+  myASN: 64512
+  peerASN: 64512
+  peerAddress: 10.43.132.78

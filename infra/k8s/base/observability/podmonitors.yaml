@@ -1,0 +1,49 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: record-platform-services
+  namespace: observability
+  labels:
+    app: record-platform
+spec:
+  selector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values:
+          - api-gateway
+          - auth-service
+          - records-service
+          - listings-service
+          - analytics-service
+          - python-ai-service
+          - auction-monitor
+  podMetricsEndpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: infrastructure-components
+  namespace: observability
+  labels:
+    component: infrastructure
+spec:
+  selector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values:
+          - postgres
+          - redis
+          - kafka
+          - nginx
+          - haproxy
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+

@@ -1,0 +1,281 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-postinit-sql
+  namespace: record-platform
+data:
+  postinit.sql: |
+    -- ===== extensions
+    CREATE EXTENSION IF NOT EXISTS pg_trgm;
+    CREATE EXTENSION IF NOT EXISTS pgcrypto;
+    CREATE EXTENSION IF NOT EXISTS citext;
+    CREATE EXTENSION IF NOT EXISTS unaccent;
+    CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+    CREATE EXTENSION IF NOT EXISTS pg_prewarm;
+    CREATE EXTENSION IF NOT EXISTS btree_gist;
+
+    -- ===== schemas / roles / grants
+    CREATE SCHEMA IF NOT EXISTS auth;
+    CREATE SCHEMA IF NOT EXISTS records;
+
+    CREATE ROLE IF NOT EXISTS record_owner;
+    CREATE ROLE IF NOT EXISTS record_app;
+    ALTER ROLE record_owner WITH NOLOGIN;
+    ALTER ROLE record_app WITH LOGIN PASSWORD 'SUPER_STRONG_APP_PASSWORD';
+
+    GRANT USAGE ON SCHEMA public, auth, records TO record_app;
+
+    -- ===== tables + columns
+    CREATE TABLE IF NOT EXISTS auth.users (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      email CITEXT UNIQUE NOT NULL,
+      password_hash TEXT,
+      settings JSONB DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
+    CREATE TABLE IF NOT EXISTS records.records (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+      artist TEXT NOT NULL,
+      name   TEXT NOT NULL,
+      format TEXT NOT NULL,
+      catalog_number TEXT,
+      record_grade   TEXT,
+      sleeve_grade   TEXT,
+      has_insert         BOOLEAN DEFAULT FALSE,
+      has_booklet        BOOLEAN DEFAULT FALSE,
+      has_obi_strip      BOOLEAN DEFAULT FALSE,
+      has_factory_sleeve BOOLEAN DEFAULT FALSE,
+      is_promo BOOLEAN DEFAULT FALSE,
+      notes TEXT,
+      purchased_at DATE,
+      price_paid NUMERIC(10,2),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
+    ALTER TABLE records.records
+      ADD COLUMN IF NOT EXISTS insert_grade         TEXT,
+      ADD COLUMN IF NOT EXISTS booklet_grade        TEXT,
+      ADD COLUMN IF NOT EXISTS obi_strip_grade      TEXT,
+      ADD COLUMN IF NOT EXISTS factory_sleeve_grade TEXT,
+      ADD COLUMN IF NOT EXISTS release_year         INT,
+      ADD COLUMN IF NOT EXISTS release_date         DATE,
+      ADD COLUMN IF NOT EXISTS pressing_year        INT,
+      ADD COLUMN IF NOT EXISTS label                TEXT,
+      ADD COLUMN IF NOT EXISTS label_code           TEXT,
+      ADD COLUMN IF NOT EXISTS artist_norm          TEXT,
+      ADD COLUMN IF NOT EXISTS name_norm            TEXT,
+      ADD COLUMN IF NOT EXISTS label_norm           TEXT,
+      ADD COLUMN IF NOT EXISTS catalog_norm         TEXT,
+      ADD COLUMN IF NOT EXISTS search_norm          TEXT;
+
+    -- ===== normalization & triggers
+    CREATE OR REPLACE FUNCTION public.norm_text(t text) RETURNS text
+    LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+      SELECT regexp_replace(lower(unaccent(coalesce(t,''))), '\s+', ' ', 'g')
+    $$;
+
+    CREATE OR REPLACE FUNCTION records.touch_updated_at() RETURNS trigger AS $$
+    BEGIN
+      NEW.updated_at = now();
+      RETURN NEW;
+    END
+    $$ LANGUAGE plpgsql;
+
+    DROP TRIGGER IF EXISTS trg_records_touch ON records.records;
+    CREATE TRIGGER trg_records_touch BEFORE UPDATE ON records.records
+      FOR EACH ROW EXECUTE FUNCTION records.touch_updated_at();
+
+    CREATE OR REPLACE FUNCTION records.set_norm_cols() RETURNS trigger AS $$
+    BEGIN
+      NEW.artist_norm  := norm_text(NEW.artist);
+      NEW.name_norm    := norm_text(NEW.name);
+      NEW.label_norm   := norm_text(NEW.label);
+      NEW.catalog_norm := norm_text(NEW.catalog_number);
+      NEW.search_norm  := trim(both ' ' FROM concat_ws(' ',
+        NEW.artist_norm, NEW.name_norm, coalesce(NEW.catalog_norm,''), coalesce(NEW.label_norm,'')));
+      RETURN NEW;
+    END
+    $$ LANGUAGE plpgsql;
+
+    DROP TRIGGER IF EXISTS trg_records_norm ON records.records;
+    CREATE TRIGGER trg_records_norm BEFORE INSERT OR UPDATE ON records.records
+      FOR EACH ROW EXECUTE FUNCTION records.set_norm_cols();
+
+    -- backfill
+    UPDATE records.records SET artist = artist WHERE search_norm IS NULL;
+
+    -- ===== indexes
+    CREATE INDEX IF NOT EXISTS idx_records_user                  ON records.records(user_id);
+    CREATE INDEX IF NOT EXISTS idx_records_user_updated          ON records.records(user_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_records_artist_trgm           ON records.records USING gin(artist gin_trgm_ops);
+    CREATE INDEX IF NOT EXISTS idx_records_name_trgm             ON records.records USING gin(name gin_trgm_ops);
+    CREATE INDEX IF NOT EXISTS idx_records_search_gin_trgm       ON records.records USING gin(search_norm gin_trgm_ops);
+    CREATE INDEX IF NOT EXISTS idx_records_artist_gist_trgm      ON records.records USING gist (artist_norm  gist_trgm_ops);
+    CREATE INDEX IF NOT EXISTS idx_records_name_gist_trgm        ON records.records USING gist (name_norm    gist_trgm_ops);
+    CREATE INDEX IF NOT EXISTS idx_records_label_gist_trgm       ON records.records USING gist (label_norm   gist_trgm_ops);
+    CREATE INDEX IF NOT EXISTS idx_records_catalog_gist_trgm     ON records.records USING gist (catalog_norm gist_trgm_ops);
+    CREATE INDEX IF NOT EXISTS idx_records_user_search_gist_trgm ON records.records USING gist (user_id, search_norm gist_trgm_ops);
+    CREATE INDEX IF NOT EXISTS idx_records_knn_user_search_gist  ON records.records USING gist (search_norm gist_trgm_ops, user_id);
+    CREATE INDEX IF NOT EXISTS idx_records_id_inc_user           ON records.records USING btree (id) INCLUDE (user_id);
+
+    -- ===== aliases + MV + compat view
+    CREATE TABLE IF NOT EXISTS records.aliases (
+      record_id UUID NOT NULL REFERENCES records.records(id) ON DELETE CASCADE,
+      alias     TEXT NOT NULL,
+      PRIMARY KEY(record_id, alias)
+    );
+
+    CREATE MATERIALIZED VIEW IF NOT EXISTS records.aliases_mv AS
+      SELECT a.record_id, norm_text(a.alias) AS alias_norm
+      FROM records.aliases a
+    WITH NO DATA;
+
+    CREATE INDEX IF NOT EXISTS aliases_mv_alias_norm_gist
+      ON records.aliases_mv USING gist (alias_norm gist_trgm_ops);
+
+    CREATE OR REPLACE VIEW public.record_aliases AS
+      SELECT record_id, alias_norm AS term_norm
+      FROM records.aliases_mv;
+
+    -- ===== functions
+    CREATE OR REPLACE FUNCTION public.records_recent(p_user UUID, p_limit INT DEFAULT 50)
+    RETURNS SETOF records.records
+    LANGUAGE sql STABLE PARALLEL SAFE AS $$
+      SELECT * FROM records.records
+      WHERE user_id = p_user
+      ORDER BY updated_at DESC
+      LIMIT GREATEST(1, LEAST(200, COALESCE(p_limit,50)));
+    $$;
+
+    CREATE OR REPLACE FUNCTION public.search_structured(
+      p_user UUID, p_artist TEXT, p_name TEXT, p_format TEXT,
+      p_limit INT DEFAULT 100, p_offset INT DEFAULT 0
+    ) RETURNS SETOF records.records
+    LANGUAGE sql STABLE PARALLEL SAFE AS $$
+      SELECT *
+      FROM records.records r
+      WHERE r.user_id = p_user
+        AND (p_artist IS NULL OR r.artist ILIKE '%'||p_artist||'%')
+        AND (p_name   IS NULL OR r.name   ILIKE '%'||p_name||'%')
+        AND (p_format IS NULL OR r.format ILIKE '%'||p_format||'%')
+      ORDER BY r.updated_at DESC
+      LIMIT GREATEST(1, LEAST(200, COALESCE(p_limit,100)))
+      OFFSET GREATEST(0, COALESCE(p_offset,0));
+    $$;
+
+    CREATE OR REPLACE FUNCTION public.search_autocomplete(
+      p_user UUID, p_q TEXT, p_k INT DEFAULT 10, p_field TEXT DEFAULT 'artist'
+    ) RETURNS TABLE(term TEXT, hits int, dist real)
+    LANGUAGE sql STABLE PARALLEL SAFE AS $$
+      WITH p AS (
+        SELECT norm_text(COALESCE(p_q,'')) AS qn,
+               CASE WHEN p_field IN ('label','catalog') THEN p_field ELSE 'artist' END AS fld
+      ),
+      base AS (
+        SELECT CASE
+                 WHEN (SELECT fld FROM p)='label'   THEN r.label
+                 WHEN (SELECT fld FROM p)='catalog' THEN r.catalog_number
+                 ELSE r.artist
+               END AS term_raw,
+               CASE
+                 WHEN (SELECT fld FROM p)='label'   THEN r.label_norm
+                 WHEN (SELECT fld FROM p)='catalog' THEN r.catalog_norm
+                 ELSE r.artist_norm
+               END AS term_norm
+        FROM records.records r
+        WHERE r.user_id = p_user
+      ),
+      alias AS (
+        SELECT NULL::text AS term_raw, a.alias_norm AS term_norm
+        FROM records.aliases_mv a
+        JOIN records.records r ON r.id = a.record_id
+        WHERE r.user_id = p_user
+      ),
+      unioned AS (SELECT * FROM base UNION ALL SELECT * FROM alias)
+      SELECT COALESCE(term_raw, term_norm) AS term,
+             COUNT(*)::int AS hits,
+             MIN(similarity(term_norm, (SELECT qn FROM p))) AS dist
+      FROM unioned
+      WHERE term_norm IS NOT NULL
+        AND term_norm <> ''
+        AND (
+          (length((SELECT qn FROM p)) <= 2 AND term_norm LIKE (SELECT qn FROM p) || '%') OR
+          (length((SELECT qn FROM p)) >  2 AND term_norm %   (SELECT qn FROM p))
+        )
+      GROUP BY 1
+      ORDER BY dist DESC, hits DESC
+      LIMIT LEAST(50, GREATEST(1, p_k));
+    $$;
+
+    CREATE OR REPLACE FUNCTION public.search_facets(p_user UUID, p_q TEXT)
+    RETURNS JSONB
+    LANGUAGE plpgsql STABLE AS $$
+    DECLARE qn TEXT := norm_text(p_q);
+    BEGIN
+      RETURN jsonb_build_object(
+        'format', (
+          SELECT jsonb_agg(jsonb_build_object('format',format,'count',cnt) ORDER BY cnt DESC)
+          FROM (SELECT format, COUNT(*) AS cnt
+                FROM records.records r
+                WHERE r.user_id=p_user
+                  AND ((length(qn)<=2 AND r.search_norm LIKE qn||'%')
+                       OR (length(qn)>2  AND r.search_norm % qn))
+                GROUP BY 1 ORDER BY 2 DESC LIMIT 20) t
+        ),
+        'label', (
+          SELECT jsonb_agg(jsonb_build_object('label',label,'count',cnt) ORDER BY cnt DESC)
+          FROM (SELECT label, COUNT(*) AS cnt
+                FROM records.records r
+                WHERE r.user_id=p_user AND label IS NOT NULL AND label<>''
+                  AND ((length(qn)<=2 AND r.label_norm LIKE qn||'%')
+                       OR (length(qn)>2  AND r.label_norm % qn))
+                GROUP BY 1 ORDER BY 2 DESC LIMIT 20) t
+        ),
+        'year', (
+          SELECT jsonb_agg(jsonb_build_object('bucket',CASE
+                                                       WHEN release_year BETWEEN 1970 AND 1979 THEN '70s'
+                                                       WHEN release_year BETWEEN 1980 AND 1989 THEN '80s'
+                                                       WHEN release_year BETWEEN 1990 AND 1999 THEN '90s'
+                                                       WHEN release_year BETWEEN 2000 AND 2009 THEN '00s'
+                                                       WHEN release_year BETWEEN 2010 AND 2019 THEN '10s'
+                                                       WHEN release_year BETWEEN 2020 AND 2029 THEN '20s'
+                                                       ELSE 'unknown' END,
+                                           'count',cnt) ORDER BY cnt DESC)
+          FROM (SELECT release_year, COUNT(*) AS cnt
+                FROM records.records r
+                WHERE r.user_id=p_user AND release_year IS NOT NULL
+                  AND ((length(qn)<=2 AND r.search_norm LIKE qn||'%')
+                       OR (length(qn)>2  AND r.search_norm % qn))
+                GROUP BY 1 ORDER BY 2 DESC LIMIT 20) t
+        )
+      );
+    END; $$;
+
+    CREATE OR REPLACE FUNCTION public.search_price_stats(p_user UUID, p_q TEXT)
+    RETURNS TABLE(n int, min numeric, p50 numeric, avg numeric, p90 numeric, max numeric)
+    LANGUAGE sql STABLE PARALLEL SAFE AS $$
+      WITH qn AS (SELECT norm_text(COALESCE(p_q,'')) AS q),
+      hits AS (
+        SELECT r.price_paid::numeric AS price
+        FROM records.records r, qn
+        WHERE r.user_id = p_user
+          AND r.price_paid IS NOT NULL
+          AND (
+            (length(qn.q) <= 2 AND r.search_norm LIKE qn.q || '%')
+            OR (length(qn.q) >  2 AND r.search_norm %   qn.q)
+          )
+      )
+      SELECT COUNT(*)::int, MIN(price),
+             percentile_cont(0.5) WITHIN GROUP (ORDER BY price),
+             AVG(price),
+             percentile_cont(0.9) WITHIN GROUP (ORDER BY price),
+             MAX(price)
+      FROM hits;
+    $$;
+
+    -- ===== finalize
+    REFRESH MATERIALIZED VIEW records.aliases_mv;
+    ANALYZE;

@@ -1,0 +1,12 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shopping-service
+  namespace: record-platform
+spec:
+  template:
+    spec:
+      containers:
+        - name: app
+          image: record-platform-shopping-service:latest
+

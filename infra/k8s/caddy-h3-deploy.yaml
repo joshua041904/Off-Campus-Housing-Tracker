@@ -1,0 +1,106 @@
+# FILE: k8s/caddy-h3-deploy.yaml
+# For MetalLB LoadBalancer (Colima): use caddy-h3-deploy-loadbalancer.yaml instead (no hostPort, soft anti-affinity; 2 replicas on 1 node, zero downtime).
+# This file: hostPort 443 + required anti-affinity = one pod per node; use for k3d/NodePort when you need hostPort.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: caddy-h3
+  namespace: ingress-nginx
+spec:
+  # RollingUpdate: maxSurge=0, maxUnavailable=1 (one pod at a time = zero downtime). Requires 2 nodes for 2 replicas (required anti-affinity).
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  replicas: 2  # Two replicas for zero-downtime CA rotation
+  selector: { matchLabels: { app: caddy-h3 } }
+  template:
+    metadata: { labels: { app: caddy-h3 } }
+    spec:
+      dnsPolicy: ClusterFirst
+      terminationGracePeriodSeconds: 30
+      # Allow scheduling when node has disk pressure (e.g. Colima single-node); fix disk and re-run emergency-disk-cleanup.sh
+      tolerations:
+      - key: node.kubernetes.io/disk-pressure
+        operator: Exists
+        effect: NoSchedule
+      # Preferred anti-affinity: spread replicas across nodes when possible; on single-node both can run.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - caddy-h3
+              topologyKey: kubernetes.io/hostname
+      containers:
+      - name: caddy
+        # Image includes HTTP/3 (xcaddy build) and tcpdump for rotation-suite packet capture. Build: docker build -t caddy-with-tcpdump:dev docker/caddy-with-tcpdump . k3d: k3d image import caddy-with-tcpdump:dev -c record-platform
+        # imagePullPolicy: IfNotPresent avoids ImagePullBackOff after Docker restart when image is preloaded (scripts/preload-images.sh).
+        image: caddy-with-tcpdump:dev
+        imagePullPolicy: IfNotPresent
+        # With NodePort, we don't need privileged ports, but Caddy needs write access
+        # Caddy user (UID 1000) needs to write to /data/caddy and /config/caddy
+        # We use runAsNonRoot: false but with minimal capabilities for security
+        # QUIC is CPU-heavy; 1000m requests for H3 under load (Session open refused = stream exhaustion / CPU throttle).
+        resources:
+          requests: { cpu: "1000m", memory: "512Mi" }
+          limits: { cpu: "2000m", memory: "1Gi" }
+        securityContext:
+          runAsNonRoot: false
+          runAsUser: 0  # Caddy image runs as root by default
+          capabilities: { add: ["NET_BIND_SERVICE"] }
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+        # hostPort 443: use with k3d --port "443:443@loadbalancer" + "443:443/udp@loadbalancer" and caddy-h3-service-clusterip.yaml (no NodePort). Bypasses docker-proxy for QUIC.
+        ports:
+        - { name: https, containerPort: 443, hostPort: 443, protocol: TCP }
+        - { name: https-udp, containerPort: 443, hostPort: 443, protocol: UDP }
+        - { name: grpc-h2c, containerPort: 5000, protocol: TCP }
+        - { name: admin, containerPort: 2019, protocol: TCP }
+        volumeMounts:
+        - { name: caddy-conf,  mountPath: /etc/caddy }                       # Caddyfile
+        - { name: caddy-certs, mountPath: /etc/caddy/certs, readOnly: true } # tls.crt,tls.key
+        - { name: caddy-ca,    mountPath: /etc/caddy/ca,    readOnly: true } # dev-root.pem
+        # Readiness: HTTPS GET so pod not ready = not in LB pool (zero-downtime rotation).
+        readinessProbe:
+          httpGet:
+            path: /_caddy/healthz
+            port: 443
+            scheme: HTTPS
+          periodSeconds: 2
+          failureThreshold: 3
+          initialDelaySeconds: 2
+          timeoutSeconds: 1
+        livenessProbe:
+          tcpSocket: { port: 443 }
+          initialDelaySeconds: 5  # Reduced from 10s to 5s (still safe, but faster)
+          periodSeconds: 10
+          failureThreshold: 3
+          timeoutSeconds: 1  # Faster timeout
+        # Graceful shutdown: drain connections before termination
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sh", "-c", "sleep 5"]  # Give time for connections to drain
+      volumes:
+      - name: caddy-conf
+        configMap:
+          name: caddy-h3
+          items: [{ key: Caddyfile, path: Caddyfile }]
+      - name: caddy-certs
+        secret:
+          secretName: record-local-tls
+          items:
+            - { key: tls.crt, path: tls.crt }
+            - { key: tls.key, path: tls.key }
+      - name: caddy-ca
+        secret:
+          secretName: dev-root-ca
+          items:
+            - { key: dev-root.pem, path: dev-root.pem }

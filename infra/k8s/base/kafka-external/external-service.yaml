@@ -1,0 +1,28 @@
+# Service + Endpoints for external Kafka (Docker Compose strict TLS :29093).
+# Endpoints IP = host from cluster (host.docker.internal). Run:
+#   ./scripts/patch-kafka-external-host.sh
+# after apply.
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-external
+  namespace: record-platform
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9093
+      targetPort: 29093
+      protocol: TCP
+      name: kafka-ssl
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: kafka-external
+  namespace: record-platform
+subsets:
+  - addresses:
+      - ip: 10.0.0.8
+    ports:
+      - port: 29093
+        name: kafka-ssl

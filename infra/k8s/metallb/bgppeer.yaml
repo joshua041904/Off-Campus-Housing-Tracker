@@ -1,0 +1,11 @@
+# BGPPeer: MetalLB speaker connects to FRR. peerAddress is substituted by install-metallb-frr-bgp.sh with FRR service ClusterIP.
+apiVersion: metallb.io/v1beta2
+kind: BGPPeer
+metadata:
+  name: record-platform-frr
+  namespace: metallb-system
+spec:
+  myASN: 64512
+  peerASN: 64513
+  peerAddress: FRR_SERVICE_IP
+  peerPort: 179

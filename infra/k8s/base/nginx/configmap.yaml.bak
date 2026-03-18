@@ -1,0 +1,254 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-cm
+  namespace: record-platform
+data:
+  nginx.conf: |
+    worker_processes auto;
+
+    events { worker_connections 4096; }
+
+http {
+  resolver 127.0.0.11 valid=10s ipv6=off;
+
+  # --- client IP from XFF (first hop) ---
+  set_real_ip_from 172.16.0.0/12;
+  real_ip_header    X-Forwarded-For;
+  real_ip_recursive on;
+  map $http_x_forwarded_for $client_ip {
+    ~^(?<first>[^,]+) $first;
+    default           $remote_addr;
+  }
+
+  # --- basics ---
+  sendfile on; tcp_nopush on; tcp_nodelay on;
+  keepalive_timeout 65;
+  client_max_body_size 10m;
+
+  # --- gzip ---
+  gzip on;
+  gzip_min_length 256;
+  gzip_types text/plain text/css application/json application/javascript application/xml text/javascript;
+
+  # --- logging ---
+  log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                  '$status $body_bytes_sent "$http_referer" "$http_user_agent" '
+                  'rt=$request_time urt=$upstream_response_time '
+                  'uaddr=$upstream_addr ucache=$upstream_cache_status';
+  access_log /var/log/nginx/access.log main;
+  error_log  /var/log/nginx/error.log warn;
+
+  # --- proxy defaults ---
+  proxy_http_version 1.1;
+  proxy_set_header Connection "";
+  proxy_set_header Host              $host;
+  proxy_set_header X-Real-IP         $remote_addr;
+  proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+  proxy_set_header X-Forwarded-Proto $scheme;
+  proxy_connect_timeout 5s;
+  proxy_send_timeout    30s;
+  proxy_read_timeout    30s;
+
+  # --- micro-cache for hot GETs ---
+  proxy_cache_path /var/cache/nginx levels=1:2 keys_zone=api_cache:100m max_size=500m inactive=60s use_temp_path=off;
+
+  # (legacy toggle; not used for records paths anymore, kept for clarity)
+  map $http_authorization $skip_cache { default 1; "" 0; }
+
+  # --- limiter zones ---
+  limit_req_zone $client_ip zone=api_reads:20m  rate=3000r/s;   # up from 2000
+  limit_req_zone $client_ip zone=api_writes:10m rate=600r/s;
+  limit_req_status 429;
+  limit_req_log_level warn;
+
+  # --- upstream targets (via Docker DNS) ---
+  map "" $gateway { default http://haproxy:8081; }
+  map "" $web     { default http://webapp:3001; }
+
+  # --- strip /api once for all API proxies ---
+  map $request_uri $api_stripped {
+    ~^/api(?<rest>/.*)$ $rest;
+    default             $request_uri;
+  }
+
+  # --- selective cache: allow only /records and /records/:id (even with Authorization) ---
+  map $api_stripped $cache_allow {
+    default                  0;
+    ~^/records(/[^/?]+)?$    1;  # /records and /records/<id>
+  }
+  # translate to flags for proxy_* directives
+  map $cache_allow $nocache { 1 0; default 1; }
+
+  # reduce cache stampedes
+  proxy_cache_background_update on;
+  proxy_cache_revalidate        on;
+
+  # --- method classification WITHOUT if/return ---
+  map $request_method $method_kind {
+    default write;
+    GET     read;
+    HEAD    read;
+    OPTIONS read;
+  }
+  map $http_x_loadtest $no_write_limit { "1" 1; default 0; }
+
+  # choose a named location to jump to
+  map "$method_kind:$no_write_limit" $dispatch {
+    "write:1" @writes_nolimit;
+    "write:0" @writes_withlimit;
+    default   @reads;              # all reads
+  }
+
+  # ================== PROD EDGE (8080) ==================
+  server {
+    listen 8080;
+
+    location = /healthz { add_header Content-Type text/plain; return 200 "ok\n"; }
+
+    location = /api/healthz { proxy_pass $gateway/healthz; proxy_cache off; }
+    location ^~ /auth/      { proxy_pass $gateway/auth/;   proxy_cache off; }
+
+    # Hot GET: /api/records (cached + queued read limiter)
+    location = /api/records {
+      limit_req zone=api_reads burst=3000;
+
+      proxy_set_header Authorization $http_authorization;
+      proxy_pass $gateway$api_stripped$is_args$args;
+
+      proxy_cache               api_cache;
+      proxy_cache_methods       GET HEAD;
+      proxy_cache_key           $scheme$proxy_host$api_stripped$is_args$args;
+      proxy_cache_lock          on;
+      proxy_cache_lock_timeout  5s;
+      proxy_cache_use_stale     error timeout updating http_500 http_502 http_503 http_504;
+      proxy_cache_valid         200 30s;
+
+      # cache only when $cache_allow=1 (even with Authorization)
+      proxy_no_cache            $nocache;
+      proxy_cache_bypass        $nocache;
+
+      add_header X-Cache-Status $upstream_cache_status always;
+      proxy_next_upstream       error timeout http_500 http_502 http_503 http_504;
+      proxy_next_upstream_tries 3;
+    }
+
+    # All other /api -> jump to a named location from $dispatch
+    location ^~ /api/ {
+      try_files /__no_such_file__ $dispatch;
+    }
+
+    # READ path (micro-cache only for list/by-id via $nocache)
+    location @reads {
+      proxy_set_header Authorization $http_authorization;
+      proxy_set_header X-Original-URI $request_uri;
+      proxy_pass $gateway$api_stripped$is_args$args;
+
+      # --- selective micro-cache ---
+      proxy_cache               api_cache;
+      proxy_cache_methods       GET HEAD;
+      proxy_cache_key           $scheme$proxy_host$api_stripped$is_args$args;
+      proxy_cache_lock          on;
+      proxy_cache_lock_timeout  5s;
+      proxy_cache_use_stale     error timeout updating http_500 http_502 http_503 http_504;
+      proxy_cache_valid         200 30s;
+
+      proxy_no_cache            $nocache;
+      proxy_cache_bypass        $nocache;
+
+      add_header X-Cache-Status $upstream_cache_status always;
+      proxy_next_upstream       error timeout http_500 http_502 http_503 http_504;
+      proxy_next_upstream_tries 3;
+    }
+
+    # WRITES WITH limiter (queued)
+    location @writes_withlimit {
+      limit_req zone=api_writes burst=800;
+      proxy_set_header Authorization $http_authorization;
+      proxy_set_header X-Original-URI $request_uri;
+      proxy_pass $gateway$api_stripped$is_args$args;
+      proxy_cache off;
+    }
+
+    # WRITES WITHOUT limiter (perf header)
+    location @writes_nolimit {
+      proxy_set_header Authorization $http_authorization;
+      proxy_set_header X-Original-URI $request_uri;
+      proxy_pass $gateway$api_stripped$is_args$args;
+      proxy_cache off;
+    }
+
+    # JSON 429
+    error_page 429 = @ratelimited;
+    location @ratelimited {
+      add_header Retry-After 1 always;
+      add_header Content-Type application/json;
+      return 429 '{"error":"rate_limited","retry_after":"1s"}';
+    }
+
+    # Webapp at /
+    location / { proxy_pass $web; }
+
+    location = /nginx_status { stub_status; access_log off; }
+  }
+
+  # ================== PERF EDGE (8082) ==================
+  server {
+    listen 8082;
+
+    location = /healthz { add_header Content-Type text/plain; return 200 "ok\n"; }
+    location = /api/healthz { proxy_pass $gateway/healthz; proxy_cache off; }
+    location ^~ /auth/      { proxy_pass $gateway/auth/;   proxy_cache off; }
+
+    # hot GET cached, no limiter
+    location = /api/records {
+      proxy_set_header Authorization $http_authorization;
+      proxy_pass $gateway$api_stripped$is_args$args;
+
+      proxy_cache               api_cache;
+      proxy_cache_methods       GET HEAD;
+      proxy_cache_key           $scheme$proxy_host$api_stripped$is_args$args;
+      proxy_cache_lock          on;
+      proxy_cache_lock_timeout  5s;
+      proxy_cache_use_stale     error timeout updating http_500 http_502 http_503 http_504;
+      proxy_cache_valid         200 30s;
+
+      proxy_no_cache            $nocache;
+      proxy_cache_bypass        $nocache;
+
+      add_header X-Cache-Status $upstream_cache_status always;
+      proxy_next_upstream       error timeout http_500 http_502 http_503 http_504;
+      proxy_next_upstream_tries 3;
+    }
+
+    # all other API (no write limit on this port)
+    location ^~ /api/ {
+      try_files /__no_such_file__ @reads;
+    }
+
+    # same selective cache rules for reads
+    location @reads {
+      proxy_set_header Authorization $http_authorization;
+      proxy_set_header X-Original-URI $request_uri;
+      proxy_pass $gateway$api_stripped$is_args$args;
+
+      proxy_cache               api_cache;
+      proxy_cache_methods       GET HEAD;
+      proxy_cache_key           $scheme$proxy_host$api_stripped$is_args$args;
+      proxy_cache_lock          on;
+      proxy_cache_lock_timeout  5s;
+      proxy_cache_use_stale     error timeout updating http_500 http_502 http_503 http_504;
+      proxy_cache_valid         200 30s;
+
+      proxy_no_cache            $nocache;
+      proxy_cache_bypass        $nocache;
+
+      add_header X-Cache-Status $upstream_cache_status always;
+      proxy_next_upstream       error timeout http_500 http_502 http_503 http_504;
+      proxy_next_upstream_tries 3;
+    }
+
+    location / { proxy_pass $web; }
+    location = /nginx_status { stub_status; access_log off; }
+  }
+}

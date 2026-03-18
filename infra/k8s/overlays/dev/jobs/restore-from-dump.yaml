@@ -1,0 +1,100 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: restore-from-dump
+  namespace: record-platform
+  labels:
+    app: postgres-restore
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: restore
+        image: postgres:16
+        env:
+        - { name: PGHOST,     value: "postgres" }
+        - { name: PGUSER,     value: "postgres" }
+        - { name: PGDATABASE, value: "records" }
+        envFrom:
+        - { secretRef: { name: postgres-superuser } }
+        volumeMounts:
+        - { name: backups, mountPath: /backups }
+        command: ["bash","-lc"]
+        args:
+        - |
+          set -euo pipefail
+          echo "[$(date -Is)] Starting restore from dump"
+          
+          # Find latest nightly dump
+          LATEST=$(ls -1t /backups/nightly-*.tar.gz | head -n1)
+          if [ -z "$LATEST" ]; then
+            echo "ERROR: No nightly dump found in /backups"
+            exit 1
+          fi
+          echo "Using: $LATEST"
+          
+          # Extract
+          WORKDIR=/tmp/restore
+          rm -rf "$WORKDIR" && mkdir -p "$WORKDIR"
+          tar -xzf "$LATEST" -C "$WORKDIR"
+          DUMPDIR=$(find "$WORKDIR" -mindepth 1 -maxdepth 1 -type d | head -n1)
+          
+          # Wait for postgres
+          until pg_isready -h "$PGHOST" -U "$PGUSER" -d postgres -t 1 >/dev/null; do
+            echo "Waiting for postgres..."
+            sleep 2
+          done
+          
+          # Restore globals (roles, etc.) - ignore "already exists" errors
+          if [ -f "$DUMPDIR/globals.sql" ]; then
+            echo "Restoring globals.sql..."
+            psql -h "$PGHOST" -U "$PGUSER" -d postgres -v ON_ERROR_STOP=0 -f "$DUMPDIR/globals.sql" || true
+          fi
+          
+          # Ensure DB exists
+          psql -h "$PGHOST" -U "$PGUSER" -d postgres -c "CREATE DATABASE records;" || true
+          
+          # Restore data
+          if [ -d "$DUMPDIR/records.dir" ]; then
+            echo "Restoring records.dir with pg_restore..."
+            pg_restore \
+              --verbose \
+              --clean --if-exists \
+              --no-owner --no-privileges \
+              --disable-triggers \
+              -j 4 \
+              -h "$PGHOST" -U "$PGUSER" -d records \
+              "$DUMPDIR/records.dir" || true
+          fi
+          
+          # ANALYZE
+          echo "Running ANALYZE..."
+          psql -h "$PGHOST" -U "$PGUSER" -d records -c "ANALYZE;"
+          
+          # Refresh materialized views if present
+          echo "Refreshing materialized views..."
+          psql -h "$PGHOST" -U "$PGUSER" -d records -v ON_ERROR_STOP=1 <<'SQL'
+          \set ON_ERROR_STOP on
+          WITH mvs AS (
+            SELECT oid::regclass AS mv
+            FROM pg_class
+            WHERE oid IN (
+              to_regclass('records.aliases_mv'),
+              to_regclass('records.search_doc_mv')
+            ) AND oid IS NOT NULL
+          )
+          SELECT 'REFRESH MATERIALIZED VIEW ' || mv::text || ';'
+          FROM mvs;
+          \gexec
+          SQL
+          
+          echo "[$(date -Is)] Restore complete"
+          psql -h "$PGHOST" -U "$PGUSER" -d records -c "SELECT count(*) AS records_rows FROM records.records;" || true
+      volumes:
+      - name: backups
+        persistentVolumeClaim:
+          claimName: pgbackups
+

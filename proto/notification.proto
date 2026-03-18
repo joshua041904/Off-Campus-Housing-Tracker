@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package notification;
+
+option go_package = "github.com/yourorg/off-campus-housing-tracker/proto/notification";
+
+// Notification service – consumes Kafka only; email/push, reminders, alerts.
+// Stateless. Add RPCs only if needed.
+service NotificationService {}

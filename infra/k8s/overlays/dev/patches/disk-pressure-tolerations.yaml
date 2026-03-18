@@ -1,0 +1,183 @@
+# Allow scheduling when node has disk pressure (single-node Colima). Fix disk: ./scripts/emergency-disk-cleanup.sh
+# Apply to record-platform and envoy-test so pods can reach 1/1 Ready with strict TLS/mTLS.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: record-platform
+spec:
+  template:
+    spec:
+      tolerations:
+      - key: node.kubernetes.io/disk-pressure
+        operator: Exists
+        effect: NoSchedule
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+  namespace: record-platform
+spec:
+  template:
+    spec:
+      tolerations:
+      - key: node.kubernetes.io/disk-pressure
+        operator: Exists
+        effect: NoSchedule
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: records-service
+  namespace: record-platform
+spec:
+  template:
+    spec:
+      tolerations:
+      - key: node.kubernetes.io/disk-pressure
+        operator: Exists
+        effect: NoSchedule
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: listings-service
+  namespace: record-platform
+spec:
+  template:
+    spec:
+      tolerations:
+      - key: node.kubernetes.io/disk-pressure
+        operator: Exists
+        effect: NoSchedule
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analytics-service
+  namespace: record-platform
+spec:
+  template:
+    spec:
+      tolerations:
+      - key: node.kubernetes.io/disk-pressure
+        operator: Exists
+        effect: NoSchedule
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: python-ai-service
+  namespace: record-platform
+spec:
+  template:
+    spec:
+      tolerations:
+      - key: node.kubernetes.io/disk-pressure
+        operator: Exists
+        effect: NoSchedule
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: social-service
+  namespace: record-platform
+spec:
+  template:
+    spec:
+      tolerations:
+      - key: node.kubernetes.io/disk-pressure
+        operator: Exists
+        effect: NoSchedule
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shopping-service
+  namespace: record-platform
+spec:
+  template:
+    spec:
+      tolerations:
+      - key: node.kubernetes.io/disk-pressure
+        operator: Exists
+        effect: NoSchedule
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auction-monitor
+  namespace: record-platform
+spec:
+  template:
+    spec:
+      tolerations:
+      - key: node.kubernetes.io/disk-pressure
+        operator: Exists
+        effect: NoSchedule
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: haproxy
+  namespace: record-platform
+spec:
+  template:
+    spec:
+      tolerations:
+      - key: node.kubernetes.io/disk-pressure
+        operator: Exists
+        effect: NoSchedule
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+  namespace: record-platform
+spec:
+  template:
+    spec:
+      tolerations:
+      - key: node.kubernetes.io/disk-pressure
+        operator: Exists
+        effect: NoSchedule
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: haproxy-exporter
+  namespace: record-platform
+spec:
+  template:
+    spec:
+      tolerations:
+      - key: node.kubernetes.io/disk-pressure
+        operator: Exists
+        effect: NoSchedule
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-exporter
+  namespace: record-platform
+spec:
+  template:
+    spec:
+      tolerations:
+      - key: node.kubernetes.io/disk-pressure
+        operator: Exists
+        effect: NoSchedule
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: envoy-test
+  namespace: envoy-test
+spec:
+  template:
+    spec:
+      tolerations:
+      - key: node.kubernetes.io/disk-pressure
+        operator: Exists
+        effect: NoSchedule

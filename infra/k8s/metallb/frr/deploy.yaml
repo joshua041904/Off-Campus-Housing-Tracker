@@ -1,0 +1,37 @@
+# FRR BGP router for MetalLB speaker to peer with. Deploy after MetalLB controller/speaker.
+# Build image: docker build -t frr-metallb:local -f infra/k8s/metallb/frr/Dockerfile .
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frr
+  namespace: metallb-system
+  labels:
+    app: frr
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frr
+  template:
+    metadata:
+      labels:
+        app: frr
+    spec:
+      containers:
+      - name: frr
+        image: frr-metallb:local
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 179
+          name: bgp
+        volumeMounts:
+        - name: frr-bgpd
+          mountPath: /etc/frr/bgpd.conf
+          subPath: bgpd.conf
+        securityContext:
+          capabilities:
+            add: ["NET_ADMIN"]
+      volumes:
+      - name: frr-bgpd
+        configMap:
+          name: frr-bgpd

@@ -1,0 +1,32 @@
+# FRR BGP config for MetalLB speaker peer.
+# MetalLB speaker connects TO this FRR pod; FRR accepts BGP from cluster pod CIDR.
+# Peer group accepts connections from 10.42.0.0/16 (k3s/canal default). Override via FRR_BGP_LISTEN_CIDR.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frr-config
+  namespace: metallb-system
+  labels:
+    app: frr
+data:
+  frr.conf: |
+    ! FRR configuration for MetalLB BGP peer
+    ! MetalLB speaker (AS 64512) connects to this FRR; we accept and peer.
+    frr defaults traditional
+    hostname frr-metallb
+    service integrated-vtysh-config
+    !
+    router bgp 64512
+     bgp router-id 192.168.106.1
+     neighbor metallb-peers peer-group
+     neighbor metallb-peers remote-as 64512
+     ! Accept BGP from MetalLB speaker pods (cluster pod CIDR 10.42.0.0/16)
+     bgp listen limit 10
+     bgp listen range 10.42.0.0/16 peer-group metallb-peers
+     !
+     address-family ipv4 unicast
+      neighbor metallb-peers activate
+     exit-address-family
+    !
+    line vty
+    !

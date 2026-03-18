@@ -1,0 +1,48 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: node-services
+  namespace: record-platform
+spec:
+  namespaceSelector:
+    matchNames: ["record-platform"]
+  selector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values:
+          - api-gateway
+          - records-service
+          - auth-service
+          - listings-service
+          - analytics-service
+          - python-ai-service
+          - social-service
+          - shopping-service
+          - auction-monitor
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: edge-exporters
+  namespace: record-platform
+spec:
+  namespaceSelector:
+    matchNames: ["record-platform"]
+  selector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values:
+          - nginx-exporter
+          - haproxy-exporter
+  endpoints:
+    - port: http
+      interval: 15s
+
+    - port: http
+      interval: 15s

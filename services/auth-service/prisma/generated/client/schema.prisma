@@ -1,0 +1,122 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("POSTGRES_URL_AUTH")
+  schemas  = ["auth"]
+}
+
+generator client {
+  provider      = "prisma-client-js"
+  output        = "./generated/client"
+  binaryTargets = ["native", "debian-openssl-3.0.x", "linux-arm64-openssl-3.0.x"]
+}
+
+model User {
+  id            String   @id @default(dbgenerated("gen_random_uuid()"))
+  email         String   @unique @db.Citext
+  passwordHash  String?  @map("password_hash")
+  phone         String?
+  emailVerified Boolean  @default(false) @map("email_verified")
+  phoneVerified Boolean  @default(false) @map("phone_verified")
+  mfaEnabled    Boolean  @default(false) @map("mfa_enabled")
+  settings      Json?    @db.JsonB
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  oauthProviders    OAuthProvider[]
+  mfaSettings       MfaSettings?
+  verificationCodes VerificationCode[]
+  passkeys          Passkey[]
+
+  @@map("users")
+  @@schema("auth")
+}
+
+model OAuthProvider {
+  id             String   @id @default(dbgenerated("gen_random_uuid()"))
+  userId         String   @map("user_id") @db.Uuid
+  provider       String
+  providerUserId String   @map("provider_user_id")
+  email          String?
+  profileData    Json?    @map("profile_data") @db.JsonB
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerUserId])
+  @@index([userId])
+  @@index([provider, providerUserId])
+  @@map("oauth_providers")
+  @@schema("auth")
+}
+
+model MfaSettings {
+  id          String   @id @default(dbgenerated("gen_random_uuid()"))
+  userId      String   @unique @map("user_id") @db.Uuid
+  totpSecret  String   @map("totp_secret")
+  backupCodes String[] @map("backup_codes")
+  enabled     Boolean  @default(false)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("mfa_settings")
+  @@schema("auth")
+}
+
+model VerificationCode {
+  id        String   @id @default(dbgenerated("gen_random_uuid()"))
+  userId    String?  @map("user_id") @db.Uuid
+  type      String
+  target    String
+  code      String
+  expiresAt DateTime @map("expires_at")
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+  @@index([target])
+  @@index([expiresAt])
+  @@map("verification_codes")
+  @@schema("auth")
+}
+
+model Passkey {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  credentialId String    @unique @map("credential_id") @db.Text
+  publicKey    String    @map("public_key") @db.Text
+  counter      BigInt    @default(0)
+  deviceName   String?   @map("device_name")
+  deviceType   String?   @map("device_type")
+  lastUsedAt   DateTime? @map("last_used_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, credentialId])
+  @@index([userId])
+  @@index([credentialId])
+  @@index([lastUsedAt(sort: Desc)])
+  @@map("passkeys")
+  @@schema("auth")
+}
+
+model PasskeyChallenge {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  challenge String   @db.Text
+  type      String
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([challenge])
+  @@index([expiresAt])
+  @@map("passkey_challenges")
+  @@schema("auth")
+}

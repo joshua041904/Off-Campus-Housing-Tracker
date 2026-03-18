@@ -1,0 +1,100 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: observability
+  labels:
+    grafana_dashboard: "1"
+data:
+  microservices-overview.json: |
+    {
+      "dashboard": {
+        "title": "Microservices Overview",
+        "tags": ["microservices", "overview"],
+        "timezone": "browser",
+        "panels": [
+          {
+            "id": 1,
+            "title": "Request Rate",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "sum(rate(http_requests_total[5m])) by (service)",
+                "legendFormat": "{{service}}"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+          },
+          {
+            "id": 2,
+            "title": "Error Rate",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "sum(rate(http_requests_total{status=~\"5..\"}[5m])) by (service)",
+                "legendFormat": "{{service}}"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+          },
+          {
+            "id": 3,
+            "title": "Response Time (p95)",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service))",
+                "legendFormat": "p95 {{service}}"
+              }
+            ],
+            "yaxes": [{"format": "s"}],
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+          },
+          {
+            "id": 4,
+            "title": "Response Time (p99)",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service))",
+                "legendFormat": "p99 {{service}}"
+              }
+            ],
+            "yaxes": [{"format": "s"}],
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+          }
+        ]
+      }
+    }
+  distributed-tracing.json: |
+    {
+      "dashboard": {
+        "title": "Distributed Tracing",
+        "tags": ["tracing", "jaeger"],
+        "panels": [
+          {
+            "id": 1,
+            "title": "Trace Count",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "sum(rate(jaeger_spans_total[5m])) by (service_name)",
+                "legendFormat": "{{service_name}}"
+              }
+            ]
+          },
+          {
+            "id": 2,
+            "title": "Error Rate",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "sum(rate(jaeger_spans_total{error=\"true\"}[5m])) by (service_name)",
+                "legendFormat": "{{service_name}}"
+              }
+            ]
+          }
+        ]
+      }
+    }
+

@@ -1,0 +1,236 @@
+syntax = "proto3";
+
+package listings;
+
+option go_package = "github.com/yourorg/record-platform/proto/listings";
+
+// Listings service for gRPC
+service ListingsService {
+  // Get listing by ID
+  rpc GetListing(GetListingRequest) returns (GetListingResponse);
+  
+  // List user's listings
+  rpc ListMyListings(ListMyListingsRequest) returns (ListMyListingsResponse);
+  
+  // Search listings
+  rpc SearchListings(SearchListingsRequest) returns (SearchListingsResponse);
+  
+  // Create listing
+  rpc CreateListing(CreateListingRequest) returns (CreateListingResponse);
+  
+  // Update listing
+  rpc UpdateListing(UpdateListingRequest) returns (UpdateListingResponse);
+  
+  // Delete listing
+  rpc DeleteListing(DeleteListingRequest) returns (DeleteListingResponse);
+  
+  // Place bid (auction)
+  rpc PlaceBid(PlaceBidRequest) returns (PlaceBidResponse);
+  
+  // Make offer (OBO/Best Offer)
+  rpc MakeOffer(MakeOfferRequest) returns (MakeOfferResponse);
+  
+  // Add to watchlist
+  rpc AddToWatchlist(AddToWatchlistRequest) returns (AddToWatchlistResponse);
+  
+  // Remove from watchlist
+  rpc RemoveFromWatchlist(RemoveFromWatchlistRequest) returns (RemoveFromWatchlistResponse);
+  
+  // Get user's watchlist
+  rpc GetWatchlist(GetWatchlistRequest) returns (GetWatchlistResponse);
+  
+  // Health check
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+// Request/Response messages
+message GetListingRequest {
+  string listing_id = 1;
+}
+
+message GetListingResponse {
+  Listing listing = 1;
+}
+
+message ListMyListingsRequest {
+  int32 limit = 1;
+  int32 offset = 2;
+}
+
+message ListMyListingsResponse {
+  repeated Listing listings = 1;
+  int32 count = 2;
+}
+
+message SearchListingsRequest {
+  string query = 1;
+  string listing_type = 2;
+  string category = 3;
+  double min_price = 4;
+  double max_price = 5;
+  string condition = 6;
+  int32 limit = 7;
+  int32 offset = 8;
+}
+
+message SearchListingsResponse {
+  repeated Listing listings = 1;
+  int32 count = 2;
+}
+
+message CreateListingRequest {
+  string title = 1;
+  string description = 2;
+  double price = 3;
+  string currency = 4;
+  string listing_type = 5;
+  string condition = 6;
+  string category = 7;
+  string location = 8;
+  double shipping_cost = 9;
+  string shipping_method = 10;
+  string expires_at = 11; // ISO 8601 timestamp
+}
+
+message CreateListingResponse {
+  Listing listing = 1;
+}
+
+message UpdateListingRequest {
+  string listing_id = 1;
+  string title = 2;
+  string description = 3;
+  double price = 4;
+  string condition = 5;
+  string category = 6;
+  string location = 7;
+  double shipping_cost = 8;
+  string shipping_method = 9;
+  bool is_active = 10;
+}
+
+message UpdateListingResponse {
+  Listing listing = 1;
+}
+
+message DeleteListingRequest {
+  string listing_id = 1;
+}
+
+message DeleteListingResponse {
+  bool success = 1;
+}
+
+message PlaceBidRequest {
+  string listing_id = 1;
+  double bid_amount = 2;
+}
+
+message PlaceBidResponse {
+  Bid bid = 1;
+}
+
+message MakeOfferRequest {
+  string listing_id = 1;
+  double offer_amount = 2;
+  string message = 3;
+}
+
+message MakeOfferResponse {
+  Offer offer = 1;
+}
+
+message AddToWatchlistRequest {
+  string listing_id = 1;
+}
+
+message AddToWatchlistResponse {
+  bool success = 1;
+}
+
+message RemoveFromWatchlistRequest {
+  string listing_id = 1;
+}
+
+message RemoveFromWatchlistResponse {
+  bool success = 1;
+}
+
+message GetWatchlistRequest {
+  int32 limit = 1;
+  int32 offset = 2;
+}
+
+message GetWatchlistResponse {
+  repeated Listing listings = 1;
+  int32 count = 2;
+}
+
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+  bool healthy = 1;
+  string version = 2;
+}
+
+// Data models
+message Listing {
+  string id = 1;
+  string user_id = 2;
+  string title = 3;
+  string description = 4;
+  double price = 5;
+  string currency = 6;
+  string listing_type = 7;
+  string condition = 8;
+  string category = 9;
+  string location = 10;
+  double shipping_cost = 11;
+  string shipping_method = 12;
+  bool is_active = 13;
+  bool is_featured = 14;
+  int32 view_count = 15;
+  int32 watch_count = 16;
+  string created_at = 17;
+  string updated_at = 18;
+  string expires_at = 19;
+  repeated ListingImage images = 20;
+  AuctionDetails auction_details = 21;
+}
+
+message ListingImage {
+  string id = 1;
+  string image_url = 2;
+  string thumbnail_url = 3;
+  int32 display_order = 4;
+  bool is_primary = 5;
+}
+
+message AuctionDetails {
+  double starting_bid = 1;
+  double current_bid = 2;
+  string current_bidder = 3;
+  double reserve_price = 4;
+  string end_time = 5;
+  int32 bid_count = 6;
+}
+
+message Bid {
+  string id = 1;
+  string listing_id = 2;
+  string user_id = 3;
+  double bid_amount = 4;
+  bool is_winning = 5;
+  string created_at = 6;
+}
+
+message Offer {
+  string id = 1;
+  string listing_id = 2;
+  string user_id = 3;
+  double offer_amount = 4;
+  string message = 5;
+  string status = 6;
+  string created_at = 7;
+}
+
