@@ -11,5 +11,5 @@
     "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["src/tracing.ts"]
+  "exclude": ["src/tracing.ts", "src/**/*.test.ts"]
 }

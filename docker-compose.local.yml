@@ -1,0 +1,141 @@
+# Local dev stack — no k3s. Strict TLS Kafka; mTLS-ready. Run: docker compose -f docker-compose.local.yml up -d
+# Prereq: ./scripts/dev-generate-certs.sh (creates certs/). Then run ensure-messaging-schema.sh and ensure-media-schema.sh (or init-db below).
+# Services: postgres (messaging + media), zookeeper, kafka (TLS), redis, minio. All on network local-dev.
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    restart: unless-stopped
+    networks: [local-dev]
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/2181; echo srvr >&3; timeout 2 cat <&3 | grep -qi 'Mode:'"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 15s
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on:
+      zookeeper: { condition: service_healthy }
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://127.0.0.1:9092,SSL://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,SSL://kafka:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,SSL:SSL
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_SSL_KEYSTORE_FILENAME: kafka.keystore.jks
+      KAFKA_SSL_KEYSTORE_LOCATION: /etc/kafka/secrets/kafka.keystore.jks
+      KAFKA_SSL_KEYSTORE_CREDENTIALS: kafka.keystore-password
+      KAFKA_SSL_KEY_CREDENTIALS: kafka.keystore-password
+      KAFKA_SSL_TRUSTSTORE_FILENAME: kafka.truststore.jks
+      KAFKA_SSL_TRUSTSTORE_LOCATION: /etc/kafka/secrets/kafka.truststore.jks
+      KAFKA_SSL_TRUSTSTORE_CREDENTIALS: kafka.truststore-password
+      KAFKA_SSL_CLIENT_AUTH: required
+    volumes:
+      - ./certs/kafka-ssl:/etc/kafka/secrets:ro
+    ports: ["29094:9093"]
+    restart: unless-stopped
+    networks: [local-dev]
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 25
+      start_period: 45s
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    ports: ["6380:6379"]
+    restart: unless-stopped
+    networks: [local-dev]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio123
+    ports: ["9000:9000", "9001:9001"]
+    volumes: [minio_data_local:/data]
+    restart: unless-stopped
+    networks: [local-dev]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9000/minio/health/live || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  postgres-messaging:
+    image: postgres:16-alpine
+    environment: { POSTGRES_PASSWORD: postgres, POSTGRES_DB: messaging }
+    restart: unless-stopped
+    ports: ["5444:5432"]
+    volumes: [pgdata_messaging_local:/var/lib/postgresql/data]
+    networks: [local-dev]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 10s
+
+  postgres-media:
+    image: postgres:16-alpine
+    environment: { POSTGRES_PASSWORD: postgres, POSTGRES_DB: media }
+    restart: unless-stopped
+    ports: ["5448:5432"]
+    volumes: [pgdata_media_local:/var/lib/postgresql/data]
+    networks: [local-dev]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 10s
+
+  # Optional: apply schemas after Postgres is up. Run once: docker compose -f docker-compose.local.yml run --rm init-db
+  init-db:
+    image: postgres:16-alpine
+    depends_on:
+      postgres-messaging: { condition: service_healthy }
+      postgres-media: { condition: service_healthy }
+    environment: { PGPASSWORD: postgres }
+    volumes:
+      - ./infra/db:/sql:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        echo "Applying messaging schema..."
+        psql -h postgres-messaging -p 5432 -U postgres -d messaging -v ON_ERROR_STOP=1 -f /sql/01-messaging-schema.sql
+        psql -h postgres-messaging -p 5432 -U postgres -d messaging -v ON_ERROR_STOP=1 -f /sql/02-messaging-outbox.sql || true
+        psql -h postgres-messaging -p 5432 -U postgres -d messaging -v ON_ERROR_STOP=1 -f /sql/04-messaging-media-id.sql || true
+        echo "Applying media schema..."
+        psql -h postgres-media -p 5432 -U postgres -d media -v ON_ERROR_STOP=1 -f /sql/01-media-schema.sql
+        psql -h postgres-media -p 5432 -U postgres -d media -v ON_ERROR_STOP=1 -f /sql/02-media-outbox.sql || true
+        echo "Done."
+    networks: [local-dev]
+    restart: "no"
+
+networks:
+  local-dev:
+    driver: bridge
+
+volumes:
+  pgdata_messaging_local:
+  pgdata_media_local:
+  minio_data_local:

@@ -159,6 +159,9 @@ run_all_phases() {
       max)
         run_phase max "$LOAD_DIR/k6-limit-test-comprehensive.js" MODE=limit DURATION=180s
         ;;
+      messaging)
+        run_phase messaging "$LOAD_DIR/k6-messaging.js" DURATION="${K6_DURATION}" RATE="${K6_RATE:-20}" VUS="${K6_VUS:-10}"
+        ;;
       *)
         echo "  ⚠️  unknown phase: $p (skip)"
         ;;

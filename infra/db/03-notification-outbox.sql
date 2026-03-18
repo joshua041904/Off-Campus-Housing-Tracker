@@ -15,4 +15,6 @@ CREATE INDEX IF NOT EXISTS idx_notification_outbox_unpublished
   ON notification.outbox_events(published, created_at)
   WHERE published = false;
 
-COMMENT ON TABLE notification.outbox_events IS 'Transactional outbox for optional NotificationSentV1 emit; background publisher sends EventEnvelope to dev.notification.events; then sets published=true.';
+COMMENT ON COLUMN notification.outbox_events.payload IS 'Serialized domain event (proto bytes); not JSON.';
+COMMENT ON COLUMN notification.outbox_events.id IS 'UUID = envelope.event_id; publisher must set envelope.event_id = this id (no new UUID on publish).';
+COMMENT ON TABLE notification.outbox_events IS 'Transactional outbox for optional NotificationSentV1 emit; background publisher sends EventEnvelope; Kafka key = aggregate_id.';

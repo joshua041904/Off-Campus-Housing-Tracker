@@ -35,6 +35,33 @@ That is **effectively exactly-once processing effect**. Do not add Kafka EOS, id
 
 ---
 
+## Final architecture overview (canonical)
+
+**Messaging Service**  
+→ Postgres  
+→ Outbox  
+→ Kafka  
+→ Analytics, Trust, Notification  
+
+**Media Service**  
+→ MinIO (dev) / S3 (prod)  
+→ Postgres (metadata)  
+→ Outbox  
+→ Kafka  
+
+**Discipline**
+
+- Strict TLS
+- mTLS everywhere (Kafka; in-cluster gRPC when configured)
+- ENV_PREFIX discipline (topic names)
+- Partition key discipline (entity_id; conversation_id for messaging.events)
+- Health discipline (DB + Kafka + storage in health checks)
+- Break-tested event spine (outbox ordering verified)
+
+This is clean distributed architecture. No distributed spaghetti.
+
+---
+
 ## Data flow (high level)
 
 - **Messaging** → Postgres + Outbox → Kafka (MessageSentV1) → Analytics, Notification, Trust.
@@ -42,6 +69,14 @@ That is **effectively exactly-once processing effect**. Do not add Kafka EOS, id
 - **Strict TLS** everywhere; **mTLS** for Kafka (and in-cluster gRPC when configured).
 - **ENV_PREFIX** for all topic names; **partition key** = entity_id (conversation_id for messaging.events).
 - **Health:** DB + Kafka (and storage for Media) in health checks; NOT_SERVING when required deps down.
+
+---
+
+## gRPC + HTTP/3 layer
+
+- **Externally:** Caddy — HTTP/3 enabled, TLS termination, proxy to gateway.
+- **Internally:** mTLS between services; gRPC over HTTP/2 inside cluster; no streaming required.
+- **Media upload** bypasses gRPC server (client uploads via signed URL to MinIO/S3).
 
 ---
 

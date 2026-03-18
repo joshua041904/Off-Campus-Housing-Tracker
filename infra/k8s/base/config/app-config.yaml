@@ -54,3 +54,5 @@ data:
   KAFKA_BROKER: kafka-external.off-campus-housing-tracker.svc.cluster.local:9093
   KAFKA_USE_SSL: "true"
   KAFKA_SSL_ENABLED: "true"
+  # Topic prefix for domain event topics: ${ENV_PREFIX}.booking.events, etc. Use dev/staging/prod; no hardcoded env in code.
+  ENV_PREFIX: "dev"

@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS messaging.conversation_participants (
   PRIMARY KEY (conversation_id, user_id)
 );
 
-COMMENT ON TABLE messaging.conversation_participants IS 'Per-user conversation state. Archive/delete are per-user; never delete conversation globally.';
+COMMENT ON TABLE messaging.conversation_participants IS 'Per-user conversation state. last_read_at drives read receipts; MarkAsRead RPC updates it (optionally up to a given message_id). Archive/delete are per-user; never delete conversation globally.';
 CREATE INDEX IF NOT EXISTS idx_conversation_participants_user
   ON messaging.conversation_participants(user_id);
 CREATE INDEX IF NOT EXISTS idx_conversation_participants_user_archived_deleted

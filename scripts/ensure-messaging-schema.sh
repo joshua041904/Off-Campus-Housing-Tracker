@@ -25,4 +25,9 @@ if [[ -f "$SQL2" ]]; then
   psql -h "$PGHOST" -p "$PGPORT" -U postgres -d messaging -v ON_ERROR_STOP=1 -f "$SQL2"
   echo "✅ Messaging outbox (02) applied."
 fi
+SQL4="$REPO_ROOT/infra/db/04-messaging-media-id.sql"
+if [[ -f "$SQL4" ]]; then
+  psql -h "$PGHOST" -p "$PGPORT" -U postgres -d messaging -v ON_ERROR_STOP=1 -f "$SQL4"
+  echo "✅ Messaging media_id (04) applied."
+fi
 echo "✅ Messaging schema applied (port $PGPORT, database messaging)."

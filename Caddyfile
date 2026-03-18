@@ -1,25 +1,18 @@
 # -----------------------------------------------------------------------------
-# Off-Campus-Housing-Tracker (made with Tom)
-# Hostname: off-campus-housing.local (vhost and --resolve in scripts).
-# Namespace: off-campus-housing-tracker (*.off-campus-housing-tracker.svc.cluster.local).
-# Paths: /api/, /privacy, /terms; adjust if routes differ.
-# Keep: grace_period, servers.protocols (h1 h2 h3), transport h2c, TLS paths, log format.
+# Off-Campus-Housing-Tracker — production-grade Caddy (network spine lock)
+# SNI: off-campus-housing.local only. No record-local; no protocol ambiguity.
+# Data path: Caddy → services directly (no ingress-nginx in path).
 # -----------------------------------------------------------------------------
 {
 	admin 0.0.0.0:2019
-	# Graceful shutdown: drain QUIC/TLS before process exit during rotation (avoids mid-flight connection death).
-	# 15s/10s gives QUIC sessions time to close cleanly; matches production CA+leaf rotation runbook.
 	grace_period 15s
 	shutdown_delay 10s
-	# HTTP/3 (QUIC) is enabled automatically when using port 443 with TLS
+	# Structured logging for observability; monitor {http.request.proto} {http.request.host} {http.request.tls.version} for H2 vs H3
 	log {
 		output stdout
-		format console
+		format json
 		level INFO
 	}
-	# Enable HTTP/2 and HTTP/3. Longer timeouts reduce connection churn and QUIC idle shutdown under rotation load.
-	# idle 2m: avoid Caddy closing connections before k6; read_body/write 2m avoid mid-request timeouts.
-	# Note: max_concurrent_streams for H2 is not exposed in Caddyfile; connection reuse disabled in k6 rotation instead.
 	servers {
 		protocols h1 h2 h3
 		timeouts {
@@ -27,104 +20,107 @@
 			read_body 2m
 			write 2m
 		}
-		# Full-duplex helps HTTP/3 request/response overlap under load
 		enable_full_duplex
 	}
 }
 
-# Primary vhost - HTTP/3, Web App, REST API, and gRPC (via Envoy)
-# gRPC: Caddy terminates TLS and proxies to Envoy (h2c). Clients use Caddy LB IP with -authority off-campus-housing.local.
-# QUIC: clients must use SNI = off-campus-housing.local (e.g. --resolve off-campus-housing.local:443:<ip> and https://off-campus-housing.local). See docs/QUIC_INVARIANT_CHECKLIST.md.
-#
-# H2 vs H3 routing debug: if resell returns 404 on H3 but 200 on H2, compare Host/SNI/authority:
-#   curl --http2 -v --resolve off-campus-housing.local:443:<LB_IP> --cacert certs/dev-root.pem https://off-campus-housing.local/api/resell/...
-#   curl --http3 -v --resolve off-campus-housing.local:443:<LB_IP> --cacert certs/dev-root.pem https://off-campus-housing.local/api/resell/...
-# Check: Host header, :authority, path. Ensure k6 and curl use same Host (off-campus-housing.local) and --resolve so SNI matches.
+# Primary vhost — HTTP/3, REST, gRPC. Deterministic routing; no regex; SNI enforced.
+# Caddy → api-gateway / Envoy directly (ingress-nginx not in data path).
 https://off-campus-housing.local {
 	tls /etc/caddy/certs/tls.crt /etc/caddy/certs/tls.key {
 		protocols tls1.2 tls1.3
+		ciphers TLS_AES_128_GCM_SHA256 TLS_AES_256_GCM_SHA384 TLS_CHACHA20_POLY1305_SHA256
 	}
 
-	# Request access log: host, uri, proto for H2 vs H3 comparison (kubectl logs deploy/caddy-h3 -n ingress-nginx)
+	# Request log: proto, host, tls version for H2 vs H3 comparison
 	log request_access {
 		output stdout
 		format json
 		level INFO
 	}
 
-	# Privacy and Terms pages - route directly to auth-service (BEFORE catch-all)
-	@privacy {
-		path /privacy
-	}
-	handle @privacy {
-		reverse_proxy http://auth-service.off-campus-housing-tracker.svc.cluster.local:4001 {
-			header_up Host {http.request.host}
-		}
+	# SNI enforcement: wrong host → 421 Misdirected Request
+	@wrong_host not host off-campus-housing.local
+	handle @wrong_host {
+		respond "Invalid Host" 421
 	}
 
-	@terms {
-		path /terms
-	}
-	handle @terms {
-		reverse_proxy http://auth-service.off-campus-housing-tracker.svc.cluster.local:4001 {
-			header_up Host {http.request.host}
-		}
-	}
-
-	# Health check endpoints
+	# Health (before routing)
 	handle_path /_caddy/healthz {
 		respond "ok" 200
 	}
 
-	# gRPC: route to Envoy via h2c only. TLS terminated at Caddy; do NOT use https:// upstream for Envoy.
-	# CRITICAL: Explicit transport versions h2c — without it Caddy may downgrade to HTTP/1.1 and Envoy gRPC listener rejects.
-	# See docs/CADDY_GRPC_REVERSE_PROXY_SETUP.md
-	@grpc path_regexp \.
+	# Privacy and Terms → auth-service
+	@privacy path /privacy
+	handle @privacy {
+		reverse_proxy http://auth-service.off-campus-housing-tracker.svc.cluster.local:4001 {
+			header_up Host {http.request.host}
+			header_up X-Request-Id {http.request.id}
+			header_up Traceparent {http.request.header.Traceparent}
+			header_up Tracestate {http.request.header.Tracestate}
+		}
+	}
+
+	@terms path /terms
+	handle @terms {
+		reverse_proxy http://auth-service.off-campus-housing-tracker.svc.cluster.local:4001 {
+			header_up Host {http.request.host}
+			header_up X-Request-Id {http.request.id}
+			header_up Traceparent {http.request.header.Traceparent}
+			header_up Tracestate {http.request.header.Tracestate}
+		}
+	}
+
+	# gRPC: deterministic match on Content-Type (no path regex). HTTP/2 only.
+	@grpc header Content-Type application/grpc*
 	handle @grpc {
 		reverse_proxy envoy-test.envoy-test.svc.cluster.local:10000 {
 			header_up Host {http.request.host}
+			header_up X-Request-Id {http.request.id}
+			header_up Traceparent {http.request.header.Traceparent}
+			header_up Tracestate {http.request.header.Tracestate}
 			transport http {
 				versions h2c
 			}
 		}
 	}
 
-	# REST API requests: route DIRECTLY to api-gateway (NOT through ingress-nginx)
-	# Direct routing: Caddy → api-gateway (single-hop, faster, more reliable)
-	# CRITICAL: Exclude gRPC paths (service.Service/Method format with dots) - only match REST paths (with slashes)
+	# REST API: explicit path list (no regex). Exclude gRPC by Content-Type.
 	@api {
-		path_regexp ^/(api/|auth/|listings/|booking/|messaging/|analytics/|trust/)
-		not path_regexp ^/?[a-z_]+\. # Exclude gRPC paths (service.Service format)
+		path /api/* /auth/* /listings/* /booking/* /messaging/* /analytics/* /trust/*
+		not header Content-Type application/grpc*
 	}
 	handle @api {
 		reverse_proxy http://api-gateway.off-campus-housing-tracker.svc.cluster.local:4000 {
 			header_up Host {http.request.host}
-			# Use HTTP/1.1 to match backend
+			header_up X-Forwarded-Proto https
+			header_up X-Request-Id {http.request.id}
+			header_up Traceparent {http.request.header.Traceparent}
+			header_up Tracestate {http.request.header.Tracestate}
 			transport http {
 				versions h1
-				# Connection pool settings for high load
 				dial_timeout 10s
 				response_header_timeout 30s
 				expect_continue_timeout 5s
-				# Connection reuse is enabled by default in Caddy
 			}
-			# Load balancing and health checks
 			lb_policy round_robin
 			health_uri /healthz
 			health_interval 10s
 			health_timeout 5s
-			# Retry on connection errors
 			fail_duration 30s
 			max_fails 3
 		}
 	}
 
-	# Catch-all for non-API paths (webapp externalized - route to api-gateway fallback)
-	# Webapp was excluded from kustomization; use api-gateway so Caddy doesn't poison on missing DNS
-	handle {
+	# Web / static: explicit catch-all to api-gateway (no silent unknown routes)
+	@web path /*
+	handle @web {
 		reverse_proxy http://api-gateway.off-campus-housing-tracker.svc.cluster.local:4000 {
 			header_up Host {http.request.host}
 			header_up X-Forwarded-Proto https
+			header_up X-Request-Id {http.request.id}
+			header_up Traceparent {http.request.header.Traceparent}
+			header_up Tracestate {http.request.header.Tracestate}
 			transport http {
 				versions h1
 				dial_timeout 10s
@@ -137,53 +133,20 @@ https://off-campus-housing.local {
 	}
 }
 
-# Catch-all for any hostname on port 443 (including ngrok, probes without SNI, etc.)
+# Fallback for port 443 with other SNI / no SNI — 421 Misdirected Request (no silent proxy)
 :443 {
 	tls /etc/caddy/certs/tls.crt /etc/caddy/certs/tls.key {
 		protocols tls1.2 tls1.3
+		ciphers TLS_AES_128_GCM_SHA256 TLS_AES_256_GCM_SHA384 TLS_CHACHA20_POLY1305_SHA256
 	}
 
-	# Health check endpoint for probes without SNI (must be first)
+	# Health for probes without correct SNI
 	handle_path /_caddy/healthz {
 		respond "ok" 200
 	}
 
-	# Privacy and Terms pages - route directly to auth-service (BEFORE catch-all)
-	@privacy {
-		path /privacy
-	}
-	handle @privacy {
-		reverse_proxy http://auth-service.off-campus-housing-tracker.svc.cluster.local:4001 {
-			header_up Host {http.request.host}
-		}
-	}
-
-	@terms {
-		path /terms
-	}
-	handle @terms {
-		reverse_proxy http://auth-service.off-campus-housing-tracker.svc.cluster.local:4001 {
-			header_up Host {http.request.host}
-		}
-	}
-
-	# Catch-all for non-off-campus-housing.local hosts (ingress-nginx-controller not deployed; use api-gateway)
-	# Fixes "no such host" DNS failures that poisoned Caddy readiness
+	# Wrong or missing SNI → 421 (no silent forward to api-gateway)
 	handle {
-		reverse_proxy http://api-gateway.off-campus-housing-tracker.svc.cluster.local:4000 {
-			header_up Host {http.request.host}
-			transport http {
-				versions h1
-				dial_timeout 10s
-				response_header_timeout 30s
-				expect_continue_timeout 5s
-			}
-			lb_policy round_robin
-			health_uri /healthz
-			health_interval 10s
-			health_timeout 5s
-			fail_duration 30s
-			max_fails 3
-		}
+		respond "Misdirected Request" 421
 	}
 }

@@ -575,6 +575,22 @@ app.head("/listings/healthz", createProxyMiddleware({
     },
   },
 }));
+
+// Messaging service health check (housing; port 4014)
+app.get(["/messaging/healthz", "/api/messaging/healthz"], createProxyMiddleware({
+  target: "http://messaging-service:4014",
+  changeOrigin: true,
+  pathRewrite: () => "/healthz",
+  proxyTimeout: 10000,
+  agent: keepAliveAgent,
+  on: {
+    error(err, _req, res) {
+      console.error("[gw] messaging/healthz proxy error:", err);
+      sendJson502(res as NodeServerResponse | Socket, "messaging upstream error");
+    },
+  },
+}));
+
 app.use(
   "/records/metrics",
   createProxyMiddleware({
@@ -735,8 +751,8 @@ const OPEN_ROUTES: RouteRule[] = [
   // service health checks (public; Caddy routes /auctions/healthz and /ai/healthz here — must be open)
   { method: "GET",  pattern: /^\/auctions\/healthz\/?$/ },
   { method: "GET",  pattern: /^\/ai\/healthz\/?$/ },
-  { method: "GET",  pattern: /^\/(?:api\/)?(auth|records|listings|social|shopping|analytics|ai|auctions|auction-monitor|python-ai)\/healthz\/?$/ },
-  { method: "HEAD", pattern: /^\/(?:api\/)?(auth|records|listings|social|shopping|analytics|ai|auctions|auction-monitor|python-ai)\/healthz\/?$/ },
+  { method: "GET",  pattern: /^\/(?:api\/)?(auth|records|listings|messaging|social|shopping|analytics|ai|auctions|auction-monitor|python-ai)\/healthz\/?$/ },
+  { method: "HEAD", pattern: /^\/(?:api\/)?(auth|records|listings|messaging|social|shopping|analytics|ai|auctions|auction-monitor|python-ai)\/healthz\/?$/ },
 
   // cache stats endpoints (public)
   { method: "GET",  pattern: /^\/(?:api\/)?(listings|shopping)\/cache\/stats\/?$/ },

@@ -63,8 +63,9 @@ Files:
 - **Schema:** `messaging`.
   - **conversations** — id, listing_id (optional), conversation_key (optional, unique), created_at, updated_at.
   - **conversation_participants** — (conversation_id, user_id) PK, joined_at, archived, deleted, last_read_at. Per-user archive/delete; never delete conversation globally.
-  - **messages** — id, conversation_id, sender_id, body, message_type, created_at, edited_at, deleted_at, version. Soft delete only; unread = count where created_at > last_read_at and sender_id != current user and deleted_at IS NULL.
-- **Apply:** `PGPASSWORD=postgres ./scripts/ensure-messaging-schema.sh` or `psql -h 127.0.0.1 -p 5444 -U postgres -d messaging -f infra/db/01-messaging-schema.sql`
+  - **messages** — id, conversation_id, sender_id, body, message_type, created_at, edited_at, deleted_at, version. Optional **media_id** (04-messaging-media-id.sql). Soft delete only; unread = count where created_at > last_read_at and sender_id != current user and deleted_at IS NULL.
+- **Rate limit (optional):** 05-messaging-rate-limit.sql — DB-backed sliding window `message_rate_limit (user_id, window_start, count)`. Prefer **Redis** (key `rate:msg:{user_id}`, INCR, EXPIRE 60s; max 30/min, 500/day). See docs/MESSAGING_RATE_LIMIT_AND_SPAM.md.
+- **Apply:** `PGPASSWORD=postgres ./scripts/ensure-messaging-schema.sh` or `psql -h 127.0.0.1 -p 5444 -U postgres -d messaging -f infra/db/01-messaging-schema.sql` then 02, 04; optionally 05 if not using Redis.
 - **API:** Synchronous gRPC; Kafka only for events `message.sent`, `message.deleted` (analytics, notification). Does not validate booking in DB — call booking via gRPC if needed.
 
 ## Notification (5445)

@@ -415,7 +415,7 @@ docker compose up -d postgres-auth postgres-listings postgres-bookings postgres-
 
 ## No-conflict setup (same host as record platform)
 
-**Optional (same host as other projects):** Use hostname **off-campus-housing.local**, Redis **6380**, Kafka **29094**, Caddy NodePort **30444**, Zookeeper **2182**, Postgres **5441–5447** so this project does not conflict with other stacks.
+**Optional (same host as other projects):** Use hostname **off-campus-housing.local** (SNI must match; do not use record-local). Redis **6380**, Kafka **29094**, Caddy NodePort **30444**, Zookeeper **2182**, Postgres **5441–5447** so this project does not conflict with other stacks. Deploy Caddy with **CADDY_NODEPORT=30444** when using NodePort so the port diff is applied (e.g. `CADDY_NODEPORT=30444 ./scripts/rollout-caddy.sh`).
 
 **In-cluster service ports** for housing:
 

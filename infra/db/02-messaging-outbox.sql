@@ -15,4 +15,6 @@ CREATE INDEX IF NOT EXISTS idx_messaging_outbox_unpublished
   ON messaging.outbox_events(published, created_at)
   WHERE published = false;
 
-COMMENT ON TABLE messaging.outbox_events IS 'Transactional outbox: same transaction as domain write; background publisher sends EventEnvelope to dev.messaging.events; then sets published=true.';
+COMMENT ON COLUMN messaging.outbox_events.payload IS 'Serialized domain event (proto bytes); not JSON.';
+COMMENT ON COLUMN messaging.outbox_events.id IS 'UUID = envelope.event_id; publisher must set envelope.event_id = this id (no new UUID on publish).';
+COMMENT ON TABLE messaging.outbox_events IS 'Transactional outbox: same transaction as domain write; background publisher sends EventEnvelope; Kafka key = aggregate_id.';

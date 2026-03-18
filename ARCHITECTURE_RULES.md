@@ -62,10 +62,18 @@ These rules keep the platform coherent across proto, events, DBs, and gateway. E
 
 ---
 
+## Rule 9 — Event layer ordering (outbox)
+
+- Outbox publisher **must** do: (1) produce to Kafka and await success; (2) then UPDATE published = true; (3) then commit DB transaction. Never mark published before produce; never commit the update before produce success. On produce failure, leave published = false so the next poll retries.
+- Consumers **must** be idempotent (processed_events; insert event_id before handle; on conflict skip).
+- Do **not** add Kafka transactions, exactly-once producer, saga orchestrators, or choreography to "strengthen" this—the current design is the intended equilibrium. See **docs/EVENT_LAYER_STABILITY.md**.
+
+---
+
 ## Where to look
 
 - **Proto ↔ DB ↔ events:** docs/HOUSING_ARCHITECTURE_CONTRACT.md, proto/ and proto/events/.
-- **Kafka:** docs/KAFKA_STRATEGY.md, docs/KAFKA_TOPICS_AND_PARTITIONS.md, docs/EVENT_VERSIONING_AND_TRACING.md.
+- **Kafka / event layer:** docs/KAFKA_STRATEGY.md, docs/KAFKA_TOPICS_AND_PARTITIONS.md, docs/EVENT_VERSIONING_AND_TRACING.md, docs/OUTBOX_PUBLISHER_AND_CONSUMER_CONTRACT.md, docs/EVENT_LAYER_STABILITY.md (freeze and ordering).
 - **Gateway:** docs/GATEWAY_POLICY.md.
 - **Search:** docs/SEARCH_ARCHITECTURE.md.
 - **Service auth and errors:** docs/SERVICE_AUTH_AND_ERRORS.md (mTLS, service identity, capability matrix, gRPC error mapping, structured errors).

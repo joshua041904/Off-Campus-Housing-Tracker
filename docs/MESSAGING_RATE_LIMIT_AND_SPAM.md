@@ -23,7 +23,7 @@ Messaging is abuse-prone. This doc locks: rate limiting (Redis), spam detection 
 
 If exceeded → gRPC error (e.g. `RESOURCE_EXHAUSTED` or `PERMISSION_DENIED` with message "Rate limit exceeded"). Messaging service checks Redis **before** inserting message and outbox.
 
-**Alternative (DB-backed sliding window):** Possible but heavier. Table `messaging.message_rate_limit (user_id, window_start, count)` with periodic cleanup. Prefer Redis for speed and simplicity.
+**Alternative (DB-backed sliding window):** Table `messaging.message_rate_limit (user_id, window_start, count)` — see **infra/db/05-messaging-rate-limit.sql**. Use when Redis is not available. Periodic cleanup of old windows required. Prefer Redis for speed and simplicity.
 
 ---
 

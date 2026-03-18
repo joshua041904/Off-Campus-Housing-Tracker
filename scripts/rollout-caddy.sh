@@ -50,11 +50,29 @@ elif [ "${CADDY_USE_HOSTPORT:-0}" = "1" ] && [ -f "infra/k8s/caddy-h3-service-cl
   kubectl -n "$NS" apply -f infra/k8s/caddy-h3-service-clusterip.yaml
   echo "✅ Applied Caddy service (ClusterIP, hostPort 443) from caddy-h3-service-clusterip.yaml"
 elif [ -f "infra/k8s/caddy-h3-svc.yaml" ]; then
-  kubectl -n "$NS" apply -f infra/k8s/caddy-h3-svc.yaml
-  echo "✅ Applied Caddy service (NodePort 30443) from caddy-h3-svc.yaml"
+  _np="${CADDY_NODEPORT:-30443}"
+  if [[ "$_np" != "30443" ]]; then
+    sed "s/nodePort: 30443/nodePort: $_np/g" infra/k8s/caddy-h3-svc.yaml | kubectl -n "$NS" apply -f -
+  else
+    kubectl -n "$NS" apply -f infra/k8s/caddy-h3-svc.yaml
+  fi
+  echo "✅ Applied Caddy service (NodePort ${CADDY_NODEPORT:-30443}) from caddy-h3-svc.yaml"
+elif [ -f "infra/k8s/caddy-h3-service-nodeport.yaml" ]; then
+  _np="${CADDY_NODEPORT:-30443}"
+  if [[ "$_np" != "30443" ]]; then
+    sed "s/nodePort: 30443/nodePort: $_np/g" infra/k8s/caddy-h3-service-nodeport.yaml | kubectl -n "$NS" apply -f -
+  else
+    kubectl -n "$NS" apply -f infra/k8s/caddy-h3-service-nodeport.yaml
+  fi
+  echo "✅ Applied Caddy service (NodePort ${CADDY_NODEPORT:-30443}) from caddy-h3-service-nodeport.yaml"
 elif [ -f "infra/k8s/caddy-h3-service.yaml" ]; then
-  kubectl -n "$NS" apply -f infra/k8s/caddy-h3-service.yaml
-  echo "✅ Applied Caddy service (NodePort 30443) from caddy-h3-service.yaml"
+  _np="${CADDY_NODEPORT:-30443}"
+  if [[ "$_np" != "30443" ]]; then
+    sed "s/nodePort: 30443/nodePort: $_np/g" infra/k8s/caddy-h3-service.yaml | kubectl -n "$NS" apply -f -
+  else
+    kubectl -n "$NS" apply -f infra/k8s/caddy-h3-service.yaml
+  fi
+  echo "✅ Applied Caddy service (NodePort ${CADDY_NODEPORT:-30443}) from caddy-h3-service.yaml"
 else
   echo "⚠️  WARNING: No Caddy service file found!"
   echo "   For 443@loadbalancer + hostPort: infra/k8s/caddy-h3-service-clusterip.yaml"

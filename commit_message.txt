@@ -1,24 +1,29 @@
-docs(media+rate-limit+spam): full media design, MinIO, Redis rate limit, Trust spam, architecture overview
+feat(infra): make-it-real local stack, Caddy spine lock, k6 messaging
 
-Media service — full design
----------------------------
-- proto/media.proto: CreateUploadUrl, CompleteUpload, GetDownloadUrl (signed URLs only; no file streaming via gRPC).
-- infra/db/01-media-schema.sql: media.media_files (id, user_id, object_key, filename, content_type, size_bytes, status pending|uploaded|failed).
-- infra/db/02-media-outbox.sql: media.outbox_events for MediaUploadedV1 after CompleteUpload.
-- docs/MEDIA_SERVICE_DESIGN.md: responsibilities, signed URL flow (CreateUploadUrl → client uploads to MinIO/S3 → CompleteUpload → verify, status=uploaded, outbox), MinIO setup (docker-compose, mc bucket, media service env S3_*), health, what not to do.
-- docker-compose.yml: minio service (ports 9000, 9001, minio_data volume); healthcheck wget minio/health/live.
-- services/media-service/README.md: aligned to new proto; link MEDIA_SERVICE_DESIGN; MinIO bucket creation; no file bytes over gRPC.
-- scripts/ensure-media-schema.sh: apply 01-media-schema + 02-media-outbox to DB media port 5448.
-- infra/db/README.md: Media (5448) optional section; Trust spam score (05) in Trust section.
+Local dev stack (no k3s)
+------------------------
+- docker-compose.local.yml: Postgres (messaging + media), Kafka TLS, Zookeeper, Redis, MinIO; init-db for schemas; cert volume.
+- scripts/dev-generate-certs.sh: dev CA + leaf certs (messaging-service, media-service, kafka client/broker) under ./certs/.
+- docs/LOCAL_DEV.md: run certs, compose up, init-db, MinIO bucket, unit/integration test commands.
 
-Messaging rate limiting + spam + recommendation
+Kafka strict TLS + media + messaging + analytics
 -------------------------------------------------
-- docs/MESSAGING_RATE_LIMIT_AND_SPAM.md: Redis rate limit (key rate:msg:{user_id}, INCR, EXPIRE 60s; max 30/min, 500/day); do NOT use Kafka for rate limiting. Trust spam: consume MessageSentV1, user_spam_score, emit UserSuspendedV1; messaging rejects SendMessage for suspended users. Recommendation: Analytics read model user_listing_engagement from MessageSentV1 + booking + views; signals and ranking inputs (tenant/landlord side).
-- infra/db/05-trust-spam-score.sql: trust.user_spam_score (user_id, score, updated_at).
-- scripts/ensure-trust-schema.sh: apply 05-trust-spam-score.sql after 04.
+- services/common: getKafkaSslConfigForTest(env), kafka.test.ts (missing cert → throw); no plaintext fallback.
+- services/media-service: full scaffold (handlers, S3, mediaRepo, outbox, health), proto/certs paths via __dirname, objectKey unit tests.
+- services/messaging-service: package.json, tsconfig; rateLimit.ts (Redis 30/min, 500/day).
+- services/analytics-service: consumers/messagingConsumer.ts (MessageSentV1 → user_listing_engagement.messages_sent); infra/db/04-analytics-user-listing-engagement.sql.
+- .github/workflows/local-integration.yml: generate certs, Kafka TLS test, compose up, init-db, media + event-layer-verification tests, tear down.
 
-Architecture overview + exactly-once
+SNI + Caddy NodePort + k6 messaging
 -----------------------------------
-- docs/ARCHITECTURE_OVERVIEW.md: exactly-once final statement (no loss, deterministic retry, idempotent consumption, per-conversation ordering, no 2PC, no event before commit); service map (Messaging, Media, Notification, Analytics, Trust, Booking, Listings, Auth); data flow; what is locked; next moves (media scaffold, messaging publisher + Redis rate limit, Trust spam consumer, Analytics read model, freeze event layer, search + recommendation).
+- Caddyfile: SNI comment (off-campus-housing.local only; diff from record platform).
+- scripts/rollout-caddy.sh: CADDY_NODEPORT=30444 support (sed nodePort) for caddy-h3-service-nodeport.yaml and siblings.
+- README: no-conflict note and CADDY_NODEPORT=30444 example.
+- services/api-gateway: GET /api/messaging/healthz → messaging-service:4014; messaging in auth-bypass list.
+- scripts/load/k6-messaging.js: load test /api/messaging/healthz; scripts/load/run-k6-phases.sh: messaging phase.
 
-No implementation code in this commit; architecture and schema only. Implements: media-service scaffold, MinIO config, signed URL generation, messaging rate limiting (Redis), spam scoring consumer, analytics read model can follow from these docs.
+Caddy network spine (production-grade)
+--------------------------------------
+- Caddyfile: gRPC matcher by Content-Type application/grpc* (no path regex). REST by explicit path list /api/* /auth/* ... and not Content-Type application/grpc*. SNI: @wrong_host → 421. TLS ciphers (TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384, TLS_CHACHA20_POLY1305_SHA256). Tracing headers (X-Request-Id, Traceparent, Tracestate) to backends. Explicit @web path /*; :443 fallback returns 421 (no silent proxy). Global log format json.
+- scripts/verify-caddy-grpc-routing.sh: readiness check that gRPC routes (grpcurl grpc.health.v1.Health/Check via Caddy).
+- docs/CADDY_NETWORK_SPINE.md: discipline, logging, gRPC readiness.

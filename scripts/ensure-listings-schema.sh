@@ -36,4 +36,9 @@ if [[ -f "$SQL3" ]]; then
   psql -h "$PGHOST" -p "$PGPORT" -U postgres -d listings -v ON_ERROR_STOP=1 -f "$SQL3"
   echo "✅ Listings outbox (03) applied."
 fi
+SQL4="$REPO_ROOT/infra/db/04-listings-processed-events.sql"
+if [[ -f "$SQL4" ]]; then
+  psql -h "$PGHOST" -p "$PGPORT" -U postgres -d listings -v ON_ERROR_STOP=1 -f "$SQL4"
+  echo "✅ Listings processed_events (04) applied."
+fi
 echo "✅ Listings schema and tuning applied (port $PGPORT, database listings)."
