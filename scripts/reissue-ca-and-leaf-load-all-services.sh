@@ -185,10 +185,9 @@ _reissue_main() {
   CLUSTERIP_FQDN="caddy-h3.ingress-nginx.svc.cluster.local"
   SANS="DNS:${HOST},DNS:*.${HOST},DNS:localhost,DNS:${CLUSTERIP_FQDN}"
   SANS="${SANS},DNS:*.ingress-nginx.svc.cluster.local,DNS:*.off-campus-housing-tracker.svc.cluster.local"
-  SANS="${SANS},DNS:auth-service.off-campus-housing-tracker.svc.cluster.local,DNS:records-service.off-campus-housing-tracker.svc.cluster.local"
-  SANS="${SANS},DNS:listings-service.off-campus-housing-tracker.svc.cluster.local,DNS:social-service.off-campus-housing-tracker.svc.cluster.local"
-  SANS="${SANS},DNS:shopping-service.off-campus-housing-tracker.svc.cluster.local,DNS:analytics-service.off-campus-housing-tracker.svc.cluster.local"
-  SANS="${SANS},DNS:auction-monitor.off-campus-housing-tracker.svc.cluster.local,DNS:python-ai-service.off-campus-housing-tracker.svc.cluster.local"
+  SANS="${SANS},DNS:auth-service.off-campus-housing-tracker.svc.cluster.local,DNS:listings-service.off-campus-housing-tracker.svc.cluster.local"
+  SANS="${SANS},DNS:booking-service.off-campus-housing-tracker.svc.cluster.local,DNS:messaging-service.off-campus-housing-tracker.svc.cluster.local"
+  SANS="${SANS},DNS:trust-service.off-campus-housing-tracker.svc.cluster.local,DNS:analytics-service.off-campus-housing-tracker.svc.cluster.local"
   SANS="${SANS},DNS:api-gateway.off-campus-housing-tracker.svc.cluster.local,IP:127.0.0.1,IP:::1"
 
   log_progress "step 1: generating CA and leaf…"
@@ -736,7 +735,7 @@ data:
     fi
     _restarted=0
     _skipped=0
-    for d in auth-service api-gateway records-service listings-service social-service shopping-service analytics-service auction-monitor python-ai-service; do
+    for d in auth-service api-gateway listings-service booking-service messaging-service trust-service analytics-service; do
       if ! kctl get deploy "$d" -n "$NS_APP" --request-timeout=5s >/dev/null 2>&1; then
         _skipped=$((_skipped + 1))
         continue

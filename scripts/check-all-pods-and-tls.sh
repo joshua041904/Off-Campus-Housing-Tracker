@@ -54,9 +54,9 @@ else
   say "1. Preflight (skipped, SKIP_PREFLIGHT=1)"
 fi
 
-# 2. Check external database ports (8 PostgreSQL: docker-compose 5433–5440). Port UP = reachable; database names (listings, shopping, auth, etc.) must exist on each instance.
-say "2. Checking external database ports (8 PostgreSQL)..."
-DB_PORTS=(5433 5434 5435 5436 5437 5438 5439 5440)
+# 2. Check external database ports (7 PostgreSQL: docker-compose 5441–5447). Port UP = reachable; database names (auth, listings, bookings, messaging, notification, trust, analytics) must exist on each instance.
+say "2. Checking external database ports (7 PostgreSQL)..."
+DB_PORTS=(5441 5442 5443 5444 5445 5446 5447)
 DB_UP=0
 for port in "${DB_PORTS[@]}"; do
   if nc -z localhost "$port" 2>/dev/null; then
@@ -70,7 +70,7 @@ if [[ "${DB_UP:-0}" -eq 8 ]]; then
   ok "All 8 database ports UP (reachable)"
   info "Database names (listings, shopping, auth, etc.) must exist on each port — create with infra/db/00-create-*-database.sql or run preflight without SKIP_PREFLIGHT_MIGRATIONS=1 for 9/9"
 else
-  warn "Only ${DB_UP:-0}/8 database ports UP (expected 5433–5440)"
+  warn "Only ${DB_UP:-0}/7 database ports UP (expected 5441–5447)"
 fi
 
 # 3. Kafka: external strict TLS (Docker Compose :29093). No in-cluster Kafka/ZK.
@@ -111,7 +111,7 @@ fi
 
 # 5. Service pods (off-campus-housing-tracker, 1/1 each) — use _kubectl (request-timeout); avoid cap timeouts
 say "5. Checking service pods (off-campus-housing-tracker, should be 1/1 Ready)..."
-SERVICES=("auth-service" "records-service" "listings-service" "social-service" "shopping-service" "analytics-service" "auction-monitor" "python-ai-service" "api-gateway")
+SERVICES=("auth-service" "listings-service" "booking-service" "messaging-service" "trust-service" "analytics-service" "api-gateway")
 READY=0
 TOTAL=0
 NOT_READY=()
@@ -133,12 +133,12 @@ for svc in "${SERVICES[@]}"; do
 done
 
 # If not all ready, diagnose and fix
-if [[ "${READY:-0}" -ne 9 ]]; then
-  warn "Only ${READY:-0}/9 services Ready - diagnosing issues..."
+if [[ "${READY:-0}" -ne 7 ]]; then
+  warn "Only ${READY:-0}/7 services Ready - diagnosing issues..."
   echo "  If pod logs show \"database X does not exist\", create that database on the correct port (e.g. infra/db/00-create-listings-database.sql on 5435) or run preflight without SKIP_PREFLIGHT_MIGRATIONS=1."
   echo ""
   
-  # Ensure Kafka is up first (required for analytics-service and auction-monitor)
+  # Ensure Kafka is up first (required for analytics-service)
   say "5a. Ensuring Kafka is accessible..."
   if ! nc -z 127.0.0.1 29093 2>/dev/null && ! nc -z localhost 29093 2>/dev/null; then
     warn "Kafka port 29093 not accessible, starting Kafka..."
@@ -246,8 +246,7 @@ if [[ "${READY:-0}" -ne 9 ]]; then
     fi
     
     # Check for Kafka connection errors (for all services that use Kafka)
-    if [[ "$svc" == "analytics-service" ]] || [[ "$svc" == "auction-monitor" ]] || \
-       [[ "$svc" == "social-service" ]] || [[ "$svc" == "python-ai-service" ]]; then
+    if [[ "$svc" == "analytics-service" ]]; then
       KAFKA_ERROR=$(_kubectl logs "$POD" -n off-campus-housing-tracker --tail=100 2>&1 | grep -i "ECONNREFUSED.*9093\|kafka.*connection\|kafka.*error" | head -1 || echo "")
       if [[ -n "$KAFKA_ERROR" ]]; then
         warn "  Kafka connection error detected: $KAFKA_ERROR"

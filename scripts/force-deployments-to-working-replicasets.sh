@@ -15,7 +15,7 @@ ok()  { echo "  OK $*"; }
 warn(){ echo "  WARN $*"; }
 
 NS="off-campus-housing-tracker"
-SERVICES=("auth-service" "records-service" "listings-service" "social-service" "shopping-service" "analytics-service" "auction-monitor" "python-ai-service" "api-gateway")
+SERVICES=("auth-service" "listings-service" "booking-service" "messaging-service" "trust-service" "analytics-service" "api-gateway")
 
 say "=== Forcing Deployments to Use Working ReplicaSets ==="
 

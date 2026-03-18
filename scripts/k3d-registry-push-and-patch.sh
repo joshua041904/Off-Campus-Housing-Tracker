@@ -48,7 +48,7 @@ fi
 ok "Registry reachable at ${PUSH_ADDR}"
 
 # Services that use app image (from preflight _reapply_k3d_registry_images)
-APPS=(api-gateway auth-service records-service listings-service analytics-service python-ai-service social-service shopping-service auction-monitor)
+APPS=(api-gateway auth-service listings-service booking-service messaging-service trust-service analytics-service)
 
 # Tag and push :dev images (must already be built, e.g. docker build -t api-gateway:dev ...)
 for app in "${APPS[@]}"; do

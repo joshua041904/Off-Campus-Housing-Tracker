@@ -732,7 +732,7 @@ fi
 
 # Test 6: mTLS Configuration Check
 say "Test 6: mTLS Configuration Check"
-SERVICES=("auth-service" "records-service" "social-service" "listings-service" "analytics-service" "shopping-service")
+SERVICES=("auth-service" "listings-service" "booking-service" "messaging-service" "trust-service" "analytics-service")
 MTLS_CAPABLE=0
 MTLS_ENABLED=0
 

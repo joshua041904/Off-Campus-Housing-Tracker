@@ -501,7 +501,7 @@ if [[ "${ROTATION_UPDATE_KAFKA_SSL:-0}" == "1" ]] && $ROTATE_CA && [[ -f "$CA_RO
           (cd "$REPO_ROOT" && docker compose restart kafka 2>/dev/null) && ok "Kafka container restarted" || warn "Kafka container restart failed or not found"
         fi
         # Rollout restart Kafka-consuming deployments so they pick up new kafka-ssl-secret (ca-cert.pem) and can verify Kafka
-        for dep in social-service auction-monitor analytics-service python-ai-service; do
+        for dep in analytics-service; do
           kctl -n "$NS_APP" rollout restart "deploy/$dep" --request-timeout=15s 2>/dev/null && ok "Rollout restart started: $dep" || true
         done
         # Brief wait so new pods mount updated secret before next steps
@@ -652,7 +652,7 @@ say "ROT_PHASE = $ROT_PHASE"
 # have already loaded certs at startup. Restart all gRPC/TLS workloads so they reload the new certs.
 # Otherwise python-ai, auth, records, etc. reject new client certs (SSLV3_ALERT_BAD_CERTIFICATE).
 say "Restarting gRPC/TLS workloads so they pick up new service-tls and dev-root-ca…"
-for dep in auth-service api-gateway records-service listings-service social-service shopping-service analytics-service auction-monitor python-ai-service; do
+for dep in auth-service api-gateway listings-service booking-service messaging-service trust-service analytics-service; do
   kctl -n "$NS_APP" rollout restart "deploy/$dep" --request-timeout=15s 2>/dev/null && ok "Rollout restart started: $dep" || true
 done
 # Grace window: wait for Caddy and Envoy to be fully ready before starting load (avoids QUIC requests during reload propagation).

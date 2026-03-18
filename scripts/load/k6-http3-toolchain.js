@@ -8,7 +8,7 @@
  * Current Status:
  * - k6 v1.4.2: No native HTTP/3 support
  * - Custom k6 binary with HTTP/3 extension: Available via xk6 (see scripts/build-k6-http3.sh)
- * - HTTP/3 extension: github.com/record-platform/xk6-http3 (local development)
+ * - HTTP/3 extension: xk6-http3 (local development)
  * 
  * Building Custom k6 with HTTP/3:
  *   1. Run: ./scripts/build-k6-http3.sh
@@ -54,8 +54,8 @@ const h3Latency = new Trend('http3_latency_ms', true);
 const h3Errors = new Rate('http3_errors');
 
 // Configuration
-const BASE_URL = __ENV.BASE_URL || 'https://record.local:30443';
-const HOST = __ENV.HOST || 'record.local';
+const BASE_URL = __ENV.BASE_URL || 'https://off-campus-housing.local:30443';
+const HOST = __ENV.HOST || 'off-campus-housing.local';
 
 export const options = {
   stages: [

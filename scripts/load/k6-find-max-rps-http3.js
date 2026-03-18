@@ -14,8 +14,8 @@ try {
 
 import { check } from 'k6';
 
-const HOST = __ENV.HOST || 'record.local';
-const BASE = (__ENV.BASE_URL || 'https://record.local:30443').replace(/\/$/, '');
+const HOST = __ENV.HOST || 'off-campus-housing.local';
+const BASE = (__ENV.BASE_URL || 'https://off-campus-housing.local:30443').replace(/\/$/, '');
 const RATE = Number(__ENV.RATE || 25);
 const DURATION = __ENV.DURATION || '20s';
 const VUS = Number(__ENV.VUS || 10);

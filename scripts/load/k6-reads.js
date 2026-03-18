@@ -14,10 +14,10 @@ const DUR      = __ENV.DURATION || '30s';
 const ACCEPT_429 = (__ENV.ACCEPT_429 || '1') === '1';
 const SYNTH_IP   = (__ENV.SYNTH_IP   || '1') === '1';
 const MAX_VUS    = Number(__ENV.MAX_VUS || 200);
-// When BASE_URL is MetalLB IP (e.g. https://192.168.64.240:443), server cert is for record.local; skip TLS name verify for load tests.
+// When BASE_URL is MetalLB IP (e.g. https://192.168.64.240:443), server cert is for off-campus-housing.local; skip TLS name verify for load tests.
 const SKIP_TLS_VERIFY = (__ENV.K6_INSECURE_SKIP_TLS || '0') === '1' || /^https:\/\/[\d.]+(:\d+)?(\/|$)/.test(RAW_BASE);
 
-// K6_RESOLVE: "host:port:ip" (e.g. record.local:443:192.168.64.240) — pin hostname to IP so k6 connects to MetalLB
+// K6_RESOLVE: "host:port:ip" (e.g. off-campus-housing.local:443:192.168.64.240) — pin hostname to IP so k6 connects to MetalLB
 const K6_RESOLVE = __ENV.K6_RESOLVE || '';
 // optional sweep env: STAGES="100,200,300,400" or RATE_START/RATE_STEP/STEPS/STEP_DUR
 const STAGES_CSV = __ENV.STAGES || '';          // e.g. "100,200,300,400"

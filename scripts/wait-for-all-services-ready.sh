@@ -25,7 +25,7 @@ log() {
 }
 
 NS="off-campus-housing-tracker"
-SERVICES=("auth-service" "records-service" "listings-service" "social-service" "shopping-service" "analytics-service" "auction-monitor" "python-ai-service" "api-gateway")
+SERVICES=("auth-service" "listings-service" "booking-service" "messaging-service" "trust-service" "analytics-service" "api-gateway")
 EXPECTED_COUNT=${#SERVICES[@]}
 
 # Optional: also wait for Caddy (ingress-nginx) and Envoy (envoy-test) so cluster is fully ready for suites

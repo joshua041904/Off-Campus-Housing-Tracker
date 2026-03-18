@@ -56,12 +56,12 @@ const protocol_verified = new Counter('protocol_verified');
 const h3_strict_fail = new Rate('h3_strict_fail');
 
 // Configuration
-const HOST = __ENV.HOST || 'record.local';
+const HOST = __ENV.HOST || 'off-campus-housing.local';
 const BASE_URL = __ENV.BASE_URL || 'https://caddy-h3.ingress-nginx.svc.cluster.local:443';
 const ENDPOINT = __ENV.ENDPOINT || '/_caddy/healthz';
 const URL = `${BASE_URL}${ENDPOINT}`;
 
-// K6_RESOLVE: "host:port:ip" (e.g. record.local:443:192.168.64.240) — pin hostname to IP so k6 connects to MetalLB (not 127.0.0.1 NodePort)
+// K6_RESOLVE: "host:port:ip" (e.g. off-campus-housing.local:443:192.168.64.240) — pin hostname to IP so k6 connects to MetalLB (not 127.0.0.1 NodePort)
 const K6_RESOLVE = __ENV.K6_RESOLVE || '';
 // From host (macOS→Colima), QUIC connection reuse often causes "timeout: no recent network activity". Default noReuse=1 for protocol comparison.
 const NO_REUSE = __ENV.K6_HTTP3_NO_REUSE !== '0';

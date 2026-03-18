@@ -104,13 +104,11 @@ _provision_from_mkcert() {
     off-campus-housing.local "*.off-campus-housing.local" localhost 127.0.0.1 \
     "auth-service.off-campus-housing-tracker.svc.cluster.local" \
     "api-gateway.off-campus-housing-tracker.svc.cluster.local" \
-    "records-service.off-campus-housing-tracker.svc.cluster.local" \
-    "social-service.off-campus-housing-tracker.svc.cluster.local" \
     "listings-service.off-campus-housing-tracker.svc.cluster.local" \
+    "booking-service.off-campus-housing-tracker.svc.cluster.local" \
+    "messaging-service.off-campus-housing-tracker.svc.cluster.local" \
+    "trust-service.off-campus-housing-tracker.svc.cluster.local" \
     "analytics-service.off-campus-housing-tracker.svc.cluster.local" \
-    "shopping-service.off-campus-housing-tracker.svc.cluster.local" \
-    "auction-monitor.off-campus-housing-tracker.svc.cluster.local" \
-    "python-ai-service.off-campus-housing-tracker.svc.cluster.local" \
     "*.off-campus-housing-tracker.svc.cluster.local" \
     &>/dev/null || true
   if [[ ! -f "$tmpd/tls.crt" ]] || [[ ! -f "$tmpd/tls.key" ]]; then
@@ -233,7 +231,7 @@ fi
 
 if [[ "${FORCE_TLS_RESTART:-0}" == "1" ]] || [[ $SECRET_UPDATED -eq 1 ]]; then
   say "Rollout restart (FORCE_TLS_RESTART=$FORCE_TLS_RESTART, SECRET_UPDATED=$SECRET_UPDATED)"
-  for dep in api-gateway auth-service records-service listings-service social-service shopping-service analytics-service auction-monitor python-ai-service; do
+  for dep in api-gateway auth-service listings-service booking-service messaging-service trust-service analytics-service; do
     kubectl -n "$NS" rollout restart "deploy/$dep" --request-timeout=15s 2>/dev/null && ok "Restarted $dep" || warn "Restart $dep failed"
   done
   kubectl -n "$NS_ING" rollout restart deploy/caddy-h3 --request-timeout=15s 2>/dev/null && ok "Restarted caddy-h3" || warn "Restart caddy-h3 failed"

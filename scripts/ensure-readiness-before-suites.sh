@@ -34,7 +34,7 @@ if _kb get deploy "caddy-h3" -n "$NS_ING" >/dev/null 2>&1; then
   _kb -n "$NS_ING" rollout status deploy/caddy-h3 --timeout="${READINESS_TIMEOUT}s" 2>/dev/null && ok "caddy-h3 ready" || warn "caddy-h3 rollout status timed out"
 fi
 # Core app deployments
-for d in api-gateway auth-service listings-service records-service shopping-service analytics-service; do
+for d in api-gateway auth-service listings-service booking-service messaging-service trust-service analytics-service; do
   if _kb get deploy "$d" -n "$NS_APP" >/dev/null 2>&1; then
     _kb -n "$NS_APP" rollout status "deploy/$d" --timeout="${READINESS_TIMEOUT}s" 2>/dev/null && ok "$d ready" || warn "$d rollout status timed out"
   fi

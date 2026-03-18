@@ -580,39 +580,20 @@ fi
 # 2d. Brief pause so API server isn't hammered immediately after config changes
 sleep 5
 
-# 2e. Colima: ensure app images exist. Shopping/listings use off-campus-housing-tracker-*:latest (K8s deploy); others use :dev.
-# When images are missing, building is the main slowdown. Set PREFLIGHT_ENSURE_IMAGES=0 to skip when images already exist.
+# 2e. Colima: ensure app images exist. Listings (and other services) use :dev or off-campus-housing-tracker-*:latest per K8s deploy.
+# Set PREFLIGHT_ENSURE_IMAGES=0 to skip when images already exist.
 if [[ "${PREFLIGHT_ENSURE_IMAGES:-1}" == "1" ]] && [[ "$ctx" == *"colima"* ]]; then
   _phase_start "2e_colima_images"
-  say "2e. Colima: ensuring app images (off-campus-housing-tracker-*:latest for shopping/listings; :dev for others)..."
+  say "2e. Colima: ensuring app images (off-campus-housing-tracker: auth, listings, booking, messaging, trust, analytics, api-gateway)..."
   KARCH=$(kubectl get nodes -o jsonpath='{.items[0].status.nodeInfo.architecture}' 2>/dev/null || uname -m)
   case "$KARCH" in aarch64|arm64) PLAT="linux/arm64";; *) PLAT="linux/amd64";; esac
-  # Shopping and listings: K8s uses off-campus-housing-tracker-shopping-service:latest and off-campus-housing-tracker-listings-service:latest
-  for _img in off-campus-housing-tracker-shopping-service:latest off-campus-housing-tracker-listings-service:latest; do
-    if ! docker image inspect "$_img" &>/dev/null; then
-      _s="${_img%%:latest}"; _s="${_s#off-campus-housing-tracker-}"; _s="${_s%-service}"
-      _s="${_s}-service"
-      info "Building $_img (required by K8s deploy)..."
-      if [[ "$_s" == "shopping-service" ]] && [[ -f "$REPO_ROOT/services/shopping-service/Dockerfile" ]]; then
-        ( docker build --platform="$PLAT" -t "$_img" -f "$REPO_ROOT/services/shopping-service/Dockerfile" "$REPO_ROOT" 2>/dev/null && echo "  built $_img" ) || echo "  ⚠️  $_img failed"
-      elif [[ "$_s" == "listings-service" ]] && [[ -f "$REPO_ROOT/services/listings-service/Dockerfile" ]]; then
-        ( docker build --platform="$PLAT" -t "$_img" -f "$REPO_ROOT/services/listings-service/Dockerfile" "$REPO_ROOT" 2>/dev/null && echo "  built $_img" ) || echo "  ⚠️  $_img failed"
-      fi
-    fi
-  done
-  _colima_services=(api-gateway auth-service records-service listings-service analytics-service python-ai-service social-service shopping-service auction-monitor)
+  _colima_services=(api-gateway auth-service listings-service booking-service messaging-service trust-service analytics-service)
   _need_build=()
   for _s in "${_colima_services[@]}"; do
-    # shopping/listings: K8s uses off-campus-housing-tracker-*:latest; we already ensured those above. Skip :dev for them so we don't build twice.
-    if [[ "$_s" == "shopping-service" ]] || [[ "$_s" == "listings-service" ]]; then
-      _latest="off-campus-housing-tracker-${_s}:latest"
-      docker image inspect "$_latest" &>/dev/null && continue || _need_build+=("$_s")
-    else
-      docker image inspect "${_s}:dev" &>/dev/null || _need_build+=("$_s")
-    fi
+    docker image inspect "${_s}:dev" &>/dev/null || _need_build+=("$_s")
   done
   if [[ ${#_need_build[@]} -gt 0 ]] && command -v docker &>/dev/null; then
-    info "Building ${#_need_build[@]} missing image(s) in parallel (max 4 at a time; shopping/listings = off-campus-housing-tracker-*:latest)..."
+    info "Building ${#_need_build[@]} missing image(s) in parallel (max 4 at a time)..."
     _max_parallel=4
     _idx=0
     while [[ $_idx -lt ${#_need_build[@]} ]]; do
@@ -624,13 +605,7 @@ if [[ "${PREFLIGHT_ENSURE_IMAGES:-1}" == "1" ]] && [[ "$ctx" == *"colima"* ]]; t
         (
           if [[ -f "$REPO_ROOT/services/$_s/Dockerfile" ]]; then
             _tag="${_s}:dev"
-            [[ "$_s" == "shopping-service" ]] && _tag="off-campus-housing-tracker-shopping-service:latest"
-            [[ "$_s" == "listings-service" ]] && _tag="off-campus-housing-tracker-listings-service:latest"
-            if [[ "$_s" == "python-ai-service" ]]; then
-              docker build --platform="$PLAT" -t "$_tag" -f "$REPO_ROOT/services/$_s/Dockerfile" "$REPO_ROOT/services/$_s" 2>/dev/null && echo "  built $_tag" || echo "  ⚠️  $_tag failed"
-            else
-              docker build --platform="$PLAT" -t "$_tag" -f "$REPO_ROOT/services/$_s/Dockerfile" "$REPO_ROOT" 2>/dev/null && echo "  built $_tag" || echo "  ⚠️  $_tag failed"
-            fi
+            docker build --platform="$PLAT" -t "$_tag" -f "$REPO_ROOT/services/$_s/Dockerfile" "$REPO_ROOT" 2>/dev/null && echo "  built $_tag" || echo "  ⚠️  $_tag failed"
           fi
         ) &
       done
@@ -666,7 +641,7 @@ if [[ "${PREFLIGHT_ENSURE_IMAGES:-1}" == "1" ]] && [[ "$ctx" == *"k3d"* ]]; then
     [[ $_attempt -lt 6 ]] && sleep 3
   done
   if [[ $_reg_ok -eq 1 ]]; then
-    _required=( api-gateway auth-service records-service listings-service analytics-service python-ai-service social-service shopping-service auction-monitor )
+    _required=( api-gateway auth-service listings-service booking-service messaging-service trust-service analytics-service )
     _reg_missing=()
     for _s in "${_required[@]}"; do
       _code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 2 "http://127.0.0.1:$_reg_port/v2/$_s/tags/list" 2>/dev/null || echo "000")
@@ -1081,11 +1056,11 @@ if ! _phase_a_only; then
     warn "Docker or certs/kafka-ssl or docker-compose missing; skip starting Kafka"
   fi
 
-  # 3b3. Ensure all 8 Postgres DBs are up (ports 5433–5440) — no flakiness on 5438/5440
+  # 3b3. Ensure all 7 Postgres DBs are up (ports 5441–5447)
   if command -v docker >/dev/null 2>&1 && [[ -f "$REPO_ROOT/docker-compose.yml" ]]; then
-    say "3b3. Ensuring Docker Postgres (all 8 DBs: 5433–5440) are up..."
-    ( cd "$REPO_ROOT" && docker compose up -d postgres postgres-social postgres-listings postgres-shopping postgres-auth postgres-auction-monitor postgres-analytics postgres-python-ai 2>/dev/null ) && ok "Docker Postgres (all 8) up" || warn "Docker Postgres start skipped or partial (run manually: docker compose up -d postgres postgres-social postgres-listings postgres-shopping postgres-auth postgres-auction-monitor postgres-analytics postgres-python-ai)"
-    for port in 5438 5440; do
+    say "3b3. Ensuring Docker Postgres (all 7 DBs: 5441–5447) are up..."
+    ( cd "$REPO_ROOT" && docker compose up -d postgres-auth postgres-listings postgres-bookings postgres-messaging postgres-notification postgres-trust postgres-analytics 2>/dev/null ) && ok "Docker Postgres (all 7) up" || warn "Docker Postgres start skipped or partial (run manually: docker compose up -d postgres-auth postgres-listings postgres-bookings postgres-messaging postgres-notification postgres-trust postgres-analytics)"
+    for port in 5441 5442 5443 5444 5445 5446 5447; do
       for _ in 1 2 3 4 5; do
         nc -z 127.0.0.1 "$port" 2>/dev/null && break
         sleep 2
@@ -1101,8 +1076,8 @@ fi
 
 # 3c. Apply app-config, kafka-external, nginx/haproxy (configmaps + pods for exporters), Kafka-consuming deploys (KAFKA 9093 strict TLS).
 _phase_start "3c_apply_app_config"
-say "3c. Applying app-config, kafka-external, nginx, haproxy, social-service, auction-monitor, analytics-service (Kafka strict TLS)..."
-for k in "$REPO_ROOT/infra/k8s/base/config" "$REPO_ROOT/infra/k8s/base/kafka-external" "$REPO_ROOT/infra/k8s/base/nginx" "$REPO_ROOT/infra/k8s/base/haproxy" "$REPO_ROOT/infra/k8s/base/social-service" "$REPO_ROOT/infra/k8s/base/auction-monitor" "$REPO_ROOT/infra/k8s/base/analytics-service"; do
+say "3c. Applying app-config, kafka-external, nginx, haproxy (Kafka strict TLS)..."
+for k in "$REPO_ROOT/infra/k8s/base/config" "$REPO_ROOT/infra/k8s/base/kafka-external" "$REPO_ROOT/infra/k8s/base/nginx" "$REPO_ROOT/infra/k8s/base/haproxy"; do
   if [[ -d "$k" ]]; then
     if [[ -n "${APPLY_RATE_LIMIT_SLEEP:-}" ]] && [[ "${APPLY_RATE_LIMIT_SLEEP:-0}" -gt 0 ]]; then
       _apply_with_rate_limit "$k" "$(basename "$k")" && ok "Applied $(basename "$k")" || warn "Apply $k skipped or failed"
@@ -1111,16 +1086,16 @@ for k in "$REPO_ROOT/infra/k8s/base/config" "$REPO_ROOT/infra/k8s/base/kafka-ext
     fi
   fi
 done
-# 3c overwrote analytics/social/auction-monitor hostAliases with base (192.168.5.2). On k3d re-apply so pods can reach host Postgres/Redis.
+# On k3d re-apply hostAliases so pods can reach host Postgres/Redis (5441–5447).
 if [[ "$ctx" == *"k3d"* ]]; then
   _apply_k3d_host_aliases
-  ok "host.docker.internal re-applied after 3c (listings/analytics/auction-monitor reach 5433–5440)"
+  ok "host.docker.internal re-applied after 3c (listings/analytics reach 5441–5447)"
 fi
 
 # Helper: re-apply registry image on all app deployments (k3d only). Call after 4a recovery, which does apply -k base and can overwrite image to e.g. analytics-service:dev (no registry).
 _reapply_k3d_registry_images() {
   local _reg_name="k3d-off-campus-housing-tracker-registry"
-  local _deploys="auth-service api-gateway records-service listings-service social-service shopping-service analytics-service auction-monitor python-ai-service"
+  local _deploys="auth-service api-gateway listings-service booking-service messaging-service trust-service analytics-service"
   for _d in $_deploys; do
     if kubectl get deployment "$_d" -n off-campus-housing-tracker --request-timeout=5s >/dev/null 2>&1; then
       kubectl set image "deployment/$_d" -n off-campus-housing-tracker "app=${_reg_name}:5000/${_d}:dev" --request-timeout=10s 2>/dev/null && true
@@ -1154,7 +1129,7 @@ _apply_k3d_host_aliases() {
       _host_ip="${_host_ip:-172.20.0.1}"
     fi
   fi
-  for _d in auth-service api-gateway records-service listings-service social-service shopping-service analytics-service auction-monitor python-ai-service; do
+  for _d in auth-service api-gateway listings-service booking-service messaging-service trust-service analytics-service; do
     if kubectl get deployment "$_d" -n off-campus-housing-tracker --request-timeout=5s >/dev/null 2>&1; then
       kubectl patch deployment "$_d" -n off-campus-housing-tracker --type=merge -p "{\"spec\":{\"template\":{\"spec\":{\"hostAliases\":[{\"ip\":\"$_host_ip\",\"hostnames\":[\"host.docker.internal\",\"host.lima.internal\"]}]}}}}" 2>/dev/null && true
     fi
@@ -1181,7 +1156,7 @@ _apply_colima_host_aliases() {
     fi
     _host_ip="${_host_ip:-192.168.5.2}"
   fi
-  for _d in auth-service api-gateway records-service listings-service social-service shopping-service analytics-service auction-monitor python-ai-service; do
+  for _d in auth-service api-gateway listings-service booking-service messaging-service trust-service analytics-service; do
     if kubectl get deployment "$_d" -n off-campus-housing-tracker --request-timeout=5s >/dev/null 2>&1; then
       kubectl patch deployment "$_d" -n off-campus-housing-tracker --type=merge -p "{\"spec\":{\"template\":{\"spec\":{\"hostAliases\":[{\"ip\":\"$_host_ip\",\"hostnames\":[\"host.docker.internal\",\"host.lima.internal\"]}]}}}}" 2>/dev/null && true
     fi
@@ -1193,14 +1168,13 @@ if [[ "$ctx" == *"colima"* ]]; then
   ok "host.docker.internal set for Colima app pods (Mac Postgres/Redis reachable)"
 fi
 
-# 3c0a0-pre. Ensure postgres-auth (5437) and all Postgres are up for suites; ensure kafka-ssl-secret for Kafka TLS (no SQL applied).
+# 3c0a0-pre. Ensure all 7 Postgres (5441–5447) are up for suites; ensure kafka-ssl-secret for Kafka TLS (no SQL applied).
 if command -v docker >/dev/null 2>&1 && [[ -f "$REPO_ROOT/docker-compose.yml" ]]; then
-  ( cd "$REPO_ROOT" && docker compose up -d postgres-auth 2>/dev/null ) && info "postgres-auth (5437) ensured up" || true
-  ( cd "$REPO_ROOT" && docker compose up -d postgres postgres-social postgres-listings postgres-shopping postgres-auth postgres-auction-monitor postgres-analytics postgres-python-ai 2>/dev/null ) && ok "Docker Postgres (all 8) ensured up" || true
+  ( cd "$REPO_ROOT" && docker compose up -d postgres-auth postgres-listings postgres-bookings postgres-messaging postgres-notification postgres-trust postgres-analytics 2>/dev/null ) && ok "Docker Postgres (all 7) ensured up" || true
   if [[ -f "$REPO_ROOT/certs/dev-root.pem" ]] && [[ -f "$REPO_ROOT/certs/dev-root.key" ]] && [[ -f "$SCRIPT_DIR/kafka-ssl-from-dev-root.sh" ]]; then
     if ! kubectl get secret kafka-ssl-secret -n off-campus-housing-tracker --request-timeout=5s >/dev/null 2>&1; then
       chmod +x "$SCRIPT_DIR/kafka-ssl-from-dev-root.sh" 2>/dev/null || true
-      "$SCRIPT_DIR/kafka-ssl-from-dev-root.sh" 2>/dev/null && ok "kafka-ssl-secret created (Kafka TLS for social/auction/shopping/analytics)" || warn "kafka-ssl-secret create failed (Kafka-consuming services need it)"
+      "$SCRIPT_DIR/kafka-ssl-from-dev-root.sh" 2>/dev/null && ok "kafka-ssl-secret created (Kafka TLS for analytics)" || warn "kafka-ssl-secret create failed (analytics-service needs it)"
     fi
   fi
 fi
@@ -1209,7 +1183,7 @@ fi
 # Caddy/Envoy tcpdump images: only built when BUILD_CADDY_TCPDUMP=1 / BUILD_ENVOY_TCPDUMP=1 (patch applied when image exists).
 if [[ "$ctx" == *"k3d"* ]] && [[ -f "$SCRIPT_DIR/k3d-registry-push-and-patch.sh" ]]; then
   _phase_start "3c0a_k3d_registry_push"
-  say "3c0a. k3d: pushing :dev images to registry and patching deployments (9/9 ready; Caddy+Envoy tcpdump only if image exists; set BUILD_CADDY_TCPDUMP=1/BUILD_ENVOY_TCPDUMP=1 to build)..."
+  say "3c0a. k3d: pushing :dev images to registry and patching deployments (7/7 ready; Caddy+Envoy tcpdump only if image exists; set BUILD_CADDY_TCPDUMP=1/BUILD_ENVOY_TCPDUMP=1 to build)..."
   chmod +x "$SCRIPT_DIR/k3d-registry-push-and-patch.sh" 2>/dev/null || true
   _reg_ret=0
   BUILD_CADDY_TCPDUMP="${BUILD_CADDY_TCPDUMP:-0}" BUILD_ENVOY_TCPDUMP="${BUILD_ENVOY_TCPDUMP:-0}" TELEMETRY_DURING="${TELEMETRY_DURING:-}" "$SCRIPT_DIR/k3d-registry-push-and-patch.sh" 2>&1 || _reg_ret=$?
@@ -1588,7 +1562,7 @@ if [[ "$ctx" == *"colima"* ]] && [[ -f "$SCRIPT_DIR/patch-kafka-external-host.sh
 fi
 
 # 3f. Restart Kafka-consuming services (pick up kafka-ssl-secret + kafka-external strict TLS)
-say "3f. Restarting social-service, analytics-service, auction-monitor (pick up Kafka strict TLS)..."
+say "3f. Restarting analytics-service (pick up Kafka strict TLS)..."
 _restart_one() {
   local name=$1
   local max_tries=1
@@ -1605,9 +1579,7 @@ _restart_one() {
   done
   warn "$name restart failed"
 }
-_restart_one social-service
 _restart_one analytics-service
-_restart_one auction-monitor
 
 # --- Step 4: Scale to baseline (1 replica per app, exporters 1, Envoy 1, Caddy 2) ---
 _phase_start "4_scale_baseline"
@@ -1623,7 +1595,7 @@ _scale_one() {
   sleep 1
 }
 set +e
-BASELINE_DEPLOYS="auth-service api-gateway records-service listings-service social-service shopping-service analytics-service auction-monitor python-ai-service"
+BASELINE_DEPLOYS="auth-service api-gateway listings-service booking-service messaging-service trust-service analytics-service"
 for deploy in $BASELINE_DEPLOYS; do
   _scale_one "$deploy"
 done

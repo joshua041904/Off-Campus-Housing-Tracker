@@ -18,7 +18,7 @@ warn(){ echo "⚠️  $*"; }
 fail(){ echo "❌ $*" >&2; }
 
 NS="off-campus-housing-tracker"
-SERVICES=("auth-service" "records-service" "listings-service" "social-service" "shopping-service" "analytics-service" "auction-monitor" "python-ai-service" "api-gateway")
+SERVICES=("auth-service" "listings-service" "booking-service" "messaging-service" "trust-service" "analytics-service" "api-gateway")
 
 say "=== Quick Pod Diagnostics (Problem Pods Only) ==="
 
@@ -104,7 +104,7 @@ for pod_path in "${NOT_READY_PODS[@]}"; do
     
     # Check if Node.js service
     container_image=$(_kubectl get pod "$pod" -n "$ns" -o jsonpath='{.spec.containers[0].image}' 2>/dev/null || echo "")
-    if echo "$container_image" | grep -qE "(auth-service|records-service|listings-service|social-service|shopping-service|analytics-service|auction-monitor)"; then
+    if echo "$container_image" | grep -qE "(auth-service|listings-service|booking-service|messaging-service|trust-service|analytics-service)"; then
       echo ""
       echo "  🔍 Node.js service checks:"
       
@@ -137,7 +137,7 @@ for pod_path in "${NOT_READY_PODS[@]}"; do
     fi
     
     # Check if Python service
-    if echo "$container_image" | grep -q "python-ai-service"; then
+    if echo "$container_image" | grep -q "notification-service"; then
       echo ""
       echo "  🔍 Python service checks:"
       python_pid=$(_kubectl exec "$pod" -n "$ns" -- pgrep -f python 2>/dev/null || echo "")

@@ -82,7 +82,7 @@ for ns in $NAMESPACES; do
       
       # Check if it's a Node.js service - verify dist/server.js exists
       container_image=$(_kubectl get pod "$pod" -n "$ns" -o jsonpath='{.spec.containers[0].image}' 2>/dev/null || echo "")
-      if echo "$container_image" | grep -qE "(auth-service|records-service|listings-service|social-service|shopping-service|analytics-service|auction-monitor)"; then
+      if echo "$container_image" | grep -qE "(auth-service|listings-service|booking-service|messaging-service|trust-service|analytics-service)"; then
         echo "    🔍 Checking for dist/server.js..."
         if _kubectl exec "$pod" -n "$ns" -- ls -la /app/dist/server.js 2>/dev/null >/dev/null; then
           echo "      ✅ /app/dist/server.js exists"
@@ -115,7 +115,7 @@ for ns in $NAMESPACES; do
       fi
       
       # Check if it's Python service
-      if echo "$container_image" | grep -q "python-ai-service"; then
+      if echo "$container_image" | grep -qE "python|notification-service"; then
         echo "    🔍 Checking Python service..."
         if _kubectl exec "$pod" -n "$ns" -- ps aux 2>/dev/null | grep -q python; then
           echo "      ✅ Python process found"

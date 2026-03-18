@@ -34,11 +34,11 @@ const queue_length = new Gauge('queue_length', true);
 const throughput = new Counter('throughput', true);
 
 // Configuration
-const HOST = __ENV.HOST || 'record.local';
-const BASE_URL = __ENV.BASE_URL || 'https://record.local:30443';
+const HOST = __ENV.HOST || 'off-campus-housing.local';
+const BASE_URL = __ENV.BASE_URL || 'https://off-campus-housing.local:30443';
 const ENDPOINT = __ENV.ENDPOINT || '/_caddy/healthz';
 
-// K6_RESOLVE: "host:port:ip" (e.g. record.local:443:192.168.64.240) — pin hostname to MetalLB IP (avoids 127.0.0.1 NodePort split-brain)
+// K6_RESOLVE: "host:port:ip" (e.g. off-campus-housing.local:443:192.168.64.240) — pin hostname to MetalLB IP (avoids 127.0.0.1 NodePort split-brain)
 const K6_RESOLVE = __ENV.K6_RESOLVE || '';
 function parseHostsFromResolve() {
   if (!K6_RESOLVE || typeof K6_RESOLVE !== 'string') return {};

@@ -223,6 +223,36 @@ No business logic allowed in common.
 
 ---
 
+# Namespace & Hostname (cluster)
+
+- **App namespace:** `off-campus-housing-tracker` (all housing services run here).
+- **Hostname:** `off-campus-housing.local` (TLS, Caddy, and local DNS).
+- **Other namespaces:** `ingress-nginx` and `envoy-test` are unchanged (shared infra).
+
+---
+
+# Postgres (local Docker)
+
+Host ports **5432–5440** are used by another project. This repo uses **5441–5447** for the seven housing DBs:
+
+| Service                | Host port | DB name      |
+|------------------------|-----------|--------------|
+| auth-service           | 5441      | auth         |
+| listings-service       | 5442      | listings     |
+| booking-service        | 5443      | bookings     |
+| messaging-service      | 5444      | messaging    |
+| notification-service   | 5445      | notification |
+| trust-service          | 5446      | trust        |
+| analytics-service      | 5447      | analytics    |
+
+Start DBs with:
+
+```bash
+docker compose up -d postgres-auth postgres-listings postgres-bookings postgres-messaging postgres-notification postgres-trust postgres-analytics
+```
+
+---
+
 # Future Splits (When Scaling Demands It)
 
 listings-service → split search-index-service  

@@ -3,7 +3,7 @@
 # 1) See what's going on (cross-layer diagnostic)
 # 2) Ensure curl with HTTP/3 (optional)
 # 3) Ensure Kubernetes API (k3d or Colima)
-# 4) Ensure Redis + all 8 Postgres DBs (5433–5440)
+# 4) Ensure Redis + all 7 Postgres DBs (5441–5447)
 # 5) Ensure Kafka (Docker :29093)
 # 6) k3d only: Ensure required app images (:dev) exist locally and in registry (so pods don't ImagePullBackOff). ENSURE_IMAGES=0 to skip.
 #
@@ -95,7 +95,7 @@ else
 fi
 
 # --- 4. Ensure external infra (Redis, then all 8 Postgres) ---
-say "4. Ensuring Redis (6379) and Postgres (5433–5440)..."
+say "4. Ensuring Redis (6379) and Postgres (5441–5447)..."
 if ! nc -z 127.0.0.1 6379 2>/dev/null; then
   if [[ -f "$SCRIPT_DIR/bring-up-external-infra.sh" ]]; then
     info "Redis not reachable; bringing up external infra (Redis, Kafka, 8 Postgres)..."
@@ -109,9 +109,9 @@ fi
 ok "Redis reachable (6379)"
 if [[ -x "$SCRIPT_DIR/ensure-pgbench-dbs-ready.sh" ]]; then
   if "$SCRIPT_DIR/ensure-pgbench-dbs-ready.sh"; then
-    ok "All 8 Postgres DBs reachable (5433–5440)"
+    ok "All 7 Postgres DBs reachable (5441–5447)"
   else
-    warn "Not all DBs ready. Run: ./scripts/bring-up-external-infra.sh  or docker compose up -d postgres postgres-social postgres-listings postgres-shopping postgres-auth postgres-auction-monitor postgres-analytics postgres-python-ai"
+    warn "Not all DBs ready. Run: ./scripts/bring-up-external-infra.sh  or docker compose up -d postgres-auth postgres-listings postgres-bookings postgres-messaging postgres-notification postgres-trust postgres-analytics"
     exit 1
   fi
 else
@@ -146,7 +146,7 @@ fi
 
 # --- 6. Ensure required app images (k3d: must be in registry so pods don't ImagePullBackOff) ---
 # Set ENSURE_IMAGES=0 to skip. When k3d: check local :dev images and optionally registry catalog.
-REQUIRED_APP_IMAGES=( api-gateway auth-service records-service listings-service analytics-service python-ai-service social-service shopping-service auction-monitor )
+REQUIRED_APP_IMAGES=( api-gateway auth-service listings-service booking-service messaging-service trust-service analytics-service )
 ENSURE_IMAGES="${ENSURE_IMAGES:-1}"
 if [[ "$ENSURE_IMAGES" == "1" ]] && [[ "$ctx" == *"k3d"* ]] && command -v docker >/dev/null 2>&1; then
   say "6. Ensuring required app images (local :dev and k3d registry)..."

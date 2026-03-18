@@ -18,7 +18,7 @@ warn(){ echo "⚠️  $*"; }
 log() { echo "[$(date +%H:%M:%S)] $*" | tee -a "${CLEANUP_LOG:-/dev/stdout}"; }
 
 NS="off-campus-housing-tracker"
-SERVICES=("auth-service" "records-service" "listings-service" "social-service" "shopping-service" "analytics-service" "auction-monitor" "python-ai-service" "api-gateway")
+SERVICES=("auth-service" "listings-service" "booking-service" "messaging-service" "trust-service" "analytics-service" "api-gateway")
 
 say "=== Aggressive ReplicaSet Cleanup ==="
 CLEANUP_LOG="${CLEANUP_LOG:-/tmp/cleanup-$(date +%Y%m%d-%H%M%S).log}"

@@ -1,31 +1,33 @@
-Off-Campus-Housing-Tracker: Housing Platform v1 — docs, proto, runbook, naming (made with Tom)
+Off-Campus-Housing-Tracker: 7 Postgres DBs (5441–5447), backup & bring-up aligned (made with Tom)
 
-- README: Replaced with Housing Platform — Global-Scale Architecture (v1): vision,
-  seven domain services (auth, listings, booking, messaging, notification, trust,
-  analytics), communication rules, DB policy, event-driven model, common package,
-  tech stack, scaling, deployment, future splits, non-negotiables.
+- Postgres: Aligned with seven housing services. Host ports 5441–5447 (5432–5440
+  reserved by another project). Mapping: auth 5441, listings 5442, bookings 5443,
+  messaging 5444, notification 5445, trust 5446, analytics 5447.
 
-- Proto: Removed record-platform–specific protos (social, shopping, records,
-  python-ai, auction-monitor). Kept health.proto. Added minimal placeholder
-  protos for all seven services with go_package for off-campus-housing-tracker.
+- docker-compose.yml: Seven Postgres services — postgres-auth, postgres-listings,
+  postgres-bookings, postgres-messaging, postgres-notification (new), postgres-trust,
+  postgres-analytics. Removed legacy postgres, postgres-social, postgres-shopping,
+  postgres-auction-monitor, postgres-python-ai. postgres-backup depends on
+  postgres-auth and backs up DB auth.
 
-- Runbook: Cluster-only focus. Removed app-specific items (social suite, shopping
-  order_number, carts/orders, Platform AI, social roles). Genericized namespace,
-  external Postgres, and validation/CI tiers. Kept TLS/mTLS, Colima, MetalLB,
-  Caddy, Envoy, API gateway req.path, control plane, disaster recovery, SLO.
+- scripts/bring-up-external-infra.sh: Starts 7 Postgres services (no longer 8).
+  Wait loop checks ports 5441–5447. RESTORE_BACKUP_DIR=latest uses backups/all-7-*.
+  Comments and volume list updated for housing volumes only.
 
-- Services: Added Architecture (v1) foundation to each service README and
-  services/README.md; created auth-service/README.md.
+- scripts/backup-all-8-dbs.sh: Backs up 7 DBs on 5441–5447. PORT_DB map:
+  auth, listings, bookings, messaging, notification, trust, analytics. Output
+  directory backups/all-7-YYYYMMDD-HHMMSS. Version probe uses 5441/auth.
+  Restore examples updated to 5441 and auth.
 
-- Naming: Renamed record-platform → off-campus-housing-tracker (namespace and
-  identifiers) and record.local → off-campus-housing.local (hostname) across
-  Caddyfile, infra, scripts, docs, and service code. Replaced “Record Platform”
-  with “Off-Campus-Housing-Tracker” in ENGINEERING.md and auth-service (privacy,
-  terms, MFA, verification, passkey). Caddyfile porting header and vhost now
-  reference Off-Campus-Housing-Tracker; removed /auctions/ and /ai/ blocks;
-  updated API path regex for housing routes.
+- scripts/backup-all-dbs.sh: New wrapper that runs backup-all-8-dbs.sh so
+  callers can use either name for the same 7-DB backup.
 
-- Merge: Integrated remote main (original README); Housing Platform v1 README
-  retained as canonical.
+- README.md: Postgres section lists 7 DBs (5441–5447) including
+  notification-service; docker compose up command includes postgres-notification.
+
+- Scripts (run-preflight-scale-and-all-suites.sh, ensure-ready-for-preflight.sh,
+  check-all-pods-and-tls.sh): All references to 6 DBs / 5441–5446 updated to
+  7 DBs / 5441–5447; docker compose up commands include postgres-notification;
+  port wait loops and messages updated.
 
 Made with Tom.

@@ -50,7 +50,7 @@ fi
 
 # 3. Wait for rollouts (patch in step 1 triggers new pods)
 say "3. Waiting for deployments to roll out (up to 120s per deploy)..."
-for d in api-gateway auth-service records-service listings-service social-service shopping-service analytics-service auction-monitor python-ai-service; do
+for d in api-gateway auth-service listings-service booking-service messaging-service trust-service analytics-service; do
   if kubectl get deployment "$d" -n off-campus-housing-tracker --request-timeout=5s >/dev/null 2>&1; then
     if kubectl -n off-campus-housing-tracker rollout status "deploy/$d" --timeout=120s 2>/dev/null; then
       ok "$d: 1/1"
