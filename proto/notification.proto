@@ -4,6 +4,17 @@ package notification;
 
 option go_package = "github.com/yourorg/off-campus-housing-tracker/proto/notification";
 
-// Notification service – consumes Kafka only; email/push, reminders, alerts.
-// Stateless. Add RPCs only if needed.
-service NotificationService {}
+// Notification service – consumer only. Get preferences; delivery triggered via Kafka only. No SendNotification RPC.
+service NotificationService {
+  rpc GetUserPreferences(GetUserPreferencesRequest) returns (UserPreferencesResponse);
+}
+
+message GetUserPreferencesRequest {
+  string user_id = 1;
+}
+
+message UserPreferencesResponse {
+  bool email_enabled = 1;
+  bool sms_enabled = 2;
+  bool push_enabled = 3;
+}

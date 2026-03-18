@@ -2,8 +2,57 @@ syntax = "proto3";
 
 package listings;
 
+import "common.proto";
+
 option go_package = "github.com/yourorg/off-campus-housing-tracker/proto/listings";
 
-// Listings service – listings, geo, pricing, availability, search.
-// Add RPCs as needed. No booking logic.
-service ListingsService {}
+// Listings service – create, get, search. DB = source of truth; proto = public contract.
+// No search_norm or DB implementation leakage.
+service ListingsService {
+  rpc CreateListing(CreateListingRequest) returns (ListingResponse);
+  rpc GetListing(GetListingRequest) returns (ListingResponse);
+  rpc SearchListings(SearchListingsRequest) returns (SearchListingsResponse);
+}
+
+message CreateListingRequest {
+  string user_id = 1;
+  string title = 2;
+  string description = 3;
+  int32 price_cents = 4;
+  repeated string amenities = 5;
+  bool smoke_free = 6;
+  bool pet_friendly = 7;
+  bool furnished = 8;
+  string effective_from = 9;
+  string effective_until = 10;
+}
+
+message GetListingRequest {
+  string listing_id = 1;
+}
+
+message ListingResponse {
+  string listing_id = 1;
+  string user_id = 2;
+  string title = 3;
+  string description = 4;
+  int32 price_cents = 5;
+  repeated string amenities = 6;
+  bool smoke_free = 7;
+  bool pet_friendly = 8;
+  bool furnished = 9;
+  string status = 10;
+  string created_at = 11;
+}
+
+message SearchListingsRequest {
+  string query = 1;
+  int32 min_price = 2;
+  int32 max_price = 3;
+  bool smoke_free = 4;
+  bool pet_friendly = 5;
+}
+
+message SearchListingsResponse {
+  repeated ListingResponse listings = 1;
+}

@@ -4,6 +4,18 @@ package analytics;
 
 option go_package = "github.com/yourorg/off-campus-housing-tracker/proto/analytics";
 
-// Analytics service – consumes Kafka only; event aggregation, metrics, insights.
-// Add RPCs if needed. Never in request path.
-service AnalyticsService {}
+// Analytics service – read-only. Consumes Kafka; never mutates state. Not in request path.
+service AnalyticsService {
+  rpc GetDailyMetrics(GetDailyMetricsRequest) returns (DailyMetricsResponse);
+}
+
+message GetDailyMetricsRequest {
+  string date = 1;
+}
+
+message DailyMetricsResponse {
+  int32 new_users = 1;
+  int32 new_listings = 2;
+  int32 new_bookings = 3;
+  int32 completed_bookings = 4;
+}

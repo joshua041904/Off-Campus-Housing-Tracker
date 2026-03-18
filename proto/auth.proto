@@ -4,6 +4,34 @@ package auth;
 
 option go_package = "github.com/yourorg/off-campus-housing-tracker/proto/auth";
 
-// Auth service – user accounts, roles, JWT, MFA/passkeys.
-// Add RPCs as needed (e.g. Authenticate, Register, ValidateToken).
-service AuthService {}
+// Auth service – register, login, validate token. Gateway may validate JWT locally; this keeps contract clean.
+service AuthService {
+  rpc Register(RegisterRequest) returns (AuthResponse);
+  rpc Login(LoginRequest) returns (AuthResponse);
+  rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse);
+}
+
+message RegisterRequest {
+  string email = 1;
+  string password = 2;
+}
+
+message LoginRequest {
+  string email = 1;
+  string password = 2;
+}
+
+message AuthResponse {
+  string user_id = 1;
+  string jwt = 2;
+}
+
+message ValidateTokenRequest {
+  string jwt = 1;
+}
+
+message ValidateTokenResponse {
+  string user_id = 1;
+  string role = 2;
+  bool valid = 3;
+}
