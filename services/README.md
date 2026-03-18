@@ -2,10 +2,12 @@
 
 **Architecture (v1):** See root [README.md](../README.md) for vision, 7 services, communication rules, and non-negotiables. Event-driven; no cross-service DB access; cross-domain only via Kafka.
 
+**gRPC contracts:** All service APIs are defined in the repo root [proto/](../proto/) directory. Each service README has an **Implementing this service (gRPC)** section that points to the relevant `.proto` file(s) and steps for first-time gRPC implementers. The API gateway ([api-gateway/README.md](api-gateway/README.md)) lists which proto backs each backend.
+
 ## Substrate (shared)
 
 - **common** — Kafka client (mTLS), Redis, Logger (Pino), Prometheus metrics, gRPC helpers, proto loader. No business logic. Use in every service.
-- **api-gateway** — Auth middleware, rate limiting, gRPC proxy, REST entrypoint. No business logic.
+- **api-gateway** — Auth middleware, rate limiting, gRPC proxy to the 7 backends. No business logic. See [api-gateway/README.md](api-gateway/README.md) and [proto/](../proto/) for supported services and contracts.
 - **cron-jobs** — Scheduled jobs (rent reminders, cleanup). Adapt for housing.
 - **webapp/** (repo root) — Next.js reference. Adapt for housing UI.
 

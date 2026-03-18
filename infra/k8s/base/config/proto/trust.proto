@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package trust;
+
+option go_package = "github.com/yourorg/off-campus-housing-tracker/proto/trust";
+
+// Trust service – flags, reviews, reputation. No DB internals or scoring algorithm exposed.
+// Emits: listing.flagged, user.warned, user.suspended, review.created, reputation.updated.
+service TrustService {
+  rpc FlagListing(FlagListingRequest) returns (FlagResponse);
+  rpc SubmitReview(SubmitReviewRequest) returns (ReviewResponse);
+  rpc GetReputation(GetReputationRequest) returns (ReputationResponse);
+}
+
+message FlagListingRequest {
+  string listing_id = 1;
+  string reporter_id = 2;
+  string reason = 3;
+}
+
+message FlagResponse {
+  string flag_id = 1;
+  string status = 2;
+}
+
+message SubmitReviewRequest {
+  string booking_id = 1;
+  string reviewer_id = 2;
+  int32 rating = 3;
+  string comment = 4;
+}
+
+message ReviewResponse {
+  string review_id = 1;
+}
+
+message GetReputationRequest {
+  string user_id = 1;
+}
+
+message ReputationResponse {
+  string user_id = 1;
+  float score = 2;
+}

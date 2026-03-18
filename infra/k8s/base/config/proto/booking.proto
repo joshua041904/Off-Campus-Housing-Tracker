@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package booking;
+
+option go_package = "github.com/yourorg/off-campus-housing-tracker/proto/booking";
+
+// Booking service – state machine: create → confirm | cancel; DB enforces transitions; Kafka emits events.
+service BookingService {
+  rpc CreateBooking(CreateBookingRequest) returns (BookingResponse);
+  rpc ConfirmBooking(ConfirmBookingRequest) returns (BookingResponse);
+  rpc CancelBooking(CancelBookingRequest) returns (BookingResponse);
+  rpc GetBooking(GetBookingRequest) returns (BookingResponse);
+}
+
+message CreateBookingRequest {
+  string listing_id = 1;
+  string tenant_id = 2;
+  string start_date = 3;
+  string end_date = 4;
+}
+
+message ConfirmBookingRequest {
+  string booking_id = 1;
+}
+
+message CancelBookingRequest {
+  string booking_id = 1;
+}
+
+message GetBookingRequest {
+  string booking_id = 1;
+}
+
+message BookingResponse {
+  string booking_id = 1;
+  string listing_id = 2;
+  string tenant_id = 3;
+  string status = 4; // CREATED | CONFIRMED | CANCELLED | COMPLETED (and pending_confirmation, rejected, expired per DB)
+  string created_at = 5;
+}

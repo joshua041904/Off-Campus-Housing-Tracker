@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+package common;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/yourorg/off-campus-housing-tracker/proto/common";
+
+// ---------------------------------------------------------------------------
+// Infra-grade common types. Design once, freeze. No domain-specific messages.
+// Use for: identifiers, money, pagination, metadata, errors, soft delete.
+// ---------------------------------------------------------------------------
+
+// 1) Identifiers — semantic clarity where needed (even if most RPCs use raw string IDs).
+message UUID {
+  string value = 1;
+}
+
+// 2) Money — always cents + currency. No floats, no rounding bugs.
+message Money {
+  int64 amount_cents = 1;
+  string currency = 2; // "USD", "EUR"
+}
+
+// 3) Pagination — every list RPC should use this.
+message PaginationRequest {
+  int32 page = 1;
+  int32 limit = 2;
+}
+
+message PaginationResponse {
+  int32 total = 1;
+  int32 page = 2;
+  int32 limit = 3;
+}
+
+// 4) Standard metadata — tracing, identity, observability. Optional; gateway can inject.
+message RequestMetadata {
+  string correlation_id = 1;
+  string user_id = 2;
+  string role = 3;
+}
+
+message ResponseMetadata {
+  string correlation_id = 1;
+  google.protobuf.Timestamp timestamp = 2;
+}
+
+// 5) Standard error model — one format across all services. Enables structured frontend parsing.
+message ErrorDetail {
+  string field = 1;
+  string issue = 2;
+}
+
+message ErrorResponse {
+  string code = 1;        // e.g. "NOT_FOUND", "INVALID_ARGUMENT"
+  string message = 2;
+  repeated ErrorDetail details = 3;
+  StatusCode status = 4;
+}
+
+// 6) Status codes — align errors with a fixed set. Use in ErrorResponse.status.
+enum StatusCode {
+  UNKNOWN = 0;
+  OK = 1;
+  INVALID_ARGUMENT = 2;
+  NOT_FOUND = 3;
+  UNAUTHORIZED = 4;
+  FORBIDDEN = 5;
+  CONFLICT = 6;
+  INTERNAL_ERROR = 7;
+}
+
+// 7) Soft delete — for messaging, listings, etc. Server sets deleted + deleted_at.
+message SoftDelete {
+  bool deleted = 1;
+  google.protobuf.Timestamp deleted_at = 2;
+}
+
+// Empty — for RPCs that do not require a request or response body.
+message Empty {}

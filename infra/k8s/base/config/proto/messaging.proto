@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package messaging;
+
+option go_package = "github.com/yourorg/off-campus-housing-tracker/proto/messaging";
+
+// Messaging service – send message, get conversation. Soft deletes and read state handled server-side.
+service MessagingService {
+  rpc SendMessage(SendMessageRequest) returns (MessageResponse);
+  rpc GetConversation(GetConversationRequest) returns (ConversationResponse);
+}
+
+message SendMessageRequest {
+  string conversation_id = 1;
+  string sender_id = 2;
+  string content = 3;
+}
+
+message MessageResponse {
+  string message_id = 1;
+  string sent_at = 2;
+}
+
+message GetConversationRequest {
+  string conversation_id = 1;
+}
+
+message ConversationResponse {
+  repeated Message messages = 1;
+}
+
+message Message {
+  string message_id = 1;
+  string sender_id = 2;
+  string content = 3;
+  string sent_at = 4;
+  bool read = 5;
+}

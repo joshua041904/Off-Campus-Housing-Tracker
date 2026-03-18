@@ -31,3 +31,17 @@ Pgbench default namespace
 -------------------------
 - run_auth_pgbench_sweep.sh: default namespace record-platform → off-campus-housing (usage and NS).
 - run_pgbench_sweep.sh: default namespace off-campus-housing-tracker → off-campus-housing (usage, NS, and fallbacks for deploy/rollout).
+
+K8s config: proto aligned with repo proto/ (infra/k8s/base/config)
+------------------------------------------------------------------
+- kustomization.yaml: proto-files ConfigMap now uses housing protos only. Files live under config/proto/ and are synced from repo root proto/ (source of truth). Included: common, health, auth, listings, booking, messaging, notification, trust, analytics. Dropped records, social, shopping, auction-monitor, python-ai. Config namespace set to off-campus-housing.
+- Replaced old config/proto/ copies with copies of repo proto/ (same set). Added config/proto/README.md with sync instructions (cp from repo proto/ after proto changes).
+
+Service READMEs: gRPC implementation guidance + proto refs
+-----------------------------------------------------------
+- Each of auth-, listings-, booking-, messaging-, notification-, trust-, analytics-service README: added "Implementing this service (gRPC)" with (1) pointer to the service’s proto in repo proto/, (2) short "first time with gRPC" steps (proto = contract, generate code, implement handlers, register server), (3) which service/RPCs to implement and health.proto for probes.
+- services/README.md: added note that gRPC contracts live in proto/ and each service README has implementation guidance; api-gateway bullet updated with link to api-gateway README and proto/.
+
+api-gateway README
+-----------------
+- New services/api-gateway/README.md: describes gateway as single entrypoint; table of supported backends with proto file links (auth, listings, booking, messaging, notification, trust, analytics); pointer to common.proto and health.proto; link to each service’s implementation section for teammates new to gRPC.

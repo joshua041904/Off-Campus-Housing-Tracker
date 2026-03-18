@@ -2,13 +2,40 @@ syntax = "proto3";
 
 package auth;
 
-option go_package = "github.com/yourorg/off-campus-housing-tracker/proto/auth";
+import "health.proto";
 
-// Auth service – register, login, validate token. Gateway may validate JWT locally; this keeps contract clean.
+option go_package = "github.com/yourorg/record-platform/proto/auth";
+
+// Auth service for gRPC
 service AuthService {
-  rpc Register(RegisterRequest) returns (AuthResponse);
-  rpc Login(LoginRequest) returns (AuthResponse);
+  // Authenticate user
+  rpc Authenticate(AuthenticateRequest) returns (AuthenticateResponse);
+  // Register user
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  
+  // Validate token
   rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse);
+  
+  // Refresh token
+  rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);
+  
+  // Health check
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+message AuthenticateRequest {
+  string email = 1;
+  string password = 2;
+  string mfa_code = 3;  // Optional MFA code
+}
+
+message AuthenticateResponse {
+  string token = 1;
+  string refresh_token = 2;
+  User user = 3;
+  bool requires_mfa = 4;  // Set to true if MFA code is required
+  string user_id = 5;  // User ID when MFA is required (token will be empty)
+  string message = 6;  // Optional message (e.g., "MFA code required")
 }
 
 message RegisterRequest {
@@ -16,22 +43,39 @@ message RegisterRequest {
   string password = 2;
 }
 
-message LoginRequest {
-  string email = 1;
-  string password = 2;
-}
-
-message AuthResponse {
-  string user_id = 1;
-  string jwt = 2;
+message RegisterResponse {
+  string token = 1;
+  User user = 2;
 }
 
 message ValidateTokenRequest {
-  string jwt = 1;
+  string token = 1;
 }
 
 message ValidateTokenResponse {
-  string user_id = 1;
-  string role = 2;
-  bool valid = 3;
+  bool valid = 1;
+  User user = 2;
 }
+
+message RefreshTokenRequest {
+  string refresh_token = 1;
+}
+
+message RefreshTokenResponse {
+  string token = 1;
+  string refresh_token = 2;
+}
+
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+  bool healthy = 1;
+  string version = 2;
+}
+
+message User {
+  string id = 1;
+  string email = 2;
+  string created_at = 3;
+}
+
