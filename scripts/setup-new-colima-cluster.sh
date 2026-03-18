@@ -6,7 +6,7 @@
 #   ./scripts/setup-new-colima-cluster.sh
 #   METALLB_POOL=192.168.64.251-192.168.64.260 ./scripts/setup-new-colima-cluster.sh   # e.g. housing (different range)
 #
-# Default METALLB_POOL=192.168.64.240-192.168.64.250 (record-platform). For a second project on the same
+# Default METALLB_POOL=192.168.64.240-192.168.64.250 (off-campus-housing-tracker). For a second project on the same
 # network (e.g. housing), set a different range (e.g. .251-.260) so LoadBalancer IPs do not clash.
 #
 # Env: CPU (default 12), MEMORY (default 16), DISK (default 256), METALLB_POOL, COLIMA_K3S_VERSION.
@@ -19,7 +19,7 @@ cd "$REPO_ROOT"
 CPU="${CPU:-12}"
 MEMORY="${MEMORY:-16}"
 DISK="${DISK:-256}"
-# Per-project: change this for housing or other projects to avoid IP conflict with record-platform.
+# Per-project: change this for housing or other projects to avoid IP conflict with off-campus-housing-tracker.
 METALLB_POOL="${METALLB_POOL:-192.168.64.240-192.168.64.250}"
 
 say() { printf "\n\033[1m%s\033[0m\n" "$*"; }

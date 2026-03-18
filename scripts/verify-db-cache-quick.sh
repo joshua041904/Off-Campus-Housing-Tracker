@@ -65,14 +65,14 @@ done
 
 # 2. Cache Verification (Redis + Lua)
 say "2. Cache Verification (Redis + Lua Singleflight)..."
-REDIS_POD=$(kubectl -n record-platform get pods -l app=redis -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+REDIS_POD=$(kubectl -n off-campus-housing-tracker get pods -l app=redis -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
 
 if [[ -n "$REDIS_POD" ]]; then
-  if kubectl -n record-platform exec "$REDIS_POD" -- redis-cli ping >/dev/null 2>&1; then
+  if kubectl -n off-campus-housing-tracker exec "$REDIS_POD" -- redis-cli ping >/dev/null 2>&1; then
     ok "Redis: Connected"
     
     # Get cache hit/miss stats (proves Redis is working)
-    REDIS_STATS=$(kubectl -n record-platform exec "$REDIS_POD" -- redis-cli info stats 2>/dev/null || echo "")
+    REDIS_STATS=$(kubectl -n off-campus-housing-tracker exec "$REDIS_POD" -- redis-cli info stats 2>/dev/null || echo "")
     if [[ -n "$REDIS_STATS" ]]; then
       HITS=$(echo "$REDIS_STATS" | grep "keyspace_hits" | cut -d: -f2 | tr -d '\r' || echo "0")
       MISSES=$(echo "$REDIS_STATS" | grep "keyspace_misses" | cut -d: -f2 | tr -d '\r' || echo "0")
@@ -88,7 +88,7 @@ if [[ -n "$REDIS_POD" ]]; then
       fi
       
       # Check for Lua scripts (proves singleflight Lua is loaded)
-      SCRIPT_COUNT=$(kubectl -n record-platform exec "$REDIS_POD" -- redis-cli script exists $(kubectl -n record-platform exec "$REDIS_POD" -- redis-cli script list 2>/dev/null | head -1 | cut -d' ' -f1 2>/dev/null || echo "") 2>/dev/null | grep -c "1" || echo "0")
+      SCRIPT_COUNT=$(kubectl -n off-campus-housing-tracker exec "$REDIS_POD" -- redis-cli script exists $(kubectl -n off-campus-housing-tracker exec "$REDIS_POD" -- redis-cli script list 2>/dev/null | head -1 | cut -d' ' -f1 2>/dev/null || echo "") 2>/dev/null | grep -c "1" || echo "0")
       if [[ "$SCRIPT_COUNT" -gt 0 ]]; then
         ok "Lua scripts: Loaded (PROVES singleflight Lua working)"
       else

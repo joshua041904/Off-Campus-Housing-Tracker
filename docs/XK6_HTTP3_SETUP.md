@@ -16,7 +16,7 @@ k6 does not ship HTTP/3 (QUIC). This repo uses **xk6-http3** (custom k6 binary w
 
 - **From host (MetalLB):** Preflight and `run-k6-phases.sh` set `BASE_URL` to the Caddy LoadBalancer IP when available (e.g. `https://192.168.64.240:443`), so k6 does not hit `127.0.0.1:443`. No extra env needed.
 - **In-cluster:** Set `K6_IN_CLUSTER=1` so `BASE_URL=https://caddy-h3.ingress-nginx.svc.cluster.local:443`.
-- **Override:** Pass `BASE_URL=...` and/or `HOST=record.local` when invoking k6 or `run-k6-phases.sh`.
+- **Override:** Pass `BASE_URL=...` and/or `HOST=off-campus-housing.local` when invoking k6 or `run-k6-phases.sh`.
 
 ```bash
 # Host (MetalLB LB IP auto-used when available)
@@ -41,5 +41,5 @@ K6_IN_CLUSTER=1 SUITE_LOG_DIR=/tmp/k6 ./scripts/load/run-k6-phases.sh
 ## Troubleshooting
 
 - **SyntaxError in k6-http3-complete.js:** k6’s runtime does not support object spread (`...`). Use `Object.assign` (already fixed in repo).
-- **dial tcp 127.0.0.1:443: can't assign requested address:** From host, `record.local` resolved to 127.0.0.1. Ensure MetalLB is up and Caddy has an LB IP so `run-k6-phases.sh` can set `BASE_URL` to it, or set `BASE_URL=https://<LB_IP>:443` manually.
+- **dial tcp 127.0.0.1:443: can't assign requested address:** From host, `off-campus-housing.local` resolved to 127.0.0.1. Ensure MetalLB is up and Caddy has an LB IP so `run-k6-phases.sh` can set `BASE_URL` to it, or set `BASE_URL=https://<LB_IP>:443` manually.
 - **xk6-http3 not found:** Run `./scripts/build-k6-http3.sh` once. Preflight step 6d does this when `RUN_K6=1` unless `SKIP_XK6_BUILD=1`.

@@ -2,11 +2,11 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: shopping-service
-  namespace: record-platform
+  namespace: off-campus-housing-tracker
 spec:
   template:
     spec:
       containers:
         - name: app
-          image: record-platform-shopping-service:latest
+          image: off-campus-housing-tracker-shopping-service:latest
 

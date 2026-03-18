@@ -20,7 +20,7 @@ BACKUP_DIR="$BACKUP_BASE/backup-$TIMESTAMP"
 REPORT_FILE="$BACKUP_DIR/backup-report-$TIMESTAMP.md"
 mkdir -p "$BACKUP_DIR"
 
-# Default: 8 DBs (record-platform layout). Format: port:dbname:label (one per line).
+# Default: 8 DBs (off-campus-housing-tracker layout). Format: port:dbname:label (one per line).
 # Override with BACKUP_DBS (e.g. "5433:records:records 5434:records:social ..." or a file path).
 if [[ -z "${BACKUP_DBS:-}" ]]; then
   BACKUP_DBS="5433:records:records

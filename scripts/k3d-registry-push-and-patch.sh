@@ -8,7 +8,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-REGISTRY_NAME="${K3D_REGISTRY_NAME:-k3d-record-platform-registry}"
+REGISTRY_NAME="${K3D_REGISTRY_NAME:-k3d-off-campus-housing-tracker-registry}"
 REG_PORT="${REG_PORT:-5000}"
 REGISTRY_ADDR="${REGISTRY_NAME}:${REG_PORT}"
 # From host, push to 127.0.0.1:5000 when registry is bound to host
@@ -76,14 +76,14 @@ if [[ "${BUILD_ENVOY_TCPDUMP:-0}" == "1" ]] && [[ -f "$REPO_ROOT/docker/envoy-wi
     docker push "${PUSH_ADDR}/envoy-with-tcpdump:dev" 2>/dev/null && info "Pushed envoy-with-tcpdump:dev" || warn "envoy-with-tcpdump push failed"
 fi
 
-# Patch deployments to use registry (inside k3d, nodes resolve k3d-record-platform-registry:5000)
+# Patch deployments to use registry (inside k3d, nodes resolve k3d-off-campus-housing-tracker-registry:5000)
 if ! command -v kubectl >/dev/null 2>&1; then
   warn "kubectl not found; skip patch"
   exit 0
 fi
 for app in "${APPS[@]}"; do
-  if kubectl get deployment "$app" -n record-platform --request-timeout=5s >/dev/null 2>&1; then
-    kubectl set image "deployment/$app" -n record-platform "app=${REGISTRY_ADDR}/${app}:dev" --request-timeout=15s 2>/dev/null && info "Patched $app" || warn "Patch $app failed"
+  if kubectl get deployment "$app" -n off-campus-housing-tracker --request-timeout=5s >/dev/null 2>&1; then
+    kubectl set image "deployment/$app" -n off-campus-housing-tracker "app=${REGISTRY_ADDR}/${app}:dev" --request-timeout=15s 2>/dev/null && info "Patched $app" || warn "Patch $app failed"
   fi
 done
 # Caddy (ingress-nginx): use caddy-with-tcpdump if we have it in registry, else caddy:2.8.4 (official, has HTTP/3)

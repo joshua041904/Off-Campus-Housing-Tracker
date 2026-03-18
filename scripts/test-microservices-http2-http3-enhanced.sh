@@ -14,8 +14,8 @@ ok() { echo "✅ $*"; }
 warn() { echo "⚠️  $*"; }
 info() { echo "ℹ️  $*"; }
 
-NS="${NS:-record-platform}"
-HOST="${HOST:-record.local}"
+NS="${NS:-off-campus-housing-tracker}"
+HOST="${HOST:-off-campus-housing.local}"
 ctx=$(kubectl config current-context 2>/dev/null || echo "")
 _kb() {
   if [[ "$ctx" == *"colima"* ]] && command -v colima >/dev/null 2>&1; then
@@ -34,7 +34,7 @@ K8S_CA=$(kubectl -n ingress-nginx get secret dev-root-ca -o jsonpath='{.data.dev
 if [[ -z "$K8S_CA" ]] || ! echo "$K8S_CA" | grep -q "BEGIN CERTIFICATE"; then
   K8S_CA=$(_kb -n ingress-nginx get secret dev-root-ca -o jsonpath='{.data.dev-root\.pem}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
 fi
-# Fallback: record-platform has dev-root-ca too
+# Fallback: off-campus-housing-tracker has dev-root-ca too
 if [[ -z "$K8S_CA" ]] || ! echo "$K8S_CA" | grep -q "BEGIN CERTIFICATE"; then
   K8S_CA=$(_kb -n "$NS" get secret dev-root-ca -o jsonpath='{.data.dev-root\.pem}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
 fi

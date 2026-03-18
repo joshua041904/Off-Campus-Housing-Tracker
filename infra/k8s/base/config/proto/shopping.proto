@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package shopping;
 
-option go_package = "github.com/yourorg/record-platform/proto/shopping";
+option go_package = "github.com/yourorg/off-campus-housing-tracker/proto/shopping";
 
 // Shopping/Collector service for gRPC
 service ShoppingService {

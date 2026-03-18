@@ -37,7 +37,7 @@ _run_with_timeout() {
 
 if [[ "${PGSQL_VIA_DOCKER:-0}" == "1" ]]; then
   _PG_CONTAINER=""
-  _cache_file="/tmp/record-platform-pg-container-${DB_PORT}"
+  _cache_file="/tmp/off-campus-housing-tracker-pg-container-${DB_PORT}"
 
   if [[ "$_PG_CONTAINER_CACHE_TTL" -gt 0 ]] && [[ -f "$_cache_file" ]]; then
     _now=$(date +%s)

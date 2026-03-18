@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package analytics;
 
-option go_package = "github.com/yourorg/record-platform/proto/analytics";
+option go_package = "github.com/yourorg/off-campus-housing-tracker/proto/analytics";
 
 // Analytics service for gRPC (Search analytics, price predictions, trends)
 service AnalyticsService {

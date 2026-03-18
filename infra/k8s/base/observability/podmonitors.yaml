@@ -1,10 +1,10 @@
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
-  name: record-platform-services
+  name: off-campus-housing-tracker-services
   namespace: observability
   labels:
-    app: record-platform
+    app: off-campus-housing-tracker
 spec:
   selector:
     matchExpressions:

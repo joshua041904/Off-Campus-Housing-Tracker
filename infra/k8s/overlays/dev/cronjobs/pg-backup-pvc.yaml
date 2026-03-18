@@ -2,7 +2,7 @@ apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: pg-backup-pvc
-  namespace: record-platform
+  namespace: off-campus-housing-tracker
 spec:
   schedule: "30 5 * * *"
   concurrencyPolicy: Forbid
@@ -21,7 +21,7 @@ spec:
           - name: pgdump
             image: postgres:16
             env:
-            - { name: PGHOST,     value: postgres.record-platform.svc.cluster.local }
+            - { name: PGHOST,     value: postgres.off-campus-housing-tracker.svc.cluster.local }
             - { name: PGUSER,     value: postgres }
             - { name: PGDATABASE, value: records }
             - name: PGPASSWORD

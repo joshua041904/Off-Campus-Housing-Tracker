@@ -2,8 +2,8 @@
 # HTTP/2 tests use $CURL_BIN with --http2; HTTP/3 tests use http3_curl with --http3-only (no fallback). Same across all suites.
 set -euo pipefail
 
-HOST="${HOST:-record.local}"
-NS="record-platform"
+HOST="${HOST:-off-campus-housing.local}"
+NS="off-campus-housing-tracker"
 CURL_BIN="/opt/homebrew/opt/curl/bin/curl"
 
 say() { printf "\n\033[1m%s\033[0m\n" "$*"; }

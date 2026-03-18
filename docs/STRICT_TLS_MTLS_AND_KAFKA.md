@@ -34,7 +34,7 @@ Platform policy: **all service-to-service and client-to-broker traffic uses stri
   - Preflight runs `ensure-strict-tls-mtls-preflight.sh` so the chain is valid and synced.
 
 - **Caddy**  
-  - TLS for `record.local`; no `tls internal` without certs. HTTP/3 (QUIC) on same certs.
+  - TLS for `off-campus-housing.local`; no `tls internal` without certs. HTTP/3 (QUIC) on same certs.
 
 ## Checklist (no cleartext)
 

@@ -2,7 +2,7 @@
 # HTTP/2 tests use curl with --http2; HTTP/3 tests use http3_curl with --http3-only (no fallback). Same across all suites.
 set -euo pipefail
 
-HOST="${HOST:-record.local}"
+HOST="${HOST:-off-campus-housing.local}"
 # Auto-detect port based on cluster, or use provided PORT
 # Validate PORT if set - if it's 443 (default HTTPS), re-detect
 if [[ -z "${PORT:-}" ]] || [[ "${PORT:-}" == "443" ]]; then

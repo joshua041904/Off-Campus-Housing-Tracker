@@ -14,7 +14,7 @@ function buildCredentials() {
   
   const clientCertPath = process.env.GRPC_CLIENT_CERT || process.env.TLS_CERT_PATH || "/etc/certs/tls.crt";
   const clientKeyPath = process.env.GRPC_CLIENT_KEY || process.env.TLS_KEY_PATH || "/etc/certs/tls.key";
-  const serverName = process.env.GRPC_SERVER_NAME || process.env.TLS_SERVER_NAME || "record.local";
+  const serverName = process.env.GRPC_SERVER_NAME || process.env.TLS_SERVER_NAME || "off-campus-housing.local";
   
   // STRICT TLS: Always require certificates, no insecure fallback
   // For strict TLS with client certificate verification
@@ -122,7 +122,7 @@ const pythonAiProto = grpc.loadPackageDefinition(pythonAiPackageDefinition) as a
 
 // Create gRPC clients with proper channel options for TLS server name
 function createClientWithOptions(ServiceClass: any, address: string, credentials: grpc.ChannelCredentials) {
-  const serverName = process.env.GRPC_SERVER_NAME || process.env.TLS_SERVER_NAME || "record.local";
+  const serverName = process.env.GRPC_SERVER_NAME || process.env.TLS_SERVER_NAME || "off-campus-housing.local";
   // Extract hostname from address (e.g., "auth-service:50051" -> "auth-service")
   const addressHost = address.split(':')[0];
   // If address uses service name, override with certificate hostname

@@ -1,8 +1,8 @@
 # Substrate bundle: what’s included, what’s left out, how to operate
 
-This document describes the **portable substrate tarball** produced by `scripts/build-substrate-bundle.sh`: what is inside, what is **record-platform–specific and left out**, how to run it, and what to add for your project (e.g. **housing-platform** with 7 domain services per the global-scale spec).
+This document describes the **portable substrate tarball** produced by `scripts/build-substrate-bundle.sh`: what is inside, what is **off-campus-housing-tracker–specific and left out**, how to run it, and what to add for your project (e.g. **housing-platform** with 7 domain services per the global-scale spec).
 
-**Separate repo:** The bundle is an **extra copy** for use in a **different project repository**. Build from record-platform, then extract the tarball in the other repo (e.g. housing); do not merge into record-platform. Use a project name to get a distinct tarball: `./scripts/build-substrate-bundle.sh substrate-bundle housing` → `substrate-bundle-housing.tar.gz`. See the bundle README for extract-and-merge steps.
+**Separate repo:** The bundle is an **extra copy** for use in a **different project repository**. Build from off-campus-housing-tracker, then extract the tarball in the other repo (e.g. housing); do not merge into off-campus-housing-tracker. Use a project name to get a distinct tarball: `./scripts/build-substrate-bundle.sh substrate-bundle housing` → `substrate-bundle-housing.tar.gz`. See the bundle README for extract-and-merge steps.
 
 **Create bundle at a fixed path (e.g. `/Users/tom/Off-Campus-Housing-Tracker`):**  
 `BUNDLE_OUTPUT_ROOT=/Users/tom BUNDLE_FOLDER_NAME=Off-Campus-Housing-Tracker ./scripts/build-substrate-bundle.sh`  
@@ -28,7 +28,7 @@ The tarball is written as `$BUNDLE_OUTPUT_ROOT/$BUNDLE_FOLDER_NAME.tar.gz`. **Ro
 
 ---
 
-## 2. What’s record-platform–specific (left out of bundle)
+## 2. What’s off-campus-housing-tracker–specific (left out of bundle)
 
 So the bundle stays **portable**, the following are **not** included; add your own equivalents in your repo:
 

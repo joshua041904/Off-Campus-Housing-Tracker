@@ -17,7 +17,7 @@ data:
           - role: pod
             namespaces:
               names:
-                - record-platform
+                - off-campus-housing-tracker
         relabel_configs:
           - source_labels: [__meta_kubernetes_pod_label_app]
             action: keep
@@ -34,7 +34,7 @@ data:
           - role: pod
             namespaces:
               names:
-                - record-platform
+                - off-campus-housing-tracker
         relabel_configs:
           - source_labels: [__meta_kubernetes_pod_label_app]
             action: keep
@@ -51,7 +51,7 @@ data:
           - role: pod
             namespaces:
               names:
-                - record-platform
+                - off-campus-housing-tracker
         relabel_configs:
           - source_labels: [__meta_kubernetes_pod_label_app]
             action: keep

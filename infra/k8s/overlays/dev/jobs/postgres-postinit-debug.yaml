@@ -2,7 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: postgres-postinit-debug
-  namespace: record-platform
+  namespace: off-campus-housing-tracker
 spec:
   backoffLimit: 0
   ttlSecondsAfterFinished: 3600
@@ -20,7 +20,7 @@ spec:
       - name: wait-pg
         image: postgres:16
         env:
-        - { name: PGHOST,     value: postgres.record-platform.svc.cluster.local }
+        - { name: PGHOST,     value: postgres.off-campus-housing-tracker.svc.cluster.local }
         - { name: PGUSER,     value: postgres }
         - { name: PGDATABASE, value: records }
         - name: PGPASSWORD
@@ -42,7 +42,7 @@ spec:
       - name: psql
         image: postgres:16
         env:
-        - { name: PGHOST,     value: postgres.record-platform.svc.cluster.local }
+        - { name: PGHOST,     value: postgres.off-campus-housing-tracker.svc.cluster.local }
         - { name: PGUSER,     value: postgres }
         - { name: PGDATABASE, value: records }
         - name: PGPASSWORD

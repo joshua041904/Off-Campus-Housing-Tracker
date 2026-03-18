@@ -15,8 +15,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 export PATH="$SCRIPT_DIR/shims:/opt/homebrew/bin:/usr/local/bin:${PATH:-}"
 [[ -f "$SCRIPT_DIR/lib/ensure-kubectl-shim.sh" ]] && { source "$SCRIPT_DIR/lib/ensure-kubectl-shim.sh" || true; }
 
-NS="${NS:-record-platform}"
-HOST="${HOST:-record.local}"
+NS="${NS:-off-campus-housing-tracker}"
+HOST="${HOST:-off-campus-housing.local}"
 PORT="${PORT:-30443}"
 # When run after run-all-test-suites with LB IP, TARGET_IP/REACHABLE_LB_IP and PORT=443 are set — use for --resolve so requests hit Caddy
 CURL_RESOLVE_IP="${TARGET_IP:-${REACHABLE_LB_IP:-127.0.0.1}}"
@@ -123,7 +123,7 @@ fi
 # --- Wait for service stability (especially after rotation/chaos tests) ---
 say "Waiting for service stability..."
 for svc in social-service api-gateway; do
-  _kb wait --for=condition=ready pod -l app=$svc -n record-platform --timeout=60s 2>/dev/null || true
+  _kb wait --for=condition=ready pod -l app=$svc -n off-campus-housing-tracker --timeout=60s 2>/dev/null || true
 done
 sleep 10
 ok "Services stable"

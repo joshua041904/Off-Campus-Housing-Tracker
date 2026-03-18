@@ -96,7 +96,7 @@ if [[ -n "$HTTP3_EXT" ]]; then
 package main
 
 import (
-	_ "github.com/record-platform/xk6-http3"
+	_ "github.com/off-campus-housing-tracker/xk6-http3"
 	"go.k6.io/k6/cmd"
 )
 
@@ -106,7 +106,7 @@ func main() {
 MAINGO
     
     # Make sure the extension is actually required
-    go get github.com/record-platform/xk6-http3@v0.0.0
+    go get github.com/off-campus-housing-tracker/xk6-http3@v0.0.0
     go get go.k6.io/k6/cmd@v0.50.0
     go mod tidy
     

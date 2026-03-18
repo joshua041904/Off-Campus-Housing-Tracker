@@ -1,8 +1,8 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: record-platform-grpc
-  namespace: record-platform
+  name: off-campus-housing-tracker-grpc
+  namespace: off-campus-housing-tracker
   annotations:
     # CRITICAL: Backend protocol must be GRPC
     nginx.ingress.kubernetes.io/backend-protocol: "GRPC"
@@ -20,10 +20,10 @@ spec:
   ingressClassName: nginx
   tls:
   - hosts:
-    - record.local
+    - off-campus-housing.local
     secretName: record-local-tls
   rules:
-  - host: record.local
+  - host: off-campus-housing.local
     http:
       paths:
       - path: /records.RecordsService

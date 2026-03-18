@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package listings;
 
-option go_package = "github.com/yourorg/record-platform/proto/listings";
+option go_package = "github.com/yourorg/off-campus-housing-tracker/proto/listings";
 
 // Listings service for gRPC
 service ListingsService {

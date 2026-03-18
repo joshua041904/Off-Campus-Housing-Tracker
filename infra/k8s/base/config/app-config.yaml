@@ -5,8 +5,8 @@ metadata:
 data:
   NODE_ENV: production
   ALLOW_MOCK_PASSKEY_DATA: "false"  # Production mode - requires real WebAuthn data (set to "true" for testing)
-  WEBAUTHN_RP_ID: "record.local"  # Relying Party ID (your domain)
-  WEBAUTHN_ORIGIN: "https://record.local:8443"  # WebAuthn origin (must match actual origin)
+  WEBAUTHN_RP_ID: "off-campus-housing.local"  # Relying Party ID (your domain)
+  WEBAUTHN_ORIGIN: "https://off-campus-housing.local:8443"  # WebAuthn origin (must match actual origin)
   
   # SMS Provider Configuration
   # Using Mock SMS Provider (FREE - like MailHog for email)
@@ -61,6 +61,6 @@ data:
   # Required when KAFKA_SSL_ENABLED=true: set KAFKA_CA_CERT to path to CA PEM (e.g. kafka-ssl-secret).
   # Optional mTLS: KAFKA_CLIENT_CERT, KAFKA_CLIENT_KEY. Mount certs via Secret and set env in deployment.
   # Single broker (Docker Compose: one Kafka, SSL on 9093 / host 29093). Multi-broker when cluster exists — see docs/KAFKA_CURRENT_AND_ROADMAP.md.
-  KAFKA_BROKER: kafka-external.record-platform.svc.cluster.local:9093
+  KAFKA_BROKER: kafka-external.off-campus-housing-tracker.svc.cluster.local:9093
   KAFKA_USE_SSL: "true"
   KAFKA_SSL_ENABLED: "true"

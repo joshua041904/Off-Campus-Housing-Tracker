@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: nginx
-  namespace: record-platform
+  namespace: off-campus-housing-tracker
   labels: { app: nginx }
 spec:
   replicas: 1

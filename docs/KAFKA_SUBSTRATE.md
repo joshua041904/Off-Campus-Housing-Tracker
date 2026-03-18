@@ -17,7 +17,7 @@ This document summarizes how Kafka is set up in the substrate bundle so you get 
 - **Broker:** `KAFKA_SSL_CLIENT_AUTH: required` (Docker Compose and in-cluster). Every client must present a valid client certificate signed by the same CA as the broker.
 - **Certificates:** Run **`scripts/kafka-ssl-from-dev-root.sh`** after CA reissue. Uses `certs/dev-root.pem` and `certs/dev-root.key`. Produces:
   - `certs/kafka-ssl/` — broker keystore/truststore (JKS), CA PEM, client keystore (P12) for apps.
-  - **kafka-ssl-secret** in the app namespace (e.g. `record-platform`) with `ca-cert.pem`, keystore, truststore.
+  - **kafka-ssl-secret** in the app namespace (e.g. `off-campus-housing-tracker`) with `ca-cert.pem`, keystore, truststore.
 - **Apps:** Set `KAFKA_SSL_ENABLED=true`, `KAFKA_CA_CERT` to path of CA PEM (e.g. `/etc/kafka/secrets/ca-cert.pem`). Mount **kafka-ssl-secret** in every service that talks to Kafka. For mTLS client auth, set `KAFKA_CLIENT_CERT` / `KAFKA_CLIENT_KEY` (or equivalent) from the same secret if your client library supports it.
 - **ConfigMap** (`infra/k8s/base/config/app-config.yaml`): `KAFKA_BROKER` uses port **9093**, `KAFKA_USE_SSL` and `KAFKA_SSL_ENABLED` are **true**.
 
@@ -50,4 +50,4 @@ This document summarizes how Kafka is set up in the substrate bundle so you get 
 | `scripts/kafka-ssl-from-dev-root.sh` | Build broker + client certs from dev-root CA |
 | `certs/kafka-ssl/` | Created by script; mount in broker and apps |
 
-Replace `record-platform` namespace with your app namespace in all manifests and scripts.
+Replace `off-campus-housing-tracker` namespace with your app namespace in all manifests and scripts.

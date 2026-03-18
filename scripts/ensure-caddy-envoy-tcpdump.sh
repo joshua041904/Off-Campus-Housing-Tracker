@@ -16,7 +16,7 @@ warn() { echo "⚠️  $*"; }
 info() { echo "ℹ️  $*"; }
 
 # k3d: use registry script (it builds and pushes when BUILD_*=1)
-REG_NAME="${K3D_REGISTRY_NAME:-k3d-record-platform-registry}"
+REG_NAME="${K3D_REGISTRY_NAME:-k3d-off-campus-housing-tracker-registry}"
 if kubectl config current-context 2>/dev/null | grep -q k3d; then
   if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "$REG_NAME" || docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "$REG_NAME"; then
     say "k3d cluster: building and pushing tcpdump images to registry, then patching"

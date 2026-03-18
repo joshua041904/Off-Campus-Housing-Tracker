@@ -109,7 +109,7 @@ export async function sendEmailVerificationCode(
     await transporter.sendMail({
       from: process.env.SMTP_FROM || process.env.SMTP_USER,
       to: email,
-      subject: "Record Platform - Email Verification Code",
+      subject: "Off-Campus-Housing-Tracker - Email Verification Code",
       html: `
         <h2>Email Verification</h2>
         <p>Your verification code is: <strong>${code}</strong></p>
@@ -167,7 +167,7 @@ export async function sendSmsVerificationCode(
     return { success: false, message: "SMS service not configured" };
   }
 
-  const message = `Your Record Platform verification code is: ${code}. This code expires in 15 minutes.`;
+  const message = `Your Off-Campus-Housing-Tracker verification code is: ${code}. This code expires in 15 minutes.`;
   const result = await provider.sendSms(phone, message);
   
   if (!result.success) {

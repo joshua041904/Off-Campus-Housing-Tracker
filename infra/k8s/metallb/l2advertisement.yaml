@@ -1,10 +1,10 @@
-# L2 advertisement for record-platform-pool. Optional: set nodeSelector for multi-node priority (see docs/METALLB_TRAFFIC_POLICY_AND_SCALE.md).
+# L2 advertisement for off-campus-housing-tracker-pool. Optional: set nodeSelector for multi-node priority (see docs/METALLB_TRAFFIC_POLICY_AND_SCALE.md).
 apiVersion: metallb.io/v1beta1
 kind: L2Advertisement
 metadata:
-  name: record-platform-l2
+  name: off-campus-housing-tracker-l2
   namespace: metallb-system
 spec:
   ipAddressPools:
-    - record-platform-pool
+    - off-campus-housing-tracker-pool
   # nodeSelector: {}   # Uncomment and set to limit which nodes announce L2 (e.g. metallb-priority: high)

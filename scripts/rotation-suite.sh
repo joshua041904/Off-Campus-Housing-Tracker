@@ -12,9 +12,9 @@ set -euo pipefail
 # Defaults: ROTATION_H2_KEYLOG=0 (in-cluster k6, no SSH/keylog) so rotation passes reliably; ROTATE_CA=1 (full cert chain test).
 # ROTATION_MODE: "cluster" (in-cluster k6, default) or "host" (host k6 via MetalLB). Set ROTATION_H2_KEYLOG=1 only when you need SSLKEYLOGFILE (forces host mode, adds TLS debug overhead and SSH mux risk).
 ROTATION_MODE="${ROTATION_MODE:-cluster}"
-HOST="${HOST:-record.local}"
+HOST="${HOST:-off-campus-housing.local}"
 NS_ING="ingress-nginx"
-NS_APP="record-platform"
+NS_APP="off-campus-housing-tracker"
 SERVICE="caddy-h3"
 LEAF_SECRET="record-local-tls"
 CA_SECRET="dev-root-ca"
@@ -184,7 +184,7 @@ if $ROTATE_CA; then
   (
     openssl genrsa -out "$CA_KEY" 2048 >/dev/null 2>&1 || fail "Failed to generate CA key"
     openssl req -new -x509 -days 3650 -key "$CA_KEY" -out "$CA_CRT" \
-      -subj "/CN=dev-root-ca/O=record-platform" >/dev/null 2>&1 || fail "Failed to generate CA certificate"
+      -subj "/CN=dev-root-ca/O=off-campus-housing-tracker" >/dev/null 2>&1 || fail "Failed to generate CA certificate"
     ok "CA certificate generated (parallel)"
   ) &
   CA_PID=$!
@@ -229,7 +229,7 @@ if $ROTATE_LEAF; then
     
     # Create CSR
     openssl req -new -key "$LEAF_KEY" -out "$TMP/leaf.csr" \
-      -subj "/CN=$HOST/O=record-platform" >/dev/null 2>&1 || fail "Failed to create CSR"
+      -subj "/CN=$HOST/O=off-campus-housing-tracker" >/dev/null 2>&1 || fail "Failed to create CSR"
     
     # Sign leaf cert with new CA (include ClusterIP FQDN in SANs for strict TLS)
     # Create extfile for SANs
@@ -450,7 +450,7 @@ if [[ $wait_failed -eq 0 ]]; then
   ok "All secrets updated (leaf + CA + service-tls in both namespaces)"
 else
   warn "Some secret updates failed ($wait_failed): ${failed_names[*]:-}"
-  echo "  ℹ️  LEAF_ING=leaf in ingress-nginx, LEAF_APP=leaf in record-platform, SVC_TLS=service-tls, CA_*=dev-root-ca"
+  echo "  ℹ️  LEAF_ING=leaf in ingress-nginx, LEAF_APP=leaf in off-campus-housing-tracker, SVC_TLS=service-tls, CA_*=dev-root-ca"
   echo "  ℹ️  Check: $SECRET_KCTL -n $NS_ING get secret; $SECRET_KCTL -n $NS_APP get secret"
   fail "Secret updates failed; fix above and re-run. Do not proceed with Caddy rollout with missing secrets."
 fi
@@ -524,7 +524,7 @@ if $ROTATE_CA && [[ -f "${CA_ROOT:-}" ]] && [[ -f "${CA_KEY:-}" ]]; then
   ENVOY_CLIENT_CRT="$TMP/envoy-client.crt"
   ENVOY_CLIENT_KEY="$TMP/envoy-client.key"
   if openssl genrsa -out "$ENVOY_CLIENT_KEY" 2048 2>/dev/null && \
-     openssl req -new -key "$ENVOY_CLIENT_KEY" -out "$TMP/envoy.csr" -subj "/CN=envoy/O=record-platform" 2>/dev/null && \
+     openssl req -new -key "$ENVOY_CLIENT_KEY" -out "$TMP/envoy.csr" -subj "/CN=envoy/O=off-campus-housing-tracker" 2>/dev/null && \
      echo -e "[v3_req]\nsubjectAltName=DNS:envoy,DNS:envoy-test.envoy-test.svc.cluster.local" > "$TMP/envoy-ext.conf" && \
      openssl x509 -req -in "$TMP/envoy.csr" -CA "$CA_ROOT" -CAkey "$CA_KEY" -CAcreateserial -out "$ENVOY_CLIENT_CRT" -days 365 -extensions v3_req -extfile "$TMP/envoy-ext.conf" 2>/dev/null; then
     if [[ -n "${COLIMA_VM_DIR:-}" ]]; then
@@ -664,7 +664,7 @@ sleep "$ROTATION_GRACE_SECONDS"
 ok "Stabilization complete (Caddy + Envoy ready, ${ROTATION_GRACE_SECONDS}s grace)"
 
 # Explicit 8s warmup + one HTTP/3 health to clear stale QUIC before chaos (avoids k6 hanging on first H3 request).
-say "Warmup: 8s + one HTTP/3 health to record.local (clear stale QUIC sessions)…"
+say "Warmup: 8s + one HTTP/3 health to off-campus-housing.local (clear stale QUIC sessions)…"
 sleep 8
 if [[ -n "${TARGET_IP:-}" ]] && [[ -f "$REPO_ROOT/certs/dev-root.pem" ]] && command -v curl >/dev/null 2>&1; then
   curl -k -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 --http3 \
@@ -1650,7 +1650,7 @@ say "=== Strict TLS / mTLS proof (CA + leaf rotation) ==="
 ok "k6: insecureSkipTLSVerify=false; CA from ConfigMap (dev-root-ca); TLS 1.3 only for H2; H3 strict TLS."
 ok "Caddy: serves leaf from record-local-tls (rotated); clients validate with dev-root-ca."
 ok "gRPC: services use service-tls (leaf + CA); mTLS with client cert (tls.crt/tls.key) and CA verification."
-log_info "Certificate verified above: issuer = dev CA (CN=dev-root-ca, O=record-platform); subject = CN=record.local."
+log_info "Certificate verified above: issuer = dev CA (CN=dev-root-ca, O=off-campus-housing-tracker); subject = CN=off-campus-housing.local."
 
 # Extract error details from k6 logs if failures occurred (only when RESULT is a valid file - avoid set -e exit on grep)
 if [[ "$H2_FAIL_COUNT" -gt 0 ]] || [[ "$H3_FAIL_COUNT" -gt 0 ]]; then
@@ -2115,7 +2115,7 @@ if [[ -n "$CERT_PF_PID" ]] && command -v openssl >/dev/null 2>&1; then
     
     # Verify certificate issuer (check for new CA first, then mkcert)
     if echo "$CERT_ISSUER" | grep -q "CN=dev-root-ca"; then
-      ok "✅ Certificate is from dev CA (CN=dev-root-ca, O=record-platform)"
+      ok "✅ Certificate is from dev CA (CN=dev-root-ca, O=off-campus-housing-tracker)"
       ok "  Issuer: $CERT_ISSUER"
       ok "  Subject: $CERT_SUBJECT"
       ok "  Valid from: $CERT_NOT_BEFORE to $CERT_NOT_AFTER"
@@ -2148,7 +2148,7 @@ if [[ -n "$CERT_PF_PID" ]] && command -v openssl >/dev/null 2>&1; then
             ok "  CA Issuer: $CA_ISSUER"
             # Check if this is the new CA (from rotation)
             if echo "$CA_ISSUER" | grep -q "CN=dev-root-ca"; then
-              ok "  ✅ CA certificate confirmed (CN=dev-root-ca, O=record-platform)"
+              ok "  ✅ CA certificate confirmed (CN=dev-root-ca, O=off-campus-housing-tracker)"
             fi
           fi
         fi

@@ -10,7 +10,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-NS="record-platform"
+NS="off-campus-housing-tracker"
 say() { printf "\033[1m%s\033[0m\n" "$*"; }
 ok() { echo "✅ $*"; }
 info() { echo "ℹ️  $*"; }

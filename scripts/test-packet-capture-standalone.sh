@@ -17,8 +17,8 @@ ok() { echo "✅ $*"; }
 warn() { echo "⚠️  $*"; }
 info() { echo "ℹ️  $*"; }
 
-NS="record-platform"
-HOST="${HOST:-record.local}"
+NS="off-campus-housing-tracker"
+HOST="${HOST:-off-campus-housing.local}"
 export PORT="${PORT:-30443}"
 export HOST
 # When run from run-all: TARGET_IP + PORT=443 (MetalLB). Use for --resolve so traffic hits Caddy.

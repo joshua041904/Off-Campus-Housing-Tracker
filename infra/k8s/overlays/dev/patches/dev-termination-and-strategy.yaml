@@ -4,7 +4,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: api-gateway
-  namespace: record-platform
+  namespace: off-campus-housing-tracker
 spec:
   strategy:
     type: Recreate
@@ -23,7 +23,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: auth-service
-  namespace: record-platform
+  namespace: off-campus-housing-tracker
 spec:
   strategy:
     type: Recreate
@@ -42,7 +42,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: records-service
-  namespace: record-platform
+  namespace: off-campus-housing-tracker
 spec:
   strategy:
     type: Recreate
@@ -61,7 +61,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: listings-service
-  namespace: record-platform
+  namespace: off-campus-housing-tracker
 spec:
   strategy:
     type: Recreate
@@ -80,7 +80,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: analytics-service
-  namespace: record-platform
+  namespace: off-campus-housing-tracker
 spec:
   strategy:
     type: RollingUpdate
@@ -101,7 +101,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: python-ai-service
-  namespace: record-platform
+  namespace: off-campus-housing-tracker
 spec:
   strategy:
     type: RollingUpdate

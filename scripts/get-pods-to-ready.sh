@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Get all record-platform app pods to 1/1 Ready.
+# Get all off-campus-housing-tracker app pods to 1/1 Ready.
 # Fixes: 0/1 (host.docker.internal wrong on Colima), shopping order_number duplicate, and verifies DB connectivity.
 #
 # Usage:
 #   ./scripts/get-pods-to-ready.sh
 #   ./scripts/get-pods-to-ready.sh --diagnose   # also run diagnose-502-and-analytics.sh
 #
-# After running: wait for rollout (e.g. kubectl -n record-platform rollout status deploy -l app -t 120s)
+# After running: wait for rollout (e.g. kubectl -n off-campus-housing-tracker rollout status deploy -l app -t 120s)
 # or: ./scripts/ensure-readiness-before-suites.sh
 
 set -euo pipefail
@@ -22,7 +22,7 @@ info(){ echo "ℹ️  $*"; }
 RUN_DIAGNOSE="${1:-}"
 ctx=$(kubectl config current-context 2>/dev/null || echo "")
 
-say "=== Get record-platform pods to 1/1 Ready ==="
+say "=== Get off-campus-housing-tracker pods to 1/1 Ready ==="
 
 # 1. Colima: patch host.docker.internal so pods can reach Postgres/Redis on host
 if [[ "$ctx" == *"colima"* ]] && [[ -x "$SCRIPT_DIR/colima-apply-host-aliases.sh" ]]; then
@@ -51,11 +51,11 @@ fi
 # 3. Wait for rollouts (patch in step 1 triggers new pods)
 say "3. Waiting for deployments to roll out (up to 120s per deploy)..."
 for d in api-gateway auth-service records-service listings-service social-service shopping-service analytics-service auction-monitor python-ai-service; do
-  if kubectl get deployment "$d" -n record-platform --request-timeout=5s >/dev/null 2>&1; then
-    if kubectl -n record-platform rollout status "deploy/$d" --timeout=120s 2>/dev/null; then
+  if kubectl get deployment "$d" -n off-campus-housing-tracker --request-timeout=5s >/dev/null 2>&1; then
+    if kubectl -n off-campus-housing-tracker rollout status "deploy/$d" --timeout=120s 2>/dev/null; then
       ok "$d: 1/1"
     else
-      warn "$d: rollout not complete (check: kubectl -n record-platform get pods -l app=$d)"
+      warn "$d: rollout not complete (check: kubectl -n off-campus-housing-tracker get pods -l app=$d)"
     fi
   fi
 done
@@ -69,4 +69,4 @@ else
 fi
 
 say "Done"
-kubectl -n record-platform get pods 2>/dev/null | head -30
+kubectl -n off-campus-housing-tracker get pods 2>/dev/null | head -30

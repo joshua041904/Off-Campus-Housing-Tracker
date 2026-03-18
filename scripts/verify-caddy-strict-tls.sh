@@ -2,7 +2,7 @@
 # Verify Caddy TLS: strict curl to /_caddy/healthz with dev-root-ca.
 # Exit 0 if OK (HTTP 200, no curl 60). Exit 1 if curl 60 (CA/Caddy mismatch) or unreachable.
 #
-# Breakdown: Reads dev-root-ca from K8s (ingress-nginx or record-platform). Uses MetalLB LB IP:443
+# Breakdown: Reads dev-root-ca from K8s (ingress-nginx or off-campus-housing-tracker). Uses MetalLB LB IP:443
 # when available, else NodePort (e.g. 30443). Curl with --cacert (no -k). Set PORT and CADDY_TARGET
 # for port-forward (e.g. k3d: PORT=8443 CADDY_TARGET=127.0.0.1). On k3d prefer verify-caddy-strict-tls-in-cluster.sh to avoid port-forward.
 # Run after reissue to ensure no curl exit 60 before suites.
@@ -14,8 +14,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 export PATH="$SCRIPT_DIR/shims:/opt/homebrew/bin:/usr/local/bin:${PATH:-}"
 cd "$REPO_ROOT"
 
-NS="${NS:-record-platform}"
-HOST="${HOST:-record.local}"
+NS="${NS:-off-campus-housing-tracker}"
+HOST="${HOST:-off-campus-housing.local}"
 CURL_BIN="${CURL_BIN:-/opt/homebrew/opt/curl/bin/curl}"
 ok()  { echo "✅ $*"; }
 warn(){ echo "⚠️  $*"; }

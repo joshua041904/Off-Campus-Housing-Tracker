@@ -1,6 +1,6 @@
 # Caddy HTTP/3 service (ClusterIP). Use with k3d 443@loadbalancer + Caddy hostPort 443.
 # No LoadBalancer, no NodePort — external traffic: Mac → loadbalancer container → Caddy hostPort.
-# Apply this instead of caddy-h3-service.yaml when using scripts/k3d-create-record-platform-443-lb.sh.
+# Apply this instead of caddy-h3-service.yaml when using scripts/k3d-create-off-campus-housing-tracker-443-lb.sh.
 apiVersion: v1
 kind: Service
 metadata:

@@ -1,9 +1,9 @@
 # -----------------------------------------------------------------------------
-# PORTING: When reusing this substrate in another project, change:
-#   1. Hostname: replace "record.local" with your hostname (vhost line below and all --resolve in scripts).
-#   2. Service targets: replace "record-platform" in *.record-platform.svc.cluster.local with your app namespace.
-#   3. Paths: adjust /api/, /auctions/, /ai/, /privacy, /terms if your routes differ.
-#   Keep: grace_period, servers.protocols (h1 h2 h3), transport h2c, TLS paths, log format.
+# Off-Campus-Housing-Tracker (made with Tom)
+# Hostname: off-campus-housing.local (vhost and --resolve in scripts).
+# Namespace: off-campus-housing-tracker (*.off-campus-housing-tracker.svc.cluster.local).
+# Paths: /api/, /privacy, /terms; adjust if routes differ.
+# Keep: grace_period, servers.protocols (h1 h2 h3), transport h2c, TLS paths, log format.
 # -----------------------------------------------------------------------------
 {
 	admin 0.0.0.0:2019
@@ -33,14 +33,14 @@
 }
 
 # Primary vhost - HTTP/3, Web App, REST API, and gRPC (via Envoy)
-# gRPC: Caddy terminates TLS and proxies to Envoy (h2c). Clients use Caddy LB IP with -authority record.local.
-# QUIC: clients must use SNI = record.local (e.g. --resolve record.local:443:<ip> and https://record.local). See docs/QUIC_INVARIANT_CHECKLIST.md.
+# gRPC: Caddy terminates TLS and proxies to Envoy (h2c). Clients use Caddy LB IP with -authority off-campus-housing.local.
+# QUIC: clients must use SNI = off-campus-housing.local (e.g. --resolve off-campus-housing.local:443:<ip> and https://off-campus-housing.local). See docs/QUIC_INVARIANT_CHECKLIST.md.
 #
 # H2 vs H3 routing debug: if resell returns 404 on H3 but 200 on H2, compare Host/SNI/authority:
-#   curl --http2 -v --resolve record.local:443:<LB_IP> --cacert certs/dev-root.pem https://record.local/api/resell/...
-#   curl --http3 -v --resolve record.local:443:<LB_IP> --cacert certs/dev-root.pem https://record.local/api/resell/...
-# Check: Host header, :authority, path. Ensure k6 and curl use same Host (record.local) and --resolve so SNI matches.
-https://record.local {
+#   curl --http2 -v --resolve off-campus-housing.local:443:<LB_IP> --cacert certs/dev-root.pem https://off-campus-housing.local/api/resell/...
+#   curl --http3 -v --resolve off-campus-housing.local:443:<LB_IP> --cacert certs/dev-root.pem https://off-campus-housing.local/api/resell/...
+# Check: Host header, :authority, path. Ensure k6 and curl use same Host (off-campus-housing.local) and --resolve so SNI matches.
+https://off-campus-housing.local {
 	tls /etc/caddy/certs/tls.crt /etc/caddy/certs/tls.key {
 		protocols tls1.2 tls1.3
 	}
@@ -57,7 +57,7 @@ https://record.local {
 		path /privacy
 	}
 	handle @privacy {
-		reverse_proxy http://auth-service.record-platform.svc.cluster.local:4001 {
+		reverse_proxy http://auth-service.off-campus-housing-tracker.svc.cluster.local:4001 {
 			header_up Host {http.request.host}
 		}
 	}
@@ -66,7 +66,7 @@ https://record.local {
 		path /terms
 	}
 	handle @terms {
-		reverse_proxy http://auth-service.record-platform.svc.cluster.local:4001 {
+		reverse_proxy http://auth-service.off-campus-housing-tracker.svc.cluster.local:4001 {
 			header_up Host {http.request.host}
 		}
 	}
@@ -74,25 +74,6 @@ https://record.local {
 	# Health check endpoints
 	handle_path /_caddy/healthz {
 		respond "ok" 200
-	}
-
-	# Auction Monitor & Python AI health ( /auctions/healthz, /ai/healthz ) -> api-gateway
-	# These are NOT under /api/ so we route them explicitly; api-gateway serves /auctions/healthz and /ai/healthz
-	handle /auctions/healthz {
-		reverse_proxy http://api-gateway.record-platform.svc.cluster.local:4000 {
-			header_up Host {http.request.host}
-			transport http {
-				versions h1
-			}
-		}
-	}
-	handle /ai/healthz {
-		reverse_proxy http://api-gateway.record-platform.svc.cluster.local:4000 {
-			header_up Host {http.request.host}
-			transport http {
-				versions h1
-			}
-		}
 	}
 
 	# gRPC: route to Envoy via h2c only. TLS terminated at Caddy; do NOT use https:// upstream for Envoy.
@@ -108,35 +89,15 @@ https://record.local {
 		}
 	}
 
-	# Explicit /api/resell — match /api/resell, /api/resell/, /api/resell/:id so H2 and H3 route identically (path /api/resell/* does not match /api/resell without trailing segment).
-	# log_append (early) for H2 vs H3 debug: kubectl logs deploy/caddy-h3 -n ingress-nginx | grep request_
-	@resell path_regexp ^/api/resell(/.*)?$
-	handle @resell {
-		log_append <request_host {http.request.host}
-		log_append <request_uri {http.request.uri}
-		log_append <request_proto {http.request.proto}
-		reverse_proxy http://api-gateway.record-platform.svc.cluster.local:4000 {
-			header_up Host {http.request.host}
-			transport http {
-				versions h1
-				dial_timeout 10s
-				response_header_timeout 30s
-			}
-			health_uri /healthz
-			health_interval 10s
-			health_timeout 5s
-		}
-	}
-
 	# REST API requests: route DIRECTLY to api-gateway (NOT through ingress-nginx)
 	# Direct routing: Caddy → api-gateway (single-hop, faster, more reliable)
 	# CRITICAL: Exclude gRPC paths (service.Service/Method format with dots) - only match REST paths (with slashes)
 	@api {
-		path_regexp ^/(api/|auth/|records/|listings/|social/|shopping/|analytics/|python-ai/|auction-monitor/)
+		path_regexp ^/(api/|auth/|listings/|booking/|messaging/|analytics/|trust/)
 		not path_regexp ^/?[a-z_]+\. # Exclude gRPC paths (service.Service format)
 	}
 	handle @api {
-		reverse_proxy http://api-gateway.record-platform.svc.cluster.local:4000 {
+		reverse_proxy http://api-gateway.off-campus-housing-tracker.svc.cluster.local:4000 {
 			header_up Host {http.request.host}
 			# Use HTTP/1.1 to match backend
 			transport http {
@@ -161,7 +122,7 @@ https://record.local {
 	# Catch-all for non-API paths (webapp externalized - route to api-gateway fallback)
 	# Webapp was excluded from kustomization; use api-gateway so Caddy doesn't poison on missing DNS
 	handle {
-		reverse_proxy http://api-gateway.record-platform.svc.cluster.local:4000 {
+		reverse_proxy http://api-gateway.off-campus-housing-tracker.svc.cluster.local:4000 {
 			header_up Host {http.request.host}
 			header_up X-Forwarded-Proto https
 			transport http {
@@ -192,7 +153,7 @@ https://record.local {
 		path /privacy
 	}
 	handle @privacy {
-		reverse_proxy http://auth-service.record-platform.svc.cluster.local:4001 {
+		reverse_proxy http://auth-service.off-campus-housing-tracker.svc.cluster.local:4001 {
 			header_up Host {http.request.host}
 		}
 	}
@@ -201,15 +162,15 @@ https://record.local {
 		path /terms
 	}
 	handle @terms {
-		reverse_proxy http://auth-service.record-platform.svc.cluster.local:4001 {
+		reverse_proxy http://auth-service.off-campus-housing-tracker.svc.cluster.local:4001 {
 			header_up Host {http.request.host}
 		}
 	}
 
-	# Catch-all for non-record.local hosts (ingress-nginx-controller not deployed; use api-gateway)
+	# Catch-all for non-off-campus-housing.local hosts (ingress-nginx-controller not deployed; use api-gateway)
 	# Fixes "no such host" DNS failures that poisoned Caddy readiness
 	handle {
-		reverse_proxy http://api-gateway.record-platform.svc.cluster.local:4000 {
+		reverse_proxy http://api-gateway.off-campus-housing-tracker.svc.cluster.local:4000 {
 			header_up Host {http.request.host}
 			transport http {
 				versions h1

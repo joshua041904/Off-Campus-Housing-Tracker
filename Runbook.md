@@ -5,7 +5,7 @@
 **Author**: Tom  
 **Date**: December 17, 2025  
 **Last Updated**: February 28, 2026  
-**Cluster**: Colima + k3s. **Primary path:** Colima + k3s with bridged networking and MetalLB; one-time host route to LB pool for HTTP/3 (see item 68). k3d remains supported with REQUIRE_COLIMA=0. Pipeline and connection-reset runbook are Colima-first; no Kind. Use your app namespace (e.g. `housing-platform`) in place of `record-platform` in commands where applicable.
+**Cluster**: Colima + k3s. **Primary path:** Colima + k3s with bridged networking and MetalLB; one-time host route to LB pool for HTTP/3 (see item 68). k3d remains supported with REQUIRE_COLIMA=0. Pipeline and connection-reset runbook are Colima-first; no Kind. Use your app namespace (e.g. `housing-platform`) in place of `off-campus-housing-tracker` in commands where applicable.
 
 ## Overview
 
@@ -35,7 +35,7 @@ This document catalogs cluster and infrastructure bugs, issues, and solutions fo
 | 30 | Colima | k6 CA ConfigMap via VM file (no stdin pipe) so rotation suite does not fail | Fixes applied (January 30) |
 | 31 | tls-mtls | Skip Test 3 (gRPC direct port-forward) on Colima when port-forward not ready | Fixes applied (January 30) |
 | 33 | Logging / noise | Shared test-log.sh (ERROR/WARN/INFO/OK); suppress apk/apt in pod exec; k6 job name trim | Fixes applied (January 30) |
-| 37 | Rotation | DNS resolution (record.local) + shell substitution error in rotation-suite.sh | Issue #37 (January 31) |
+| 37 | Rotation | DNS resolution (off-campus-housing.local) + shell substitution error in rotation-suite.sh | Issue #37 (January 31) |
 | 38 | Standalone capture | Missing `info` function in grpc-http3-health.sh | Issue #38 (January 31) |
 | 40 | Colima API | Pipeline uses native port only (no 6443 tunnel); see "Colima API" below | Colima API (below) |
 | 41 | Baseline curl | Registration/login 500 and "Response body: Note: Unnecessary use of -X" — curl -v 2>&1 merged stderr into response | Baseline test curl stderr (below) |
@@ -60,7 +60,7 @@ This document catalogs cluster and infrastructure bugs, issues, and solutions fo
 | 61 | HTTP/3 GSO | curl: (28) sendmsg() returned -1 (errno 5); disable GSO — QUIC on macOS / Docker VM | HTTP/3 GSO (below) |
 | 62 | HTTP/3 fallback | run-all falls back to NodePort 30443 when LB IP HTTP/3 probe fails (curl 7/28) on k3d | HTTP/3 fallback (below) |
 | 63 | Packet capture tcpdump | tcpdump install timeout in Caddy/Envoy pods; pre-install in image or increase CAPTURE_INSTALL_TIMEOUT; CAPTURE_TRAFFIC_TARGET shows NodePort vs LB IP | Packet capture tcpdump (below) |
-| 64 | Caddy / QUIC restore | Restore production Caddyfile (record.local, strict TLS) and make QUIC work again after debugging | Restore production Caddy + QUIC (below) |
+| 64 | Caddy / QUIC restore | Restore production Caddyfile (off-campus-housing.local, strict TLS) and make QUIC work again after debugging | Restore production Caddy + QUIC (below) |
 | 65 | Colima real network (MetalLB L2) | One-shot bring-up, API pin, control-plane telemetry, prevent drift | Colima MetalLB bring-up and telemetry (below) |
 | 66 | MetalLB webhook never ready | Webhook has no endpoints → controller pod not Running; k3s 1.33 + MetalLB 0.14.5 may be incompatible | MetalLB controller debug (below) |
 | 67 | k3s crash-loop in Colima VM | k3s.service restart counter 200+ → API keeps dying → MetalLB/webhook never ready; fix k3s first | k3s crash-loop (below) |
@@ -105,7 +105,7 @@ This document catalogs cluster and infrastructure bugs, issues, and solutions fo
 **Auth and gateway 500 – cert chain vs backend:** When using strict TLS/mTLS, 500 with `{"error":"internal"}` from the API gateway: (0) **First check gateway logs** for `Cannot set property path of #<IncomingMessage> which has only a getter` — if present, fix per Runbook #43 (req.path getter). Otherwise: (1) **gRPC call to auth-service failed** — the gateway converts gRPC errors via `handleGrpcError`. Check **api-gateway** pod logs for `[gw] gRPC error → HTTP` and `[gw] Register gRPC failed` / `[gw] Login gRPC failed`: **grpcCode 2 (INTERNAL)** = request reached auth-service and auth-service returned INTERNAL (cert chain is fine; check **auth-service** pod logs and DB/Redis from inside the pod). **grpcCode 14 (UNAVAILABLE)** = connection or TLS failure (verify cert chain: same `service-tls` + `dev-root-ca` after reissue; ensure all gRPC workloads restarted after reissue; Runbook "Strict TLS/mTLS" and items 24–25). **Envoy "upstream connect error or disconnect/reset before headers. reset reason: remote connection failure"** — backends have `GRPC_REQUIRE_CLIENT_CERT=true` but Envoy is not presenting a client cert. **Fix:** (1) Ensure `record-local-tls` exists in namespace **envoy-test** (e.g. run `./scripts/strict-tls-bootstrap.sh` from repo root; it deletes/recreates the secret and restarts Envoy). (2) Ensure Envoy deploy has the `client-tls` volume (from `infra/k8s/base/envoy-test/deploy.yaml`); apply base if needed: `kubectl apply -k infra/k8s/base`. (3) Restart Envoy so it mounts the secret: `kubectl -n envoy-test rollout restart deployment/envoy-test`. Caddy terminates TLS at the edge; Envoy uses the same leaf cert as **client** cert for mTLS to gRPC backends. (3) **Gateway /healthz 500** — the `/healthz` handler is sync and should return 200; 500 implies an unhandled error in middleware or a catch-all (check gateway logs for `[gw] Unhandled error (catch-all)`). (4) **Listings /healthz 500** — returned by listings-service; check listings-service logs and its DB/connectivity. **Cert chain checklist:** Reissue creates one CA + leaf; `service-tls` holds the leaf (signed by dev-root-ca), `dev-root-ca` holds the CA. All services must mount the same secrets and restart after reissue so they use the same chain. api-gateway gRPC client uses `/etc/certs/ca.crt`, `/etc/certs/tls.crt`, `/etc/certs/tls.key` (from service-tls + dev-root-ca). auth-service gRPC server uses the same paths and, when `GRPC_REQUIRE_CLIENT_CERT=true`, verifies the client cert with the same CA.
 
 **Envoy client cert / CA drift (item 76)**  
-**Symptom:** Test 4c (gRPC via Caddy) fails with `upstream connect error or disconnect/reset before headers. reset reason: remote connection failure`. Manual grpcurl to auth-service (port-forward) works; grpcurl via Caddy → Envoy fails. **Root cause:** **CA drift** — `envoy-client-tls` contains a client cert signed by one CA (e.g. record-platform `dev-root-ca` or mkcert), while the cluster `dev-root-ca` secret holds a different CA. After step 3a (reissue), the CA changes; `envoy-client-tls` was never updated. Backends verify Envoy's client cert against `dev-root-ca` → verification fails → TLS handshake fails. **Fix:** (1) `ensure-strict-tls-mtls-preflight.sh` (preflight step 5) now **auto-aligns** envoy-client-tls: checks if the current cert verifies against cluster `dev-root-ca`; if not, regenerates with `certs/dev-root.pem` + `certs/dev-root.key` (from reissue) or mkcert, updates the secret, restarts Envoy. (2) Manual fix if needed: `CA_CRT=certs/dev-root.pem CA_KEY=certs/dev-root.key ./scripts/generate-envoy-client-cert.sh`, then `kubectl -n envoy-test delete secret envoy-client-tls --ignore-not-found && kubectl -n envoy-test create secret generic envoy-client-tls --from-file=envoy.crt=certs/envoy-client.crt --from-file=envoy.key=certs/envoy-client.key`, then `kubectl -n envoy-test rollout restart deploy/envoy-test`. **Rule:** Envoy client cert must be signed by whichever CA is in `dev-root-ca`. Run `openssl verify -CAfile <cluster-dev-root.pem> certs/envoy-client.crt` — must succeed before deploying. **See:** docs/PKI_ALIGNMENT_FIX.md.
+**Symptom:** Test 4c (gRPC via Caddy) fails with `upstream connect error or disconnect/reset before headers. reset reason: remote connection failure`. Manual grpcurl to auth-service (port-forward) works; grpcurl via Caddy → Envoy fails. **Root cause:** **CA drift** — `envoy-client-tls` contains a client cert signed by one CA (e.g. off-campus-housing-tracker `dev-root-ca` or mkcert), while the cluster `dev-root-ca` secret holds a different CA. After step 3a (reissue), the CA changes; `envoy-client-tls` was never updated. Backends verify Envoy's client cert against `dev-root-ca` → verification fails → TLS handshake fails. **Fix:** (1) `ensure-strict-tls-mtls-preflight.sh` (preflight step 5) now **auto-aligns** envoy-client-tls: checks if the current cert verifies against cluster `dev-root-ca`; if not, regenerates with `certs/dev-root.pem` + `certs/dev-root.key` (from reissue) or mkcert, updates the secret, restarts Envoy. (2) Manual fix if needed: `CA_CRT=certs/dev-root.pem CA_KEY=certs/dev-root.key ./scripts/generate-envoy-client-cert.sh`, then `kubectl -n envoy-test delete secret envoy-client-tls --ignore-not-found && kubectl -n envoy-test create secret generic envoy-client-tls --from-file=envoy.crt=certs/envoy-client.crt --from-file=envoy.key=certs/envoy-client.key`, then `kubectl -n envoy-test rollout restart deploy/envoy-test`. **Rule:** Envoy client cert must be signed by whichever CA is in `dev-root-ca`. Run `openssl verify -CAfile <cluster-dev-root.pem> certs/envoy-client.crt` — must succeed before deploying. **See:** docs/PKI_ALIGNMENT_FIX.md.
 
 **Colima gRPC strict TLS (item 77)**  
 On Colima, the strict TLS port-forward to each gRPC service is **permanently skipped**. That block took ~11 min, hit SSH multiplex limits, and was redundant: gRPC is validated via **Caddy (TARGET_IP:443)** and **in-cluster** grpcurl to Envoy. Primary path: grpcurl → Caddy → Envoy (h2c) → backends. No host port-forward to individual service gRPC ports on Colima.
@@ -162,7 +162,7 @@ App pods (e.g. auth-service, listings-service, api-gateway) stay **0/1** when th
 **Packet capture verification (HTTP/2, HTTP/3):** tcpdump on Caddy/Envoy pods; tshark for protocol detail; netstat for connection state. Wire summary (TCP 443 / UDP 443) proves traffic when TLS prevents http2 decode. See `scripts/lib/packet-capture.sh`, `scripts/lib/protocol-verification.sh`, `verify_protocol_counts`.
 
 **HTTP/3 Docker bridge (item 58)**  
-**Symptoms:** MetalLB verification step 6/6a or baseline HTTP/3 tests fail with `curl: (7) QUIC: connection to 127.0.0.1 port 18443 refused` or curl exit 28 (timeout). Host curl to LB IP works (HTTP/1.1, HTTP/2); HTTP/3 from **inside** k3d/Colima (e.g. verify pod or baseline using host.docker.internal:18443) fails. **Root cause:** On macOS, containers reach the host’s Caddy via a **Docker bridge**: host runs socat `0.0.0.0:18443` → NodePort so containers use `host.docker.internal:18443`. In `scripts/lib/http3.sh`, the HOST_NETWORK block rewrote **any** private IP (including 192.168.x = host.docker.internal) to `127.0.0.1:NodePort`. So `--resolve record.local:18443:192.168.5.2` became `record.local:30443:127.0.0.1`; the **URL** still had port 18443, so curl resolved record.local (e.g. to 127.0.0.1 in the VM) and connected to 127.0.0.1:18443 — i.e. the **container’s** localhost, where nothing listens. **Fix:** In `http3.sh`, do **not** rewrite the resolve when the resolve port is the Docker forward port (18443 or `HTTP3_DOCKER_FORWARD_PORT`). Preserve `host.docker.internal:18443` so curl connects to the host’s socat. **Fixes (addendum):** Prefer native curl with LB IP:443 when host has `--http3`; baseline sets `HTTP3_USE_NATIVE_CURL=1` so `http3_curl` uses native curl instead of Docker. **Check:** Re-run MetalLB verification and baseline; step 6 and HTTP/3 tests should pass when native curl supports `--http3` or socat is running (`scripts/setup-lb-ip-host-access.sh`).
+**Symptoms:** MetalLB verification step 6/6a or baseline HTTP/3 tests fail with `curl: (7) QUIC: connection to 127.0.0.1 port 18443 refused` or curl exit 28 (timeout). Host curl to LB IP works (HTTP/1.1, HTTP/2); HTTP/3 from **inside** k3d/Colima (e.g. verify pod or baseline using host.docker.internal:18443) fails. **Root cause:** On macOS, containers reach the host’s Caddy via a **Docker bridge**: host runs socat `0.0.0.0:18443` → NodePort so containers use `host.docker.internal:18443`. In `scripts/lib/http3.sh`, the HOST_NETWORK block rewrote **any** private IP (including 192.168.x = host.docker.internal) to `127.0.0.1:NodePort`. So `--resolve off-campus-housing.local:18443:192.168.5.2` became `off-campus-housing.local:30443:127.0.0.1`; the **URL** still had port 18443, so curl resolved off-campus-housing.local (e.g. to 127.0.0.1 in the VM) and connected to 127.0.0.1:18443 — i.e. the **container’s** localhost, where nothing listens. **Fix:** In `http3.sh`, do **not** rewrite the resolve when the resolve port is the Docker forward port (18443 or `HTTP3_DOCKER_FORWARD_PORT`). Preserve `host.docker.internal:18443` so curl connects to the host’s socat. **Fixes (addendum):** Prefer native curl with LB IP:443 when host has `--http3`; baseline sets `HTTP3_USE_NATIVE_CURL=1` so `http3_curl` uses native curl instead of Docker. **Check:** Re-run MetalLB verification and baseline; step 6 and HTTP/3 tests should pass when native curl supports `--http3` or socat is running (`scripts/setup-lb-ip-host-access.sh`).
 
 **Packet capture no-hang (item 59)**  
 **Symptoms:** After suites, `stop_and_analyze_captures` hangs; kubectl exec/cp to get pcaps never returns or takes very long. **Fix:** Set `CAPTURE_STOP_TIMEOUT` (e.g. 30) so the stop phase times out. When set, the script still runs **first-packet analysis** (short timeouts: 2s + 5s kubectl + 8s outer) and prints TCP/UDP 443 counts; it skips the full pcap copy to avoid hanging. Message: "Done (timeout set; first-packet analyzed; full pcap copy skipped)". See `scripts/lib/packet-capture.sh` and `docs/PACKET_CAPTURE_DIAGNOSTICS.md`.
@@ -174,7 +174,7 @@ App pods (e.g. auth-service, listings-service, api-gateway) stay **0/1** when th
 **Symptoms:** Baseline/enhanced show `[packet-capture] tcpdump install timed out (35s) on caddy-h3-xxx; skipping capture for this pod`. **Cause:** Caddy (`caddy:2.8`) and Envoy (`envoyproxy/envoy`) images don’t include tcpdump; the script installs it via `apk add tcpdump` / `apt-get install tcpdump` inside the pod, which can exceed the cap (35s in quick mode, 60s otherwise). **Fix:** (1) Increase timeout: `CAPTURE_INSTALL_TIMEOUT=60` (or 90 for slow networks). (2) Pre-install in images: build a custom Caddy/Envoy image with `RUN apk add --no-cache tcpdump` (Alpine) or equivalent so no runtime install is needed. (3) Traffic path is always printed: `CAPTURE_TRAFFIC_TARGET` shows "NodePort 127.0.0.1:30443" or "LB IP x.x.x.x:443" so you know which path tests used.
 
 **Restore production Caddy + QUIC (item 64)**  
-**Full reset:** `./scripts/restore-k3d-quic-known-good.sh` (delete + recreate k3d with 30443 tcp+udp), then deploy base, `./scripts/ensure-caddy-http3-config.sh`, `./scripts/check-quic-invariants.sh`, `./scripts/verify-caddy-http3-in-cluster.sh`. **Config only:** Apply production Caddyfile and restart Caddy: `./scripts/ensure-caddy-http3-config.sh` (repo root `Caddyfile` — record.local, strict TLS, no on_demand). Validate QUIC: `./scripts/verify-caddy-http3-in-cluster.sh`. All QUIC tests must use `--resolve record.local:443:<ip>` and `https://record.local`. Guard: `./scripts/check-quic-invariants.sh`. See **docs/QUIC_INVARIANTS.md** and **docs/QUIC_INVARIANT_CHECKLIST.md**.
+**Full reset:** `./scripts/restore-k3d-quic-known-good.sh` (delete + recreate k3d with 30443 tcp+udp), then deploy base, `./scripts/ensure-caddy-http3-config.sh`, `./scripts/check-quic-invariants.sh`, `./scripts/verify-caddy-http3-in-cluster.sh`. **Config only:** Apply production Caddyfile and restart Caddy: `./scripts/ensure-caddy-http3-config.sh` (repo root `Caddyfile` — off-campus-housing.local, strict TLS, no on_demand). Validate QUIC: `./scripts/verify-caddy-http3-in-cluster.sh`. All QUIC tests must use `--resolve off-campus-housing.local:443:<ip>` and `https://off-campus-housing.local`. Guard: `./scripts/check-quic-invariants.sh`. See **docs/QUIC_INVARIANTS.md** and **docs/QUIC_INVARIANT_CHECKLIST.md**.
 
 **HTTP/3 GSO (item 61)**  
 **Symptoms:** MetalLB step 6/6a or baseline HTTP/3 tests fail with `curl: (28) sendmsg() returned -1 (errno 5); disable GSO`. **Cause:** ngtcp2’s GSO (Generic Segmentation Offload) can fail on macOS or in Docker VM where the NIC doesn’t support it; sendmsg returns EIO. **Fix:** (1) Scripts set `NGTCP2_ENABLE_GSO=0`. (2) Re-run `setup-lb-ip-host-access.sh` — it now uses socat UDP without fork (fork broke QUIC). Kill old socat first. (3) Test uses CURL_BIN when available. See docs/METALLB_ADVANCED.md. **HTTP/3 path (L3/L4), curl 28:** LB IP path = host UDP to 127.0.0.1:443 (socat); can hit GSO. Docker bridge = curl in container to host.docker.internal:18443; 28 = timeout. For real L2 (ARP, asymmetric) run on Colima: `./scripts/verify-metallb-colima-l2-only.sh`. **Use the right curl:** macOS system curl does not support HTTP/3; install Homebrew curl (`brew install curl`) and ensure it is used for tests. Run `./scripts/verify-curl-http3.sh` to confirm which curl is in PATH and that it has `--http3` (script checks `curl --help all`). Tests prefer Homebrew curl at `/opt/homebrew/opt/curl/bin/curl` or `/usr/local/opt/curl/bin/curl` when it has HTTP/3, so native curl is used and Docker-bridge exit 28 is avoided.
@@ -239,9 +239,9 @@ docker ps --filter name=h3-control-plane --format '{{.Names}}\t{{.Ports}}'
 
 2. **Scale Down Before Mass Changes**: Scale non-critical services to 0 before major operations
    ```bash
-   kubectl -n record-platform scale deploy --replicas=0 --all
+   kubectl -n off-campus-housing-tracker scale deploy --replicas=0 --all
    # Perform operations
-   kubectl -n record-platform scale deploy --replicas=1 --all
+   kubectl -n off-campus-housing-tracker scale deploy --replicas=1 --all
    ```
 
 3. **Use Request Timeouts**: Add `--request-timeout=10s` to kubectl commands to prevent hanging
@@ -263,9 +263,9 @@ docker ps --filter name=h3-control-plane --format '{{.Names}}\t{{.Ports}}'
 ## Issue #53: k3d — kubectl "Unable to connect to the server: EOF" (port conflict)
 
 ### Symptoms
-- `kubectl get nodes` or `kubectl get pods -n record-platform` fails with: **Unable to connect to the server: EOF**
+- `kubectl get nodes` or `kubectl get pods -n off-campus-housing-tracker` fails with: **Unable to connect to the server: EOF**
 - Sometimes: **x509: certificate signed by unknown authority** or **ServiceUnavailable** when using a different port
-- k3d cluster is running (`k3d cluster list` shows record-platform; `docker ps` shows k3d-record-platform-server-0 and agent)
+- k3d cluster is running (`k3d cluster list` shows off-campus-housing-tracker; `docker ps` shows k3d-off-campus-housing-tracker-server-0 and agent)
 
 ### Root Cause
 Another process on the host is bound to the k3d API ports **6443** and/or **55617**. k3d exposes the API on these ports (via the serverlb container). If an SSH tunnel, another cluster, or any other process listens on them first, kubectl connects to that process instead of k3d, which produces EOF or TLS/credential errors.
@@ -287,13 +287,13 @@ If you see `ssh` or any process other than Docker/containerd, that process is st
    You want no output (or only Docker-related lines).
 3. **Refresh kubeconfig and verify**  
    ```bash
-   k3d kubeconfig merge record-platform --kubeconfig-merge-default
+   k3d kubeconfig merge off-campus-housing-tracker --kubeconfig-merge-default
    kubectl get nodes
-   kubectl get pods -n record-platform
+   kubectl get pods -n off-campus-housing-tracker
    ```
 
 ### Prevention
-- Avoid binding host ports 6443 and 55617 to other services or SSH tunnels when using k3d record-platform.
+- Avoid binding host ports 6443 and 55617 to other services or SSH tunnels when using k3d off-campus-housing-tracker.
 - If you need a tunnel to a remote cluster, use different host ports (e.g. `-L 16443:...` instead of `-L 6443:...`).
 
 ### Related
@@ -314,7 +314,7 @@ Optional: `SKIP_BASE=1`, `SKIP_REGISTRY=1`, `SKIP_METALLB=1`, `SKIP_POD_WAIT=1`.
 
 **MetalLB:** Script sets `METALLB_POOL` from k3d Docker network (e.g. 172.18.0.240-172.18.0.250) so LoadBalancer IPs are routable. Verify: `kubectl get svc -A | grep LoadBalancer`.
 
-**Colima + k3d registry (HTTP):** If `docker push k3d-record-platform-registry:5000/...` fails with "server gave HTTP response to HTTPS client", add the registry as an insecure registry. In `~/.colima/default/colima.yaml` set `docker: { insecure-registries: [ "k3d-record-platform-registry:5000", "127.0.0.1:5000" ] }`, then `colima stop` and `colima start`. After Colima restarts, start the registry with `docker start k3d-record-platform-registry` and k3d with `k3d cluster start record-platform`, then push again.
+**Colima + k3d registry (HTTP):** If `docker push k3d-off-campus-housing-tracker-registry:5000/...` fails with "server gave HTTP response to HTTPS client", add the registry as an insecure registry. In `~/.colima/default/colima.yaml` set `docker: { insecure-registries: [ "k3d-off-campus-housing-tracker-registry:5000", "127.0.0.1:5000" ] }`, then `colima stop` and `colima start`. After Colima restarts, start the registry with `docker start k3d-off-campus-housing-tracker-registry` and k3d with `k3d cluster start off-campus-housing-tracker`, then push again.
 
 ---
 
@@ -338,7 +338,7 @@ Not blocking current validation; extend Runbook and ADRs as these are implemente
 
 ### Root Causes
 1. **Secrets Not Created**: Secrets are not automatically created by Kustomize base manifests
-2. **Namespace Mismatch**: Secrets created in wrong namespace (e.g., `record-platform` vs `ingress-nginx`)
+2. **Namespace Mismatch**: Secrets created in wrong namespace (e.g., `off-campus-housing-tracker` vs `ingress-nginx`)
 3. **Missing Keys**: Secret exists but missing required keys (e.g., `REDIS_PASSWORD` vs `password`)
 
 ### Solutions
@@ -347,7 +347,7 @@ Not blocking current validation; extend Runbook and ADRs as these are implemente
 ```bash
 kubectl create secret generic redis-auth \
   --from-literal=REDIS_PASSWORD=postgres \
-  -n record-platform
+  -n off-campus-housing-tracker
 ```
 
 #### Kafka SSL Secret
@@ -357,7 +357,7 @@ TMP=/tmp/kafka-ssl && mkdir -p $TMP && cd $TMP
 PASS=changeit
 keytool -genkeypair -alias kafka -keyalg RSA \
   -keystore kafka.keystore.jks -storepass $PASS -keypass $PASS \
-  -dname "CN=kafka.record-platform.svc.cluster.local" -validity 3650
+  -dname "CN=kafka.off-campus-housing-tracker.svc.cluster.local" -validity 3650
 keytool -exportcert -alias kafka -keystore kafka.keystore.jks \
   -storepass $PASS -file kafka.cer
 keytool -importcert -alias kafka -file kafka.cer \
@@ -373,15 +373,15 @@ kubectl create secret generic kafka-ssl-secret \
   --from-file=kafka.keystore-password \
   --from-file=kafka.key-password \
   --from-file=kafka.truststore-password \
-  -n record-platform
+  -n off-campus-housing-tracker
 ```
 
 #### Caddy TLS Secrets (ingress-nginx namespace)
 ```bash
-# Copy secrets from record-platform to ingress-nginx namespace
-CRT_B64=$(kubectl -n record-platform get secret service-tls -o jsonpath='{.data.tls\.crt}')
-KEY_B64=$(kubectl -n record-platform get secret service-tls -o jsonpath='{.data.tls\.key}')
-CA_B64=$(kubectl -n record-platform get secret dev-root-ca -o jsonpath='{.data.dev-root\.pem}')
+# Copy secrets from off-campus-housing-tracker to ingress-nginx namespace
+CRT_B64=$(kubectl -n off-campus-housing-tracker get secret service-tls -o jsonpath='{.data.tls\.crt}')
+KEY_B64=$(kubectl -n off-campus-housing-tracker get secret service-tls -o jsonpath='{.data.tls\.key}')
+CA_B64=$(kubectl -n off-campus-housing-tracker get secret dev-root-ca -o jsonpath='{.data.dev-root\.pem}')
 
 mkdir -p /tmp/caddy-certs
 echo "$CRT_B64" | base64 -d > /tmp/caddy-certs/tls.crt
@@ -412,18 +412,18 @@ kubectl -n ingress-nginx create secret generic dev-root-ca \
 
 ### Root Causes
 1. **Kustomize Base Not Applied**: Base manifests not applied to correct namespace
-2. **Namespace Mismatch**: ConfigMaps created in default namespace instead of `record-platform`
+2. **Namespace Mismatch**: ConfigMaps created in default namespace instead of `off-campus-housing-tracker`
 3. **Missing ConfigMap Generator**: ConfigMap not included in `kustomization.yaml`
 
 ### Solutions
 
 #### Apply Base Kustomization
 ```bash
-# Ensure base is applied to record-platform namespace
+# Ensure base is applied to off-campus-housing-tracker namespace
 kubectl apply -k infra/k8s/base
 
 # Verify configmaps exist
-kubectl -n record-platform get configmap
+kubectl -n off-campus-housing-tracker get configmap
 # Should show: app-config, proto-files, haproxy-cm, nginx-cm
 ```
 
@@ -468,22 +468,22 @@ See "Kafka SSL Secret" section in Issue #2 above.
 #### Fix Cluster ID Mismatch
 ```bash
 # Scale Kafka to 0
-kubectl -n record-platform scale deploy/kafka --replicas=0
+kubectl -n off-campus-housing-tracker scale deploy/kafka --replicas=0
 
 # Delete Kafka pods (resets emptyDir volume)
-kubectl -n record-platform delete pod -l app=kafka
+kubectl -n off-campus-housing-tracker delete pod -l app=kafka
 
 # Scale back to 1
-kubectl -n record-platform scale deploy/kafka --replicas=1
+kubectl -n off-campus-housing-tracker scale deploy/kafka --replicas=1
 ```
 
 #### Ensure Zookeeper is Ready
 ```bash
 # Wait for Zookeeper to be ready
-kubectl -n record-platform wait --for=condition=ready pod -l app=zookeeper --timeout=120s
+kubectl -n off-campus-housing-tracker wait --for=condition=ready pod -l app=zookeeper --timeout=120s
 
 # Verify Zookeeper is accessible
-kubectl -n record-platform exec -it $(kubectl -n record-platform get pod -l app=zookeeper -o jsonpath='{.items[0].metadata.name}') -- nc -z localhost 2181
+kubectl -n off-campus-housing-tracker exec -it $(kubectl -n off-campus-housing-tracker get pod -l app=zookeeper -o jsonpath='{.items[0].metadata.name}') -- nc -z localhost 2181
 ```
 
 ### Known limitation: Kafka and TLS
@@ -549,7 +549,7 @@ kubectl -n ingress-nginx delete pod -l app=caddy-h3
 #### Reduce Resource Requests
 ```bash
 # Patch deployment to reduce resource requests
-kubectl -n record-platform patch deploy/<service-name> -p '{
+kubectl -n off-campus-housing-tracker patch deploy/<service-name> -p '{
   "spec": {
     "template": {
       "spec": {
@@ -569,19 +569,19 @@ kubectl -n record-platform patch deploy/<service-name> -p '{
 #### Scale Down Non-Critical Services
 ```bash
 # Scale down exporters and non-core services
-kubectl -n record-platform scale deploy/nginx-exporter --replicas=0
-kubectl -n record-platform scale deploy/haproxy-exporter --replicas=0
+kubectl -n off-campus-housing-tracker scale deploy/nginx-exporter --replicas=0
+kubectl -n off-campus-housing-tracker scale deploy/haproxy-exporter --replicas=0
 
 # Scale core services to 1 replica
-kubectl -n record-platform scale deploy/api-gateway --replicas=1
-kubectl -n record-platform scale deploy/auth-service --replicas=1
+kubectl -n off-campus-housing-tracker scale deploy/api-gateway --replicas=1
+kubectl -n off-campus-housing-tracker scale deploy/auth-service --replicas=1
 # ... etc
 ```
 
 #### Scale Postgres to 0 (External DBs)
 ```bash
 # If using external databases (Docker Compose), scale K8s postgres to 0
-kubectl -n record-platform scale deploy/postgres --replicas=0
+kubectl -n off-campus-housing-tracker scale deploy/postgres --replicas=0
 ```
 
 ### Prevention
@@ -611,7 +611,7 @@ kubectl -n record-platform scale deploy/postgres --replicas=0
 #### Increase Probe Timeouts and Thresholds
 ```bash
 # Patch deployment with relaxed probes
-kubectl -n record-platform patch deploy/<service-name> -p '{
+kubectl -n off-campus-housing-tracker patch deploy/<service-name> -p '{
   "spec": {
     "template": {
       "spec": {
@@ -763,21 +763,21 @@ kubectl -n ingress-nginx scale deploy/ingress-nginx-controller --replicas=1
 #### Fix Nginx First
 ```bash
 # Check nginx pod status
-kubectl -n record-platform get pods -l app=nginx
+kubectl -n off-campus-housing-tracker get pods -l app=nginx
 
 # Check nginx logs
-kubectl -n record-platform logs -l app=nginx
+kubectl -n off-campus-housing-tracker logs -l app=nginx
 
 # Restart nginx if needed
-kubectl -n record-platform rollout restart deploy/nginx
+kubectl -n off-campus-housing-tracker rollout restart deploy/nginx
 ```
 
 #### Scale Down Exporter Until Nginx is Ready
 ```bash
-kubectl -n record-platform scale deploy/nginx-exporter --replicas=0
+kubectl -n off-campus-housing-tracker scale deploy/nginx-exporter --replicas=0
 
 # After nginx is ready, scale exporter back up
-kubectl -n record-platform scale deploy/nginx-exporter --replicas=1
+kubectl -n off-campus-housing-tracker scale deploy/nginx-exporter --replicas=1
 ```
 
 ### Prevention
@@ -838,7 +838,7 @@ readinessProbe:
 
 #### Reduce Zookeeper Resource Requests
 ```bash
-kubectl -n record-platform patch deploy/zookeeper -p '{
+kubectl -n off-campus-housing-tracker patch deploy/zookeeper -p '{
   "spec": {
     "template": {
       "spec": {
@@ -865,8 +865,8 @@ kubectl -n record-platform patch deploy/zookeeper -p '{
 
 ### Symptoms
 - Services fail to connect to postgres databases with errors like:
-  - `Can't reach database server at postgres-auth-external.record-platform.svc.cluster.local:5437`
-  - `ENOTFOUND postgres-auction-monitor-external.record-platform.svc.cluster.local`
+  - `Can't reach database server at postgres-auth-external.off-campus-housing-tracker.svc.cluster.local:5437`
+  - `ENOTFOUND postgres-auction-monitor-external.off-campus-housing-tracker.svc.cluster.local`
   - `ETIMEDOUT` when connecting to postgres services
 - Health checks return "NOT_SERVING" due to database connection failures
 - Services in CrashLoopBackOff or Running but not Ready
@@ -885,36 +885,36 @@ kubectl -n record-platform patch deploy/zookeeper -p '{
 # Using host.docker.internal IP (192.168.65.254 on macOS with Docker Desktop)
 
 # Main/Records DB (5433)
-kubectl create service clusterip postgres-external -n record-platform --tcp=5433:5433
-kubectl create endpoints postgres-external -n record-platform --addresses=192.168.65.254 --ports=5433
+kubectl create service clusterip postgres-external -n off-campus-housing-tracker --tcp=5433:5433
+kubectl create endpoints postgres-external -n off-campus-housing-tracker --addresses=192.168.65.254 --ports=5433
 
 # Auth DB (5437)
-kubectl create service clusterip postgres-auth-external -n record-platform --tcp=5437:5437
-kubectl create endpoints postgres-auth-external -n record-platform --addresses=192.168.65.254 --ports=5437
+kubectl create service clusterip postgres-auth-external -n off-campus-housing-tracker --tcp=5437:5437
+kubectl create endpoints postgres-auth-external -n off-campus-housing-tracker --addresses=192.168.65.254 --ports=5437
 
 # Social DB (5434)
-kubectl create service clusterip postgres-social-external -n record-platform --tcp=5434:5434
-kubectl create endpoints postgres-social-external -n record-platform --addresses=192.168.65.254 --ports=5434
+kubectl create service clusterip postgres-social-external -n off-campus-housing-tracker --tcp=5434:5434
+kubectl create endpoints postgres-social-external -n off-campus-housing-tracker --addresses=192.168.65.254 --ports=5434
 
 # Listings DB (5435)
-kubectl create service clusterip postgres-listings-external -n record-platform --tcp=5435:5435
-kubectl create endpoints postgres-listings-external -n record-platform --addresses=192.168.65.254 --ports=5435
+kubectl create service clusterip postgres-listings-external -n off-campus-housing-tracker --tcp=5435:5435
+kubectl create endpoints postgres-listings-external -n off-campus-housing-tracker --addresses=192.168.65.254 --ports=5435
 
 # Shopping DB (5436)
-kubectl create service clusterip postgres-shopping-external -n record-platform --tcp=5436:5436
-kubectl create endpoints postgres-shopping-external -n record-platform --addresses=192.168.65.254 --ports=5436
+kubectl create service clusterip postgres-shopping-external -n off-campus-housing-tracker --tcp=5436:5436
+kubectl create endpoints postgres-shopping-external -n off-campus-housing-tracker --addresses=192.168.65.254 --ports=5436
 
 # Analytics DB (5439)
-kubectl create service clusterip postgres-analytics-external -n record-platform --tcp=5439:5439
-kubectl create endpoints postgres-analytics-external -n record-platform --addresses=192.168.65.254 --ports=5439
+kubectl create service clusterip postgres-analytics-external -n off-campus-housing-tracker --tcp=5439:5439
+kubectl create endpoints postgres-analytics-external -n off-campus-housing-tracker --addresses=192.168.65.254 --ports=5439
 
 # Auction Monitor DB (5438)
-kubectl create service clusterip postgres-auction-monitor-external -n record-platform --tcp=5432:5438
-kubectl create endpoints postgres-auction-monitor-external -n record-platform --addresses=192.168.65.254 --ports=5438
+kubectl create service clusterip postgres-auction-monitor-external -n off-campus-housing-tracker --tcp=5432:5438
+kubectl create endpoints postgres-auction-monitor-external -n off-campus-housing-tracker --addresses=192.168.65.254 --ports=5438
 
 # Python AI DB (5440)
-kubectl create service clusterip postgres-python-ai-external -n record-platform --tcp=5440:5440
-kubectl create endpoints postgres-python-ai-external -n record-platform --addresses=192.168.65.254 --ports=5440
+kubectl create service clusterip postgres-python-ai-external -n off-campus-housing-tracker --tcp=5440:5440
+kubectl create endpoints postgres-python-ai-external -n off-campus-housing-tracker --addresses=192.168.65.254 --ports=5440
 ```
 
 #### Fix 2: Update Endpoint IPs to Use host.docker.internal
@@ -929,10 +929,10 @@ for svc in postgres-external postgres-auth-external postgres-social-external \
            postgres-analytics-external postgres-auction-monitor-external \
            postgres-python-ai-external; do
   # Get the correct port for each service
-  PORT=$(kubectl get svc $svc -n record-platform -o jsonpath='{.spec.ports[0].port}')
+  PORT=$(kubectl get svc $svc -n off-campus-housing-tracker -o jsonpath='{.spec.ports[0].port}')
   
   # Update endpoint
-  kubectl patch endpoints $svc -n record-platform --type='json' \
+  kubectl patch endpoints $svc -n off-campus-housing-tracker --type='json' \
     -p="[{\"op\": \"replace\", \"path\": \"/subsets/0/addresses/0/ip\", \"value\": \"$HOST_IP\"}, \
          {\"op\": \"replace\", \"path\": \"/subsets/0/ports/0/port\", \"value\": $PORT}]"
 done
@@ -941,12 +941,12 @@ done
 #### Fix 3: Verify Connectivity
 ```bash
 # Test direct IP connection
-kubectl run postgres-test --image=postgres:16-alpine --rm -i --restart=Never -n record-platform -- \
+kubectl run postgres-test --image=postgres:16-alpine --rm -i --restart=Never -n off-campus-housing-tracker -- \
   sh -c "PGPASSWORD=postgres psql -h 192.168.65.254 -p 5437 -U postgres -d records -c 'SELECT 1;'"
 
 # Test via service name
-kubectl run postgres-svc-test --image=postgres:16-alpine --rm -i --restart=Never -n record-platform -- \
-  sh -c "PGPASSWORD=postgres psql -h postgres-auth-external.record-platform.svc.cluster.local -p 5437 -U postgres -d records -c 'SELECT 1;'"
+kubectl run postgres-svc-test --image=postgres:16-alpine --rm -i --restart=Never -n off-campus-housing-tracker -- \
+  sh -c "PGPASSWORD=postgres psql -h postgres-auth-external.off-campus-housing-tracker.svc.cluster.local -p 5437 -U postgres -d records -c 'SELECT 1;'"
 ```
 
 ### Prevention
@@ -989,7 +989,7 @@ startupProbe:
       - -tls-ca-cert=/etc/certs/ca.crt
       - -tls-client-cert=/etc/certs/tls.crt      # ADD THIS
       - -tls-client-key=/etc/certs/tls.key       # ADD THIS
-      - -tls-server-name=record.local
+      - -tls-server-name=off-campus-housing.local
       - -connect-timeout=10s
       - -rpc-timeout=15s
   initialDelaySeconds: 45
@@ -1008,7 +1008,7 @@ readinessProbe:
       - -tls-ca-cert=/etc/certs/ca.crt
       - -tls-client-cert=/etc/certs/tls.crt      # ADD THIS
       - -tls-client-key=/etc/certs/tls.key       # ADD THIS
-      - -tls-server-name=record.local
+      - -tls-server-name=off-campus-housing.local
       - -connect-timeout=5s
       - -rpc-timeout=5s
   # ... rest of probe config
@@ -1024,7 +1024,7 @@ livenessProbe:
       - -tls-ca-cert=/etc/certs/ca.crt
       - -tls-client-cert=/etc/certs/tls.crt      # ADD THIS
       - -tls-client-key=/etc/certs/tls.key       # ADD THIS
-      - -tls-server-name=record.local
+      - -tls-server-name=off-campus-housing.local
       - -connect-timeout=5s
       - -rpc-timeout=5s
   # ... rest of probe config
@@ -1037,8 +1037,8 @@ kubectl apply -f infra/k8s/base/auth-service/deploy.yaml
 kubectl apply -f infra/k8s/base/listings-service/deploy.yaml
 
 # Restart deployments to apply changes
-kubectl rollout restart deploy/auth-service -n record-platform
-kubectl rollout restart deploy/listings-service -n record-platform
+kubectl rollout restart deploy/auth-service -n off-campus-housing-tracker
+kubectl rollout restart deploy/listings-service -n off-campus-housing-tracker
 ```
 
 ### Prevention
@@ -1089,7 +1089,7 @@ The full test run is executed by `scripts/run-all-test-suites.sh`. Pre-flight (u
 
 **Run full suite (with preflight and API server ready check):**
 ```bash
-cd /path/to/record-platform
+cd /path/to/off-campus-housing-tracker
 ./scripts/run-all-test-suites.sh
 # Optional: capture output for step-by-step analysis
 ./scripts/run-all-test-suites.sh 2>&1 | tee /tmp/full-run-$(date +%s).log
@@ -1123,7 +1123,7 @@ All six suites use **strict TLS** (CA-verified) for Caddy HTTP/2 and HTTP/3. gRP
 
 **Pass criteria:**
 - **Caddy:** HTTP/2 and HTTP/3 health with `--cacert` (no `-k`). Certificate chain: leaf in `record-local-tls`, CA in `dev-root-ca` (separate secrets is valid).
-- **gRPC:** Envoy NodePort 30000 with `grpcurl -cacert ... -authority record.local` must return `SERVING`. Authenticate and HealthCheck via Envoy = primary path.
+- **gRPC:** Envoy NodePort 30000 with `grpcurl -cacert ... -authority off-campus-housing.local` must return `SERVING`. Authenticate and HealthCheck via Envoy = primary path.
 - **Port-forward gRPC:** Optional on Colima (host often cannot reach NodePort; port-forward to service gRPC ports can time out). Suites **warn** but do **not fail** when "gRPC port-forward (strict TLS/mTLS): not OK" or "strict TLS timed out after 8s" if Envoy strict TLS and Caddy HTTP/3 pass.
 
 **Known warnings (expected, do not fail suite):**
@@ -1135,7 +1135,7 @@ All six suites use **strict TLS** (CA-verified) for Caddy HTTP/2 and HTTP/3. gRP
 
 **To fix strict TLS/mTLS issues:**
 1. Ensure `/tmp/grpc-certs` has `ca.crt`, `tls.crt`, `tls.key` (run pre-flight; host kubectl for secret extraction).
-2. Envoy must present cert for `record.local`; use `-authority record.local` in grpcurl.
+2. Envoy must present cert for `off-campus-housing.local`; use `-authority off-campus-housing.local` in grpcurl.
 3. Rotation: use **host** kubectl for secret updates so `--cert`/`--key` paths (host temp dirs) are readable.
 
 ---
@@ -1188,7 +1188,7 @@ These fixes address rotation-suite failures and make packet capture reliable acr
 
 10. **Pre-flight gRPC certs incomplete (TLS + mTLS) (January 2026)**
    - **Issue:** Pre-flight showed "gRPC certs incomplete in /tmp/grpc-certs (suites will use CA-only strict TLS)" even when service-tls existed. Extraction used _kb (colima ssh kubectl), so get secret output was sent over SSH; any stdout/encoding issue could leave files empty or missing.
-   - **Fix:** In `run-all-test-suites.sh`, use **host** kubectl for cert extraction (same as rotation): resolve CERT_KCTL to KUBECTL_PORT_FORWARD or /opt/homebrew/bin/kubectl (or /usr/local/bin/kubectl) and use it for all get secret + base64 -d writes so extraction runs on the host. Fallback: if service-tls exists but ca.crt is empty, populate ca.crt from dev-root-ca (record-platform or ingress-nginx); if service-tls is missing, still try to write CA from dev-root-ca so strict TLS works.
+   - **Fix:** In `run-all-test-suites.sh`, use **host** kubectl for cert extraction (same as rotation): resolve CERT_KCTL to KUBECTL_PORT_FORWARD or /opt/homebrew/bin/kubectl (or /usr/local/bin/kubectl) and use it for all get secret + base64 -d writes so extraction runs on the host. Fallback: if service-tls exists but ca.crt is empty, populate ca.crt from dev-root-ca (off-campus-housing-tracker or ingress-nginx); if service-tls is missing, still try to write CA from dev-root-ca so strict TLS works.
 
 11. **Rotation suite: no mismatch, fully done right (January 2026)**
    - **Secrets apply namespace:** When creating CA secrets with `create ... --dry-run=client -o yaml | apply -f -`, the piped YAML has no namespace; apply was running in default namespace. **Fix:** Use `$SECRET_KCTL -n "$NS_ING" apply -f -` and `$SECRET_KCTL -n "$NS_APP" apply -f -` so CA lands in the correct namespaces.
@@ -1199,11 +1199,11 @@ These fixes address rotation-suite failures and make packet capture reliable acr
 
 12. **Cert chain complete for strict TLS + mTLS (January 2026)**
    - **Requirement:** Certs in `/tmp/grpc-certs` must form a **complete, valid chain** so strict TLS and mTLS work reliably. Invalid or mismatched material must not be used.
-   - **Fix (in `run-all-test-suites.sh` pre-flight):** (1) **Validate after extraction:** Run `openssl verify -CAfile ca.crt tls.crt` when both exist; if it fails, clear `tls.crt` and `tls.key` and warn. (2) **Key/cert match:** Compare public key hashes of `tls.crt` and `tls.key`; if they do not match, clear leaf and key. (3) **Repo fallback:** If `service-tls` is missing or extraction yields partial/invalid chain, try creating/updating `service-tls` from repo `certs/dev-root.pem`, `certs/record.local.crt`, `certs/record.local.key` (using host kubectl), then re-extract and re-validate. Only report "gRPC cert chain complete" when all three files are present and validation passes.
+   - **Fix (in `run-all-test-suites.sh` pre-flight):** (1) **Validate after extraction:** Run `openssl verify -CAfile ca.crt tls.crt` when both exist; if it fails, clear `tls.crt` and `tls.key` and warn. (2) **Key/cert match:** Compare public key hashes of `tls.crt` and `tls.key`; if they do not match, clear leaf and key. (3) **Repo fallback:** If `service-tls` is missing or extraction yields partial/invalid chain, try creating/updating `service-tls` from repo `certs/dev-root.pem`, `certs/off-campus-housing.local.crt`, `certs/off-campus-housing.local.key` (using host kubectl), then re-extract and re-validate. Only report "gRPC cert chain complete" when all three files are present and validation passes.
 
 13. **gRPC health checks and Test 15 (January 2026)**
    - **Preflight:** `run-all-test-suites.sh` now exports `CA_CERT` (from `GRPC_CERTS_DIR/ca.crt` when present), `KUBECTL_PORT_FORWARD` (host kubectl), and `HOST` so all suites use the same validated cert chain and host-reachable port-forwards.
-   - **Envoy TLS hostname:** Envoy presents a cert for `record.local`; connecting to `127.0.0.1:30000` with strict TLS fails hostname verification. **Fix:** Use `-authority record.local` (or `-servername=record.local`) in all grpcurl calls to Envoy with TLS: in `lib/grpc-http3-health.sh`, `test-tls-mtls-comprehensive.sh`, and `test-microservices-http2-http3.sh` (grpc_test Envoy block).
+   - **Envoy TLS hostname:** Envoy presents a cert for `off-campus-housing.local`; connecting to `127.0.0.1:30000` with strict TLS fails hostname verification. **Fix:** Use `-authority off-campus-housing.local` (or `-servername=off-campus-housing.local`) in all grpcurl calls to Envoy with TLS: in `lib/grpc-http3-health.sh`, `test-tls-mtls-comprehensive.sh`, and `test-microservices-http2-http3.sh` (grpc_test Envoy block).
    - **Test 2 fallback (tls-mtls):** Port-forward for Envoy fallback must use host kubectl (not _kb) so `127.0.0.1:50052` is on the host; fixed to use `KUBECTL_PORT_FORWARD` / resolved host kubectl.
    - **Port-forward wait:** `grpc-http3-health.sh` now waits up to 10s for port 50051 to be reachable before running grpcurl.
    - **Baseline Test 15 exit:** When `grpc_test` failed (e.g. Envoy TLS or port-forward), the command substitution returned non-zero and with `set -e` the baseline script exited at Test 15a. **Fix:** Wrap the entire Test 15 block in `set +e` / `set -e` so gRPC test failures are reported as warns and the suite continues.
@@ -1251,7 +1251,7 @@ These fixes address rotation-suite failures and make packet capture reliable acr
 
 24. **Baseline auth 503 / "self-signed certificate in certificate chain" (January 2026)**
    - **Issue:** Auth registration/login returned HTTP 503 with body `{"error":"No connection established. Last error: Error: self-signed certificate in certificate chain. Resolution note: "}`. API Gateway calls Auth Service over gRPC with TLS; the client (api-gateway) was using a CA that did not trust the cert presented by auth-service (e.g. secret was updated but pods had not restarted and were still using old CA/certs).
-   - **Fix:** Shared script **`ensure-strict-tls-mtls-preflight.sh`** (used by both pipelines): (1) Validates `service-tls` + `dev-root-ca` (extract from cluster, `openssl verify`, key/cert match). (2) If missing/invalid: try repo certs (`certs/dev-root.pem`, `certs/record.local.crt`, `certs/record.local.key`), then provision with OpenSSL. (3) **Rollout restart** all gRPC/TLS deployments when the secret was updated **or** when **`FORCE_TLS_RESTART=1`** (used by **`run-all-test-suites.sh`** when running standalone so pods always pick up current service-tls even if secret wasn’t just changed). **`run-all-test-suites.sh`** calls the preflight with **`FORCE_TLS_RESTART=1`** so a standalone run always restarts api-gateway, auth-service, records-service, etc., preventing 503/self-signed. **`run-preflight-scale-and-all-suites.sh`** step 5 runs the script without FORCE_TLS_RESTART (restart only when script updated the secret).
+   - **Fix:** Shared script **`ensure-strict-tls-mtls-preflight.sh`** (used by both pipelines): (1) Validates `service-tls` + `dev-root-ca` (extract from cluster, `openssl verify`, key/cert match). (2) If missing/invalid: try repo certs (`certs/dev-root.pem`, `certs/off-campus-housing.local.crt`, `certs/off-campus-housing.local.key`), then provision with OpenSSL. (3) **Rollout restart** all gRPC/TLS deployments when the secret was updated **or** when **`FORCE_TLS_RESTART=1`** (used by **`run-all-test-suites.sh`** when running standalone so pods always pick up current service-tls even if secret wasn’t just changed). **`run-all-test-suites.sh`** calls the preflight with **`FORCE_TLS_RESTART=1`** so a standalone run always restarts api-gateway, auth-service, records-service, etc., preventing 503/self-signed. **`run-preflight-scale-and-all-suites.sh`** step 5 runs the script without FORCE_TLS_RESTART (restart only when script updated the secret).
 
 25. **Strict TLS/mTLS preflight once and for all (January 2026)**
    - **Goal:** All services that are tested and need to exist use strict TLS and mTLS; valid `service-tls` + `dev-root-ca` ensured before any test suites run.
@@ -1286,20 +1286,20 @@ These fixes address rotation-suite failures and make packet capture reliable acr
    - **Operational:** Preflight now (1) runs **colima-forward-6443.sh** after step 2b (2b-post) so the tunnel and 6443 are always re-established after kubeconfig hygiene, and (2) pins the active kubeconfig at 2c and 3a. If you still see "Cluster not reachable" at reissue 0b, run `./scripts/colima-forward-6443.sh`, then re-run the pipeline. **One-command teardown and redo:** `./scripts/colima-teardown-and-start.sh` (then re-run preflight).
 
 30. **Reissue step 2: "Updating secrets" fails with no clear error (February 2026)**
-   - **Symptom:** Reissue gets past step 0b and step 1 (CA/leaf generated), then step 2 prints "Updating secrets (record-platform + ingress-nginx)…" and some secret create/apply lines, then the script exits with "⚠️ Reissue failed — suites may hit curl 60" and **no** "record-local-tls (with full chain) and dev-root-ca updated" or "service-tls updated" message.
+   - **Symptom:** Reissue gets past step 0b and step 1 (CA/leaf generated), then step 2 prints "Updating secrets (off-campus-housing-tracker + ingress-nginx)…" and some secret create/apply lines, then the script exits with "⚠️ Reissue failed — suites may hit curl 60" and **no** "record-local-tls (with full chain) and dev-root-ca updated" or "service-tls updated" message.
    - **Root cause:** A **kubectl** command in step 2 (create secret tls, create secret generic dev-root-ca, apply -f -, or create secret generic service-tls) failed with a non-zero exit. With **set -e**, the script exits immediately. Common causes: (1) **Transient API load** — right after heavy pgbench/k6 or many kubectl operations, the API can return "the server is currently unable to handle the request" or time out. (2) **Tunnel drop** — connection to 127.0.0.1:6443 can drop so a later kubectl in the same step fails. (3) **Pipe flakiness** — the pipeline `kubectl create ... -o yaml | kctl apply -f -` can fail on the right-hand side and the error was not visible.
    - **Fix (script):** In `scripts/reissue-ca-and-leaf-load-all-services.sh`, step 2 now: (1) Uses an **_apply_with_retry** helper that retries each create/apply **up to 5 times** (8s between attempts). dev-root-ca **apply** uses **`--validate=false`** to skip OpenAPI discovery when the API is under load ("failed to download openapi"), so transient API errors don’t fail the run. (2) On final failure, prints **"❌ Reissue step 2 failed after 5 attempts"** and the **last command** and **stderr**, so you see the real error. (3) Writes dev-root-ca to a temp YAML and runs **kubectl apply -f file** instead of piping, to avoid pipe-related failures.
    - **Operational:** If reissue still fails, look for "Reissue step 2 failed after 5 attempts" line and the stderr below it. Re-run once; if it’s API load, trim pods or wait a minute and re-run. Ensure tunnel is up: `./scripts/colima-forward-6443.sh`.
-   - **Step 3 (Envoy TLS sync):** If you see "dev-root-ca missing in record-platform" right after step 2, the API may still be applying the new secrets. The sync script now **retries** the secret check up to 8 times (3s apart) before giving up.
+   - **Step 3 (Envoy TLS sync):** If you see "dev-root-ca missing in off-campus-housing-tracker" right after step 2, the API may still be applying the new secrets. The sync script now **retries** the secret check up to 8 times (3s apart) before giving up.
    - **ServiceUnavailable / "unable to handle the request" / 6443 connection reset:** Step 2 now runs **via colima ssh** by default (**REISSUE_VIA_SSH=1**): certs are copied to `/tmp/colima/reissue-$$` (mount visible in VM), then all kubectl delete/create/patch for secrets run as `colima ssh -- kubectl ...`. So the API is hit from **inside the VM**, not from the host over 6443 — no connection reset, no host-side ServiceUnavailable. Same strict TLS/mTLS. If you see "no such file" when using SSH, set **REISSUE_VIA_SSH=0** to use host kubectl. Step 2 also uses delete+create (not apply) so we avoid apply's GET. Retries: 12 attempts, 18s backoff on errors.
    - **Why step 2 was still using 6443 (Feb 2026):** The **kubectl shim** (`scripts/shims/kubectl`) used to run `_fix_colima_server()` on every kubectl call, which overwrote the cluster server to 6443. The pipeline restored native port in step 2c2, but reissue (invoked with the same PATH) used the shim, so the first kubectl in step 2 set the config back to 6443 and all secret creates hit the flaky tunnel. **Fix:** The shim no longer sets 6443. Reissue step 2 also has a **defensive check**: if using host kubectl and the current server is 6443, it tries COLIMA_NATIVE_SERVER / 51819 / 49400; if still 6443, it exits with "Reissue step 2 refuses to use 127.0.0.1:6443" so we never run the burst of secret creates against the tunnel.
    - **Pipeline 6443 + "connection reset by peer" (Feb 2026):** When the pipeline pins to 6443, reissue step 2 used host kubectl → SSH tunnel; under a **burst** of secret creates the tunnel resets. **Fix (max stability):** Preflight passes **REISSUE_STEP2_VIA_SSH=1** so reissue **always** uses **colima ssh** for step 2 on Colima: certs are copied to a dir under REPO_ROOT, and all `kubectl create/delete/patch secret` run **inside the VM** (`colima ssh -- kubectl ...`). The burst hits k3s on localhost in the VM, not the host tunnel — no RST. You should see: "Using colima ssh for step 2 (REISSUE_STEP2_VIA_SSH=1 — bypass tunnel for stability)." If resets still occur (e.g. other steps use tunnel): re-establish tunnel before 3b (Kafka SSL); or tune k3s (playbook 7b: `--kube-apiserver-arg=max-requests-inflight=2000`).
    - **Why reissue step 2 is slow / was "almost instant" before (Feb 2026):** In-VM step 2 uses the API URL from **k3s.yaml** (ephemeral port, e.g. 59560). When k3s is under load, restarting, or returning 503, that port can **connection refused** or **apiserver not ready**; re-resolve often fails (API not ready in VM), so we burn many retries on the same dead port. **Script fix:** When in-VM re-resolve fails, we **fall back to host kubectl** (tunnel 6443) for the rest of step 2 so the run can complete. You’ll see: "(in-VM API unreachable — using host kubectl / tunnel 6443 for rest of step 2)". **To get "instant" step 2 again:** If the host tunnel is stable, force host path: **REISSUE_STEP2_VIA_SSH=0** when running reissue or preflight (e.g. `REISSUE_STEP2_VIA_SSH=0 bash ./scripts/run-preflight-scale-and-all-suites.sh`). Then step 2 uses host kubectl only; no in-VM ephemeral port.
-   - **MetalLB (LoadBalancer for Caddy):** Preflight installs MetalLB (step 3c1) and applies Caddy as `LoadBalancer` (step 3c2). Caddy gets an external IP from the L2 pool (default `192.168.106.240-192.168.106.250`). **Manual install:** `./scripts/install-metallb.sh`. **Override pool:** `METALLB_POOL=192.168.5.240-192.168.5.250 ./scripts/install-metallb.sh` (use a range in your Colima VM subnet). **record.local:** Point `/etc/hosts` at the Caddy LoadBalancer IP (`kubectl -n ingress-nginx get svc caddy-h3`) and use port 443. `verify-caddy-strict-tls.sh` uses the LB IP:443 when the service has `status.loadBalancer.ingress[0].ip`.
+   - **MetalLB (LoadBalancer for Caddy):** Preflight installs MetalLB (step 3c1) and applies Caddy as `LoadBalancer` (step 3c2). Caddy gets an external IP from the L2 pool (default `192.168.106.240-192.168.106.250`). **Manual install:** `./scripts/install-metallb.sh`. **Override pool:** `METALLB_POOL=192.168.5.240-192.168.5.250 ./scripts/install-metallb.sh` (use a range in your Colima VM subnet). **off-campus-housing.local:** Point `/etc/hosts` at the Caddy LoadBalancer IP (`kubectl -n ingress-nginx get svc caddy-h3`) and use port 443. `verify-caddy-strict-tls.sh` uses the LB IP:443 when the service has `status.loadBalancer.ingress[0].ip`.
    - **Traffic policy (no plain RR):** Caddy service uses **sessionAffinity: ClientIP** (timeout 3600s) so each client sticks to one Caddy pod — avoids round-robin churn, fewer reconnects and TLS handshakes. Envoy (gRPC) remains NodePort; in-cluster callers can use ClusterIP. For custom strategies (e.g. ring hash) see ENGINEERING.md Deployment Strategy.
    - **MetalLB pool / Caddy service not applied (503):** If install-metallb.sh or preflight step 3c1/3c2 fail with ServiceUnavailable, the API is under load. **When cluster is idle** run: `./scripts/apply-metallb-pool-and-caddy-service.sh` (script waits for API and retries). If webhook "endpoints not found", script prints MetalLB diagnostic; see METALLB_AND_API_503_REPORT.md Option B2. **Why preflight used to work / what’s broken now:** **`PREFLIGHT_WHY_IT_WORKED_AND_WHATS_BROKEN.md`** — Docker, Kind, observability checklist; run **`./scripts/preflight-environment-check.sh`** for a one-shot status.
 
-31. **Reissue step 5: Caddy rollout times out (February 2026)** — Step 5 may show "Waiting for deployment spec update to be observed..." or "apiserver not ready" / "ServiceUnavailable". **Cause:** The API can be overloaded right after step 2 (many secret creates). **Script behaviour:** Before step 5, the script now **waits for the API to settle** (up to 120s: repeated `kubectl get ns record-platform` every 10s). On failure it prints diagnostics; if those also show ServiceUnavailable, it adds: "API was overloaded after step 2. Wait 1–2 min, then run the commands above manually; Caddy may already be Running." **Operational:** Run the printed `kubectl` commands after a short wait; if Caddy pods are already 1/1 Running, re-run reissue or continue. Optional: `CADDY_ROLLOUT_TIMEOUT=300`. See reissue script step 5.
+31. **Reissue step 5: Caddy rollout times out (February 2026)** — Step 5 may show "Waiting for deployment spec update to be observed..." or "apiserver not ready" / "ServiceUnavailable". **Cause:** The API can be overloaded right after step 2 (many secret creates). **Script behaviour:** Before step 5, the script now **waits for the API to settle** (up to 120s: repeated `kubectl get ns off-campus-housing-tracker` every 10s). On failure it prints diagnostics; if those also show ServiceUnavailable, it adds: "API was overloaded after step 2. Wait 1–2 min, then run the commands above manually; Caddy may already be Running." **Operational:** Run the printed `kubectl` commands after a short wait; if Caddy pods are already 1/1 Running, re-run reissue or continue. Optional: `CADDY_ROLLOUT_TIMEOUT=300`. See reissue script step 5.
 
 32. **"Connection reset by peer" / "apiserver not ready" / 503 ServiceUnavailable — playbook (February 2026)**
    - **Root cause and fixes (what’s really going on):** **`docs/RCA-PREFLIGHT-CONTROL-PLANE-FAILURES.md`** — RCA: symptoms, root cause, evidence, mitigations (etcd/k3s tuning), current situation, what still breaks, MetalLB (opt-in, webhook). **ADR-005** (rate-limited, MetalLB opt-in), **ADR-006** (etcd tuning). **`docs/PREFLIGHT_ROOT_CAUSE_AND_FIXES.md`** — short "what's going on".
@@ -1530,7 +1530,7 @@ A **separate test suite** is planned for the **analytics engine and Python AI** 
    - Python AI service pathRewrite was removing `/api/ai` completely instead of rewriting to `/ai`
 
 2. **Kafka Connectivity Issues**:
-   - Services cannot connect to Kafka broker at `kafka.record-platform.svc.cluster.local:9093`
+   - Services cannot connect to Kafka broker at `kafka.off-campus-housing-tracker.svc.cluster.local:9093`
    - Connection timeouts and retry failures
    - Missing or misconfigured Kafka SSL certificates
 
@@ -1596,15 +1596,15 @@ app.use(
 #### Fix 3: Kafka Connectivity
 **Check Kafka Status**:
 ```bash
-kubectl get pods -n record-platform -l app=kafka
-kubectl get svc -n record-platform kafka
-kubectl get pods -n record-platform -l app=zookeeper
+kubectl get pods -n off-campus-housing-tracker -l app=kafka
+kubectl get svc -n off-campus-housing-tracker kafka
+kubectl get pods -n off-campus-housing-tracker -l app=zookeeper
 ```
 
 **Verify Kafka SSL Certificates**:
 ```bash
-kubectl get secret -n record-platform kafka-ssl-secret
-kubectl describe deployment analytics-service -n record-platform | grep -A 10 volumes
+kubectl get secret -n off-campus-housing-tracker kafka-ssl-secret
+kubectl describe deployment analytics-service -n off-campus-housing-tracker | grep -A 10 volumes
 ```
 
 **Actions**:
@@ -1619,11 +1619,11 @@ kubectl describe deployment analytics-service -n record-platform | grep -A 10 vo
 **Check Database Connectivity**:
 ```bash
 # Check database pods/services
-kubectl get pods -n record-platform | grep postgres
-kubectl get svc -n record-platform | grep postgres
+kubectl get pods -n off-campus-housing-tracker | grep postgres
+kubectl get svc -n off-campus-housing-tracker | grep postgres
 
 # Check service logs for connection errors
-kubectl logs -n record-platform -l app=social-service --tail=50 | grep -i "timeout\|connection"
+kubectl logs -n off-campus-housing-tracker -l app=social-service --tail=50 | grep -i "timeout\|connection"
 ```
 
 **Actions**:
@@ -1638,10 +1638,10 @@ kubectl logs -n record-platform -l app=social-service --tail=50 | grep -i "timeo
 **Check Health Endpoint**:
 ```bash
 # Direct service access
-kubectl exec -n record-platform -it deployment/social-service -- curl http://localhost:4006/healthz
+kubectl exec -n off-campus-housing-tracker -it deployment/social-service -- curl http://localhost:4006/healthz
 
 # Via API Gateway
-curl -k https://record.local:30443/api/social/healthz
+curl -k https://off-campus-housing.local:30443/api/social/healthz
 ```
 
 **Actions**:
@@ -1876,7 +1876,7 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
    - `-cacert`: CA certificate for server verification
    - `-cert`: Client certificate
    - `-key`: Client private key
-   - `-servername`: Server name for SNI (record.local)
+   - `-servername`: Server name for SNI (off-campus-housing.local)
 
 2. Certificate extraction:
    - First tries to extract from pod (`/etc/certs/`)
@@ -1894,7 +1894,7 @@ grpcurl \
   -cacert=/tmp/grpc-certs/ca.crt \
   -cert=/tmp/grpc-certs/tls.crt \
   -key=/tmp/grpc-certs/tls.key \
-  -servername=record.local \
+  -servername=off-campus-housing.local \
   ...  # STRICT TLS ✅
 ```
 
@@ -2084,7 +2084,7 @@ fi
 
 **Current Configuration** (WRONG):
 ```caddyfile
-reverse_proxy auth-service.record-platform.svc.cluster.local:50051 {
+reverse_proxy auth-service.off-campus-housing-tracker.svc.cluster.local:50051 {
   transport http {
     versions h2c  # HTTP/2 cleartext - NOT TLS!
   }
@@ -2093,7 +2093,7 @@ reverse_proxy auth-service.record-platform.svc.cluster.local:50051 {
 
 **Recommended Fix** (for production):
 ```caddyfile
-reverse_proxy auth-service.record-platform.svc.cluster.local:50051 {
+reverse_proxy auth-service.off-campus-housing-tracker.svc.cluster.local:50051 {
   transport http {
     versions h2  # HTTP/2 with TLS (not h2c)
     tls  # Enable TLS
@@ -2261,7 +2261,7 @@ D ... | server | (1) Connection established by client
 
 **Caddy Test (FAILS)**:
 ```bash
-$ grpcurl -cacert=ca.crt -cert=tls.crt -key=tls.key -servername=record.local \
+$ grpcurl -cacert=ca.crt -cert=tls.crt -key=tls.key -servername=off-campus-housing.local \
   127.0.0.1:30443 auth.AuthService/HealthCheck
 ERROR:
   Code: PermissionDenied
@@ -2696,7 +2696,7 @@ H2_INCREMENT=20 H3_INCREMENT=10 ./scripts/find-ca-rotation-limit.sh
 **Implementation**:
 ```bash
 # Extract CA certificate
-kubectl -n record-platform get secret dev-root-ca -o jsonpath='{.data.dev-root\.pem}' | base64 -d > /tmp/k6-ca.crt
+kubectl -n off-campus-housing-tracker get secret dev-root-ca -o jsonpath='{.data.dev-root\.pem}' | base64 -d > /tmp/k6-ca.crt
 
 # Add to macOS Keychain (k6 uses Go's TLS which respects system trust store)
 sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain /tmp/k6-ca.crt
@@ -2721,7 +2721,7 @@ export SSL_CERT_FILE=/tmp/k6-ca.crt
 **Implementation**:
 ```bash
 # Get pod counts as JSON
-POD_COUNTS_JSON=$(kubectl -n record-platform get deployments -o json | jq -r '{deployments: [.items[] | {name: .metadata.name, replicas: .spec.replicas, ready: .status.readyReplicas}]}')
+POD_COUNTS_JSON=$(kubectl -n off-campus-housing-tracker get deployments -o json | jq -r '{deployments: [.items[] | {name: .metadata.name, replicas: .spec.replicas, ready: .status.readyReplicas}]}')
 
 # Add Caddy
 CADDY_REPLICAS=$(kubectl -n ingress-nginx get deployment caddy-h3 -o jsonpath='{.spec.replicas}')
@@ -3093,7 +3093,7 @@ ls -lh ~/Library/Containers/com.docker.docker/Data/vms/0/data/Docker.raw
 
 5. **Kafka Endpoint IP Configuration**:
    - `kafka-external` endpoint using wrong IP (10.43.x.x cluster IP instead of host IP)
-   - Services couldn't connect to Kafka at `kafka-external.record-platform.svc.cluster.local:9093`
+   - Services couldn't connect to Kafka at `kafka-external.off-campus-housing-tracker.svc.cluster.local:9093`
    - Connection errors: `ECONNREFUSED 10.43.17.16:9093`
 
 6. **Health Probe Configuration Errors**:
@@ -3242,7 +3242,7 @@ environment:
   - -tls-ca-cert=/etc/certs/ca.crt
   - -tls-client-cert=/etc/certs/tls.crt
   - -tls-client-key=/etc/certs/tls.key
-  - -tls-server-name=record.local
+  - -tls-server-name=off-campus-housing.local
   ```
 
 **Status**: ✅ Fixed - All probes now use consistent TLS verification with proper cert flags
@@ -3384,7 +3384,7 @@ After applying fixes:
 - Added Kafka SSL environment variables:
   ```yaml
   - name: KAFKA_BROKER
-    value: "kafka-external.record-platform.svc.cluster.local:9093"
+    value: "kafka-external.off-campus-housing-tracker.svc.cluster.local:9093"
   - name: KAFKA_USE_SSL
     value: "true"
   - name: KAFKA_SSL_ENABLED
@@ -3426,7 +3426,7 @@ After applying fixes:
 
 All now have:
 - `kafka-ssl-certs` volume mount
-- `KAFKA_BROKER=kafka-external.record-platform.svc.cluster.local:9093`
+- `KAFKA_BROKER=kafka-external.off-campus-housing-tracker.svc.cluster.local:9093`
 - `KAFKA_USE_SSL=true`
 - `KAFKA_CA_CERT=/etc/kafka/secrets/ca-cert.pem`
 
@@ -3462,7 +3462,7 @@ January 27, 2026
 ### Symptoms
 1. **Social Service Kafka Connection Failures**:
    - Error logs: `Connection error: broker":"localhost:29093"` with `ECONNREFUSED`
-   - Social service trying to connect to `localhost:29093` instead of `kafka-external.record-platform.svc.cluster.local:9093`
+   - Social service trying to connect to `localhost:29093` instead of `kafka-external.off-campus-housing-tracker.svc.cluster.local:9093`
    - Environment variable `KAFKA_BROKER` correctly set, but KafkaJS using wrong address
    - Caused HTTP 502 "social upstream error" for P2P messages, group messages, and some forum operations
 
@@ -3682,11 +3682,11 @@ kctl() {
    # Should show: SSL://192.168.5.1:29093
    
    # Verify endpoint
-   kubectl get endpoints kafka-external -n record-platform
+   kubectl get endpoints kafka-external -n off-campus-housing-tracker
    # Should show: 192.168.5.1:29093
    
    # Check social-service logs (no Kafka errors)
-   kubectl logs -n record-platform -l app=social-service | grep -i kafka
+   kubectl logs -n off-campus-housing-tracker -l app=social-service | grep -i kafka
    ```
 
 2. **HTTP/3 Certificate Mounting**:
@@ -3694,7 +3694,7 @@ kctl() {
    # Test http3_curl with --cacert
    source scripts/lib/http3.sh
    CA_CERT="/tmp/test-ca.pem"  # Create test cert
-   http3_curl --cacert "$CA_CERT" --http3-only "https://record.local/_caddy/healthz"
+   http3_curl --cacert "$CA_CERT" --http3-only "https://off-campus-housing.local/_caddy/healthz"
    # Should work without -k flag
    ```
 
@@ -3702,7 +3702,7 @@ kctl() {
    ```bash
    # Verify kctl works
    source scripts/lib/kubectl-helper.sh
-   kctl get deployment auth-service -n record-platform -o jsonpath='{.status.readyReplicas}'
+   kctl get deployment auth-service -n off-campus-housing-tracker -o jsonpath='{.status.readyReplicas}'
    # Should return: 1
    
    # Run wait script
@@ -3790,7 +3790,7 @@ kctl() {
 CA_CERT="/tmp/test-ca.pem"  # Get from dev-root-ca secret
 . scripts/lib/http3.sh
 export CADDY_NODEPORT=30443
-http3_curl --cacert "$CA_CERT" --http3-only "https://record.local/_caddy/healthz"
+http3_curl --cacert "$CA_CERT" --http3-only "https://off-campus-housing.local/_caddy/healthz"
 # Should return: ok (HTTP 200)
 ```
 
@@ -3829,11 +3829,11 @@ http3_curl --cacert "$CA_CERT" --http3-only "https://record.local/_caddy/healthz
 ### Verification
 ```bash
 # Verify service-tls has full chain
-kubectl -n record-platform get secret service-tls -o jsonpath='{.data.tls\.crt}' | base64 -d | grep -c "BEGIN CERTIFICATE"
+kubectl -n off-campus-housing-tracker get secret service-tls -o jsonpath='{.data.tls\.crt}' | base64 -d | grep -c "BEGIN CERTIFICATE"
 # Should return: 2
 
 # Verify pod has full chain
-kubectl -n record-platform exec auth-service-xxx -- cat /etc/certs/tls.crt | grep -c "BEGIN CERTIFICATE"
+kubectl -n off-campus-housing-tracker exec auth-service-xxx -- cat /etc/certs/tls.crt | grep -c "BEGIN CERTIFICATE"
 # Should return: 2
 ```
 
@@ -3861,7 +3861,7 @@ kubectl -n record-platform exec auth-service-xxx -- cat /etc/certs/tls.crt | gre
 ### Workaround
 ```bash
 # Use port-forward for gRPC testing
-kubectl -n record-platform port-forward pod/auth-service-xxx 50051:50051 &
+kubectl -n off-campus-housing-tracker port-forward pod/auth-service-xxx 50051:50051 &
 grpcurl -cacert /path/to/ca.pem 127.0.0.1:50051 grpc.health.v1.Health/Check
 ```
 
@@ -3930,10 +3930,10 @@ Use these for protocol verification, packet capture, and profiling. CI/workflows
 - **gRPC health – all forms must pass**: Lib `grpc-http3-health.sh` exports `GRPC_HTTP3_HEALTH_OK=1` only when Caddy HTTP/3, gRPC Envoy (strict TLS), and gRPC port-forward all succeed. Envoy (plaintext) may be skipped on Colima. Adversarial suite **fails** if `GRPC_HTTP3_HEALTH_OK` is not 1 after `run_grpc_http3_health_checks`.
 - **HTTP/1.1 adversarial (legacy support)**: Test 2 is "Legacy HTTP/1.1 Support". Platform must work with legacy clients; if the server accepts HTTP/1.1 and returns 200/ok, the test **passes** (ok "Legacy HTTP/1.1 accepted"). We do not require rejection of HTTP/1.1.
 - **Packet capture – HTTP/2 and HTTP/3 parsing**: Enhanced suite `verify_protocol()` refined: (1) For HTTP/2, if ALPN/http2 frames are not decoded, accept **TLS on port 443** with packet count as "likely HTTP/2"; (2) if only TCP 443 traffic exists (no TLS handshake decoded), accept as "likely HTTP/2" so capture from a different Caddy pod or encrypted payloads still pass. HTTP/3: QUIC and UDP 443 logic unchanged. Ensures HTTP/2 and HTTP/3 traffic is caught and parseable even when tshark cannot decode ALPN or application data.
-- **Strict TLS/mTLS preflight (no soft fallback)**: Preflight now **requires** a valid full chain (service-tls + dev-root-ca: ca.crt, tls.crt, tls.key) for strict TLS/mTLS. If cluster has no valid chain: (1) try repo certs (`certs/dev-root.pem`, `certs/record.local.crt`, `certs/record.local.key`) and create/update service-tls and dev-root-ca in record-platform and ingress-nginx; (2) if repo certs missing, **generate** CA + leaf with OpenSSL and create both secrets; (3) if still no valid chain, **fail** preflight with clear instructions (no "CA only if present elsewhere"). Suites only run when strict TLS material is established.
+- **Strict TLS/mTLS preflight (no soft fallback)**: Preflight now **requires** a valid full chain (service-tls + dev-root-ca: ca.crt, tls.crt, tls.key) for strict TLS/mTLS. If cluster has no valid chain: (1) try repo certs (`certs/dev-root.pem`, `certs/off-campus-housing.local.crt`, `certs/off-campus-housing.local.key`) and create/update service-tls and dev-root-ca in off-campus-housing-tracker and ingress-nginx; (2) if repo certs missing, **generate** CA + leaf with OpenSSL and create both secrets; (3) if still no valid chain, **fail** preflight with clear instructions (no "CA only if present elsewhere"). Suites only run when strict TLS material is established.
 - **gRPC Test 15 hang / efficiency**: Test 15a was slow or stuck because (1) Envoy NodePort attempts used 5s each; (2) health checks always ran both Envoy and port-forward; (3) grpc_test_strict_tls could hang (port-forward or wait). **Fix**: (1) Envoy grpcurl `-max-time` reduced to 3s; (2) for health checks, port-forward path in grpc_test skipped when Envoy succeeded; (3) port-forward readiness: sleep 4→2s, retries 12→6 in strict_tls; (4) **run_grpc_strict_tls_with_cap 18**: every strict_tls call runs in background with 18s wall-clock cap, then kill so Test 15 never hangs; (5) strict_tls grpcurl timeout 10→8s. Delete-account test: accept 401 or 404 for "login after delete"; on 500 show "Deploy latest auth-service for correct 401 response."
 - **Delete account – login after delete returns 500 (expected 401)**: Login after account deletion sometimes returned HTTP 500 because (1) auth-service could throw in login (e.g. `comparePassword` on corrupt/stale hash) and return INTERNAL; (2) cache was invalidated after delete, so a concurrent login could still see stale cache. **Fix**: (1) **auth-service** HTTP login and gRPC Authenticate: wrap `comparePassword` in try/catch; on throw return 401 (invalid credentials) so we never return 500 for bad/corrupt hash; (2) **auth-service** delete account: invalidate user cache **before** deleting the user from DB so concurrent login gets cache miss then DB "not found" → 401. Invariant: deleted user must get 401 on login.
-- **Deploy latest auth-service (fix 500 → 401)**: To get the fix live: run `./scripts/build-and-deploy-auth-service.sh`. This builds `auth-service:dev`, loads into Kind (or uses Colima’s shared Docker daemon), and runs `kubectl rollout restart deploy auth-service -n record-platform`. Then re-run auth/delete-account tests; login after delete should return 401 (not 500).
+- **Deploy latest auth-service (fix 500 → 401)**: To get the fix live: run `./scripts/build-and-deploy-auth-service.sh`. This builds `auth-service:dev`, loads into Kind (or uses Colima’s shared Docker daemon), and runs `kubectl rollout restart deploy auth-service -n off-campus-housing-tracker`. Then re-run auth/delete-account tests; login after delete should return 401 (not 500).
 
 ### Fixes applied (January 30) – Redis, rotation restarts, Colima k6 ConfigMap, tls-mtls skip, social suite
 - **Redis AUTH when externalized**: When Redis is externalized (Docker Compose) without a password, clients were sending `AUTH postgres` and saw `ERR AUTH <password> called without any password configured`. **Fix**: (1) `infra/k8s/base/config/app-secrets.yaml` sets `REDIS_PASSWORD: ""` with a comment when Redis is externalized without auth. (2) All Node.js services (auth, listings, shopping, common/redis) treat empty or whitespace `REDIS_PASSWORD` as "no password" and do not send AUTH to Redis.
@@ -4433,22 +4433,22 @@ Use these for protocol verification, packet capture, and profiling. CI/workflows
 ### Issue #37: Rotation Suite Failures (January 31, 2026)
 
 #### Symptoms
-1. `curl: (6) Could not resolve host: record.local` during post-rotation health checks
+1. `curl: (6) Could not resolve host: off-campus-housing.local` during post-rotation health checks
 2. Shell substitution error: `bad substitution` at line 564
 
 #### Root Causes
-1. **DNS Resolution**: After CA rotation, the `record.local` host cannot be resolved from the Mac host. The Colima VM has different DNS settings than the host.
+1. **DNS Resolution**: After CA rotation, the `off-campus-housing.local` host cannot be resolved from the Mac host. The Colima VM has different DNS settings than the host.
 2. **Shell Syntax Error**: Line 564 uses `$CADDY_QUIC_TOTAL` inside a `${ }` context with `${#CADDY_PODS[@]:-0}` which Bash cannot parse.
 
 #### Errors from Log
 ```
 [WARN] Caddy HTTP/3 health: failed (HTTP 000, curl exit 6)
-curl: (6) Could not resolve host: record.local
-/Users/tom/record-platform/scripts/rotation-suite.sh: line 564: caddy-rotation: HTTP/3 (QUIC) verified ($CADDY_QUIC_TOTAL packets across ${#CADDY_PODS[@]:-0} pod(s)): bad substitution
+curl: (6) Could not resolve host: off-campus-housing.local
+/Users/tom/off-campus-housing-tracker/scripts/rotation-suite.sh: line 564: caddy-rotation: HTTP/3 (QUIC) verified ($CADDY_QUIC_TOTAL packets across ${#CADDY_PODS[@]:-0} pod(s)): bad substitution
 ```
 
 #### Fixes Required
-1. **DNS Resolution Fix**: Use `--resolve record.local:443:<ClusterIP>` in curl commands, or run health checks from within the Colima VM
+1. **DNS Resolution Fix**: Use `--resolve off-campus-housing.local:443:<ClusterIP>` in curl commands, or run health checks from within the Colima VM
 2. **Shell Syntax Fix**: Fix line 564 in `rotation-suite.sh` - use proper variable expansion
 
 ```bash
@@ -4464,7 +4464,7 @@ echo "caddy-rotation: HTTP/3 (QUIC) verified ($CADDY_QUIC_TOTAL packets across $
 
 #### Symptom
 ```
-/Users/tom/record-platform/scripts/lib/grpc-http3-health.sh: line 24: info: command not found
+/Users/tom/off-campus-housing-tracker/scripts/lib/grpc-http3-health.sh: line 24: info: command not found
 ```
 
 #### Root Cause

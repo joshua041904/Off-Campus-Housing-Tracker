@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Create Kafka broker keystore/truststore and kafka-ssl-secret using dev-root-ca (same CA as Caddy).
 # Run after reissue (certs/dev-root.pem and certs/dev-root.key must exist).
-# Output: certs/kafka-ssl/*.jks, *.p12, passwords; creates kafka-ssl-secret in record-platform
+# Output: certs/kafka-ssl/*.jks, *.p12, passwords; creates kafka-ssl-secret in off-campus-housing-tracker
 #   with ca-cert.pem (dev-root), keystore, truststore for Docker Kafka SSL and Node clients.
 #
 # Usage: ./scripts/kafka-ssl-from-dev-root.sh
-#   KAFKA_SSL_NS=record-platform  — namespace for kafka-ssl-secret
+#   KAFKA_SSL_NS=off-campus-housing-tracker  — namespace for kafka-ssl-secret
 #   KAFKA_SSL_PASS=changeit       — keystore/truststore password
 
 set -euo pipefail
@@ -15,7 +15,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 export PATH="${SCRIPT_DIR}/shims:/opt/homebrew/bin:/usr/local/bin:${PATH:-}"
 cd "$REPO_ROOT"
 
-NS="${KAFKA_SSL_NS:-record-platform}"
+NS="${KAFKA_SSL_NS:-off-campus-housing-tracker}"
 PASS="${KAFKA_SSL_PASS:-changeit}"
 CA_PEM="${REPO_ROOT}/certs/dev-root.pem"
 CA_KEY="${REPO_ROOT}/certs/dev-root.key"
@@ -52,13 +52,13 @@ rm -f "$OUT/kafka.keystore.jks" "$OUT/kafka.truststore.jks" "$OUT/kafka.keystore
 
 # SANs for Docker Kafka (host, kafka service, localhost)
 # Include 192.168.5.1 (host IP for Colima/Docker) to fix "IP does not match certificate's altnames" errors
-KAFKA_SANS="DNS:kafka,DNS:localhost,DNS:host.docker.internal,DNS:kafka-external.record-platform.svc.cluster.local,IP:127.0.0.1,IP:192.168.5.1"
+KAFKA_SANS="DNS:kafka,DNS:localhost,DNS:host.docker.internal,DNS:kafka-external.off-campus-housing-tracker.svc.cluster.local,IP:127.0.0.1,IP:192.168.5.1"
 CN="${KAFKA_SSL_CN:-kafka}"
 
 say "1. Generating Kafka broker key and CSR..."
 openssl genrsa -out "$TMP/kafka.key" 2048 2>/dev/null
 openssl req -new -key "$TMP/kafka.key" -out "$TMP/kafka.csr" \
-  -subj "/CN=${CN}/O=record-platform" 2>/dev/null
+  -subj "/CN=${CN}/O=off-campus-housing-tracker" 2>/dev/null
 
 cat > "$TMP/san.ext" <<EOF
 [v3_req]

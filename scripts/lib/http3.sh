@@ -3,7 +3,7 @@
 # Shared helpers for issuing HTTP/3 (QUIC) requests. Paths (in order of use):
 #   1. Native curl + MetalLB LB IP (HTTP3_USE_NATIVE_CURL=1): host curl → LB IP:443 → socat → NodePort 30443 → Caddy.
 #   2. Docker + host network + Docker bridge (HTTP3_DOCKER_FORWARD_PORT=18443): container curl → 127.0.0.1:18443 → host socat → NodePort → Caddy.
-#   3. NodePort fallback (HTTP3_USE_LB_IP=0): resolve record.local to 127.0.0.1:30443.
+#   3. NodePort fallback (HTTP3_USE_LB_IP=0): resolve off-campus-housing.local to 127.0.0.1:30443.
 #
 # MetalLB + k3d on macOS: The baseline sets HTTP3_USE_NATIVE_CURL=1 when TARGET_IP
 # (LB IP) and PORT=443 are set. Host curl then hits LB IP:443; socat (started by
@@ -267,7 +267,7 @@ http3_curl() {
   fi
 
   # --- QUIC Hostname Invariant Enforcement ---
-  local expected_host="${HTTP3_EXPECTED_HOST:-record.local}"
+  local expected_host="${HTTP3_EXPECTED_HOST:-off-campus-housing.local}"
   local request_host=""
   if [[ "${HTTP3_ENFORCE_HOSTNAME:-1}" == "1" ]]; then
     for arg in "$@"; do
@@ -419,7 +419,7 @@ echo " $* " | grep -qE ' --max-time [0-9]+' || native_args+=(--max-time "${HTTP3
     i=$((i+1))
   done
 
-  # Auto-inject --resolve so hostname/SNI is correct (avoid accidental IP QUIC; Caddy serves record.local so SNI must match).
+  # Auto-inject --resolve so hostname/SNI is correct (avoid accidental IP QUIC; Caddy serves off-campus-housing.local so SNI must match).
   # Docker bridge: use 127.0.0.1:DOCKER_FORWARD_PORT so container (--network host) hits host's socat when native curl to LB IP failed.
   local _resolve_ip="$lb_ip"
   local _resolve_port="$resolve_port"
@@ -459,7 +459,7 @@ echo " $* " | grep -qE ' --max-time [0-9]+' || native_args+=(--max-time "${HTTP3
           elif [[ "${HTTP3_USE_LB_IP:-0}" == "1" ]]; then
             : # keep LB IP / Docker host IP
           elif [[ -n "${TARGET_IP:-}" ]] && [[ "$resolve_ip" == "${TARGET_IP}" ]] && [[ "$resolve_port" == "443" ]]; then
-            : # MetalLB: keep record.local:443:LB_IP; do not rewrite to 127.0.0.1:30443
+            : # MetalLB: keep off-campus-housing.local:443:LB_IP; do not rewrite to 127.0.0.1:30443
           elif [[ "$resolve_ip" == "127.0.0.1" ]] && [[ "$resolve_port" == "30443" ]]; then
             # Caller passed NodePort — on Colima this fails. Override to LB IP when available.
             if [[ -n "${TARGET_IP:-}" ]]; then

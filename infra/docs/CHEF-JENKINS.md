@@ -16,10 +16,10 @@ kubectl create namespace jenkins --dry-run=client -o yaml | kubectl apply -f -
 helm upgrade --install jenkins jenkinsci/jenkins \
   --namespace jenkins \
   --set controller.ingress.enabled=true \
-  --set controller.ingress.hostName=jenkins.record.local
+  --set controller.ingress.hostName=jenkins.off-campus-housing.local
 ```
 
-Then configure Jenkins to build/test the record-platform services and run the preflight script on a schedule or on push.
+Then configure Jenkins to build/test the off-campus-housing-tracker services and run the preflight script on a schedule or on push.
 
 ## Chef
 

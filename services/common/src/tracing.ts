@@ -6,7 +6,7 @@ import { OTLPTraceExporter } from "@opentelemetry/exporter-otlp-http";
 import { PeriodicExportingMetricReader, ConsoleMetricExporter } from "@opentelemetry/sdk-metrics";
 
 const serviceName = process.env.SERVICE_NAME || "unknown-service";
-const otelEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT || "http://otel-collector.record-platform.svc.cluster.local:4318";
+const otelEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT || "http://otel-collector.off-campus-housing-tracker.svc.cluster.local:4318";
 
 export function initTracing() {
   const sdk = new NodeSDK({

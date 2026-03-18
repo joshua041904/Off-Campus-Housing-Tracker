@@ -14,7 +14,7 @@ say() { printf "\n\033[1m%s\033[0m\n" "$*"; }
 ok()  { echo "  OK $*"; }
 warn(){ echo "  WARN $*"; }
 
-NS="record-platform"
+NS="off-campus-housing-tracker"
 SERVICES=("auth-service" "records-service" "listings-service" "social-service" "shopping-service" "analytics-service" "auction-monitor" "python-ai-service" "api-gateway")
 
 say "=== Forcing Deployments to Use Working ReplicaSets ==="

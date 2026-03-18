@@ -4,7 +4,7 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
-HOST="${HOST:-record.local}"
+HOST="${HOST:-off-campus-housing.local}"
 CURL="${CURL_BIN:-$(command -v curl)}"
 command -v "$CURL" >/dev/null || { echo "curl not found"; exit 1; }
 
@@ -12,7 +12,7 @@ command -v "$CURL" >/dev/null || { echo "curl not found"; exit 1; }
 # Use absolute path so harness works regardless of cwd (avoids exit 60 from relative path).
 CA_CERT=""
 if command -v kubectl >/dev/null 2>&1; then
-  K8S_CA=$(kubectl -n record-platform get secret dev-root-ca -o jsonpath='{.data.dev-root\.pem}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
+  K8S_CA=$(kubectl -n off-campus-housing-tracker get secret dev-root-ca -o jsonpath='{.data.dev-root\.pem}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
   if [[ -n "$K8S_CA" ]]; then
     CA_CERT="/tmp/smoke-ca-$$.pem"
     echo "$K8S_CA" > "$CA_CERT"
@@ -42,7 +42,7 @@ strict_http3_curl() {
   fi
 }
 
-# Ensure host resolves (optional: add record.local to /etc/hosts if needed)
+# Ensure host resolves (optional: add off-campus-housing.local to /etc/hosts if needed)
 if ! getent hosts "$HOST" &>/dev/null && ! grep -q "$HOST" /etc/hosts 2>/dev/null; then
   echo "Add $HOST to /etc/hosts or set HOST= to your gateway. Continuing..."
 fi

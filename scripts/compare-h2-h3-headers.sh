@@ -42,10 +42,10 @@ fi
 
 # Path to test (default health)
 TEST_PATH="${1:-/_caddy/healthz}"
-URL="https://record.local:443${TEST_PATH}"
-RESOLVE="record.local:443:${TARGET_IP}"
+URL="https://off-campus-housing.local:443${TEST_PATH}"
+RESOLVE="off-campus-housing.local:443:${TARGET_IP}"
 
-echo "=== Compare H2 vs H3 for path: $TEST_PATH (resolve record.local → $TARGET_IP) ==="
+echo "=== Compare H2 vs H3 for path: $TEST_PATH (resolve off-campus-housing.local → $TARGET_IP) ==="
 echo "Compare in output: Host header, :authority (H2), request path, response status."
 echo ""
 

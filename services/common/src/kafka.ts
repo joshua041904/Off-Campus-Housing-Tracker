@@ -42,7 +42,7 @@ const brokerHost = process.env.KAFKA_BROKER?.split(':')[0] || 'kafka'
 const broker = process.env.KAFKA_BROKER || `${brokerHost}:${brokerPort}`
 
 export const kafka = new Kafka({
-  clientId: process.env.KAFKA_CLIENT_ID || 'record-platform',
+  clientId: process.env.KAFKA_CLIENT_ID || 'off-campus-housing-tracker',
   brokers: [broker],
   ssl: sslConfig,
   // Strict connection settings

@@ -16,15 +16,15 @@ LOAD_DIR="$SCRIPT_DIR"
 
 SUITE_LOG_DIR="${SUITE_LOG_DIR:-/tmp/k6-phases}"
 K6_CA_ABSOLUTE="${K6_CA_ABSOLUTE:-}"
-HOST="${HOST:-record.local}"
+HOST="${HOST:-off-campus-housing.local}"
 PORT="${PORT:-30443}"
-# BASE_URL: always use hostname for strict TLS (cert SAN has DNS:record.local, not IP).
-# From host: use record.local + K6_RESOLVE so k6 connects to MetalLB IP but TLS SNI matches cert.
-# Never use raw IP — causes x509 SAN mismatch (cert valid for record.local, not 192.168.64.240).
+# BASE_URL: always use hostname for strict TLS (cert SAN has DNS:off-campus-housing.local, not IP).
+# From host: use off-campus-housing.local + K6_RESOLVE so k6 connects to MetalLB IP but TLS SNI matches cert.
+# Never use raw IP — causes x509 SAN mismatch (cert valid for off-campus-housing.local, not 192.168.64.240).
 if [[ -n "${BASE_URL:-}" ]]; then
   # Reject raw IP (strict TLS invariant)
   if [[ "$BASE_URL" =~ ^https?://[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(:[0-9]+)? ]]; then
-    echo "  ❌ Do not use raw IP for strict TLS. Use hostname (e.g. https://record.local:443) and K6_RESOLVE."
+    echo "  ❌ Do not use raw IP for strict TLS. Use hostname (e.g. https://off-campus-housing.local:443) and K6_RESOLVE."
     exit 1
   fi
   : # use caller-provided BASE_URL
@@ -33,7 +33,7 @@ elif [[ "${K6_IN_CLUSTER:-0}" == "1" ]]; then
   export BASE_URL
   echo "  ℹ️  k6 in-cluster: BASE_URL=$BASE_URL"
 else
-  # From host: use hostname + --resolve so TLS SAN matches (record.local in cert)
+  # From host: use hostname + --resolve so TLS SAN matches (off-campus-housing.local in cert)
   LB_IP=""
   if [[ "${K6_USE_METALLB:-1}" == "1" ]] && command -v kubectl >/dev/null 2>&1; then
     LB_IP=$(kubectl -n ingress-nginx get svc caddy-h3 -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
@@ -70,7 +70,7 @@ SKIP_HOST_HTTP3="${SKIP_HOST_HTTP3:-0}"
 [[ "$KUBE_CTX" == *"colima"* ]] && SKIP_HOST_HTTP3=1
 [[ "${SKIP_HOST_HTTP3:-0}" == "1" ]] && echo "  ℹ️  SKIP_HOST_HTTP3=1 (Colima or set): host HTTP/3 test skipped; in-cluster k6 and pod capture are authoritative for QUIC."
 
-# k6 (Go) requires a valid CA for https://record.local; without it we get "x509: certificate signed by unknown authority". Do not run phases without a CA.
+# k6 (Go) requires a valid CA for https://off-campus-housing.local; without it we get "x509: certificate signed by unknown authority". Do not run phases without a CA.
 if [[ -z "$K6_CA_ABSOLUTE" ]] || [[ ! -f "$K6_CA_ABSOLUTE" ]] || [[ ! -s "$K6_CA_ABSOLUTE" ]]; then
   echo "⚠️  Skip k6 phases: no CA (K6_CA_ABSOLUTE must point to certs/dev-root.pem). Run full preflight so rotation syncs CA to certs/dev-root.pem, or set K6_CA_ABSOLUTE=$REPO_ROOT/certs/dev-root.pem"
   exit 0
@@ -86,7 +86,7 @@ if [[ "$(uname -s)" == "Darwin" ]] && [[ -n "$K6_CA_ABSOLUTE" ]] && [[ -s "$K6_C
 fi
 k6_extra=()
 [[ "$K6_INSECURE" == "1" || "$K6_INSECURE" == "true" ]] && k6_extra+=(--insecure-skip-tls-verify) || true
-# k6 has no --resolve flag (that's curl). Ensure record.local resolves: add to /etc/hosts or use route (e.g. Colima).
+# k6 has no --resolve flag (that's curl). Ensure off-campus-housing.local resolves: add to /etc/hosts or use route (e.g. Colima).
 # K6_RESOLVE is for logging; pass via -e to script if needed: k6 reads BASE_URL, script may use different endpoint.
 
 run_phase() {

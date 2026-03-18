@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package python_ai;
 
-option go_package = "github.com/yourorg/record-platform/proto/python-ai";
+option go_package = "github.com/yourorg/off-campus-housing-tracker/proto/python-ai";
 
 // Python AI service for gRPC (AI predictions, chatbot, price trends)
 service PythonAIService {

@@ -1,5 +1,5 @@
 # Substrate only. Add your app services (e.g. api-gateway, auth-service, listings-service) under base/ and append to resources.
-# Replace record-platform namespace with your app namespace in all manifests.
+# Replace off-campus-housing-tracker namespace with your app namespace in all manifests.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:

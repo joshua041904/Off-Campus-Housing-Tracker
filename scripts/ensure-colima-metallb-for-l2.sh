@@ -48,7 +48,7 @@ else
 fi
 
 # 2. Ensure a LoadBalancer service so verification has an LB IP (ingress/egress target)
-#    Deploy Caddy (same as k3d) so verify-metallb-and-traffic-policy.sh and advanced script work (record.local /_caddy/healthz).
+#    Deploy Caddy (same as k3d) so verify-metallb-and-traffic-policy.sh and advanced script work (off-campus-housing.local /_caddy/healthz).
 NS_ING="${NS_ING:-ingress-nginx}"
 kubectl create namespace "$NS_ING" --dry-run=client -o yaml | kubectl apply -f - --request-timeout=10s 2>/dev/null || true
 

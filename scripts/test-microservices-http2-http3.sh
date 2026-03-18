@@ -46,8 +46,8 @@ if [[ -z "${KUBECTL_PORT_FORWARD:-}" ]]; then
   fi
 fi
 
-NS="record-platform"
-HOST="${HOST:-record.local}"
+NS="off-campus-housing-tracker"
+HOST="${HOST:-off-campus-housing.local}"
 # Prefer a curl that supports HTTP/3 (--http3): Homebrew curl has it; system curl on macOS does not.
 # This avoids Docker-bridge HTTP/3 (exit 28) by using native curl to LB IP when available.
 if [[ -z "${CURL_BIN:-}" ]]; then
@@ -167,14 +167,14 @@ if [[ -n "$K8S_CA_ING" ]] && echo "$K8S_CA_ING" | grep -q "BEGIN CERTIFICATE"; t
   echo "$K8S_CA_ING" > "$REPO_ROOT/certs/dev-root.pem"
   ok "Using Kubernetes CA secret (ingress-nginx) for strict TLS"
 fi
-# Fallback to record-platform namespace
+# Fallback to off-campus-housing-tracker namespace
 if [[ -z "$CA_CERT" ]]; then
   K8S_CA=$(_kb -n "$NS" get secret dev-root-ca -o jsonpath='{.data.dev-root\.pem}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
   if [[ -n "$K8S_CA" ]] && echo "$K8S_CA" | grep -q "BEGIN CERTIFICATE"; then
     CA_CERT="/tmp/test-ca-$$.pem"
     echo "$K8S_CA" > "$CA_CERT"
     echo "$K8S_CA" > "$REPO_ROOT/certs/dev-root.pem"
-    ok "Using Kubernetes CA secret (record-platform) for strict TLS"
+    ok "Using Kubernetes CA secret (off-campus-housing-tracker) for strict TLS"
   fi
 fi
 # Canonical repo CA (dev-root-ca). Use absolute path so harness works regardless of cwd.
@@ -502,7 +502,7 @@ _grpc_in_cluster_envoy_health() {
   local pod_name="grpc-incluster-$$-${RANDOM:-0}"
   local out
   # Image entrypoint is grpcurl; pass args directly (do not use sh -c or grpcurl gets "sh","-c","..." as args → "Too many arguments").
-  out=$(_run_with_timeout "$timeout_sec" _kb run "$pod_name" --rm -i --restart=Never -n record-platform \
+  out=$(_run_with_timeout "$timeout_sec" _kb run "$pod_name" --rm -i --restart=Never -n off-campus-housing-tracker \
     --image=fullstorydev/grpcurl \
     -- -plaintext -max-time 25 envoy-test.envoy-test.svc.cluster.local:10000 grpc.health.v1.Health/Check < /dev/null 2>&1) || true
   echo "$out"
@@ -1106,7 +1106,7 @@ else
 fi
 
 # Test 4c: Envoy Health Check (gRPC/HTTP/2 proxy)
-# TLS at Caddy only: grpcurl targets Caddy (TARGET_IP:443) with -authority record.local; Caddy proxies gRPC to Envoy (h2c).
+# TLS at Caddy only: grpcurl targets Caddy (TARGET_IP:443) with -authority off-campus-housing.local; Caddy proxies gRPC to Envoy (h2c).
 say "Test 4c: Envoy Health Check (gRPC/HTTP/2 Proxy)"
 ENVOY_GRPC_OK=0
 PROTO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../proto" && pwd 2>/dev/null || echo "")"
@@ -1114,7 +1114,7 @@ PROTO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../proto" && pwd 2>/dev/null || 
 # 1) gRPC via Caddy (TARGET_IP:443): TLS terminated at Caddy; Caddy proxies to Envoy (h2c). No direct Envoy LB.
 if [[ $ENVOY_GRPC_OK -eq 0 ]] && [[ -n "${TARGET_IP:-}" ]] && [[ "${PORT:-}" == "443" ]] && [[ -n "${CA_CERT:-}" ]] && [[ -f "${CA_CERT:-}" ]] && command -v grpcurl >/dev/null 2>&1; then
   info "Test 4c: trying gRPC via Caddy ${TARGET_IP}:443 (grpc.health.v1.Health/Check)..."
-  ENVOY_GRPC_VIA_CADDY=$(grpcurl -cacert "$CA_CERT" -authority "${HOST:-record.local}" -max-time 5 -d '{}' "${TARGET_IP}:443" grpc.health.v1.Health/Check 2>&1 || echo "")
+  ENVOY_GRPC_VIA_CADDY=$(grpcurl -cacert "$CA_CERT" -authority "${HOST:-off-campus-housing.local}" -max-time 5 -d '{}' "${TARGET_IP}:443" grpc.health.v1.Health/Check 2>&1 || echo "")
   if echo "$ENVOY_GRPC_VIA_CADDY" | grep -q -iE "SERVING|healthy"; then
     ok "Envoy gRPC routing works (via Caddy ${TARGET_IP}:443)"
     ENVOY_GRPC_OK=1
@@ -1132,7 +1132,7 @@ if [[ $ENVOY_GRPC_OK -eq 0 ]] && [[ -n "${TARGET_IP:-}" ]] && [[ "${PORT:-}" == 
     ENVOY_PF_TEST=""
     if [[ -n "${CA_CERT:-}" ]] && [[ -f "${CA_CERT:-}" ]]; then
       # Strict TLS: cacert, authority, -d '{}', target, method last (grpcurl is strict about order)
-      ENVOY_PF_TEST=$(grpcurl -cacert "$CA_CERT" -authority "record.local" -max-time 5 -d '{}' "127.0.0.1:${PF_PORT}" grpc.health.v1.Health/Check 2>&1 || echo "")
+      ENVOY_PF_TEST=$(grpcurl -cacert "$CA_CERT" -authority "off-campus-housing.local" -max-time 5 -d '{}' "127.0.0.1:${PF_PORT}" grpc.health.v1.Health/Check 2>&1 || echo "")
     fi
     if [[ -z "$ENVOY_PF_TEST" ]] || ! echo "$ENVOY_PF_TEST" | grep -q -iE "SERVING|healthy"; then
       ENVOY_PF_TEST=$(grpcurl -plaintext -max-time 5 -d '{}' "127.0.0.1:${PF_PORT}" grpc.health.v1.Health/Check 2>&1 || echo "")
@@ -1186,7 +1186,7 @@ if [[ $ENVOY_GRPC_OK -eq 0 ]] && [[ -z "${TARGET_IP:-}" || "${PORT:-}" != "443" 
   if [[ -n "${PF_PID:-}" ]] && kill -0 "$PF_PID" 2>/dev/null; then
     ENVOY_PF_TEST=""
     if [[ -n "${CA_CERT:-}" ]] && [[ -f "${CA_CERT:-}" ]]; then
-      ENVOY_PF_TEST=$(grpcurl -cacert "$CA_CERT" -authority "${HOST:-record.local}" -import-path "$PROTO_DIR" -proto "$PROTO_DIR/auth.proto" -max-time 5 "127.0.0.1:${PF_PORT}" auth.AuthService/HealthCheck 2>&1 || echo "")
+      ENVOY_PF_TEST=$(grpcurl -cacert "$CA_CERT" -authority "${HOST:-off-campus-housing.local}" -import-path "$PROTO_DIR" -proto "$PROTO_DIR/auth.proto" -max-time 5 "127.0.0.1:${PF_PORT}" auth.AuthService/HealthCheck 2>&1 || echo "")
     fi
     if [[ -z "$ENVOY_PF_TEST" ]] || ! echo "$ENVOY_PF_TEST" | grep -q "healthy"; then
       ENVOY_PF_TEST=$(grpcurl -plaintext -import-path "$PROTO_DIR" -proto "$PROTO_DIR/auth.proto" -max-time 5 "127.0.0.1:${PF_PORT}" auth.AuthService/HealthCheck 2>&1 || echo "")
@@ -2745,7 +2745,7 @@ if [[ "${SKIP_SHOPPING:-}" != "1" ]] && [[ -n "${TOKEN:-}" ]]; then
       fi
       if echo "$CHECKOUT_RESPONSE" | sed '$d' | grep -q "orders_order_number_key"; then
         info "  Root cause: duplicate order_number — (1) sequence + generate_order_number() on 5436/shopping, (2) image built from source with atomic INSERT."
-        info "  Fix: (1) scripts/ensure-shopping-order-number-sequence.sh   (2) Source uses (SELECT shopping.generate_order_number()); ensure cluster image was built from it: RUN_REBUILD_SHOPPING=1 in preflight, or: docker build -t shopping-service:dev -f services/shopping-service/Dockerfile . && k3d image import shopping-service:dev -c record-platform && kubectl -n record-platform rollout restart deployment/shopping-service"
+        info "  Fix: (1) scripts/ensure-shopping-order-number-sequence.sh   (2) Source uses (SELECT shopping.generate_order_number()); ensure cluster image was built from it: RUN_REBUILD_SHOPPING=1 in preflight, or: docker build -t shopping-service:dev -f services/shopping-service/Dockerfile . && k3d image import shopping-service:dev -c off-campus-housing-tracker && kubectl -n off-campus-housing-tracker rollout restart deployment/shopping-service"
       fi
       [[ -n "${USER1_ID:-}" ]] && verify_db_after_test 5436 shopping "SELECT COUNT(*) FROM shopping.orders WHERE user_id = '${USER1_ID}'" "Test 13c DB: order in shopping.orders" || true
     fi
@@ -3209,7 +3209,7 @@ if [[ "${SKIP_SHOPPING:-}" != "1" ]] && [[ -n "${TOKEN:-}" ]]; then
       echo "Response body: $(echo "$CHECKOUT_H3_RESPONSE" | sed '$d' | head -5)"
       if echo "$CHECKOUT_H3_RESPONSE" | sed '$d' | grep -q "orders_order_number_key"; then
         info "  Root cause: duplicate order_number — (1) sequence + generate_order_number() on 5436/shopping, (2) image built from source with atomic INSERT."
-        info "  Fix: (1) scripts/ensure-shopping-order-number-sequence.sh   (2) Source uses (SELECT shopping.generate_order_number()); ensure cluster image was built from it: RUN_REBUILD_SHOPPING=1 in preflight, or: docker build -t shopping-service:dev -f services/shopping-service/Dockerfile . && k3d image import shopping-service:dev -c record-platform && kubectl -n record-platform rollout restart deployment/shopping-service"
+        info "  Fix: (1) scripts/ensure-shopping-order-number-sequence.sh   (2) Source uses (SELECT shopping.generate_order_number()); ensure cluster image was built from it: RUN_REBUILD_SHOPPING=1 in preflight, or: docker build -t shopping-service:dev -f services/shopping-service/Dockerfile . && k3d image import shopping-service:dev -c off-campus-housing-tracker && kubectl -n off-campus-housing-tracker rollout restart deployment/shopping-service"
       fi
       [[ -n "${USER1_ID:-}" ]] && verify_db_after_test 5436 shopping "SELECT COUNT(*) FROM shopping.orders WHERE user_id = '${USER1_ID}'" "Test 13j5 DB: order in shopping.orders" || true
     fi
@@ -3925,7 +3925,7 @@ grpc_test() {
   fi
   
   local result=""
-  grpc_authority="${HOST:-record.local}"
+  grpc_authority="${HOST:-off-campus-housing.local}"
   ENVOY_MAX_TIME=3
 
   local envoy_result=""
@@ -4199,7 +4199,7 @@ grpc_test() {
             -cacert="$cert_ca" \
             -cert="$cert_crt" \
             -key="$cert_key" \
-            -servername=record.local \
+            -servername=off-campus-housing.local \
             -import-path "$PROTO_DIR" \
             -proto "$PROTO_DIR/$proto_file" \
             -max-time "$timeout" \
@@ -4241,7 +4241,7 @@ grpc_test() {
       # If still failing, suggest port-forward (k3d/Colima often don't expose NodePort 30000 to host)
       if [[ -z "$result" ]] || echo "$result" | grep -q -iE "502|Bad Gateway|malformed header|Unavailable"; then
         GRPC_LAST_PATH=""
-        result="gRPC routing issue - Envoy NodePort 30000/30001 not reachable from host; port-forward path also failed or was not tried. For Authenticate: kubectl -n record-platform port-forward deployment/auth-service 50051:50051 then grpcurl -cacert /tmp/grpc-certs/ca.crt -authority record.local 127.0.0.1:50051 auth.AuthService/Authenticate (HealthCheck may work via Envoy from inside cluster)."
+        result="gRPC routing issue - Envoy NodePort 30000/30001 not reachable from host; port-forward path also failed or was not tried. For Authenticate: kubectl -n off-campus-housing-tracker port-forward deployment/auth-service 50051:50051 then grpcurl -cacert /tmp/grpc-certs/ca.crt -authority off-campus-housing.local 127.0.0.1:50051 auth.AuthService/Authenticate (HealthCheck may work via Envoy from inside cluster)."
       fi
     fi
   fi
@@ -4281,7 +4281,7 @@ grpc_test_strict_tls() {
   KUBECTL_REQUEST_TIMEOUT=5s
   export KUBECTL_REQUEST_TIMEOUT
   
-  local NS="${NS:-record-platform}"
+  local NS="${NS:-off-campus-housing-tracker}"
   local PROTO_DIR=""
   
   # Find proto directory
@@ -4424,7 +4424,7 @@ grpc_test_strict_tls() {
       cat "$cert_ca" | colima ssh -- sh -c "cat > /tmp/grpc-strict-ca-$$.crt" 2>/dev/null || true
       cat "$cert_crt" | colima ssh -- sh -c "cat > /tmp/grpc-strict-tls-$$.crt" 2>/dev/null || true
       cat "$cert_key" | colima ssh -- sh -c "cat > /tmp/grpc-strict-key-$$.key" 2>/dev/null || true
-      result=$(colima ssh -- grpcurl -cacert /tmp/grpc-strict-ca-$$.crt -cert /tmp/grpc-strict-tls-$$.crt -key /tmp/grpc-strict-key-$$.key -servername=record.local -max-time "$timeout" -d "$data" "127.0.0.1:${local_port}" "$method" 2>&1) || result=""
+      result=$(colima ssh -- grpcurl -cacert /tmp/grpc-strict-ca-$$.crt -cert /tmp/grpc-strict-tls-$$.crt -key /tmp/grpc-strict-key-$$.key -servername=off-campus-housing.local -max-time "$timeout" -d "$data" "127.0.0.1:${local_port}" "$method" 2>&1) || result=""
       colima ssh -- sh -c "rm -f /tmp/grpc-strict-ca-$$.crt /tmp/grpc-strict-tls-$$.crt /tmp/grpc-strict-key-$$.key" 2>/dev/null || true
     else
       result="ERROR: No TLS certs for Colima strict TLS/mTLS (set up /tmp/grpc-certs or service-tls secret)"
@@ -4435,7 +4435,7 @@ grpc_test_strict_tls() {
       -cacert="$cert_ca" \
       -cert="$cert_crt" \
       -key="$cert_key" \
-      -servername=record.local \
+      -servername=off-campus-housing.local \
       -import-path "$PROTO_DIR" \
       -proto "$PROTO_DIR/$proto_file" \
       -max-time "$timeout" \
@@ -4543,7 +4543,7 @@ else
   set +e
   # Pre-check: strict TLS needs CA/certs (from /tmp/grpc-certs or service-tls secret)
   if [[ ! -d /tmp/grpc-certs ]] || [[ ! -f /tmp/grpc-certs/ca.crt ]]; then
-    _kb -n "${NS:-record-platform}" get secret service-tls -o name >/dev/null 2>&1 || warn "service-tls secret missing; strict TLS tests may extract from pods or fail"
+    _kb -n "${NS:-off-campus-housing-tracker}" get secret service-tls -o name >/dev/null 2>&1 || warn "service-tls secret missing; strict TLS tests may extract from pods or fail"
   else
     info "Strict TLS certs present in /tmp/grpc-certs"
   fi

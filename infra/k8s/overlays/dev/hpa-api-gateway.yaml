@@ -2,7 +2,7 @@ apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: api-gateway
-  namespace: record-platform
+  namespace: off-campus-housing-tracker
 spec:
   scaleTargetRef:
     apiVersion: apps/v1

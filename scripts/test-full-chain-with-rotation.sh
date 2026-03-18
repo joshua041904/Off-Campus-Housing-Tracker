@@ -2,7 +2,7 @@
 # HTTP/2 tests use nodeport_curl/curl with --http2; HTTP/3 tests use http3_curl with --http3-only (no fallback). Same across all suites.
 set -euo pipefail
 
-HOST="${HOST:-record.local}"
+HOST="${HOST:-off-campus-housing.local}"
 # Auto-detect port based on cluster, or use provided PORT
 # Validate PORT if set - if it's 443 (default HTTPS), re-detect
 if [[ -z "${PORT:-}" ]] || [[ "${PORT:-}" == "443" ]]; then
@@ -41,7 +41,7 @@ if [[ -z "${PORT:-}" ]] || [[ "${PORT:-}" == "443" ]]; then
   fi
 fi
 NS_ING="ingress-nginx"
-NS_APP="record-platform"
+NS_APP="off-campus-housing-tracker"
 
 say() { printf "\n\033[1m%s\033[0m\n" "$*"; }
 ok() { echo "✅ $*"; }
@@ -317,7 +317,7 @@ EXT
               --cert="$TMP_CERT_DIR/tls.crt" --key="$TMP_CERT_DIR/tls.key" >/dev/null 2>&1 || warn "Failed to update ingress-nginx secret"
             kubectl -n "$NS_APP" delete secret record-local-tls >/dev/null 2>&1 || true
             kubectl -n "$NS_APP" create secret tls record-local-tls \
-              --cert="$TMP_CERT_DIR/tls.crt" --key="$TMP_CERT_DIR/tls.key" >/dev/null 2>&1 || warn "Failed to update record-platform secret"
+              --cert="$TMP_CERT_DIR/tls.crt" --key="$TMP_CERT_DIR/tls.key" >/dev/null 2>&1 || warn "Failed to update off-campus-housing-tracker secret"
             
             # Check if Caddy is already ready (might not need restart if secret is already mounted)
             # Trigger Caddy restart to pick up new certificate
@@ -450,7 +450,7 @@ EXT
     
     # Use NodePort for rotation load test (high throughput, no bottleneck)
     ROTATION_PORT=${PORT}  # NodePort (typically 30443)
-    ROTATION_HOST="$HOST"  # record.local
+    ROTATION_HOST="$HOST"  # off-campus-housing.local
     ok "Using NodePort (${ROTATION_PORT}) for high-throughput rotation test (bypasses port-forward bottleneck)"
   
   # For production-grade zero-downtime, we need to:

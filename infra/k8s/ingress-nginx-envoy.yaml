@@ -68,13 +68,13 @@ data:
             - endpoint:
                 address:
                   socket_address:
-                    address: auth-service.record-platform.svc.cluster.local
+                    address: auth-service.off-campus-housing-tracker.svc.cluster.local
                     port_value: 50051
         transport_socket:
           name: envoy.transport_sockets.tls
           typed_config:
             "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
-            sni: record.local
+            sni: off-campus-housing.local
             common_tls_context:
               validation_context:
                 trusted_ca: { filename: /etc/certs/ca/dev-root.pem }
@@ -90,13 +90,13 @@ data:
             - endpoint:
                 address:
                   socket_address:
-                    address: records-service.record-platform.svc.cluster.local
+                    address: records-service.off-campus-housing-tracker.svc.cluster.local
                     port_value: 50051
         transport_socket:
           name: envoy.transport_sockets.tls
           typed_config:
             "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
-            sni: record.local
+            sni: off-campus-housing.local
             common_tls_context:
               validation_context:
                 trusted_ca: { filename: /etc/certs/ca/dev-root.pem }
@@ -112,13 +112,13 @@ data:
             - endpoint:
                 address:
                   socket_address:
-                    address: social-service.record-platform.svc.cluster.local
+                    address: social-service.off-campus-housing-tracker.svc.cluster.local
                     port_value: 50056
         transport_socket:
           name: envoy.transport_sockets.tls
           typed_config:
             "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
-            sni: record.local
+            sni: off-campus-housing.local
             common_tls_context:
               validation_context:
                 trusted_ca: { filename: /etc/certs/ca/dev-root.pem }
@@ -134,13 +134,13 @@ data:
             - endpoint:
                 address:
                   socket_address:
-                    address: listings-service.record-platform.svc.cluster.local
+                    address: listings-service.off-campus-housing-tracker.svc.cluster.local
                     port_value: 50057
         transport_socket:
           name: envoy.transport_sockets.tls
           typed_config:
             "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
-            sni: record.local
+            sni: off-campus-housing.local
             common_tls_context:
               validation_context:
                 trusted_ca: { filename: /etc/certs/ca/dev-root.pem }
@@ -156,13 +156,13 @@ data:
             - endpoint:
                 address:
                   socket_address:
-                    address: analytics-service.record-platform.svc.cluster.local
+                    address: analytics-service.off-campus-housing-tracker.svc.cluster.local
                     port_value: 50054
         transport_socket:
           name: envoy.transport_sockets.tls
           typed_config:
             "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
-            sni: record.local
+            sni: off-campus-housing.local
             common_tls_context:
               validation_context:
                 trusted_ca: { filename: /etc/certs/ca/dev-root.pem }
@@ -178,13 +178,13 @@ data:
             - endpoint:
                 address:
                   socket_address:
-                    address: shopping-service.record-platform.svc.cluster.local
+                    address: shopping-service.off-campus-housing-tracker.svc.cluster.local
                     port_value: 50058
         transport_socket:
           name: envoy.transport_sockets.tls
           typed_config:
             "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
-            sni: record.local
+            sni: off-campus-housing.local
             common_tls_context:
               validation_context:
                 trusted_ca: { filename: /etc/certs/ca/dev-root.pem }
@@ -200,13 +200,13 @@ data:
             - endpoint:
                 address:
                   socket_address:
-                    address: auction-monitor.record-platform.svc.cluster.local
+                    address: auction-monitor.off-campus-housing-tracker.svc.cluster.local
                     port_value: 50059
         transport_socket:
           name: envoy.transport_sockets.tls
           typed_config:
             "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
-            sni: record.local
+            sni: off-campus-housing.local
             common_tls_context:
               validation_context:
                 trusted_ca: { filename: /etc/certs/ca/dev-root.pem }
@@ -222,13 +222,13 @@ data:
             - endpoint:
                 address:
                   socket_address:
-                    address: python-ai-service.record-platform.svc.cluster.local
+                    address: python-ai-service.off-campus-housing-tracker.svc.cluster.local
                     port_value: 50060
         transport_socket:
           name: envoy.transport_sockets.tls
           typed_config:
             "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
-            sni: record.local
+            sni: off-campus-housing.local
             common_tls_context:
               validation_context:
                 trusted_ca: { filename: /etc/certs/ca/dev-root.pem }

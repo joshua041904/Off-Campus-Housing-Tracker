@@ -2,7 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: bootstrap-from-basebackup
-  namespace: record-platform
+  namespace: off-campus-housing-tracker
   labels:
     app: postgres-bootstrap
 spec:
@@ -39,8 +39,8 @@ spec:
           
           # Scale down postgres deployment
           echo "Scaling down postgres deployment..."
-          kubectl -n record-platform scale deploy/postgres --replicas=0
-          kubectl -n record-platform rollout status deploy/postgres --timeout=120s || true
+          kubectl -n off-campus-housing-tracker scale deploy/postgres --replicas=0
+          kubectl -n off-campus-housing-tracker rollout status deploy/postgres --timeout=120s || true
           
           # Wait a bit for pod to terminate
           sleep 5
@@ -88,12 +88,12 @@ spec:
           
           # Scale up postgres deployment
           echo "Scaling up postgres deployment..."
-          kubectl -n record-platform scale deploy/postgres --replicas=1
+          kubectl -n off-campus-housing-tracker scale deploy/postgres --replicas=1
           
           # Wait for recovery
           echo "Waiting for postgres to recover..."
           for i in {1..120}; do
-            if kubectl -n record-platform exec deploy/postgres -c db -- pg_isready -U postgres -d records -t 1 >/dev/null 2>&1; then
+            if kubectl -n off-campus-housing-tracker exec deploy/postgres -c db -- pg_isready -U postgres -d records -t 1 >/dev/null 2>&1; then
               echo "Postgres is ready!"
               break
             fi
@@ -102,7 +102,7 @@ spec:
           
           # Check recovery status
           echo "Checking recovery status..."
-          kubectl -n record-platform exec deploy/postgres -c db -- psql -U postgres -d records -c "SELECT pg_is_in_recovery();" || true
+          kubectl -n off-campus-housing-tracker exec deploy/postgres -c db -- psql -U postgres -d records -c "SELECT pg_is_in_recovery();" || true
           
           echo "[$(date -Is)] Bootstrap complete"
       volumes:

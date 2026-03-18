@@ -3,7 +3,7 @@
 # App-config REDIS_URL uses host.docker.internal for Kind/Colima.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-namespace: record-platform
+namespace: off-campus-housing-tracker
 
 resources:
   - external-service.yaml

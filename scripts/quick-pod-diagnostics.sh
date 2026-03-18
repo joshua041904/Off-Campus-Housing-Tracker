@@ -17,7 +17,7 @@ ok()  { echo "✅ $*"; }
 warn(){ echo "⚠️  $*"; }
 fail(){ echo "❌ $*" >&2; }
 
-NS="record-platform"
+NS="off-campus-housing-tracker"
 SERVICES=("auth-service" "records-service" "listings-service" "social-service" "shopping-service" "analytics-service" "auction-monitor" "python-ai-service" "api-gateway")
 
 say "=== Quick Pod Diagnostics (Problem Pods Only) ==="

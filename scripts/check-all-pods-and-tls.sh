@@ -109,8 +109,8 @@ else
   warn "Redis (6379): DOWN (external Redis required for cache hits)"
 fi
 
-# 5. Service pods (record-platform, 1/1 each) — use _kubectl (request-timeout); avoid cap timeouts
-say "5. Checking service pods (record-platform, should be 1/1 Ready)..."
+# 5. Service pods (off-campus-housing-tracker, 1/1 each) — use _kubectl (request-timeout); avoid cap timeouts
+say "5. Checking service pods (off-campus-housing-tracker, should be 1/1 Ready)..."
 SERVICES=("auth-service" "records-service" "listings-service" "social-service" "shopping-service" "analytics-service" "auction-monitor" "python-ai-service" "api-gateway")
 READY=0
 TOTAL=0
@@ -119,8 +119,8 @@ NOT_READY=()
 # First pass: check status
 for svc in "${SERVICES[@]}"; do
   TOTAL=$((TOTAL + 1))
-  R=$(_kubectl get deploy -n record-platform "$svc" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
-  S=$(_kubectl get deploy -n record-platform "$svc" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "1")
+  R=$(_kubectl get deploy -n off-campus-housing-tracker "$svc" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+  S=$(_kubectl get deploy -n off-campus-housing-tracker "$svc" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "1")
   [[ -z "$R" ]] && R="0"
   [[ -z "$S" ]] && S="1"
   if [[ "$R" == "1" && "$S" == "1" ]]; then
@@ -169,7 +169,7 @@ if [[ "${READY:-0}" -ne 9 ]]; then
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" | tee -a "$DIAG_LOG"
     
     # Get pod name (most recent)
-    POD=$(_kubectl get pods -n record-platform -l app="$svc" --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1].metadata.name}' 2>/dev/null || echo "")
+    POD=$(_kubectl get pods -n off-campus-housing-tracker -l app="$svc" --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1].metadata.name}' 2>/dev/null || echo "")
     
     if [[ -z "$POD" ]]; then
       warn "  No pods found for $svc"
@@ -180,9 +180,9 @@ if [[ "${READY:-0}" -ne 9 ]]; then
     echo "  Pod: $POD" | tee -a "$DIAG_LOG"
     
     # Get pod phase and ready status
-    PHASE=$(_kubectl get pod "$POD" -n record-platform -o jsonpath='{.status.phase}' 2>/dev/null || echo "Unknown")
-    READY_STATUS=$(_kubectl get pod "$POD" -n record-platform -o jsonpath='{.status.containerStatuses[0].ready}' 2>/dev/null || echo "false")
-    RESTARTS=$(_kubectl get pod "$POD" -n record-platform -o jsonpath='{.status.containerStatuses[0].restartCount}' 2>/dev/null || echo "0")
+    PHASE=$(_kubectl get pod "$POD" -n off-campus-housing-tracker -o jsonpath='{.status.phase}' 2>/dev/null || echo "Unknown")
+    READY_STATUS=$(_kubectl get pod "$POD" -n off-campus-housing-tracker -o jsonpath='{.status.containerStatuses[0].ready}' 2>/dev/null || echo "false")
+    RESTARTS=$(_kubectl get pod "$POD" -n off-campus-housing-tracker -o jsonpath='{.status.containerStatuses[0].restartCount}' 2>/dev/null || echo "0")
     
     echo "  Phase: $PHASE" | tee -a "$DIAG_LOG"
     echo "  Ready: $READY_STATUS" | tee -a "$DIAG_LOG"
@@ -191,12 +191,12 @@ if [[ "${READY:-0}" -ne 9 ]]; then
     # Describe pod (get events and conditions)
     echo "" | tee -a "$DIAG_LOG"
     echo "  === kubectl describe pod $POD ===" | tee -a "$DIAG_LOG"
-    _kubectl describe pod "$POD" -n record-platform 2>&1 | tee -a "$DIAG_LOG" | grep -A 20 "Events:" | head -25 || true
+    _kubectl describe pod "$POD" -n off-campus-housing-tracker 2>&1 | tee -a "$DIAG_LOG" | grep -A 20 "Events:" | head -25 || true
     
     # Get container logs (last 50 lines)
     echo "" | tee -a "$DIAG_LOG"
     echo "  === kubectl logs $POD (last 50 lines) ===" | tee -a "$DIAG_LOG"
-    _kubectl logs "$POD" -n record-platform --tail=50 2>&1 | tee -a "$DIAG_LOG" | tail -30 || true
+    _kubectl logs "$POD" -n off-campus-housing-tracker --tail=50 2>&1 | tee -a "$DIAG_LOG" | tail -30 || true
     
     # Check for common issues and try to fix
     echo "" | tee -a "$DIAG_LOG"
@@ -206,14 +206,14 @@ if [[ "${READY:-0}" -ne 9 ]]; then
     
     # If pod is Pending or ContainerCreating for too long, delete it
     if [[ "$PHASE" == "Pending" ]] || [[ "$PHASE" == "ContainerCreating" ]]; then
-      AGE=$(_kubectl get pod "$POD" -n record-platform -o jsonpath='{.metadata.creationTimestamp}' 2>/dev/null || echo "")
+      AGE=$(_kubectl get pod "$POD" -n off-campus-housing-tracker -o jsonpath='{.metadata.creationTimestamp}' 2>/dev/null || echo "")
       if [[ -n "$AGE" ]]; then
         # Check if pod is older than 2 minutes
         AGE_SEC=$(($(date +%s) - $(date -j -f "%Y-%m-%dT%H:%M:%SZ" "${AGE}Z" +%s 2>/dev/null || echo 0)))
         if [[ $AGE_SEC -gt 120 ]]; then
           warn "  Pod $POD stuck in $PHASE for ${AGE_SEC}s, deleting..."
           echo "  Deleting stuck pod: $POD" | tee -a "$DIAG_LOG"
-          _kubectl delete pod "$POD" -n record-platform --force --grace-period=0 2>&1 | tee -a "$DIAG_LOG" || true
+          _kubectl delete pod "$POD" -n off-campus-housing-tracker --force --grace-period=0 2>&1 | tee -a "$DIAG_LOG" || true
           FIXED_THIS_SERVICE=1
         fi
       fi
@@ -223,24 +223,24 @@ if [[ "${READY:-0}" -ne 9 ]]; then
     if [[ "$PHASE" == "CrashLoopBackOff" ]] || [[ "$RESTARTS" -gt 5 ]]; then
       warn "  Pod $POD in $PHASE with $RESTARTS restarts, restarting deployment..."
       echo "  Restarting deployment: $svc" | tee -a "$DIAG_LOG"
-      _kubectl rollout restart deployment "$svc" -n record-platform 2>&1 | tee -a "$DIAG_LOG" || true
+      _kubectl rollout restart deployment "$svc" -n off-campus-housing-tracker 2>&1 | tee -a "$DIAG_LOG" || true
       FIXED_THIS_SERVICE=1
     fi
     
     # If FailedMount, check if secret exists
-    MOUNT_ERROR=$(_kubectl describe pod "$POD" -n record-platform 2>&1 | grep -i "FailedMount\|MountVolume" | head -1 || echo "")
+    MOUNT_ERROR=$(_kubectl describe pod "$POD" -n off-campus-housing-tracker 2>&1 | grep -i "FailedMount\|MountVolume" | head -1 || echo "")
     if [[ -n "$MOUNT_ERROR" ]]; then
       warn "  Mount error detected: $MOUNT_ERROR"
       echo "  Mount error: $MOUNT_ERROR" | tee -a "$DIAG_LOG"
       # Check if service-tls secret exists
-      if ! _kubectl get secret service-tls -n record-platform >/dev/null 2>&1; then
+      if ! _kubectl get secret service-tls -n off-campus-housing-tracker >/dev/null 2>&1; then
         warn "  service-tls secret missing! This is required."
         echo "  service-tls secret missing!" | tee -a "$DIAG_LOG"
       else
         # Secret exists but mount failed - delete pod to retry
         warn "  Secret exists but mount failed, deleting pod to retry..."
         echo "  Deleting pod to retry mount: $POD" | tee -a "$DIAG_LOG"
-        _kubectl delete pod "$POD" -n record-platform --force --grace-period=0 2>&1 | tee -a "$DIAG_LOG" || true
+        _kubectl delete pod "$POD" -n off-campus-housing-tracker --force --grace-period=0 2>&1 | tee -a "$DIAG_LOG" || true
         FIXED_THIS_SERVICE=1
       fi
     fi
@@ -248,12 +248,12 @@ if [[ "${READY:-0}" -ne 9 ]]; then
     # Check for Kafka connection errors (for all services that use Kafka)
     if [[ "$svc" == "analytics-service" ]] || [[ "$svc" == "auction-monitor" ]] || \
        [[ "$svc" == "social-service" ]] || [[ "$svc" == "python-ai-service" ]]; then
-      KAFKA_ERROR=$(_kubectl logs "$POD" -n record-platform --tail=100 2>&1 | grep -i "ECONNREFUSED.*9093\|kafka.*connection\|kafka.*error" | head -1 || echo "")
+      KAFKA_ERROR=$(_kubectl logs "$POD" -n off-campus-housing-tracker --tail=100 2>&1 | grep -i "ECONNREFUSED.*9093\|kafka.*connection\|kafka.*error" | head -1 || echo "")
       if [[ -n "$KAFKA_ERROR" ]]; then
         warn "  Kafka connection error detected: $KAFKA_ERROR"
         echo "  Kafka error: $KAFKA_ERROR" | tee -a "$DIAG_LOG"
         # Check kafka-external endpoint
-        KAFKA_ENDPOINT_IP=$(_kubectl get endpoints kafka-external -n record-platform -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null || echo "")
+        KAFKA_ENDPOINT_IP=$(_kubectl get endpoints kafka-external -n off-campus-housing-tracker -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null || echo "")
         if [[ -z "$KAFKA_ENDPOINT_IP" ]] || [[ "$KAFKA_ENDPOINT_IP" == "10.43"* ]]; then
           warn "  kafka-external endpoint IP is wrong ($KAFKA_ENDPOINT_IP), should be host IP"
           echo "  kafka-external endpoint IP wrong: $KAFKA_ENDPOINT_IP" | tee -a "$DIAG_LOG"
@@ -274,7 +274,7 @@ if [[ "${READY:-0}" -ne 9 ]]; then
             fi
             warn "  Patching kafka-external endpoint to $HOST_IP:29093..."
             echo "  Patching kafka-external endpoint to $HOST_IP:29093" | tee -a "$DIAG_LOG"
-            _kubectl patch endpoints kafka-external -n record-platform --type=merge -p="{\"subsets\":[{\"addresses\":[{\"ip\":\"$HOST_IP\"}],\"ports\":[{\"port\":29093,\"name\":\"kafka-ssl\"}]}]}" 2>&1 | tee -a "$DIAG_LOG" || true
+            _kubectl patch endpoints kafka-external -n off-campus-housing-tracker --type=merge -p="{\"subsets\":[{\"addresses\":[{\"ip\":\"$HOST_IP\"}],\"ports\":[{\"port\":29093,\"name\":\"kafka-ssl\"}]}]}" 2>&1 | tee -a "$DIAG_LOG" || true
             FIXED_THIS_SERVICE=1
           fi
         fi
@@ -282,7 +282,7 @@ if [[ "${READY:-0}" -ne 9 ]]; then
     fi
     
     # Check for health probe errors
-    PROBE_ERROR=$(_kubectl describe pod "$POD" -n record-platform 2>&1 | grep -i "startup probe failed\|liveness probe failed\|readiness probe failed" | head -1 || echo "")
+    PROBE_ERROR=$(_kubectl describe pod "$POD" -n off-campus-housing-tracker 2>&1 | grep -i "startup probe failed\|liveness probe failed\|readiness probe failed" | head -1 || echo "")
     if [[ -n "$PROBE_ERROR" ]]; then
       warn "  Health probe error: $PROBE_ERROR"
       echo "  Probe error: $PROBE_ERROR" | tee -a "$DIAG_LOG"
@@ -290,7 +290,7 @@ if [[ "${READY:-0}" -ne 9 ]]; then
       if echo "$PROBE_ERROR" | grep -qi "tls\|cert"; then
         warn "  TLS/probe config issue detected, deleting pod to retry..."
         echo "  Deleting pod due to probe error: $POD" | tee -a "$DIAG_LOG"
-        _kubectl delete pod "$POD" -n record-platform --force --grace-period=0 2>&1 | tee -a "$DIAG_LOG" || true
+        _kubectl delete pod "$POD" -n off-campus-housing-tracker --force --grace-period=0 2>&1 | tee -a "$DIAG_LOG" || true
         FIXED_THIS_SERVICE=1
       fi
     fi
@@ -314,8 +314,8 @@ if [[ "${READY:-0}" -ne 9 ]]; then
   say "5d. Re-checking service pods after fixes..."
   READY=0
   for svc in "${SERVICES[@]}"; do
-    R=$(_kubectl get deploy -n record-platform "$svc" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
-    S=$(_kubectl get deploy -n record-platform "$svc" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "1")
+    R=$(_kubectl get deploy -n off-campus-housing-tracker "$svc" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+    S=$(_kubectl get deploy -n off-campus-housing-tracker "$svc" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "1")
     [[ -z "$R" ]] && R="0"
     [[ -z "$S" ]] && S="1"
     if [[ "$R" == "1" && "$S" == "1" ]]; then
@@ -329,11 +329,11 @@ fi
 
 [[ "${READY:-0}" -eq 9 ]] && ok "All 9 services Ready (1/1)" || warn "Only ${READY:-0}/9 services Ready"
 
-# 6. Exporters (record-platform, 1/1 each)
-say "6. Checking exporters (record-platform, 1/1 each)..."
+# 6. Exporters (off-campus-housing-tracker, 1/1 each)
+say "6. Checking exporters (off-campus-housing-tracker, 1/1 each)..."
 for ex in nginx-exporter haproxy-exporter; do
-  R=$(_kubectl get deploy -n record-platform "$ex" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
-  S=$(_kubectl get deploy -n record-platform "$ex" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "1")
+  R=$(_kubectl get deploy -n off-campus-housing-tracker "$ex" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+  S=$(_kubectl get deploy -n off-campus-housing-tracker "$ex" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "1")
   [[ -z "$R" ]] && R="0"; [[ -z "$S" ]] && S="1"
   if [[ "$R" == "1" && "$S" == "1" ]]; then
     ok "$ex: 1/1"
@@ -367,7 +367,7 @@ fi
 
 # 9. Unwanted pods: only in-cluster postgres (external Kafka; no in-cluster Kafka/ZK)
 say "9. Checking no in-cluster postgres..."
-UNWANTED=$(_kubectl get pods -n record-platform -l 'app=postgres' --no-headers 2>/dev/null | wc -l | tr -d ' ' || echo "0")
+UNWANTED=$(_kubectl get pods -n off-campus-housing-tracker -l 'app=postgres' --no-headers 2>/dev/null | wc -l | tr -d ' ' || echo "0")
 [[ "${UNWANTED:-0}" -eq 0 ]] && ok "No in-cluster postgres" || warn "Found ${UNWANTED:-0} in-cluster postgres pod(s) (external PG expected)"
 
 # 10. TLS secrets (dev-root-ca + record-local-tls for CA/Caddy match)

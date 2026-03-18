@@ -13,7 +13,7 @@ if [[ -n "${KAFKA_EXTERNAL_HOST_IP:-}" ]]; then
   HOST_IP="$KAFKA_EXTERNAL_HOST_IP"
 else
   # Resolve host.docker.internal from inside cluster (Colima/k3d); only accept IPv4
-  RAW=$(kubectl run resolve-host-docker --rm -i --restart=Never --image=busybox:1.36 -n record-platform -- getent hosts host.docker.internal 2>/dev/null || true)
+  RAW=$(kubectl run resolve-host-docker --rm -i --restart=Never --image=busybox:1.36 -n off-campus-housing-tracker -- getent hosts host.docker.internal 2>/dev/null || true)
   HOST_IP=$(echo "$RAW" | grep -oE '\b([0-9]{1,3}\.){3}[0-9]{1,3}\b' | head -1 || true)
   if [[ -z "$HOST_IP" ]]; then
     # Colima default bridge host IP (Mac from VM)
@@ -22,7 +22,7 @@ else
   fi
 fi
 
-kubectl patch endpoints kafka-external -n record-platform --type=merge \
+kubectl patch endpoints kafka-external -n off-campus-housing-tracker --type=merge \
   -p="{\"subsets\":[{\"addresses\":[{\"ip\":\"$HOST_IP\"}],\"ports\":[{\"port\":29093,\"name\":\"kafka-ssl\"}]}]}"
 
 echo "✅ kafka-external Endpoints -> $HOST_IP:29093 (external Kafka)"

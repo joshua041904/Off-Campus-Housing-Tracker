@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: cron-jobs
-  namespace: record-platform
+  namespace: off-campus-housing-tracker
 spec:
   template:
     spec:
@@ -22,7 +22,7 @@ spec:
 
           # If the worker scripts use libpq envs for psql/pg_dump, wire them too:
           - name: PGHOST
-            value: postgres.record-platform.svc.cluster.local
+            value: postgres.off-campus-housing-tracker.svc.cluster.local
           - name: PGPORT
             value: "5432"
           - name: PGUSER

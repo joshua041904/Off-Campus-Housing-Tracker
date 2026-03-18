@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package social;
 
-option go_package = "github.com/yourorg/record-platform/proto/social";
+option go_package = "github.com/yourorg/off-campus-housing-tracker/proto/social";
 
 // Social service for gRPC (Forum + Messaging)
 service SocialService {

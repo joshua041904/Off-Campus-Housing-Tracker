@@ -2,7 +2,7 @@
 
 ## Triage (what was reverted / what was not changed)
 
-- **Reverted:** `infra/k8s/base/config/app-config.yaml` — **KAFKA_BROKER** was listing three ports (`:9093,:9094,:9095`). We only run a single broker (Docker Compose SSL on 9093 / host 29093). Reverted to **single broker**: `kafka-external.record-platform.svc.cluster.local:9093`. Individual service deploy overrides (analytics, python-ai, auction-monitor, social, shopping) already used `:9093` only; ConfigMap is now consistent.
+- **Reverted:** `infra/k8s/base/config/app-config.yaml` — **KAFKA_BROKER** was listing three ports (`:9093,:9094,:9095`). We only run a single broker (Docker Compose SSL on 9093 / host 29093). Reverted to **single broker**: `kafka-external.off-campus-housing-tracker.svc.cluster.local:9093`. Individual service deploy overrides (analytics, python-ai, auction-monitor, social, shopping) already used `:9093` only; ConfigMap is now consistent.
 - **Not changed (Kafka “setup”):** docker-compose Kafka service, Zookeeper, kafka-external Service/Endpoints, certs, `services/common/src/kafka.ts`, strict-tls-bootstrap.sh. No broker config or listener changes.
 - **Application-only (kept):** `services/python-ai-service/app/data_pipeline.py` — on consumer bootstrap failure the consumer is closed and a WARNING is logged; the service stays healthy without Kafka. This is client resilience, not broker setup. Reverting it would restore “Unclosed AIOKafkaConsumer” and ERROR logs when Kafka is unreachable; optional to revert if you want the old behavior.
 
@@ -17,7 +17,7 @@
 ### Get unblocked (when kubectl or ensure script fails)
 
 1. **`kubectl get pods` → TLS handshake timeout**  
-   Colima (or your k8s VM) is not running. Start it: `colima start`. Wait until `colima status` shows running, then retry `kubectl get pods -n record-platform`.
+   Colima (or your k8s VM) is not running. Start it: `colima start`. Wait until `colima status` shows running, then retry `kubectl get pods -n off-campus-housing-tracker`.
 
 2. **`./scripts/ensure-all-schemas-and-tuning.sh` hangs on "Port 5433 — records"**  
    Postgres on 5433 is not reachable. The script now does a 5s connect check first and exits with a clear message. Start Docker (and Colima if you use it for k8s), then start the DBs:  
@@ -25,7 +25,7 @@
    Then run the ensure script again.
 
 3. **Order that works:**  
-   `colima start` → `docker compose up -d …` (postgres, redis, zookeeper, kafka, etc.) → `./scripts/ensure-all-schemas-and-tuning.sh` → `kubectl get pods -n record-platform`.
+   `colima start` → `docker compose up -d …` (postgres, redis, zookeeper, kafka, etc.) → `./scripts/ensure-all-schemas-and-tuning.sh` → `kubectl get pods -n off-campus-housing-tracker`.
 
 ---
 
@@ -44,7 +44,7 @@
 
 ### Clients
 
-- **K8s pods** use `KAFKA_BROKER=kafka-external.record-platform.svc.cluster.local:9093`. The **kafka-external** Service/Endpoints point to the host (e.g. 192.168.5.1:29093) so pods reach the broker over SSL.
+- **K8s pods** use `KAFKA_BROKER=kafka-external.off-campus-housing-tracker.svc.cluster.local:9093`. The **kafka-external** Service/Endpoints point to the host (e.g. 192.168.5.1:29093) so pods reach the broker over SSL.
 - **Node (services/common kafka.ts)**: KafkaJS, `KAFKA_SSL_ENABLED=true`, `rejectUnauthorized: true`, `KAFKA_CA_CERT` from kafka-ssl-secret.
 - **Python (python-ai-service)**: aiokafka, `KAFKA_USE_SSL=true`, CA from `/etc/kafka/secrets/ca-cert.pem`. Consumer is optional; service stays up if Kafka is unreachable.
 

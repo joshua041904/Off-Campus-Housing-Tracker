@@ -18,8 +18,8 @@ export PATH="$SCRIPT_DIR/shims:/opt/homebrew/bin:/usr/local/bin:${PATH:-}"
   info() { echo "ℹ️  $*"; }
 }
 
-NS="record-platform"
-HOST="${HOST:-record.local}"
+NS="off-campus-housing-tracker"
+HOST="${HOST:-off-campus-housing.local}"
 ctx=$(kubectl config current-context 2>/dev/null || echo "")
 _kb() {
   if [[ "$ctx" == *"colima"* ]] && command -v colima >/dev/null 2>&1; then
@@ -49,7 +49,7 @@ else
 fi
 CURL_BIN="${CURL_BIN:-/opt/homebrew/opt/curl/bin/curl}"
 
-# Get CA certificate for strict TLS (k6 and curl need this for record.local:30443; use absolute path for SSL_CERT_FILE)
+# Get CA certificate for strict TLS (k6 and curl need this for off-campus-housing.local:30443; use absolute path for SSL_CERT_FILE)
 # Prefer certs/dev-root.pem (canonical from preflight/rotation) so k6 and curl use the same CA as the rest of the pipeline.
 CA_CERT=""
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -60,7 +60,7 @@ fi
 [[ -z "$CA_CERT" ]] && K8S_CA_ING=$(_kb -n ingress-nginx get secret dev-root-ca -o jsonpath='{.data.dev-root\.pem}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
 [[ -z "$CA_CERT" ]] && [[ -n "$K8S_CA_ING" ]] && CA_CERT="/tmp/test-ca-adversarial-$$.pem" && echo "$K8S_CA_ING" > "$CA_CERT" && ok "Using Kubernetes CA (ingress-nginx) for strict TLS"
 [[ -z "$CA_CERT" ]] && K8S_CA=$(_kb -n "$NS" get secret dev-root-ca -o jsonpath='{.data.dev-root\.pem}' 2>/dev/null | base64 -d 2>/dev/null)
-[[ -z "$CA_CERT" ]] && [[ -n "$K8S_CA" ]] && CA_CERT="/tmp/test-ca-adversarial-$$.pem" && echo "$K8S_CA" > "$CA_CERT" && ok "Using Kubernetes CA (record-platform) for strict TLS"
+[[ -z "$CA_CERT" ]] && [[ -n "$K8S_CA" ]] && CA_CERT="/tmp/test-ca-adversarial-$$.pem" && echo "$K8S_CA" > "$CA_CERT" && ok "Using Kubernetes CA (off-campus-housing-tracker) for strict TLS"
 [[ -z "$CA_CERT" ]] && command -v mkcert >/dev/null 2>&1 && [[ -f "$(mkcert -CAROOT)/rootCA.pem" ]] && CA_CERT="$(mkcert -CAROOT)/rootCA.pem" && ok "Using mkcert CA for strict TLS"
 [[ -z "$CA_CERT" ]] && [[ -f /tmp/grpc-certs/ca.crt ]] && CA_CERT="/tmp/grpc-certs/ca.crt" && ok "Using pre-extracted CA for strict TLS"
 # Deterministic TLS: always use --cacert (never rely on keychain). Keychain causes timing inconsistency:

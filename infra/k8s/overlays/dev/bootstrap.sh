@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CLUSTER=record-platform
-NAMESPACE=record-platform
+CLUSTER=off-campus-housing-tracker
+NAMESPACE=off-campus-housing-tracker
 
 bold() { printf "\033[1m%s\033[0m\n" "$*"; }
 step() { echo; bold "▶ $*"; }

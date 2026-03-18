@@ -70,9 +70,9 @@ if [[ "$ctx" == *"k3d"* ]] && command -v k3d >/dev/null 2>&1; then
       exit 1
     fi
     # Brief pod summary so user sees cluster state
-    _pods_not_ready=$(kubectl get pods -n record-platform --no-headers 2>/dev/null | grep -v "Running\|Completed" | wc -l | tr -d ' ' || echo "?")
-    _pods_total=$(kubectl get pods -n record-platform --no-headers 2>/dev/null | wc -l | tr -d ' ' || echo "0")
-    [[ "$_pods_total" -gt 0 ]] && echo "  record-platform pods: $_pods_total total ($_pods_not_ready not Running/Completed)"
+    _pods_not_ready=$(kubectl get pods -n off-campus-housing-tracker --no-headers 2>/dev/null | grep -v "Running\|Completed" | wc -l | tr -d ' ' || echo "?")
+    _pods_total=$(kubectl get pods -n off-campus-housing-tracker --no-headers 2>/dev/null | wc -l | tr -d ' ' || echo "0")
+    [[ "$_pods_total" -gt 0 ]] && echo "  off-campus-housing-tracker pods: $_pods_total total ($_pods_not_ready not Running/Completed)"
   else
     warn "k3d API not reachable. Run: k3d cluster start (or create cluster), then kubectl get nodes"
     exit 1
@@ -150,7 +150,7 @@ REQUIRED_APP_IMAGES=( api-gateway auth-service records-service listings-service 
 ENSURE_IMAGES="${ENSURE_IMAGES:-1}"
 if [[ "$ENSURE_IMAGES" == "1" ]] && [[ "$ctx" == *"k3d"* ]] && command -v docker >/dev/null 2>&1; then
   say "6. Ensuring required app images (local :dev and k3d registry)..."
-  REG="${K3D_REGISTRY:-k3d-record-platform-registry:5000}"
+  REG="${K3D_REGISTRY:-k3d-off-campus-housing-tracker-registry:5000}"
   _missing=()
   _present=()
   for s in "${REQUIRED_APP_IMAGES[@]}"; do
@@ -164,7 +164,7 @@ if [[ "$ENSURE_IMAGES" == "1" ]] && [[ "$ctx" == *"k3d"* ]] && command -v docker
     warn "Missing local image(s): ${_missing[*]}"
     echo "  Build: ./scripts/build-dev-images-for-k3d.sh  then push: ./scripts/k3d-registry-push-and-patch.sh"
     echo "  Or build one: docker build -t <name>:dev -f services/<name>/Dockerfile .  then ./scripts/k3d-registry-push-and-patch.sh"
-    echo "  Then: kubectl rollout restart deploy -n record-platform"
+    echo "  Then: kubectl rollout restart deploy -n off-campus-housing-tracker"
     exit 1
   fi
   ok "All ${#_present[@]} app images present locally (:dev)"
@@ -180,7 +180,7 @@ if [[ "$ENSURE_IMAGES" == "1" ]] && [[ "$ctx" == *"k3d"* ]] && command -v docker
     if [[ ${#_reg_missing[@]} -gt 0 ]]; then
       warn "Registry (127.0.0.1:5000) missing image(s): ${_reg_missing[*]}"
       echo "  Push existing :dev images: ./scripts/k3d-registry-push-and-patch.sh"
-      echo "  (Requires: 127.0.0.1 k3d-record-platform-registry in /etc/hosts and registry in Docker insecure-registries)"
+      echo "  (Requires: 127.0.0.1 k3d-off-campus-housing-tracker-registry in /etc/hosts and registry in Docker insecure-registries)"
       exit 1
     fi
     ok "All ${#REQUIRED_APP_IMAGES[@]} app images present in registry ($REG)"

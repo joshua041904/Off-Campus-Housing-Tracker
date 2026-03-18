@@ -18,7 +18,7 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 REPORT_FILE="$REPORT_BASE/schema-report-$TIMESTAMP.md"
 mkdir -p "$REPORT_BASE"
 
-# Default: 8 DBs (record-platform layout). Format: port:dbname:label
+# Default: 8 DBs (off-campus-housing-tracker layout). Format: port:dbname:label
 if [[ -z "${INSPECT_DBS:-}" ]]; then
   INSPECT_DBS="5433:records:records
 5434:records:social

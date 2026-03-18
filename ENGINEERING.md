@@ -1,8 +1,8 @@
 **Cluster-only focus:** This copy is for Kubernetes cluster operations, TLS/mTLS, Caddy/Envoy, MetalLB, and runbook issues. Application/product specifics are in README.md.
 
-# Record Platform - Engineering Documentation
+# Off-Campus-Housing-Tracker — Engineering Documentation
 
-This document provides in-depth technical documentation for the Record Platform architecture, design decisions, and implementation details. For a high-level overview, see [`README.md`](README.md). *Last updated to reflect Colima k3s primary, 8-DB deterministic restore and schema inspection, preflight step 7c (in-cluster k6), and Runbook 79–80.*
+This document provides in-depth technical documentation for the Off-Campus-Housing-Tracker architecture, design decisions, and implementation details. For a high-level overview, see [`README.md`](README.md). *Last updated to reflect Colima k3s primary, 8-DB deterministic restore and schema inspection, preflight step 7c (in-cluster k6), and Runbook 79–80.*
 
 ## Table of Contents
 
@@ -60,7 +60,7 @@ This document provides in-depth technical documentation for the Record Platform 
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                    Kubernetes Ingress Layer                                 │
 │                    ingress-nginx (Kubernetes Cluster)                        │
-│                         host: record.local                                  │
+│                         host: off-campus-housing.local                                  │
 │                                                                              │
 │  Routing Rules:                                                              │
 │  - / → Nginx Edge (static assets + micro-cache)                            │
@@ -309,7 +309,7 @@ Preflight and all suites run on **Colima + k3s** by default. Colima is started w
 - More complex connection management
 - Cross-service queries require dual-DB connections (auction-monitor, analytics-service)
 
-**Implementation**: Services connect via Kubernetes Service names (e.g., `postgres-auth-external.record-platform.svc.cluster.local:5437`) which route through Kubernetes Endpoints to Docker Compose postgres containers at `host.docker.internal:PORT`. All 8 instances have corresponding Kubernetes Services and Endpoints. Ports: 5433 records, 5434 social, 5435 listings, 5436 shopping, 5437 auth, 5438 auction-monitor (default DB `postgres`), 5439 analytics, 5440 python_ai. **Restore and schema:** Deterministic restore via `scripts/restore-external-postgres-from-backup.sh` (optional hook in `bring-up-external-infra.sh` with `RESTORE_BACKUP_DIR`); schema inspection and expected-DB assertion via `scripts/inspect-external-db-schemas.sh`. See *Database Redundancy & Disaster Recovery* and `docs/RUNBOOK_EXTERNAL_POSTGRES_RECOVERY.md`.
+**Implementation**: Services connect via Kubernetes Service names (e.g., `postgres-auth-external.off-campus-housing-tracker.svc.cluster.local:5437`) which route through Kubernetes Endpoints to Docker Compose postgres containers at `host.docker.internal:PORT`. All 8 instances have corresponding Kubernetes Services and Endpoints. Ports: 5433 records, 5434 social, 5435 listings, 5436 shopping, 5437 auth, 5438 auction-monitor (default DB `postgres`), 5439 analytics, 5440 python_ai. **Restore and schema:** Deterministic restore via `scripts/restore-external-postgres-from-backup.sh` (optional hook in `bring-up-external-infra.sh` with `RESTORE_BACKUP_DIR`); schema inspection and expected-DB assertion via `scripts/inspect-external-db-schemas.sh`. See *Database Redundancy & Disaster Recovery* and `docs/RUNBOOK_EXTERNAL_POSTGRES_RECOVERY.md`.
 
 ### Strict TLS/mTLS and Preflight (Single Source of Truth)
 
@@ -470,7 +470,7 @@ The full test pipeline is structured as **preflight** followed by **eight suites
 
 **Why 8+ suites and a command center:** We run 8 core suites plus optional k6 and pgbench (15+ scripts when counting limit-finding, service-specific k6, and DB verification). The platform spans multiple protocols (HTTP/1.1, HTTP/2, HTTP/3, gRPC), strict TLS/mTLS, zero-downtime rotation, and 8 databases. A single entry point (`run-all-test-suites.sh` or `run-preflight-scale-and-all-suites.sh`) orchestrates order, preflight, and DB/cache verification. See `scripts/load/LOAD_TESTS_CATALOG.md` for the full catalog.
 
-**Strict TLS for k6:** All k6 runs use strict TLS (no `-k`). The runner sets `SSL_CERT_FILE` to the dev-root CA (from K8s secret or `certs/dev-root.pem`) so `record.local` x509 verification succeeds. If you see `x509: certificate is not trusted`, set `K6_CA_CERT=/path/to/dev-root.pem` or run after preflight.
+**Strict TLS for k6:** All k6 runs use strict TLS (no `-k`). The runner sets `SSL_CERT_FILE` to the dev-root CA (from K8s secret or `certs/dev-root.pem`) so `off-campus-housing.local` x509 verification succeeds. If you see `x509: certificate is not trusted`, set `K6_CA_CERT=/path/to/dev-root.pem` or run after preflight.
 
 **HTTP/1.1, HTTP/2, and HTTP/3 (xk6-http3 and HOLB):**
 - **HTTP/2:** Standard k6 uses HTTP/2 by default over TLS; we use it for baseline and limit tests.
@@ -1076,7 +1076,7 @@ exporters:
 bash infra/k8s/scripts/install-linkerd.sh
 
 # Enable auto-injection
-kubectl annotate namespace record-platform linkerd.io/inject=enabled
+kubectl annotate namespace off-campus-housing-tracker linkerd.io/inject=enabled
 
 # Access dashboard
 linkerd viz dashboard
@@ -1102,10 +1102,10 @@ linkerd viz dashboard
 **Access**:
 ```bash
 # View service logs
-kubectl -n record-platform logs -f deployment/api-gateway
+kubectl -n off-campus-housing-tracker logs -f deployment/api-gateway
 
 # View all pods in namespace
-kubectl -n record-platform logs -f --all-containers=true
+kubectl -n off-campus-housing-tracker logs -f --all-containers=true
 ```
 
 ### Documentation
@@ -1477,7 +1477,7 @@ We use comprehensive monitoring to prove why auth is the bottleneck:
 - **Status**: ✅ **Extension built and loads successfully**
 - **Binary**: `.k6-build/bin/k6-http3`
 - **Build Script**: `scripts/build-k6-http3.sh`
-- **Extension**: `github.com/record-platform/xk6-http3` (local development using quic-go)
+- **Extension**: `github.com/off-campus-housing-tracker/xk6-http3` (local development using quic-go)
 - **Documentation**: See `test-results/K6_HTTP3_TOOLCHAIN_STATUS_12-22_tom.md` for complete status
 - **Toolchain Script**: `scripts/load/k6-http3-toolchain.js` - Custom toolchain for HTTP/3 testing
 
@@ -1666,7 +1666,7 @@ wireshark test-results/YYYYMMDD-HHMMSS-http3-verification/quic-capture.pcap
 
 **Certificate Management**:
 - mkcert for local development
-- Kubernetes secrets for certificate storage (`dev-root-ca` secret in `record-platform` namespace)
+- Kubernetes secrets for certificate storage (`dev-root-ca` secret in `off-campus-housing-tracker` namespace)
 - Zero-downtime CA rotation via admin API
 - CA certificate distributed to all services via volume mounts
 
@@ -1847,10 +1847,10 @@ wireshark test-results/YYYYMMDD-HHMMSS-http3-verification/quic-capture.pcap
 ### Service Recovery
 
 **Diagnosis**:
-1. Check pod status: `kubectl -n record-platform get pods`
-2. Check pod events: `kubectl -n record-platform describe pod <pod-name>`
-3. Check service logs: `kubectl -n record-platform logs -l app=<service> -c app --tail=200`
-4. Check service endpoints: `kubectl -n record-platform get endpoints <service-name>`
+1. Check pod status: `kubectl -n off-campus-housing-tracker get pods`
+2. Check pod events: `kubectl -n off-campus-housing-tracker describe pod <pod-name>`
+3. Check service logs: `kubectl -n off-campus-housing-tracker logs -l app=<service> -c app --tail=200`
+4. Check service endpoints: `kubectl -n off-campus-housing-tracker get endpoints <service-name>`
 
 **Common Issues**:
 - **Pod CrashLoopBackOff**: Check logs for errors, verify environment variables, check resource limits
@@ -1859,10 +1859,10 @@ wireshark test-results/YYYYMMDD-HHMMSS-http3-verification/quic-capture.pcap
 - **504 Gateway Timeout**: Proxy timeout too short, service response time too long
 
 **Recovery Steps**:
-1. Restart service: `kubectl -n record-platform rollout restart deployment/<service>`
-2. Verify rollout: `kubectl -n record-platform rollout status deployment/<service>`
+1. Restart service: `kubectl -n off-campus-housing-tracker rollout restart deployment/<service>`
+2. Verify rollout: `kubectl -n off-campus-housing-tracker rollout status deployment/<service>`
 3. Check logs: Monitor logs for errors after restart
-4. Test endpoint: `curl -k https://record.local:8443/api/<service>/healthz`
+4. Test endpoint: `curl -k https://off-campus-housing.local:8443/api/<service>/healthz`
 
 ### Database Recovery
 
@@ -1870,7 +1870,7 @@ wireshark test-results/YYYYMMDD-HHMMSS-http3-verification/quic-capture.pcap
 1. Check disk space: `df -h` and `docker system df`
 2. Check database connectivity: `psql -h localhost -p <port> -U postgres -d <db> -c "SELECT 1"`
 3. Check database logs: `docker-compose logs postgres-* | tail -100`
-4. Check database pods: `kubectl -n record-platform get pods -l app=postgres`
+4. Check database pods: `kubectl -n off-campus-housing-tracker get pods -l app=postgres`
 
 **Common Issues**:
 - **"No space left on device"**: Disk full, need cleanup
@@ -1887,10 +1887,10 @@ wireshark test-results/YYYYMMDD-HHMMSS-http3-verification/quic-capture.pcap
 ### API Gateway Recovery
 
 **Diagnosis**:
-1. Check gateway logs: `kubectl -n record-platform logs -l app=api-gateway -c app --tail=500`
+1. Check gateway logs: `kubectl -n off-campus-housing-tracker logs -l app=api-gateway -c app --tail=500`
 2. Check proxy errors: Filter logs for "proxy error", "502", "upstream error"
 3. Check Redis connection: Filter logs for "redis", "Redis"
-4. Test gateway health: `curl -k https://record.local:8443/api/healthz`
+4. Test gateway health: `curl -k https://off-campus-housing.local:8443/api/healthz`
 
 **Common Issues**:
 - **502 Bad Gateway**: Downstream service unavailable
@@ -1901,7 +1901,7 @@ wireshark test-results/YYYYMMDD-HHMMSS-http3-verification/quic-capture.pcap
 **Recovery Steps**:
 1. Check downstream services: Verify all services are healthy
 2. Check Redis: Verify Redis connectivity and password
-3. Restart gateway: `kubectl -n record-platform rollout restart deployment/api-gateway`
+3. Restart gateway: `kubectl -n off-campus-housing-tracker rollout restart deployment/api-gateway`
 4. Verify routes: Test all proxy routes with curl
 
 ### Linkerd Recovery
@@ -1910,7 +1910,7 @@ wireshark test-results/YYYYMMDD-HHMMSS-http3-verification/quic-capture.pcap
 1. Check Linkerd status: `linkerd check`
 2. Check Linkerd pods: `kubectl -n linkerd get pods`
 3. Check CoreDNS: `kubectl -n kube-system get pods -l k8s-app=kube-dns`
-4. Check injection: `kubectl -n record-platform get pods -o jsonpath='{.items[*].metadata.annotations.linkerd\.io/inject}'`
+4. Check injection: `kubectl -n off-campus-housing-tracker get pods -o jsonpath='{.items[*].metadata.annotations.linkerd\.io/inject}'`
 
 **Common Issues**:
 - **502 errors with Linkerd**: DNS resolution issues, control plane unavailable
@@ -1920,20 +1920,20 @@ wireshark test-results/YYYYMMDD-HHMMSS-http3-verification/quic-capture.pcap
 **Recovery Steps**:
 1. Fix CoreDNS: `kubectl -n kube-system rollout restart deployment/coredns`
 2. Restart Linkerd: `kubectl -n linkerd rollout restart deployment --all`
-3. Re-enable injection: `kubectl annotate namespace record-platform linkerd.io/inject=enabled --overwrite`
-4. Restart services: `kubectl -n record-platform rollout restart deployment --all`
+3. Re-enable injection: `kubectl annotate namespace off-campus-housing-tracker linkerd.io/inject=enabled --overwrite`
+4. Restart services: `kubectl -n off-campus-housing-tracker rollout restart deployment --all`
 
 **Disable Linkerd** (if causing issues):
-1. Disable injection: `kubectl annotate namespace record-platform linkerd.io/inject- --overwrite`
-2. Delete pods: `kubectl -n record-platform delete pods --all`
-3. Verify removal: `kubectl -n record-platform get pods`
+1. Disable injection: `kubectl annotate namespace off-campus-housing-tracker linkerd.io/inject- --overwrite`
+2. Delete pods: `kubectl -n off-campus-housing-tracker delete pods --all`
+3. Verify removal: `kubectl -n off-campus-housing-tracker get pods`
 
 ### Health Check Recovery
 
 **Diagnosis**:
-1. Check probe status: `kubectl -n record-platform describe pod <pod> | grep -A 10 "Liveness\|Readiness"`
-2. Check probe failures: `kubectl -n record-platform get events | grep -E "Unhealthy|Failed"`
-3. Test health endpoint: `curl -k https://record.local:8443/api/<service>/healthz`
+1. Check probe status: `kubectl -n off-campus-housing-tracker describe pod <pod> | grep -A 10 "Liveness\|Readiness"`
+2. Check probe failures: `kubectl -n off-campus-housing-tracker get events | grep -E "Unhealthy|Failed"`
+3. Test health endpoint: `curl -k https://off-campus-housing.local:8443/api/<service>/healthz`
 4. Check service logs: Look for health check related errors
 
 **Common Issues**:
@@ -1944,21 +1944,21 @@ wireshark test-results/YYYYMMDD-HHMMSS-http3-verification/quic-capture.pcap
 **Recovery Steps**:
 1. Increase timeouts: Update `livenessProbe.timeoutSeconds` and `readinessProbe.timeoutSeconds` to 5s
 2. Add internal timeouts: Add timeouts to database/Redis checks in health endpoint
-3. Restart service: `kubectl -n record-platform rollout restart deployment/<service>`
+3. Restart service: `kubectl -n off-campus-housing-tracker rollout restart deployment/<service>`
 4. Monitor logs: Watch for health check improvements
 
 ### Emergency Recovery
 
 **Complete Platform Reset** (use with extreme caution):
 1. **Backup**: `./scripts/backup-now.sh`
-2. **Scale down**: `kubectl -n record-platform scale deployment --replicas=0 --all`
-3. **Cleanup** (if safe): `kubectl -n record-platform delete pods --all`
+2. **Scale down**: `kubectl -n off-campus-housing-tracker scale deployment --replicas=0 --all`
+3. **Cleanup** (if safe): `kubectl -n off-campus-housing-tracker delete pods --all`
 4. **Restart**: `./scripts/bootstrap-platform.sh`
 5. **Restore**: `make pg.restore.dump`
 
 **Quick Recovery**:
-1. Restart all: `kubectl -n record-platform rollout restart deployment --all`
-2. Wait for ready: `kubectl -n record-platform wait --for=condition=ready pod --all --timeout=300s`
+1. Restart all: `kubectl -n off-campus-housing-tracker rollout restart deployment --all`
+2. Wait for ready: `kubectl -n off-campus-housing-tracker wait --for=condition=ready pod --all --timeout=300s`
 3. Verify health: Run test script `./scripts/test-microservices-http2-http3.sh`
 
 ### Performance Troubleshooting
@@ -1970,7 +1970,7 @@ wireshark test-results/YYYYMMDD-HHMMSS-http3-verification/quic-capture.pcap
 4. Check query plans: Use `EXPLAIN ANALYZE` for slow queries
 
 **High Memory Usage**:
-1. Check resource limits: `kubectl -n record-platform describe pod <pod> | grep -A 5 "Limits\|Requests"`
+1. Check resource limits: `kubectl -n off-campus-housing-tracker describe pod <pod> | grep -A 5 "Limits\|Requests"`
 2. Check memory leaks: Monitor memory usage over time
 3. Check connection pools: Too many connections can cause high memory
 4. Check caching: Verify Redis cache is working correctly

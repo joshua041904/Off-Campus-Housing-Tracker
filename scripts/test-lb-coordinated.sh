@@ -9,7 +9,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 NS_ING="ingress-nginx"
-NS_APP="record-platform"
+NS_APP="off-campus-housing-tracker"
 CURL_IMAGE="${CURL_IMAGE:-curlimages/curl:latest}"
 say() { printf "\n\033[1m%s\033[0m\n" "$*"; }
 ok()  { echo "✅ $*"; }
@@ -43,9 +43,9 @@ if [[ -z "$CLUSTER_IP" ]]; then
   warn "Caddy ClusterIP not found; skipping in-cluster health"
 else
   CADDY_POD="tmp-curl-caddy-$$"
-  # Host: record.local required so Caddy matches https://record.local vhost (otherwise :443 catch-all; -k = no CA in pod)
+  # Host: off-campus-housing.local required so Caddy matches https://off-campus-housing.local vhost (otherwise :443 catch-all; -k = no CA in pod)
   _kb run "$CADDY_POD" --image="$CURL_IMAGE" --restart=Never -n "$NS_ING" -- \
-    curl -sS -o /dev/null -w "%{http_code}" -k --connect-timeout 5 --max-time 10 -H "Host: record.local" "https://${CLUSTER_IP}:443/_caddy/healthz" 2>/dev/null || true
+    curl -sS -o /dev/null -w "%{http_code}" -k --connect-timeout 5 --max-time 10 -H "Host: off-campus-housing.local" "https://${CLUSTER_IP}:443/_caddy/healthz" 2>/dev/null || true
   # Wait for pod to complete so logs are flushed (avoid empty CODE from reading too early)
   for _w in $(seq 1 20); do
     _phase=$(_kb -n "$NS_ING" get pod "$CADDY_POD" -o jsonpath='{.status.phase}' 2>/dev/null || echo "Pending")

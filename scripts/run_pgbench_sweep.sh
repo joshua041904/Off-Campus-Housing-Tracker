@@ -2,7 +2,7 @@
 # Benchmark target database (dev/local):
 #   - Postgres host: localhost:5433 (external Docker container)
 #   - Database: records
-#   - Docker Compose service: record-platform-postgres-1 (ports: 5433:5432)
+#   - Docker Compose service: off-campus-housing-tracker-postgres-1 (ports: 5433:5432)
 #   - Schemas used: records (data), bench (results), public, auth
 #
 # Important:
@@ -22,7 +22,7 @@ export PGGSSENCMODE=disable
 usage() {
   cat <<USAGE
 Usage: ${0##*/} [options]
-  -n, --namespace NS       Kubernetes namespace (default: record-platform, used for config only)
+  -n, --namespace NS       Kubernetes namespace (default: off-campus-housing-tracker, used for config only)
   -u, --user UUID          Tenant UUID to benchmark (default: 0dc268d0-a86f-4e12-8d10-9db0f1b735e0)
   -q, --query TEXT         Search query string (default: "鄧麗君 album 263 cn-041 polygram")
   -d, --duration SEC       Duration per benchmark run (default: 60)
@@ -44,7 +44,7 @@ RECORDS_DB_USER="${RECORDS_DB_USER:-postgres}"
 RECORDS_DB_NAME="${RECORDS_DB_NAME:-records}"
 RECORDS_DB_PASS="${RECORDS_DB_PASS:-postgres}"
 
-NS="record-platform"
+NS="off-campus-housing-tracker"
 USER_UUID="0dc268d0-a86f-4e12-8d10-9db0f1b735e0"
 QUERY='鄧麗君 album 263 cn-041 polygram'
 DURATION=60
@@ -341,7 +341,7 @@ check_disk_space() {
         if [[ "$container_pct" =~ ^[0-9]+$ ]] && [[ "$container_pct" -gt 90 ]]; then
           echo "  ⚠️  WARNING: PostgreSQL container disk is ${container_pct}% full!" >&2
           echo "     This can cause database failures. Check Docker volume size:" >&2
-          echo "       docker volume inspect record-platform_pgdata" >&2
+          echo "       docker volume inspect off-campus-housing-tracker_pgdata" >&2
         fi
       fi
     fi
@@ -417,8 +417,8 @@ wait_for_db_ready() {
   echo "   1. Database is still recovering from a crash or checkpoint" >&2
   echo "   2. Disk space is full (check with: df -h)" >&2
   echo "   3. WAL files are corrupted or missing" >&2
-  echo "   Check Docker container logs: docker logs record-platform-postgres-1" >&2
-  echo "   Or check disk space in container: docker exec record-platform-postgres-1 df -h" >&2
+  echo "   Check Docker container logs: docker logs off-campus-housing-tracker-postgres-1" >&2
+  echo "   Or check disk space in container: docker exec off-campus-housing-tracker-postgres-1 df -h" >&2
   return 1
 }
 
@@ -716,8 +716,8 @@ if [[ "$DB_EXISTS" != "true" ]] || [[ "$TABLE_EXISTS" != "true" ]] || [[ "$ROW_C
   echo "⚠️  Database missing or insufficient data (only $ROW_COUNT rows), attempting restore..."
   RESTORED=false
   BACKUPS_DIR="${REPO_ROOT}/backups"
-  # Prefer reference backup record-platform-postgres-1-all-*.sql (2.4M+ rows, records + records_hot), then any .sql, then .dump
-  LATEST_SQL=$(find "$BACKUPS_DIR" -maxdepth 1 -name "record-platform-postgres-1-all-*.sql" -type f 2>/dev/null | sort -r | head -1)
+  # Prefer reference backup off-campus-housing-tracker-postgres-1-all-*.sql (2.4M+ rows, records + records_hot), then any .sql, then .dump
+  LATEST_SQL=$(find "$BACKUPS_DIR" -maxdepth 1 -name "off-campus-housing-tracker-postgres-1-all-*.sql" -type f 2>/dev/null | sort -r | head -1)
   [[ -z "$LATEST_SQL" ]] && LATEST_SQL=$(find "$BACKUPS_DIR" -maxdepth 1 -name "*.sql" -type f 2>/dev/null | sort -r | head -1)
   if [[ -n "$LATEST_SQL" ]] && [[ -f "$LATEST_SQL" ]]; then
     echo "Loading from SQL: $LATEST_SQL (into DB records on port ${RECORDS_DB_PORT:-5433})"
@@ -766,8 +766,8 @@ if [[ "$DB_EXISTS" != "true" ]] || [[ "$TABLE_EXISTS" != "true" ]] || [[ "$ROW_C
     fi
   fi
   if [[ "$RESTORED" != "true" ]]; then
-    echo "⚠️  No backup found in $BACKUPS_DIR (add record-platform-postgres-1-all-*.sql or *.dump for 2.4M+ rows). Continuing with current data ($ROW_COUNT rows); benchmarks may be less meaningful." >&2
-    echo "   To populate: place record-platform-postgres-1-all-*.sql (or *.dump) in backups/ and re-run, or set SKIP_RESTORE=true to fail instead of continuing." >&2
+    echo "⚠️  No backup found in $BACKUPS_DIR (add off-campus-housing-tracker-postgres-1-all-*.sql or *.dump for 2.4M+ rows). Continuing with current data ($ROW_COUNT rows); benchmarks may be less meaningful." >&2
+    echo "   To populate: place off-campus-housing-tracker-postgres-1-all-*.sql (or *.dump) in backups/ and re-run, or set SKIP_RESTORE=true to fail instead of continuing." >&2
   fi
 else
   echo "✅ Database verification passed: $ROW_COUNT rows"
@@ -1911,9 +1911,9 @@ cold_cache_reset() {
         echo "   ✅ Postgres ready after restart (true cold)"
       fi
     else
-      if command -v kubectl >/dev/null 2>&1 && kubectl get deploy -n "${NS:-record-platform}" 2>/dev/null | grep -q postgres; then
+      if command -v kubectl >/dev/null 2>&1 && kubectl get deploy -n "${NS:-off-campus-housing-tracker}" 2>/dev/null | grep -q postgres; then
         echo "   Real cold: restarting Postgres deploy (COLD_POSTGRES_RESTART=1)..."
-        kubectl rollout restart deploy/postgres -n "${NS:-record-platform}" 2>/dev/null || true
+        kubectl rollout restart deploy/postgres -n "${NS:-off-campus-housing-tracker}" 2>/dev/null || true
         sleep 15
         wait_for_db_ready || echo "⚠️  Postgres may still be rolling; continuing with DB-level reset" >&2
       fi

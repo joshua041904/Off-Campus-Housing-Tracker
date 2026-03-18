@@ -14,9 +14,9 @@ warn() { echo "⚠️  $*"; }
 fail() { echo "❌ $*" >&2; }
 info() { echo "ℹ️  $*"; }
 
-NS="record-platform"
+NS="off-campus-housing-tracker"
 NS_ING="ingress-nginx"
-HOST="${HOST:-record.local}"
+HOST="${HOST:-off-campus-housing.local}"
 PORT="${PORT:-30443}"
 ctx=$(kubectl config current-context 2>/dev/null || echo "")
 
@@ -138,7 +138,7 @@ fi
 
 if [[ -n "$PROTO_DIR" ]] && command -v grpcurl >/dev/null 2>&1; then
   GRPC_ENVOY_SUCCESS=0
-  grpc_authority="${HOST:-record.local}"
+  grpc_authority="${HOST:-off-campus-housing.local}"
   # LB IP primary: when TARGET_IP:443, gRPC via Caddy → Envoy (real production path)
   if [[ -n "${TARGET_IP:-}" ]] && [[ "${PORT:-}" == "443" ]] && [[ -n "$CA_CERT" ]] && [[ -f "$CA_CERT" ]]; then
     if [[ -n "$MTLS_CERT" ]] && [[ -n "$MTLS_KEY" ]] && [[ -f "$MTLS_CERT" ]] && [[ -f "$MTLS_KEY" ]]; then

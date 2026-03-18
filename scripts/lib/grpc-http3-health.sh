@@ -13,8 +13,8 @@ run_grpc_http3_health_checks() {
   local lib_dir="${BASH_SOURCE[0]%/*}"
   local script_dir="${SCRIPT_DIR:-$lib_dir/..}"
   [[ -d "$script_dir" ]] || script_dir="$(cd "$lib_dir/.." && pwd)"
-  local ns="${NS:-record-platform}"
-  local host="${HOST:-record.local}"
+  local ns="${NS:-off-campus-housing-tracker}"
+  local host="${HOST:-off-campus-housing.local}"
   local port="${PORT:-30443}"
   # Prefer MetalLB IP when TARGET_IP is set (run-all-test-suites.sh exports it with PORT=443)
   local http3_resolve
@@ -61,7 +61,7 @@ run_grpc_http3_health_checks() {
     elif [[ $h3_rc -eq 7 ]]; then
       warn "  curl exit 7 = connection refused (UDP/port may not be reachable)"
     elif [[ $h3_rc -eq 6 ]]; then
-      warn "  curl exit 6 = couldn't resolve host (use PORT in URL and HTTP3_RESOLVE, e.g. record.local:30443:127.0.0.1)"
+      warn "  curl exit 6 = couldn't resolve host (use PORT in URL and HTTP3_RESOLVE, e.g. off-campus-housing.local:30443:127.0.0.1)"
     fi
     echo "$h3_out" | head -5
     GRPC_HTTP3_HEALTH_OK=0
@@ -101,7 +101,7 @@ run_grpc_http3_health_checks() {
   fi
   ca_file="${CA_CERT:-}"
   [[ -z "$ca_file" ]] && [[ -f "$grpc_certs_dir/ca.crt" ]] && ca_file="$grpc_certs_dir/ca.crt"
-  grpc_authority="${HOST:-record.local}"
+  grpc_authority="${HOST:-off-campus-housing.local}"
   if [[ -n "$ca_file" ]] && [[ -f "$ca_file" ]]; then
     # MetalLB / LB IP: primary path when TARGET_IP + PORT=443
     if [[ -n "${TARGET_IP:-}" ]] && [[ "${port:-443}" == "443" ]]; then

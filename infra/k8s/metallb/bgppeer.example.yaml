@@ -4,7 +4,7 @@
 apiVersion: metallb.io/v1beta2
 kind: BGPPeer
 metadata:
-  name: record-platform-frr
+  name: off-campus-housing-tracker-frr
   namespace: metallb-system
 spec:
   myASN: 64512

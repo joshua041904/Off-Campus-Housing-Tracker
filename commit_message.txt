@@ -1,22 +1,31 @@
-Housing Platform v1: align docs, proto, and runbook with 7-service architecture
+Off-Campus-Housing-Tracker: Housing Platform v1 — docs, proto, runbook, naming (made with Tom)
 
-- README: Replace with Housing Platform — Global-Scale Architecture (v1).
-  Vision, 7 domain services (auth, listings, booking, messaging, notification,
-  trust, analytics), communication rules, DB policy, event-driven model, common
-  package, tech stack, scaling, deployment, non-negotiables.
+- README: Replaced with Housing Platform — Global-Scale Architecture (v1): vision,
+  seven domain services (auth, listings, booking, messaging, notification, trust,
+  analytics), communication rules, DB policy, event-driven model, common package,
+  tech stack, scaling, deployment, future splits, non-negotiables.
 
-- Proto: Remove record-platform–specific protos (social, shopping, records,
-  python-ai, auction-monitor). Keep health.proto. Add minimal placeholder
-  protos for all 7 services: auth, listings, booking, messaging, notification,
-  trust, analytics. Use go_package for off-campus-housing-tracker.
+- Proto: Removed record-platform–specific protos (social, shopping, records,
+  python-ai, auction-monitor). Kept health.proto. Added minimal placeholder
+  protos for all seven services with go_package for off-campus-housing-tracker.
 
-- Runbook: Cluster-only focus. Remove app-specific items (social suite,
-  shopping order_number, carts/orders, Platform AI, social roles). Genericize
-  namespace (record-platform → your app namespace / housing-platform),
-  external Postgres (8-DB → per-service), and validation/CI tiers. Keep
-  TLS/mTLS, Colima, MetalLB, Caddy, Envoy, API gateway req.path, control
-  plane, disaster recovery, validation/SLO.
+- Runbook: Cluster-only focus. Removed app-specific items (social suite, shopping
+  order_number, carts/orders, Platform AI, social roles). Genericized namespace,
+  external Postgres, and validation/CI tiers. Kept TLS/mTLS, Colima, MetalLB,
+  Caddy, Envoy, API gateway req.path, control plane, disaster recovery, SLO.
 
-- Services: Add Architecture (v1) foundation to each service README (auth,
-  listings, booking, messaging, notification, trust, analytics) and to
-  services/README.md. Create auth-service/README.md.
+- Services: Added Architecture (v1) foundation to each service README and
+  services/README.md; created auth-service/README.md.
+
+- Naming: Renamed record-platform → off-campus-housing-tracker (namespace and
+  identifiers) and record.local → off-campus-housing.local (hostname) across
+  Caddyfile, infra, scripts, docs, and service code. Replaced “Record Platform”
+  with “Off-Campus-Housing-Tracker” in ENGINEERING.md and auth-service (privacy,
+  terms, MFA, verification, passkey). Caddyfile porting header and vhost now
+  reference Off-Campus-Housing-Tracker; removed /auctions/ and /ai/ blocks;
+  updated API path regex for housing routes.
+
+- Merge: Integrated remote main (original README); Housing Platform v1 README
+  retained as canonical.
+
+Made with Tom.

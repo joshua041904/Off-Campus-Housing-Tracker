@@ -2,7 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: seed-auth
-  namespace: record-platform
+  namespace: off-campus-housing-tracker
 spec:
   backoffLimit: 0
   activeDeadlineSeconds: 600
@@ -32,7 +32,7 @@ spec:
             - |
               set -e
               apk add --no-cache ca-certificates wget tar
-              wget -qO- https://github.com/TomWang22/record-platform/archive/refs/heads/main.tar.gz \
+              wget -qO- https://github.com/TomWang22/off-campus-housing-tracker/archive/refs/heads/main.tar.gz \
                 | tar xz -C /work --strip-components=1
       containers:
         # 3) run prisma migrate with baseline fallback on P3005

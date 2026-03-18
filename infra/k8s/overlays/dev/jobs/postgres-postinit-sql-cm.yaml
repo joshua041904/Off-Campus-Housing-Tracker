@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: postgres-postinit-sql
-  namespace: record-platform
+  namespace: off-campus-housing-tracker
 data:
   postinit.sql: |
     -- ===== extensions

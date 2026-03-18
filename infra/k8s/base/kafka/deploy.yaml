@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: kafka
-  namespace: record-platform
+  namespace: off-campus-housing-tracker
   labels: { app: kafka }
 spec:
   replicas: 1
@@ -47,10 +47,10 @@ spec:
             - { name: KAFKA_SSL_ENABLED, value: "true" }
             - { name: KAFKA_BROKER_ID, value: "1" }
             - { name: KAFKA_ZOOKEEPER_CONNECT, value: "zookeeper:2181" }
-            - { name: KAFKA_CLUSTER_ID, value: "record-platform-kafka-cluster" }
+            - { name: KAFKA_CLUSTER_ID, value: "off-campus-housing-tracker-kafka-cluster" }
             # Strict TLS: SSL on 9093 (client-facing), PLAINTEXT on 9092 (inter-broker / optional)
             - { name: KAFKA_LISTENERS, value: "PLAINTEXT://0.0.0.0:9092,SSL://0.0.0.0:9093,PLAINTEXT_HOST://0.0.0.0:29092" }
-            - { name: KAFKA_ADVERTISED_LISTENERS, value: "PLAINTEXT://kafka.record-platform.svc.cluster.local:9092,SSL://kafka.record-platform.svc.cluster.local:9093,PLAINTEXT_HOST://kafka.record-platform.svc.cluster.local:29092" }
+            - { name: KAFKA_ADVERTISED_LISTENERS, value: "PLAINTEXT://kafka.off-campus-housing-tracker.svc.cluster.local:9092,SSL://kafka.off-campus-housing-tracker.svc.cluster.local:9093,PLAINTEXT_HOST://kafka.off-campus-housing-tracker.svc.cluster.local:29092" }
             - { name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP, value: "PLAINTEXT:PLAINTEXT,SSL:SSL,PLAINTEXT_HOST:PLAINTEXT" }
             - { name: KAFKA_INTER_BROKER_LISTENER_NAME, value: "PLAINTEXT" }
             # Keystore/truststore from kafka-ssl-secret (strict TLS)

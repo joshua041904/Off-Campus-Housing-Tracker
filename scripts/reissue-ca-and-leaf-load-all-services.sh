@@ -4,7 +4,7 @@
 # WHEN TO RUN: Test suite fails with "curl exit 60" or "CA and Caddy don't match".
 # Same CA signs the leaf; dev-root-ca (tests) and record-local-tls (Caddy) stay in sync.
 #
-# Updates: dev-root-ca, record-local-tls, service-tls (record-platform + ingress-nginx),
+# Updates: dev-root-ca, record-local-tls, service-tls (off-campus-housing-tracker + ingress-nginx),
 # envoy-test (via sync-envoy-tls-secrets), certs/, restarts Caddy and optionally all services.
 #
 # Prerequisites: Cluster reachable (kubectl cluster-info), openssl.
@@ -12,7 +12,7 @@
 #
 # Usage: ./scripts/reissue-ca-and-leaf-load-all-services.sh
 #   RESTART_SERVICES=1     (default) — restart service deployments after updating secrets
-#   HOST=record.local      — leaf CN and SANs (default record.local)
+#   HOST=off-campus-housing.local      — leaf CN and SANs (default off-campus-housing.local)
 #   REISSUE_CAP=0          — no cap (default). Set >0 to limit total seconds; exits 1 if exceeded.
 #   CADDY_ROLLOUT_TIMEOUT  — seconds to wait for Caddy rollout (default 120)
 #   CADDY_WAIT_TIMEOUT     — seconds for pod wait fallback (default 60)
@@ -34,8 +34,8 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:${SCRIPT_DIR}/shims:${PATH:-}"
 cd "$REPO_ROOT"
 
 NS_ING="ingress-nginx"
-NS_APP="record-platform"
-HOST="${HOST:-record.local}"
+NS_APP="off-campus-housing-tracker"
+HOST="${HOST:-off-campus-housing.local}"
 RESTART_SERVICES="${RESTART_SERVICES:-1}"
 
 say() { printf "\n\033[1m%s\033[0m\n" "$*"; }
@@ -184,23 +184,23 @@ _reissue_main() {
 
   CLUSTERIP_FQDN="caddy-h3.ingress-nginx.svc.cluster.local"
   SANS="DNS:${HOST},DNS:*.${HOST},DNS:localhost,DNS:${CLUSTERIP_FQDN}"
-  SANS="${SANS},DNS:*.ingress-nginx.svc.cluster.local,DNS:*.record-platform.svc.cluster.local"
-  SANS="${SANS},DNS:auth-service.record-platform.svc.cluster.local,DNS:records-service.record-platform.svc.cluster.local"
-  SANS="${SANS},DNS:listings-service.record-platform.svc.cluster.local,DNS:social-service.record-platform.svc.cluster.local"
-  SANS="${SANS},DNS:shopping-service.record-platform.svc.cluster.local,DNS:analytics-service.record-platform.svc.cluster.local"
-  SANS="${SANS},DNS:auction-monitor.record-platform.svc.cluster.local,DNS:python-ai-service.record-platform.svc.cluster.local"
-  SANS="${SANS},DNS:api-gateway.record-platform.svc.cluster.local,IP:127.0.0.1,IP:::1"
+  SANS="${SANS},DNS:*.ingress-nginx.svc.cluster.local,DNS:*.off-campus-housing-tracker.svc.cluster.local"
+  SANS="${SANS},DNS:auth-service.off-campus-housing-tracker.svc.cluster.local,DNS:records-service.off-campus-housing-tracker.svc.cluster.local"
+  SANS="${SANS},DNS:listings-service.off-campus-housing-tracker.svc.cluster.local,DNS:social-service.off-campus-housing-tracker.svc.cluster.local"
+  SANS="${SANS},DNS:shopping-service.off-campus-housing-tracker.svc.cluster.local,DNS:analytics-service.off-campus-housing-tracker.svc.cluster.local"
+  SANS="${SANS},DNS:auction-monitor.off-campus-housing-tracker.svc.cluster.local,DNS:python-ai-service.off-campus-housing-tracker.svc.cluster.local"
+  SANS="${SANS},DNS:api-gateway.off-campus-housing-tracker.svc.cluster.local,IP:127.0.0.1,IP:::1"
 
   log_progress "step 1: generating CA and leaf…"
   say "1. Generating new CA and leaf…"
   openssl genrsa -out "$CA_KEY" 2048 2>/dev/null
   openssl req -new -x509 -days 3650 -key "$CA_KEY" -out "$CA_CRT" \
-    -subj "/CN=dev-root-ca/O=record-platform" 2>/dev/null
+    -subj "/CN=dev-root-ca/O=off-campus-housing-tracker" 2>/dev/null
   ok "CA generated"
 
   openssl genrsa -out "$LEAF_KEY" 2048 2>/dev/null
   openssl req -new -key "$LEAF_KEY" -out "$TMP/leaf.csr" \
-    -subj "/CN=${HOST}/O=record-platform" 2>/dev/null
+    -subj "/CN=${HOST}/O=off-campus-housing-tracker" 2>/dev/null
   cat > "$TMP/ext.conf" <<EXT
 [v3_req]
 subjectAltName=$SANS
@@ -217,7 +217,7 @@ EXT
   ok "Certificate chain created (leaf + CA)"
 
   log_progress "step 2: updating secrets…"
-  say "2. Updating secrets (record-platform + ingress-nginx)…"
+  say "2. Updating secrets (off-campus-housing-tracker + ingress-nginx)…"
   # Prefer colima ssh for step 2 when on Colima so the create-secret burst never goes through the host tunnel (max stability).
   # REISSUE_STEP2_VIA_SSH=1 (set by preflight) forces this even when host kubectl works; avoids tunnel resets under load.
   REISSUE_VIA_SSH="${REISSUE_VIA_SSH:-1}"
@@ -296,7 +296,7 @@ EXT
   fi
   # k3d: refresh kubeconfig before step 2 so API server port is current (dynamic port, not 6443).
   if [[ "$ctx" == *"k3d"* ]] && command -v k3d >/dev/null 2>&1; then
-    k3d kubeconfig merge record-platform 2>/dev/null || true
+    k3d kubeconfig merge off-campus-housing-tracker 2>/dev/null || true
   fi
   # Rate-limit step 2: longer sleep when using host/tunnel (reduces connection resets).
   if [[ -n "${REISSUE_STEP2_SLEEP:-}" ]]; then
@@ -451,7 +451,7 @@ EXT
   fi
   # Warm the tunnel before first heavy request.
   if [[ -z "$SSH_DIR" ]]; then
-    _kubectl_step2 get ns record-platform --request-timeout=15s >/dev/null 2>&1 || true
+    _kubectl_step2 get ns off-campus-housing-tracker --request-timeout=15s >/dev/null 2>&1 || true
     sleep "$STEP2_SLEEP"
   fi
   sleep "$STEP2_SLEEP"
@@ -461,7 +461,7 @@ EXT
     if [[ "$REISSUE_PHASE1_ABORT" == "1" ]]; then
       if ! _readyz_3x; then
         if [[ "$ctx" == *"k3d"* ]] && command -v k3d >/dev/null 2>&1; then
-          k3d kubeconfig merge record-platform 2>/dev/null || true
+          k3d kubeconfig merge off-campus-housing-tracker 2>/dev/null || true
           sleep 10
           _readyz_3x || true
         fi
@@ -503,7 +503,7 @@ data:
       if [[ "$REISSUE_PHASE1_ABORT" == "1" ]]; then
         if ! _readyz_3x; then
           if [[ "$ctx" == *"k3d"* ]] && command -v k3d >/dev/null 2>&1; then
-            k3d kubeconfig merge record-platform 2>/dev/null || true
+            k3d kubeconfig merge off-campus-housing-tracker 2>/dev/null || true
             sleep 10
             _readyz_3x || true
           fi
@@ -532,7 +532,7 @@ data:
   ca.crt: \"$(_b64 "$CA_CRT")\"" > "$f_svc"
     _apply_yaml_with_retry "$f_svc" || return 1
     sleep "$STEP2_SLEEP"
-    ok "service-tls updated (record-platform) with full chain in tls.crt (apply)"
+    ok "service-tls updated (off-campus-housing-tracker) with full chain in tls.crt (apply)"
   else
     # Legacy: delete + create (more writes, more watch churn).
     for n in "$NS_APP" "$NS_ING"; do
@@ -567,7 +567,7 @@ data:
       _apply_with_retry -n "$NS_APP" create secret generic service-tls --from-file=tls.crt="$CHAIN_CRT" --from-file=tls.key="$LEAF_KEY" --from-file=ca.crt="$CA_CRT"
     fi
     sleep "$STEP2_SLEEP"
-    ok "service-tls updated (record-platform) with full chain in tls.crt"
+    ok "service-tls updated (off-campus-housing-tracker) with full chain in tls.crt"
   fi
   [[ -n "$SSH_DIR" ]] && rm -rf "$SSH_DIR"
 
@@ -588,14 +588,14 @@ data:
   say "4. Writing certs to certs/ (for Kustomize consistency)…"
   mkdir -p "$REPO_ROOT/certs"
   cp "$CA_CRT" "$REPO_ROOT/certs/dev-root.pem"
-  cp "$LEAF_CRT" "$REPO_ROOT/certs/record.local.crt"
-  cp "$LEAF_KEY" "$REPO_ROOT/certs/record.local.key"
+  cp "$LEAF_CRT" "$REPO_ROOT/certs/off-campus-housing.local.crt"
+  cp "$LEAF_KEY" "$REPO_ROOT/certs/off-campus-housing.local.key"
   if [[ "${KAFKA_SSL:-0}" == "1" ]]; then
     cp "$CA_KEY" "$REPO_ROOT/certs/dev-root.key"
     chmod 600 "$REPO_ROOT/certs/dev-root.key" 2>/dev/null || true
-    ok "certs/dev-root.pem|.key, record.local.crt|.key (KAFKA_SSL=1: CA key persisted for kafka-ssl-from-dev-root)"
+    ok "certs/dev-root.pem|.key, off-campus-housing.local.crt|.key (KAFKA_SSL=1: CA key persisted for kafka-ssl-from-dev-root)"
   else
-    ok "certs/dev-root.pem, certs/record.local.crt|.key updated"
+    ok "certs/dev-root.pem, certs/off-campus-housing.local.crt|.key updated"
   fi
 
   # Step 4b: API is often overloaded right after step 2 (many secret creates). Wait for it to respond before Caddy rollout.
@@ -607,7 +607,7 @@ data:
   log_progress "step 4b: waiting for API to settle after secret updates (up to ${_settle_cap}s)…"
   _api_ready=0
   for _w in $(seq 1 "$_settle_n"); do
-    if kubectl --request-timeout=15s get ns record-platform >/dev/null 2>&1; then
+    if kubectl --request-timeout=15s get ns off-campus-housing-tracker >/dev/null 2>&1; then
       _api_ready=1
       [[ $_w -gt 1 ]] && echo "  (4b) API ready after $((_w * 10))s"
       break

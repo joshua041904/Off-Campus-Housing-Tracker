@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package auction_monitor;
 
-option go_package = "github.com/yourorg/record-platform/proto/auction-monitor";
+option go_package = "github.com/yourorg/off-campus-housing-tracker/proto/auction-monitor";
 
 // Auction Monitor service for gRPC (Auction tracking, price monitoring)
 service AuctionMonitorService {

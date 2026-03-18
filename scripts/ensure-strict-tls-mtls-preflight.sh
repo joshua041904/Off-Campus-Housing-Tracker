@@ -10,7 +10,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 export PATH="$SCRIPT_DIR/shims:/opt/homebrew/bin:/usr/local/bin:${PATH:-}"
 cd "$REPO_ROOT"
 
-NS="${NS:-record-platform}"
+NS="${NS:-off-campus-housing-tracker}"
 NS_ING="${NS_ING:-ingress-nginx}"
 CERTS_DIR="${REPO_ROOT}/certs"
 SECRET_UPDATED=0
@@ -77,12 +77,12 @@ _validate_secrets() {
 
 # --- 2. Provision from repo certs or mkcert ---
 _provision_from_repo() {
-  if [[ -f "$CERTS_DIR/dev-root.pem" ]] && [[ -f "$CERTS_DIR/record.local.crt" ]] && [[ -f "$CERTS_DIR/record.local.key" ]]; then
+  if [[ -f "$CERTS_DIR/dev-root.pem" ]] && [[ -f "$CERTS_DIR/off-campus-housing.local.crt" ]] && [[ -f "$CERTS_DIR/off-campus-housing.local.key" ]]; then
     mkdir -p "$CERTS_DIR"
     kubectl -n "$NS" create secret generic service-tls \
       --from-file=ca.crt="$CERTS_DIR/dev-root.pem" \
-      --from-file=tls.crt="$CERTS_DIR/record.local.crt" \
-      --from-file=tls.key="$CERTS_DIR/record.local.key" \
+      --from-file=tls.crt="$CERTS_DIR/off-campus-housing.local.crt" \
+      --from-file=tls.key="$CERTS_DIR/off-campus-housing.local.key" \
       --dry-run=client -o yaml | kubectl apply -f -
     kubectl -n "$NS_ING" create secret generic dev-root-ca --from-file=dev-root.pem="$CERTS_DIR/dev-root.pem" --dry-run=client -o yaml | kubectl apply -f -
     kubectl -n "$NS" create secret generic dev-root-ca --from-file=dev-root.pem="$CERTS_DIR/dev-root.pem" --dry-run=client -o yaml | kubectl apply -f -
@@ -101,17 +101,17 @@ _provision_from_mkcert() {
   local tmpd
   tmpd=$(mktemp -d 2>/dev/null || echo "/tmp/mkcert-provision-$$")
   mkcert -cert-file "$tmpd/tls.crt" -key-file "$tmpd/tls.key" \
-    record.local "*.record.local" localhost 127.0.0.1 \
-    "auth-service.record-platform.svc.cluster.local" \
-    "api-gateway.record-platform.svc.cluster.local" \
-    "records-service.record-platform.svc.cluster.local" \
-    "social-service.record-platform.svc.cluster.local" \
-    "listings-service.record-platform.svc.cluster.local" \
-    "analytics-service.record-platform.svc.cluster.local" \
-    "shopping-service.record-platform.svc.cluster.local" \
-    "auction-monitor.record-platform.svc.cluster.local" \
-    "python-ai-service.record-platform.svc.cluster.local" \
-    "*.record-platform.svc.cluster.local" \
+    off-campus-housing.local "*.off-campus-housing.local" localhost 127.0.0.1 \
+    "auth-service.off-campus-housing-tracker.svc.cluster.local" \
+    "api-gateway.off-campus-housing-tracker.svc.cluster.local" \
+    "records-service.off-campus-housing-tracker.svc.cluster.local" \
+    "social-service.off-campus-housing-tracker.svc.cluster.local" \
+    "listings-service.off-campus-housing-tracker.svc.cluster.local" \
+    "analytics-service.off-campus-housing-tracker.svc.cluster.local" \
+    "shopping-service.off-campus-housing-tracker.svc.cluster.local" \
+    "auction-monitor.off-campus-housing-tracker.svc.cluster.local" \
+    "python-ai-service.off-campus-housing-tracker.svc.cluster.local" \
+    "*.off-campus-housing-tracker.svc.cluster.local" \
     &>/dev/null || true
   if [[ ! -f "$tmpd/tls.crt" ]] || [[ ! -f "$tmpd/tls.key" ]]; then
     rm -rf "$tmpd"
@@ -127,8 +127,8 @@ _provision_from_mkcert() {
   kubectl -n "$NS" create secret generic dev-root-ca --from-file=dev-root.pem="$tmpd/ca.crt" --dry-run=client -o yaml | kubectl apply -f -
   mkdir -p "$CERTS_DIR"
   cp -f "$tmpd/ca.crt" "$CERTS_DIR/dev-root.pem"
-  cp -f "$tmpd/tls.crt" "$CERTS_DIR/record.local.crt"
-  cp -f "$tmpd/tls.key" "$CERTS_DIR/record.local.key"
+  cp -f "$tmpd/tls.crt" "$CERTS_DIR/off-campus-housing.local.crt"
+  cp -f "$tmpd/tls.key" "$CERTS_DIR/off-campus-housing.local.key"
   ok "Provisioned service-tls + dev-root-ca from mkcert"
   rm -rf "$tmpd"
   return 0
@@ -157,7 +157,7 @@ if [[ "$need" == "1" ]]; then
   elif _provision_from_mkcert; then
     SECRET_UPDATED=1
   else
-    fail "Cannot provision: ensure certs/dev-root.pem, certs/record.local.crt, certs/record.local.key exist, or install mkcert (brew install mkcert && mkcert -install). Then re-run or run pnpm run reissue."
+    fail "Cannot provision: ensure certs/dev-root.pem, certs/off-campus-housing.local.crt, certs/off-campus-housing.local.key exist, or install mkcert (brew install mkcert && mkcert -install). Then re-run or run pnpm run reissue."
   fi
 else
   ok "service-tls + dev-root-ca validated"

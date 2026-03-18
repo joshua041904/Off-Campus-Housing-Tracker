@@ -3,7 +3,7 @@
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
 metadata:
-  name: record-platform-pool
+  name: off-campus-housing-tracker-pool
   namespace: metallb-system
 spec:
   addresses:

@@ -308,11 +308,11 @@ stop_and_analyze_captures_v2() {
       echo "  [packet-capture-v2] ⚠️  Stray UDP 443 detected (background QUIC noise); capture should use BPF dst host $lb_ip."
       [[ "${STRICT_QUIC_VALIDATION:-0}" == "1" ]] && echo "  [packet-capture-v2] STRICT_QUIC_VALIDATION=1: failing due to stray traffic." && return 1
     fi
-    # Optional SNI proof (record.local)
+    # Optional SNI proof (off-campus-housing.local)
     local sni_count=0
-    sni_count=$(tshark -r "$dir/node-capture.pcap" -Y "quic && tls.handshake.extensions_server_name contains record.local" 2>/dev/null | wc -l | tr -d '[:space:]')
+    sni_count=$(tshark -r "$dir/node-capture.pcap" -Y "quic && tls.handshake.extensions_server_name contains off-campus-housing.local" 2>/dev/null | wc -l | tr -d '[:space:]')
     sni_count=${sni_count:-0}
-    [[ "$sni_count" -gt 0 ]] && echo "  [packet-capture-v2] QUIC SNI record.local: $sni_count packets"
+    [[ "$sni_count" -gt 0 ]] && echo "  [packet-capture-v2] QUIC SNI off-campus-housing.local: $sni_count packets"
   fi
 
   echo "  === End 3-layer analysis ==="

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Generate a dedicated Envoy client cert (CN=envoy) signed by dev-root for strict mTLS.
-# Backends expect a client identity; the edge leaf (record.local) is not a service identity.
+# Backends expect a client identity; the edge leaf (off-campus-housing.local) is not a service identity.
 # Run from repo root. Requires: certs/dev-root.pem, certs/dev-root.key (run reissue with KAFKA_SSL=1 to persist CA key).
 #
 # Output: certs/envoy-client.crt, certs/envoy-client.key
@@ -33,7 +33,7 @@ trap 'rm -rf "$TMP"' EXIT
 # CN=envoy, SAN for Envoy identity (service name / FQDN)
 openssl genrsa -out "$TMP/envoy.key" 2048 2>/dev/null
 openssl req -new -key "$TMP/envoy.key" -out "$TMP/envoy.csr" \
-  -subj "/CN=envoy/O=record-platform" 2>/dev/null
+  -subj "/CN=envoy/O=off-campus-housing-tracker" 2>/dev/null
 
 cat > "$TMP/ext.conf" <<'EXT'
 [v3_req]

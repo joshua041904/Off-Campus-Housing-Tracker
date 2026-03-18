@@ -3,7 +3,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: postgres-postinit-sql
-  namespace: record-platform
+  namespace: off-campus-housing-tracker
 data:
   postinit.sql: |-
     -- Idempotent Postgres post-init (safe to rerun)
@@ -360,7 +360,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   generateName: postgres-postinit-          # <— generateName avoids immutable errors on re-run
-  namespace: record-platform
+  namespace: off-campus-housing-tracker
   labels: { app: postgres-postinit }
 spec:
   backoffLimit: 0
@@ -381,7 +381,7 @@ spec:
         - name: wait-pg
           image: postgres:16
           env:
-            - { name: PGHOST,     value: postgres.record-platform.svc.cluster.local }
+            - { name: PGHOST,     value: postgres.off-campus-housing-tracker.svc.cluster.local }
             - { name: PGUSER,     value: postgres }
             - { name: PGDATABASE, value: postgres }   # <— wait on postgres, not records
             - name: PGPASSWORD
@@ -400,7 +400,7 @@ spec:
         - name: psql
           image: postgres:16
           env:
-            - { name: PGHOST,     value: postgres.record-platform.svc.cluster.local }
+            - { name: PGHOST,     value: postgres.off-campus-housing-tracker.svc.cluster.local }
             - { name: PGUSER,     value: postgres }
             - { name: PGDATABASE, value: postgres }
             - name: PGPASSWORD
@@ -423,14 +423,14 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: postgres-postinit-debugger
-  namespace: record-platform
+  namespace: off-campus-housing-tracker
 spec:
   restartPolicy: Never
   containers:
   - name: psql
     image: postgres:16
     env:
-    - { name: PGHOST,     value: postgres.record-platform.svc.cluster.local }
+    - { name: PGHOST,     value: postgres.off-campus-housing-tracker.svc.cluster.local }
     - { name: PGUSER,     value: postgres }
     - { name: PGDATABASE, value: records }
     - name: PGPASSWORD
@@ -438,7 +438,7 @@ spec:
     command: ["bash","-lc"]
     args:
     - |
-      echo "Debugger pod ready. Use: kubectl -n record-platform exec -it postgres-postinit-debugger -- bash";
+      echo "Debugger pod ready. Use: kubectl -n off-campus-housing-tracker exec -it postgres-postinit-debugger -- bash";
       sleep 36000
     volumeMounts:
     - { name: postinit-sql, mountPath: /postinit }
@@ -453,7 +453,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: pg-backups
-  namespace: record-platform
+  namespace: off-campus-housing-tracker
 spec:
   accessModes: ["ReadWriteOnce"]
   resources:
@@ -464,7 +464,7 @@ apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: pg-daily-backup
-  namespace: record-platform
+  namespace: off-campus-housing-tracker
 spec:
   schedule: "20 3 * * *"
   jobTemplate:
@@ -477,7 +477,7 @@ spec:
           - name: dump
             image: postgres:16
             env:
-            - { name: PGHOST,     value: postgres.record-platform.svc.cluster.local }
+            - { name: PGHOST,     value: postgres.off-campus-housing-tracker.svc.cluster.local }
             - { name: PGUSER,     value: postgres }
             - { name: PGDATABASE, value: records }
             - name: PGPASSWORD
@@ -501,13 +501,13 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: cluster-snapshot
-  namespace: record-platform
+  namespace: off-campus-housing-tracker
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: cluster-snapshot
-  namespace: record-platform
+  namespace: off-campus-housing-tracker
 rules:
 - apiGroups: ["", "apps", "batch", "autoscaling", "monitoring.coreos.com", "networking.k8s.io"]
   resources: ["*"]
@@ -517,7 +517,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: cluster-snapshot
-  namespace: record-platform
+  namespace: off-campus-housing-tracker
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -525,13 +525,13 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: cluster-snapshot
-  namespace: record-platform
+  namespace: off-campus-housing-tracker
 ---
 apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: k8s-daily-snapshot
-  namespace: record-platform
+  namespace: off-campus-housing-tracker
 spec:
   schedule: "35 3 * * *"
   jobTemplate:
@@ -550,7 +550,7 @@ spec:
               set -euo pipefail
               TS="$(date +%Y%m%d-%H%M%S)"
               OUT="/backups/cluster-${TS}.yaml"
-              kubectl -n record-platform get all,cm,secret,ing,svcmon.job,job,cronjob,hpa,pvc -o yaml > "$OUT"
+              kubectl -n off-campus-housing-tracker get all,cm,secret,ing,svcmon.job,job,cronjob,hpa,pvc -o yaml > "$OUT"
               ls -lh "$OUT"
               ls -1t /backups/cluster-*.yaml | tail -n +15 | xargs -r rm -f
             volumeMounts:

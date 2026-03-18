@@ -2,10 +2,10 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: node-services
-  namespace: record-platform
+  namespace: off-campus-housing-tracker
 spec:
   namespaceSelector:
-    matchNames: ["record-platform"]
+    matchNames: ["off-campus-housing-tracker"]
   selector:
     matchExpressions:
       - key: app
@@ -29,10 +29,10 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: edge-exporters
-  namespace: record-platform
+  namespace: off-campus-housing-tracker
 spec:
   namespaceSelector:
-    matchNames: ["record-platform"]
+    matchNames: ["off-campus-housing-tracker"]
   selector:
     matchExpressions:
       - key: app

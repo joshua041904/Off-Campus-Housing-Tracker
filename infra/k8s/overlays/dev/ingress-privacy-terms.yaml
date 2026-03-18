@@ -1,8 +1,8 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: record-platform-privacy-terms
-  namespace: record-platform
+  name: off-campus-housing-tracker-privacy-terms
+  namespace: off-campus-housing-tracker
   annotations:
     nginx.ingress.kubernetes.io/ssl-redirect: "false"
     nginx.ingress.kubernetes.io/proxy-body-size: "10m"
@@ -26,8 +26,8 @@ spec:
             name: auth-service
             port:
               number: 4001
-  # Specific rule for record.local
-  - host: record.local
+  # Specific rule for off-campus-housing.local
+  - host: off-campus-housing.local
     http:
       paths:
       - path: /privacy

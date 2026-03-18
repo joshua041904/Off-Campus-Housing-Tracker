@@ -34,16 +34,16 @@ After changing **api-gateway**, **social-service**, **analytics-service**, or **
 1. **Build and load**
    - **Colima:** Run `./scripts/build-and-rollout-colima.sh` to build all `:dev` images and rollout restart deployments. Or let preflight (step 2e) build missing images when `PREFLIGHT_ENSURE_IMAGES=1` (default). To build only (no rollout): build each service with `docker build -t <service>:dev -f services/<service>/Dockerfile .`.
    - **Kind:** Run `./scripts/build-and-load.sh` (default cluster `h3`). Pass cluster name if different: `./scripts/build-and-load.sh <cluster>`.
-   - **k3d:** Build images as above, then `k3d image import <name>:dev -c record-platform` for each, or use your registry flow.
+   - **k3d:** Build images as above, then `k3d image import <name>:dev -c off-campus-housing-tracker` for each, or use your registry flow.
 
 2. **Restart deployments** so pods pick up the new image:
 
    ```bash
-   kubectl rollout restart deployment api-gateway social-service analytics-service python-ai-service -n record-platform
-   kubectl rollout status deployment api-gateway social-service analytics-service python-ai-service -n record-platform --timeout=120s
+   kubectl rollout restart deployment api-gateway social-service analytics-service python-ai-service -n off-campus-housing-tracker
+   kubectl rollout status deployment api-gateway social-service analytics-service python-ai-service -n off-campus-housing-tracker --timeout=120s
    ```
 
-   Or restart only the ones you changed, e.g. `kubectl rollout restart deployment api-gateway -n record-platform`.
+   Or restart only the ones you changed, e.g. `kubectl rollout restart deployment api-gateway -n off-campus-housing-tracker`.
 
 3. **Re-run the suite** (e.g. `./scripts/test-microservices-http2-http3.sh` or the full preflight one-liner).
 
@@ -72,7 +72,7 @@ Optional: `RUN_SHOPPING_SEQUENCE=1` to run the shopping order-number sequence be
 From the repo root:
 
 ```bash
-cd /Users/tom/record-platform && COLIMA_START=1 RUN_FULL_LOAD=1 KILL_STALE_FIRST=1 PGBENCH_PARALLEL=1 bash ./scripts/run-preflight-scale-and-all-suites.sh 2>&1 | tee "preflight-full-$(date +%Y%m%d-%H%M%S).log"
+cd /Users/tom/off-campus-housing-tracker && COLIMA_START=1 RUN_FULL_LOAD=1 KILL_STALE_FIRST=1 PGBENCH_PARALLEL=1 bash ./scripts/run-preflight-scale-and-all-suites.sh 2>&1 | tee "preflight-full-$(date +%Y%m%d-%H%M%S).log"
 ```
 
 The script re-execs with bash if invoked by zsh/sh so it behaves correctly in pipelines. Using `bash ./scripts/...` in the one-liner guarantees bash even if your default shell or terminal profile changed (e.g. after disabling Docker/Kind as default).
@@ -133,13 +133,13 @@ If Colima still doesn’t start:
 
 ## k3d (not Colima)
 
-When the context is **k3d** (e.g. `k3d-record-platform`), preflight does **not** use Colima or the 6443 tunnel. Step **3c0a** restarts k3d nodes so k3s picks up the registry config; step **3c0b** then waits for the k3d API to stabilize (default up to 5 min, progress every 30s). How long it took is printed and written to **`bench_logs/k3d-stabilization-last.txt`** (e.g. `stable_after_s=120` or `did_not_stabilize elapsed_s=300`). If the API does not stabilize in time, MetalLB/Caddy applies may fail; increase **`PREFLIGHT_K3D_API_STABILIZE_SLOTS`** (e.g. 90 for 7.5 min) or run `kubectl get nodes` and re-run preflight once the API is up.
+When the context is **k3d** (e.g. `k3d-off-campus-housing-tracker`), preflight does **not** use Colima or the 6443 tunnel. Step **3c0a** restarts k3d nodes so k3s picks up the registry config; step **3c0b** then waits for the k3d API to stabilize (default up to 5 min, progress every 30s). How long it took is printed and written to **`bench_logs/k3d-stabilization-last.txt`** (e.g. `stable_after_s=120` or `did_not_stabilize elapsed_s=300`). If the API does not stabilize in time, MetalLB/Caddy applies may fail; increase **`PREFLIGHT_K3D_API_STABILIZE_SLOTS`** (e.g. 90 for 7.5 min) or run `kubectl get nodes` and re-run preflight once the API is up.
 
 ---
 
 ## HTTP/3 and MetalLB (k3d)
 
-- **Step 4e** checks HTTP/3 from the host to NodePort 127.0.0.1:30443 using `record.local` + `--resolve`. On macOS, NodePort UDP often does not work from the host, so you may see code **000** — that is expected and non-fatal.
+- **Step 4e** checks HTTP/3 from the host to NodePort 127.0.0.1:30443 using `off-campus-housing.local` + `--resolve`. On macOS, NodePort UDP often does not work from the host, so you may see code **000** — that is expected and non-fatal.
 - **Step 4f** verifies HTTP/3 **in-cluster** (pod → Caddy via MetalLB/LB IP). That is the authoritative check for “HTTP/3 works” in preflight; suites can use HTTP/2 from the host or in-cluster QUIC.
 - So: **in-cluster HTTP/3 = pass**; host NodePort QUIC is best-effort and not required for preflight to succeed.
 
@@ -153,9 +153,9 @@ When using **Colima** with **bridged** networking and MetalLB (e.g. pool 192.168
    [[ -n "$NODE_IP" ]] && sudo route -n add 192.168.5.0/24 "$NODE_IP"
    ```
    Or use a known IPv4 from `kubectl get nodes -o wide`: `sudo route -n add 192.168.5.0/24 192.168.64.7`
-2. **Verify:** `curl -k -sS -o /dev/null -w '%{http_code}' --http2 --resolve record.local:443:192.168.5.240 https://record.local/_caddy/healthz` → **200**
+2. **Verify:** `curl -k -sS -o /dev/null -w '%{http_code}' --http2 --resolve off-campus-housing.local:443:192.168.5.240 https://off-campus-housing.local/_caddy/healthz` → **200**
 3. **HTTP/3** (use Homebrew curl):  
-   `NGTCP2_ENABLE_GSO=0 /opt/homebrew/opt/curl/bin/curl -k -sS -o /dev/null -w '%{http_code}' --http3-only --resolve record.local:443:192.168.5.240 https://record.local/_caddy/healthz` → **200**
+   `NGTCP2_ENABLE_GSO=0 /opt/homebrew/opt/curl/bin/curl -k -sS -o /dev/null -w '%{http_code}' --http3-only --resolve off-campus-housing.local:443:192.168.5.240 https://off-campus-housing.local/_caddy/healthz` → **200**
 4. Run preflight with MetalLB: `REQUIRE_COLIMA=1 METALLB_ENABLED=1 ./scripts/run-preflight-scale-and-all-suites.sh`. Step 3c1b (MetalLB verify) will see the LB IP reachable and write `/tmp/metallb-reachable.env` with `REACHABLE_LB_IP=192.168.5.240` and `PORT=443`, so **run-all-test-suites** and baseline/enhanced use the LB IP for HTTP/2 and HTTP/3 (no socat/127.0.0.1:8443 needed).
 
 Without the route, verification can still use the no-sudo forward (127.0.0.1:8443 → NodePort) for HTTP/2, but **QUIC to 127.0.0.1:8443 often fails**; the route is the supported path for host HTTP/3.
@@ -224,7 +224,7 @@ SUITE_TIMEOUT=0 METALLB_ENABLED=1 REQUIRE_COLIMA=0 RUN_PGBENCH=0 RUN_SHOPPING_SE
 9. **Step 6f** — Shopping order_number sequence (only when RUN_SHOPPING_SEQUENCE=1).
 10. **Step 7** — `run-all-test-suites.sh` (auth, baseline, enhanced, adversarial, rotation, standalone, tls-mtls, social); SUITE_TIMEOUT=0 so no suite is killed by time.
 
-**Get ready first:** `./scripts/ensure-ready-for-preflight.sh` (cluster up, external Postgres/Redis/Kafka, **all app images built and in k3d registry**). When **Colima**, step 2e ensures **record-platform-shopping-service:latest** and **record-platform-listings-service:latest** (K8s deploy uses these); other services use `:dev`. When k3d, step 6 checks local `:dev` images and registry catalog; run `./scripts/build-and-push-dev.sh` then `./scripts/push-dev-images-to-registry.sh` if any are missing.
+**Get ready first:** `./scripts/ensure-ready-for-preflight.sh` (cluster up, external Postgres/Redis/Kafka, **all app images built and in k3d registry**). When **Colima**, step 2e ensures **off-campus-housing-tracker-shopping-service:latest** and **off-campus-housing-tracker-listings-service:latest** (K8s deploy uses these); other services use `:dev`. When k3d, step 6 checks local `:dev` images and registry catalog; run `./scripts/build-and-push-dev.sh` then `./scripts/push-dev-images-to-registry.sh` if any are missing.
 
 ---
 
@@ -248,14 +248,14 @@ SUITE_TIMEOUT=0 METALLB_ENABLED=1 REQUIRE_COLIMA=0 RUN_PGBENCH=0 RUN_SHOPPING_SE
 | `RUN_SHOPPING_SEQUENCE=1` | Step 6f runs ensure-shopping-order-number-sequence before suites (fresh order_number for shopping tests). |
 | `PREFLIGHT_K3D_EXPECTED_NODES=2` | k3d: require this many nodes; step 3b0 and post-3c0b wait until all are **Ready** (default 2 for 2-node cluster). |
 | `PREFLIGHT_K3D_NODES_READY_WAIT=120` | k3d: max seconds to wait for all nodes Ready (default 120). Set 0 to skip. Ensures both nodes are Ready before reissue/MetalLB/applies. |
-| `PREFLIGHT_ENSURE_IMAGES=1` | Colima: step 2e builds **record-platform-shopping-service:latest** and **record-platform-listings-service:latest** if missing, then other app `:dev` images. k3d: verifies required app images in registry (127.0.0.1:5000); exit 1 if any missing. Set 0 to skip. |
+| `PREFLIGHT_ENSURE_IMAGES=1` | Colima: step 2e builds **off-campus-housing-tracker-shopping-service:latest** and **off-campus-housing-tracker-listings-service:latest** if missing, then other app `:dev` images. k3d: verifies required app images in registry (127.0.0.1:5000); exit 1 if any missing. Set 0 to skip. |
 | `ENSURE_IMAGES=1` | In ensure-ready-for-preflight.sh: when k3d, require all app :dev images locally and in registry (step 6). Set 0 to skip. |
 | `PREFLIGHT_CADDY_ROLLOUT_WAIT=120` | Seconds to wait for caddy-h3 rollout before MetalLB verification (3c1b). Default 120. If Caddy is slow, increase or check pod events. |
 
 **Troubleshooting:** If MetalLB verify passes when run standalone but fails inside preflight, or you see 3 Caddy pods (1 Pending) or services stuck 0/1 Ready, see **docs/PREFLIGHT_METALLB_VERIFY_ORDER.md** (order fix: 3c2 Caddy before 3c1b verify; Caddy maxSurge; 0/1 = DB/Kafka/Redis).
-| **Step 6b** | wait-for-all-services-ready.sh: all 9 record-platform deployments 1/1 Ready; when `WAIT_CADDY_ENVOY=1` (default), also Caddy (ingress-nginx) 2/2 and Envoy (envoy-test) 1/1. |
-| **Step 6b2** | Cluster health: on k3d, require `PREFLIGHT_K3D_EXPECTED_NODES` (default 2) nodes Ready; then print pod summary (record-platform, ingress-nginx, envoy-test). Fail if nodes not all Ready. |
-| `WAIT_CADDY_ENVOY=1` | In wait-for-all-services-ready.sh: also wait for Caddy 2/2 and Envoy 1/1 (default). Set 0 to only wait for record-platform services. |
+| **Step 6b** | wait-for-all-services-ready.sh: all 9 off-campus-housing-tracker deployments 1/1 Ready; when `WAIT_CADDY_ENVOY=1` (default), also Caddy (ingress-nginx) 2/2 and Envoy (envoy-test) 1/1. |
+| **Step 6b2** | Cluster health: on k3d, require `PREFLIGHT_K3D_EXPECTED_NODES` (default 2) nodes Ready; then print pod summary (off-campus-housing-tracker, ingress-nginx, envoy-test). Fail if nodes not all Ready. |
+| `WAIT_CADDY_ENVOY=1` | In wait-for-all-services-ready.sh: also wait for Caddy 2/2 and Envoy 1/1 (default). Set 0 to only wait for off-campus-housing-tracker services. |
 | Step 6e | ensure-tcpdump runs once; if any pod reports "timed out", it is retried once so baseline/enhanced/rotation capture can skip per-pod install. |
 | `SUITE_LOG_DIR=/tmp/k6` | Put k6/suite logs in this dir |
 | `K6_PROTOCOL_COMPARISON=0` | Skip HTTP/2 vs HTTP/3 comparison (default 1 when RUN_FULL_LOAD=1) |

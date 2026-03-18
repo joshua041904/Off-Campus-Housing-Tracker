@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: api-gateway
-  namespace: record-platform
+  namespace: off-campus-housing-tracker
 spec:
   replicas: 1  # Baseline testing; scale up for load tests
 

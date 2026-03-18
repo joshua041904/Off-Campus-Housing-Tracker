@@ -1,8 +1,8 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: record-platform
-  namespace: record-platform
+  name: off-campus-housing-tracker
+  namespace: off-campus-housing-tracker
   annotations:
     nginx.ingress.kubernetes.io/ssl-redirect: "false"
     nginx.ingress.kubernetes.io/proxy-body-size: "10m"
@@ -16,7 +16,7 @@ metadata:
 spec:
   ingressClassName: nginx
   tls:
-  - hosts: [record.local]
+  - hosts: [off-campus-housing.local]
     secretName: record-local-tls
   rules:
   # Catch-all rule for any hostname (ngrok, etc.)
@@ -36,8 +36,8 @@ spec:
             name: nginx
             port:
               number: 8080
-  # Specific rule for record.local (for backwards compatibility)
-  - host: record.local
+  # Specific rule for off-campus-housing.local (for backwards compatibility)
+  - host: off-campus-housing.local
     http:
       paths:
       - path: /api(/|$)(.*)

@@ -4,8 +4,8 @@
 # with dev-root-ca; exit 0 if HTTP 200 and no curl 60. Use when host cannot reach Caddy (e.g. k3d MetalLB).
 #
 # Breakdown:
-#   1. Reads dev-root-ca from ingress-nginx (or record-platform) secret.
-#   2. Creates a temporary Pod with curl image and CA mounted; runs curl with --cacert and Host: record.local.
+#   1. Reads dev-root-ca from ingress-nginx (or off-campus-housing-tracker) secret.
+#   2. Creates a temporary Pod with curl image and CA mounted; runs curl with --cacert and Host: off-campus-housing.local.
 #   3. Waits for pod completion; exit 0 if curl succeeded (strict TLS OK), else exit 1.
 # Use: ./scripts/verify-caddy-strict-tls-in-cluster.sh
 
@@ -17,8 +17,8 @@ export PATH="$SCRIPT_DIR/shims:/opt/homebrew/bin:/usr/local/bin:${PATH:-}"
 cd "$REPO_ROOT"
 
 NS_ING="${NS_ING:-ingress-nginx}"
-NS_APP="${NS_APP:-record-platform}"
-HOST="${HOST:-record.local}"
+NS_APP="${NS_APP:-off-campus-housing-tracker}"
+HOST="${HOST:-off-campus-housing.local}"
 CURL_IMAGE="${CURL_IMAGE:-curlimages/curl:latest}"
 ok()  { echo "✅ $*"; }
 warn(){ echo "⚠️  $*"; }

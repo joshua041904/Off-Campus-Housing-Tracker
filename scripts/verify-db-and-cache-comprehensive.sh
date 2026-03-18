@@ -100,17 +100,17 @@ verify_cache_operations() {
   say "Verifying Cache Operations..."
   
   # Check if Redis is available (externalized, may not be in cluster)
-  REDIS_POD=$(kubectl -n record-platform get pods -l app=redis -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+  REDIS_POD=$(kubectl -n off-campus-housing-tracker get pods -l app=redis -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
   
   if [[ -n "$REDIS_POD" ]]; then
     ok "Redis pod found: $REDIS_POD"
     
     # Check Redis connectivity
-    if kubectl -n record-platform exec "$REDIS_POD" -- redis-cli ping >/dev/null 2>&1; then
+    if kubectl -n off-campus-housing-tracker exec "$REDIS_POD" -- redis-cli ping >/dev/null 2>&1; then
       ok "Redis: Connected and responding"
       
       # Get cache stats
-      REDIS_INFO=$(kubectl -n record-platform exec "$REDIS_POD" -- redis-cli info stats 2>/dev/null || echo "")
+      REDIS_INFO=$(kubectl -n off-campus-housing-tracker exec "$REDIS_POD" -- redis-cli info stats 2>/dev/null || echo "")
       if [[ -n "$REDIS_INFO" ]]; then
         KEYS_HIT=$(echo "$REDIS_INFO" | grep "keyspace_hits" | cut -d: -f2 | tr -d '\r' || echo "0")
         KEYS_MISS=$(echo "$REDIS_INFO" | grep "keyspace_misses" | cut -d: -f2 | tr -d '\r' || echo "0")
@@ -137,7 +137,7 @@ verify_cache_operations() {
   
   # Test auth service cache (multiple requests should show cache hits)
   if command -v curl >/dev/null 2>&1; then
-    HOST="${HOST:-record.local}"
+    HOST="${HOST:-off-campus-housing.local}"
     PORT="${PORT:-30443}"
     
     # Make multiple requests to same endpoint (should hit cache on subsequent requests)
@@ -167,7 +167,7 @@ verify_social_service() {
   SOCIAL_DB_PORT="${SOCIAL_DB_PORT:-5434}"
   
   # Check social service pod health
-  SOCIAL_PODS=($(kubectl -n record-platform get pods -l app=social-service -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || echo ""))
+  SOCIAL_PODS=($(kubectl -n off-campus-housing-tracker get pods -l app=social-service -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || echo ""))
   
   if [[ ${#SOCIAL_PODS[@]} -eq 0 ]]; then
     warn "Social service: No pods found"
@@ -178,8 +178,8 @@ verify_social_service() {
   
   # Check pod status
   for pod in "${SOCIAL_PODS[@]}"; do
-    STATUS=$(kubectl -n record-platform get pod "$pod" -o jsonpath='{.status.phase}' 2>/dev/null || echo "Unknown")
-    READY=$(kubectl -n record-platform get pod "$pod" -o jsonpath='{.status.containerStatuses[0].ready}' 2>/dev/null || echo "false")
+    STATUS=$(kubectl -n off-campus-housing-tracker get pod "$pod" -o jsonpath='{.status.phase}' 2>/dev/null || echo "Unknown")
+    READY=$(kubectl -n off-campus-housing-tracker get pod "$pod" -o jsonpath='{.status.containerStatuses[0].ready}' 2>/dev/null || echo "false")
     
     if [[ "$STATUS" == "Running" ]] && [[ "$READY" == "true" ]]; then
       ok "  Pod $pod: Running and Ready"
@@ -200,7 +200,7 @@ verify_social_service() {
     fi
     # 2) Pod: Node + pg (social-service has these; psql usually not)
     if [[ "$DB_CHECK" != "OK" ]]; then
-      NODE_CHECK=$(kubectl -n record-platform exec "$SOCIAL_POD" -- node -e "
+      NODE_CHECK=$(kubectl -n off-campus-housing-tracker exec "$SOCIAL_POD" -- node -e "
         const u=process.env.POSTGRES_URL_SOCIAL||process.env.DATABASE_URL;
         if(!u){process.exit(1);}
         require('pg').Client({connectionString:u,connectionTimeoutMillis:3000}).connect().then(()=>{console.log('OK');process.exit(0);}).catch(()=>process.exit(1));
@@ -209,7 +209,7 @@ verify_social_service() {
     fi
     # 3) Pod: psql if present (e.g. debug image)
     if [[ "$DB_CHECK" != "OK" ]]; then
-      PSQL_CHECK=$(kubectl -n record-platform exec "$SOCIAL_POD" -- sh -c 'echo "SELECT 1;" | timeout 5 psql "${POSTGRES_URL_SOCIAL:-$DATABASE_URL}" -tAc "SELECT 1" 2>/dev/null' 2>/dev/null || echo "")
+      PSQL_CHECK=$(kubectl -n off-campus-housing-tracker exec "$SOCIAL_POD" -- sh -c 'echo "SELECT 1;" | timeout 5 psql "${POSTGRES_URL_SOCIAL:-$DATABASE_URL}" -tAc "SELECT 1" 2>/dev/null' 2>/dev/null || echo "")
       [[ "$PSQL_CHECK" == "1" ]] && DB_CHECK="OK"
     fi
     if [[ "$DB_CHECK" == "OK" ]]; then
@@ -240,7 +240,7 @@ verify_social_service() {
   
   # Test social service health endpoint
   if command -v curl >/dev/null 2>&1; then
-    HOST="${HOST:-record.local}"
+    HOST="${HOST:-off-campus-housing.local}"
     PORT="${PORT:-30443}"
     
     SOCIAL_HEALTH=$(curl -k -s --http2 --max-time 5 \

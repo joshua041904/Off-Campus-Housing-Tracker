@@ -28,7 +28,7 @@ To run the **preflight and full test suite** daily and collect results:
 1. **Host cron** (recommended):  
    Run `scripts/run-daily-test-suite-with-results.sh` from the repo root, e.g.:
    ```bash
-   0 6 * * * /path/to/record-platform/scripts/run-daily-test-suite-with-results.sh
+   0 6 * * * /path/to/off-campus-housing-tracker/scripts/run-daily-test-suite-with-results.sh
    ```
    Results go to `/tmp/daily-suite-<timestamp>/` (or `SUITE_LOG_PARENT/daily-suite-<timestamp>/`). The script prints a short self-analyze (which suite failed, failure snippets).
 

@@ -280,7 +280,7 @@ app.use(
       /^http:\/\/localhost:4000$/,
       /^http:\/\/localhost:8080$/,
       /^https:\/\/record\.local$/,
-      /^https:\/\/record-platform\.local$/,
+      /^https:\/\/off-campus-housing-tracker\.local$/,
     ],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],

@@ -15,7 +15,7 @@ ok()  { echo "✅ $*"; }
 warn(){ echo "⚠️  $*"; }
 fail(){ echo "❌ $*" >&2; }
 
-NS="record-platform"
+NS="off-campus-housing-tracker"
 INGRESS_NS="ingress-nginx"
 ENVOY_NS="envoy-test"
 

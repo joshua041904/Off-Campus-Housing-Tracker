@@ -97,11 +97,11 @@ if [[ "$USE_DIRECT_LB" == "1" ]] || [[ "${COLIMA_DIRECT_LB:-0}" == "1" ]]; then
     sudo ifconfig lo0 -alias "$LB_IP" 2>/dev/null || true
     sleep 1
   fi
-  _h2=$(curl -k -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 8 --resolve "record.local:443:$LB_IP" "https://record.local/_caddy/healthz" 2>/dev/null || echo "000")
+  _h2=$(curl -k -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 8 --resolve "off-campus-housing.local:443:$LB_IP" "https://off-campus-housing.local/_caddy/healthz" 2>/dev/null || echo "000")
   if [[ "$_h2" == "200" ]]; then
     _h3="000"
     if [[ -n "$CURL_HTTP3" ]] && [[ -x "$CURL_HTTP3" ]]; then
-      _h3=$(NGTCP2_ENABLE_GSO=0 "$CURL_HTTP3" --http3-only -k -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 --resolve "record.local:443:$LB_IP" "https://record.local/_caddy/healthz" 2>/dev/null || echo "000")
+      _h3=$(NGTCP2_ENABLE_GSO=0 "$CURL_HTTP3" --http3-only -k -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 --resolve "off-campus-housing.local:443:$LB_IP" "https://off-campus-housing.local/_caddy/healthz" 2>/dev/null || echo "000")
     fi
     METALLB_ENV="${METALLB_REACHABLE_ENV:-/tmp/metallb-reachable.env}"
     echo "REACHABLE_LB_IP=$LB_IP" > "$METALLB_ENV"
@@ -332,10 +332,10 @@ info "Wrote $METALLB_ENV (REACHABLE_LB_IP, USE_LB_FOR_TESTS)"
 
 say "Done. Quick verify (optional):"
 sleep 2
-VERIFY_H2=$(curl -k --http2 -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --resolve "record.local:443:$LB_IP" "https://record.local/_caddy/healthz" 2>/dev/null || echo "000")
+VERIFY_H2=$(curl -k --http2 -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --resolve "off-campus-housing.local:443:$LB_IP" "https://off-campus-housing.local/_caddy/healthz" 2>/dev/null || echo "000")
 if [[ "$VERIFY_H2" == "200" ]]; then ok "HTTP/2 via LB IP: $VERIFY_H2"; else warn "HTTP/2 via LB IP: $VERIFY_H2 (expected 200)"; fi
 if [[ -n "$CURL_HTTP3" ]]; then
-  VERIFY_H3=$(NGTCP2_ENABLE_GSO=0 "$CURL_HTTP3" --http3-only -k -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --resolve "record.local:443:$LB_IP" "https://record.local/_caddy/healthz" 2>/dev/null) || true
+  VERIFY_H3=$(NGTCP2_ENABLE_GSO=0 "$CURL_HTTP3" --http3-only -k -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --resolve "off-campus-housing.local:443:$LB_IP" "https://off-campus-housing.local/_caddy/healthz" 2>/dev/null) || true
   [[ -z "$VERIFY_H3" ]] && VERIFY_H3="000"
 else
   VERIFY_H3="000"
@@ -367,14 +367,14 @@ else
 fi
 echo ""
 info "Manual test (use Homebrew curl for HTTP/3; system curl does not support --http3-only):"
-echo "  curl -k --http2 -sS -o /dev/null -w '%{http_code}' --resolve record.local:443:$LB_IP https://record.local/_caddy/healthz"
+echo "  curl -k --http2 -sS -o /dev/null -w '%{http_code}' --resolve off-campus-housing.local:443:$LB_IP https://off-campus-housing.local/_caddy/healthz"
 if [[ -n "$CURL_HTTP3" ]]; then
-  echo "  NGTCP2_ENABLE_GSO=0 $CURL_HTTP3 --http3-only -k -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --resolve record.local:443:$LB_IP https://record.local/_caddy/healthz"
+  echo "  NGTCP2_ENABLE_GSO=0 $CURL_HTTP3 --http3-only -k -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --resolve off-campus-housing.local:443:$LB_IP https://off-campus-housing.local/_caddy/healthz"
   # Suggest making it default if we're using the full path (so plain 'curl' gets HTTP/3)
   if [[ "$CURL_HTTP3" == *"/opt/"* ]] || [[ "$CURL_HTTP3" == *"/usr/local/opt/"* ]]; then
     CURL_DIR="${CURL_HTTP3%/*}"
     info "To use this curl by default: export PATH=\"$CURL_DIR:\$PATH\"   (e.g. in .zshrc)"
   fi
 else
-  echo "  NGTCP2_ENABLE_GSO=0 /opt/homebrew/opt/curl/bin/curl --http3-only -k -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --resolve record.local:443:$LB_IP https://record.local/_caddy/healthz   # requires: brew install curl"
+  echo "  NGTCP2_ENABLE_GSO=0 /opt/homebrew/opt/curl/bin/curl --http3-only -k -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --resolve off-campus-housing.local:443:$LB_IP https://off-campus-housing.local/_caddy/healthz   # requires: brew install curl"
 fi

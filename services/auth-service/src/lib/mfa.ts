@@ -40,7 +40,7 @@ export async function setupMFA(
 ): Promise<{ secret: string; qrCode: string; backupCodes: string[] }> {
   // Generate secret
   const secret = authenticator.generateSecret();
-  const serviceName = "Record Platform";
+  const serviceName = "Off-Campus-Housing-Tracker";
   const accountName = email;
 
   // Generate backup codes

@@ -183,7 +183,7 @@ if [[ -z "${KUBECTL_PORT_FORWARD:-}" ]]; then
   [[ -z "${KUBECTL_PORT_FORWARD:-}" ]] && [[ -x /usr/local/bin/kubectl ]] && export KUBECTL_PORT_FORWARD="/usr/local/bin/kubectl --request-timeout=15s"
   [[ -z "${KUBECTL_PORT_FORWARD:-}" ]] && export KUBECTL_PORT_FORWARD="kubectl --request-timeout=15s"
 fi
-export HOST="${HOST:-record.local}"
+export HOST="${HOST:-off-campus-housing.local}"
 export PORT="${PORT:-30443}"
 
 # Pre-flight: validate DB & Cache once (quick check)
@@ -386,7 +386,7 @@ if [[ "${USE_LB_FOR_TESTS:-0}" == "1" ]] && [[ -n "${REACHABLE_LB_IP:-}" ]]; the
   # Detect: is LB IP reachable (TCP 443)?
   _lb_code="000"
   _lb_code=$(curl -k -sS -o /dev/null -w "%{http_code}" --connect-timeout 3 --max-time 5 --http2 \
-    --resolve "record.local:443:${REACHABLE_LB_IP}" -H "Host: record.local" "https://record.local/_caddy/healthz" 2>/dev/null || echo "000")
+    --resolve "off-campus-housing.local:443:${REACHABLE_LB_IP}" -H "Host: off-campus-housing.local" "https://off-campus-housing.local/_caddy/healthz" 2>/dev/null || echo "000")
   _setup_ran=0
   if [[ "$_lb_code" != "200" ]] && [[ -f "$SCRIPT_DIR/setup-lb-ip-host-access.sh" ]]; then
     info "LB IP ${REACHABLE_LB_IP}:443 not reachable (got $_lb_code). Running setup-lb-ip-host-access.sh (TCP+UDP+bridge)..."
@@ -398,7 +398,7 @@ if [[ "${USE_LB_FOR_TESTS:-0}" == "1" ]] && [[ -n "${REACHABLE_LB_IP:-}" ]]; the
     _setup_ran=1
     sleep 2
     _lb_code=$(curl -k -sS -o /dev/null -w "%{http_code}" --connect-timeout 3 --max-time 5 --http2 \
-      --resolve "record.local:443:${REACHABLE_LB_IP}" -H "Host: record.local" "https://record.local/_caddy/healthz" 2>/dev/null || echo "000")
+      --resolve "off-campus-housing.local:443:${REACHABLE_LB_IP}" -H "Host: off-campus-housing.local" "https://off-campus-housing.local/_caddy/healthz" 2>/dev/null || echo "000")
   fi
   if [[ "$_lb_code" != "200" ]]; then
     if [[ "${FORCE_METALLB_ONLY:-0}" == "1" ]]; then
@@ -412,7 +412,7 @@ if [[ "${USE_LB_FOR_TESTS:-0}" == "1" ]] && [[ -n "${REACHABLE_LB_IP:-}" ]]; the
     else
       _np_code="000"
       _np_code=$(curl -k -sS -o /dev/null -w "%{http_code}" --connect-timeout 3 --max-time 5 --http2 \
-        -H "Host: record.local" "https://127.0.0.1:$_caddy_np/_caddy/healthz" 2>/dev/null || echo "000")
+        -H "Host: off-campus-housing.local" "https://127.0.0.1:$_caddy_np/_caddy/healthz" 2>/dev/null || echo "000")
       if [[ "$_np_code" == "200" ]]; then
         warn "LB IP still unreachable after setup. Run manually with sudo: LB_IP=$REACHABLE_LB_IP NODEPORT=$_caddy_np $SCRIPT_DIR/setup-lb-ip-host-access.sh. Using NodePort for this run."
         export PORT="$_caddy_np"
@@ -443,13 +443,13 @@ if [[ "${USE_LB_FOR_TESTS:-0}" == "1" ]] && [[ -n "${REACHABLE_LB_IP:-}" ]]; the
       [[ -z "$CURL_BIN" ]] && CURL_BIN="curl"
       if [[ "$(uname -s)" == "Darwin" ]] && "$CURL_BIN" --help all 2>/dev/null | grep -q -- "--http3-only"; then
         _h3_out=$(NGTCP2_ENABLE_GSO=0 "$CURL_BIN" --http3-only -sS -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 --cacert "$_ca_h3" \
-          --resolve "record.local:443:${REACHABLE_LB_IP}" "https://record.local/_caddy/healthz" 2>/dev/null) || true
+          --resolve "off-campus-housing.local:443:${REACHABLE_LB_IP}" "https://off-campus-housing.local/_caddy/healthz" 2>/dev/null) || true
         [[ "${_h3_out:-000}" == "200" ]] && _h3_ok=1
       fi
       if [[ $_h3_ok -ne 1 ]] && [[ -f "$SCRIPT_DIR/lib/http3.sh" ]]; then
         source "$SCRIPT_DIR/lib/http3.sh" 2>/dev/null || true
         _h3_out=$(http3_curl --cacert "$_ca_h3" -sS -o /dev/null -w "%{http_code}" --max-time 10 --http3-only \
-          --resolve "record.local:443:${REACHABLE_LB_IP}" "https://record.local/_caddy/healthz" 2>/dev/null) || true
+          --resolve "off-campus-housing.local:443:${REACHABLE_LB_IP}" "https://off-campus-housing.local/_caddy/healthz" 2>/dev/null) || true
         [[ "${_h3_out:-000}" == "200" ]] && _h3_ok=1
       fi
     fi
@@ -466,13 +466,13 @@ if [[ "${USE_LB_FOR_TESTS:-0}" == "1" ]] && [[ -n "${REACHABLE_LB_IP:-}" ]]; the
       _h3_ok=0
       if [[ "$(uname -s)" == "Darwin" ]] && "$CURL_BIN" --help all 2>/dev/null | grep -q -- "--http3-only"; then
         _h3_out=$(NGTCP2_ENABLE_GSO=0 "$CURL_BIN" --http3-only -sS -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 --cacert "$_ca_h3" \
-          --resolve "record.local:443:${REACHABLE_LB_IP}" "https://record.local/_caddy/healthz" 2>/dev/null) || true
+          --resolve "off-campus-housing.local:443:${REACHABLE_LB_IP}" "https://off-campus-housing.local/_caddy/healthz" 2>/dev/null) || true
         [[ "${_h3_out:-000}" == "200" ]] && _h3_ok=1
       fi
       if [[ $_h3_ok -ne 1 ]] && [[ -f "$SCRIPT_DIR/lib/http3.sh" ]]; then
         source "$SCRIPT_DIR/lib/http3.sh" 2>/dev/null || true
         _h3_out=$(http3_curl --cacert "$_ca_h3" -sS -o /dev/null -w "%{http_code}" --max-time 10 --http3-only \
-          --resolve "record.local:443:${REACHABLE_LB_IP}" "https://record.local/_caddy/healthz" 2>/dev/null) || true
+          --resolve "off-campus-housing.local:443:${REACHABLE_LB_IP}" "https://off-campus-housing.local/_caddy/healthz" 2>/dev/null) || true
         [[ "${_h3_out:-000}" == "200" ]] && _h3_ok=1
       fi
       if [[ $_h3_ok -ne 1 ]]; then
@@ -506,7 +506,7 @@ if [[ "$ctx" == *"k3d"* ]] && [[ "${USE_LB_FOR_TESTS:-0}" != "1" ]]; then
   say "k3d: checking Caddy reachability (NodePort 30443 for HTTP/2 + HTTP/3)..."
   _code="000"
   _code=$(curl -k -s -o /dev/null -w "%{http_code}" --connect-timeout 3 --max-time 5 --http2 \
-    -H "Host: record.local" "https://127.0.0.1:30443/_caddy/healthz" 2>/dev/null || echo "000")
+    -H "Host: off-campus-housing.local" "https://127.0.0.1:30443/_caddy/healthz" 2>/dev/null || echo "000")
   if [[ "$_code" == "200" ]]; then
     export PORT=30443
     export CADDY_NODEPORT=30443
@@ -520,7 +520,7 @@ if [[ "$ctx" == *"k3d"* ]] && [[ "${USE_LB_FOR_TESTS:-0}" != "1" ]]; then
       source "$SCRIPT_DIR/lib/http3.sh" 2>/dev/null || true
       _h3_code="000"
       _h3_out=$(http3_curl --cacert "$_ca" -sS -o /dev/null -w "%{http_code}" --max-time 5 --http3-only \
-        -H "Host: record.local" "https://127.0.0.1:30443/_caddy/healthz" 2>/dev/null) || true
+        -H "Host: off-campus-housing.local" "https://127.0.0.1:30443/_caddy/healthz" 2>/dev/null) || true
       _h3_code="${_h3_out:-000}"
       [[ "$_h3_code" == "200" ]] && _h3_ok=1
     fi
@@ -623,17 +623,17 @@ if [[ "${RUN_K6:-0}" == "1" ]] && command -v k6 >/dev/null 2>&1; then
   mkdir -p "$(dirname "$K6_CA_ROOT")"
   # If rotation didn't sync certs/dev-root.pem (e.g. k3d path), try once to populate from K8s so k6 has a CA
   if [[ ! -f "$K6_CA_ROOT" ]] || [[ ! -s "$K6_CA_ROOT" ]]; then
-    kubectl -n record-platform get secret dev-root-ca -o jsonpath='{.data.dev-root\.pem}' 2>/dev/null | base64 -d > "$K6_CA_ROOT" 2>/dev/null && [[ -s "$K6_CA_ROOT" ]] && info "Fetched CA from record-platform secret to certs/dev-root.pem" || true
+    kubectl -n off-campus-housing-tracker get secret dev-root-ca -o jsonpath='{.data.dev-root\.pem}' 2>/dev/null | base64 -d > "$K6_CA_ROOT" 2>/dev/null && [[ -s "$K6_CA_ROOT" ]] && info "Fetched CA from off-campus-housing-tracker secret to certs/dev-root.pem" || true
     [[ ! -s "$K6_CA_ROOT" ]] && kubectl -n ingress-nginx get secret dev-root-ca -o jsonpath='{.data.dev-root\.pem}' 2>/dev/null | base64 -d > "$K6_CA_ROOT" 2>/dev/null && [[ -s "$K6_CA_ROOT" ]] && info "Fetched CA from ingress-nginx secret to certs/dev-root.pem" || true
   fi
   _k6_abs() { local f="$1"; [[ -z "$f" ]] || [[ ! -f "$f" ]] && return 1; echo "$(cd "$(dirname "$f")" 2>/dev/null && pwd)/$(basename "$f")"; }
   _k6_extract_to_repo_root() {
     local out="$1"
-    kubectl -n record-platform get secret dev-root-ca -o jsonpath='{.data.dev-root\.pem}' 2>/dev/null | base64 -d > "$out" 2>/dev/null && [[ -s "$out" ]] && return 0
+    kubectl -n off-campus-housing-tracker get secret dev-root-ca -o jsonpath='{.data.dev-root\.pem}' 2>/dev/null | base64 -d > "$out" 2>/dev/null && [[ -s "$out" ]] && return 0
     kubectl -n ingress-nginx get secret dev-root-ca -o jsonpath='{.data.dev-root\.pem}' 2>/dev/null | base64 -d > "$out" 2>/dev/null && [[ -s "$out" ]] && return 0
     if [[ "$ctx" == *"colima"* ]] && command -v colima >/dev/null 2>&1; then
       local b64
-      b64=$(colima ssh -- kubectl -n record-platform get secret dev-root-ca -o jsonpath='{.data.dev-root\.pem}' --request-timeout=10s 2>/dev/null || true)
+      b64=$(colima ssh -- kubectl -n off-campus-housing-tracker get secret dev-root-ca -o jsonpath='{.data.dev-root\.pem}' --request-timeout=10s 2>/dev/null || true)
       [[ -n "$b64" ]] && echo "$b64" | base64 -d > "$out" 2>/dev/null && [[ -s "$out" ]] && return 0
       b64=$(colima ssh -- kubectl -n ingress-nginx get secret dev-root-ca -o jsonpath='{.data.dev-root\.pem}' --request-timeout=10s 2>/dev/null || true)
       [[ -n "$b64" ]] && echo "$b64" | base64 -d > "$out" 2>/dev/null && [[ -s "$out" ]] && return 0
@@ -665,9 +665,9 @@ if [[ "${RUN_K6:-0}" == "1" ]] && command -v k6 >/dev/null 2>&1; then
   K6_SCRIPT="${K6_SCRIPT:-$SCRIPT_DIR/load/k6-reads.js}"
   K6_DURATION="${K6_DURATION:-30s}"
   K6_VUS="${K6_VUS:-20}"
-  HOST="${HOST:-record.local}"
+  HOST="${HOST:-off-campus-housing.local}"
   PORT="${PORT:-30443}"
-  # From host: use hostname + K6_RESOLVE (never raw IP — cert SAN is record.local, not MetalLB IP)
+  # From host: use hostname + K6_RESOLVE (never raw IP — cert SAN is off-campus-housing.local, not MetalLB IP)
   if [[ -z "${BASE_URL:-}" ]] && [[ "${K6_IN_CLUSTER:-0}" != "1" ]] && command -v kubectl >/dev/null 2>&1; then
     LB_IP=$(kubectl -n ingress-nginx get svc caddy-h3 -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
     if [[ -n "$LB_IP" ]]; then
@@ -679,7 +679,7 @@ if [[ "${RUN_K6:-0}" == "1" ]] && command -v k6 >/dev/null 2>&1; then
   if [[ -n "$K6_CA_ABSOLUTE" ]] && [[ -s "$K6_CA_ABSOLUTE" ]]; then
     export SSL_CERT_FILE="$K6_CA_ABSOLUTE"
     info "k6 strict TLS: SSL_CERT_FILE=$K6_CA_ABSOLUTE"
-    # macOS: add dev CA to keychain (replaces manual Keychain Access → Import → Always Trust). Do this so k6/curl/browser trust record.local and we avoid x509.
+    # macOS: add dev CA to keychain (replaces manual Keychain Access → Import → Always Trust). Do this so k6/curl/browser trust off-campus-housing.local and we avoid x509.
     if [[ "$(uname -s)" == "Darwin" ]] && [[ -f "$SCRIPT_DIR/lib/trust-dev-root-ca-macos.sh" ]]; then
       info "Trust dev CA on this machine (macOS keychain)…"
       "$SCRIPT_DIR/lib/trust-dev-root-ca-macos.sh" "$K6_CA_ABSOLUTE" || true
@@ -737,7 +737,7 @@ if [[ "${SKIP_END_VERIFICATION:-1}" == "0" ]] && [[ -f "$SCRIPT_DIR/verify-db-an
   say "Running comprehensive DB & Cache verification (verify-db-and-cache-comprehensive.sh)..."
   export USER1_ID="${USER1_ID:-}"
   export USER2_ID="${USER2_ID:-}"
-  export HOST="${HOST:-record.local}"
+  export HOST="${HOST:-off-campus-housing.local}"
   export PORT="${PORT:-30443}"
   "$SCRIPT_DIR/verify-db-and-cache-comprehensive.sh" 2>&1 | tee "$SUITE_LOG_DIR/comprehensive-verification.log" || warn "Comprehensive verification had issues"
   ok "Comprehensive verification complete (log: $SUITE_LOG_DIR/comprehensive-verification.log)"

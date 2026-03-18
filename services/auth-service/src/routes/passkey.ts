@@ -42,7 +42,7 @@ router.post('/register/start', requireAuth, async (req: Request, res: Response) 
       challenge,
       userId,
       rp: {
-        name: 'Record Platform',
+        name: 'Off-Campus-Housing-Tracker',
         id: process.env.WEBAUTHN_RP_ID || 'localhost',
       },
       user: {

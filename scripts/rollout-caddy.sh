@@ -4,7 +4,7 @@ NS=ingress-nginx
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-# Ensure namespace exists (fresh cluster after k3d-create-record-platform-443-lb.sh)
+# Ensure namespace exists (fresh cluster after k3d-create-off-campus-housing-tracker-443-lb.sh)
 kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f -
 
 # Colima + MetalLB: default to LoadBalancer deploy (no hostPort, soft anti-affinity so 2 pods on 1 node)
@@ -32,7 +32,7 @@ kubectl -n "$NS" create configmap caddy-h3 --from-file=Caddyfile=./Caddyfile -o 
 # If you previously had the hostPort deploy applied, delete the deployment first so apply is clean:
 #   kubectl -n ingress-nginx delete deployment caddy-h3
 #   then re-run this script (or apply caddy-h3-deploy-loadbalancer.yaml).
-# Deploy uses caddy-with-tcpdump:dev (HTTP/3 + tcpdump for rotation-suite capture). Build: docker build -t caddy-with-tcpdump:dev docker/caddy-with-tcpdump . k3d: k3d image import caddy-with-tcpdump:dev -c record-platform
+# Deploy uses caddy-with-tcpdump:dev (HTTP/3 + tcpdump for rotation-suite capture). Build: docker build -t caddy-with-tcpdump:dev docker/caddy-with-tcpdump . k3d: k3d image import caddy-with-tcpdump:dev -c off-campus-housing-tracker
 if [ "${CADDY_USE_LOADBALANCER:-0}" = "1" ] && [ -f "infra/k8s/caddy-h3-deploy-loadbalancer.yaml" ]; then
   kubectl -n "$NS" apply -f infra/k8s/caddy-h3-deploy-loadbalancer.yaml
   echo "✅ Applied Caddy deployment (LoadBalancer: 2 replicas, no hostPort)"

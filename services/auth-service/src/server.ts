@@ -557,7 +557,7 @@ app.get("/privacy", (_req: Request, res: Response) => {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Privacy Policy - Record Platform</title>
+  <title>Privacy Policy - Off-Campus-Housing-Tracker</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; }
     h1 { color: #1a1a1a; border-bottom: 2px solid #e0e0e0; padding-bottom: 10px; }
@@ -584,7 +584,7 @@ app.get("/privacy", (_req: Request, res: Response) => {
   <h2>2. How We Use Your Information</h2>
   <p>We use the information we collect to:</p>
   <ul>
-    <li>Create and manage your Record Platform account</li>
+    <li>Create and manage your Off-Campus-Housing-Tracker account</li>
     <li>Provide you with access to our services</li>
     <li>Personalize your experience on the platform</li>
     <li>Communicate with you about your account and our services</li>
@@ -627,8 +627,8 @@ app.get("/privacy", (_req: Request, res: Response) => {
   <h2>8. Contact Us</h2>
   <p>If you have any questions about this Privacy Policy or our data practices, please contact us:</p>
   <ul>
-    <li><strong>Email:</strong> support@record-platform.local</li>
-    <li><strong>Platform:</strong> Record Platform</li>
+    <li><strong>Email:</strong> support@off-campus-housing-tracker.local</li>
+    <li><strong>Platform:</strong> Off-Campus-Housing-Tracker</li>
   </ul>
 </body>
 </html>
@@ -644,7 +644,7 @@ app.get("/terms", (_req: Request, res: Response) => {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Terms of Service - Record Platform</title>
+  <title>Terms of Service - Off-Campus-Housing-Tracker</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; }
     h1 { color: #1a1a1a; border-bottom: 2px solid #e0e0e0; padding-bottom: 10px; }
@@ -660,10 +660,10 @@ app.get("/terms", (_req: Request, res: Response) => {
   <p class="last-updated"><strong>Last updated:</strong> ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
 
   <h2>1. Acceptance of Terms</h2>
-  <p>By accessing and using Record Platform ("the Service"), you accept and agree to be bound by the terms and provision of this agreement. If you do not agree to abide by the above, please do not use this service.</p>
+  <p>By accessing and using Off-Campus-Housing-Tracker ("the Service"), you accept and agree to be bound by the terms and provision of this agreement. If you do not agree to abide by the above, please do not use this service.</p>
 
   <h2>2. Use License</h2>
-  <p>Permission is granted to temporarily use Record Platform for personal, non-commercial transitory viewing only. This is the grant of a license, not a transfer of title, and under this license you may not modify or copy the materials, use them for commercial purposes, or attempt to reverse engineer any software.</p>
+  <p>Permission is granted to temporarily use Off-Campus-Housing-Tracker for personal, non-commercial transitory viewing only. This is the grant of a license, not a transfer of title, and under this license you may not modify or copy the materials, use them for commercial purposes, or attempt to reverse engineer any software.</p>
 
   <h2>3. User Accounts</h2>
   <p>To access certain features, you must register for an account. You agree to provide accurate information, maintain account security, and accept responsibility for activities under your account.</p>
@@ -675,13 +675,13 @@ app.get("/terms", (_req: Request, res: Response) => {
   <p>You may not use the Service to violate laws, transmit malicious code, impersonate others, engage in automated scraping, or interfere with the Service.</p>
 
   <h2>6. Intellectual Property</h2>
-  <p>The Service and its content are owned by Record Platform and protected by intellectual property laws.</p>
+  <p>The Service and its content are owned by Off-Campus-Housing-Tracker and protected by intellectual property laws.</p>
 
   <h2>7. Disclaimer</h2>
-  <p>The materials are provided on an 'as is' basis. Record Platform makes no warranties, expressed or implied.</p>
+  <p>The materials are provided on an 'as is' basis. Off-Campus-Housing-Tracker makes no warranties, expressed or implied.</p>
 
   <h2>8. Limitations</h2>
-  <p>In no event shall Record Platform be liable for damages arising from use or inability to use the Service.</p>
+  <p>In no event shall Off-Campus-Housing-Tracker be liable for damages arising from use or inability to use the Service.</p>
 
   <h2>9. Termination</h2>
   <p>We may terminate your account immediately for breach of Terms. Upon termination, your right to use the Service ceases.</p>
@@ -690,7 +690,7 @@ app.get("/terms", (_req: Request, res: Response) => {
   <p>We reserve the right to modify these Terms at any time. Material changes will be notified at least 30 days in advance.</p>
 
   <h2>11. Contact Information</h2>
-  <p>If you have questions about these Terms, please contact us at support@record-platform.local</p>
+  <p>If you have questions about these Terms, please contact us at support@off-campus-housing-tracker.local</p>
 </body>
 </html>
   `);

@@ -25,7 +25,7 @@ fi
 #
 # Ensures:
 #   - API server ready (mandatory); re-checked after reissue
-#   - record-platform: service 1, exporters 1, envoy-test 1, Caddy 2
+#   - off-campus-housing-tracker: service 1, exporters 1, envoy-test 1, Caddy 2
 #   - Reissue CA + leaf (dev-root-ca / record-local-tls match); verify no curl 60
 #   - Strict TLS (CA + leaf), Kafka external strict TLS :29093, no in-cluster Postgres/Kafka/ZK
 #   RUN_SUITES=0 skip test suites.
@@ -580,17 +580,17 @@ fi
 # 2d. Brief pause so API server isn't hammered immediately after config changes
 sleep 5
 
-# 2e. Colima: ensure app images exist. Shopping/listings use record-platform-*:latest (K8s deploy); others use :dev.
+# 2e. Colima: ensure app images exist. Shopping/listings use off-campus-housing-tracker-*:latest (K8s deploy); others use :dev.
 # When images are missing, building is the main slowdown. Set PREFLIGHT_ENSURE_IMAGES=0 to skip when images already exist.
 if [[ "${PREFLIGHT_ENSURE_IMAGES:-1}" == "1" ]] && [[ "$ctx" == *"colima"* ]]; then
   _phase_start "2e_colima_images"
-  say "2e. Colima: ensuring app images (record-platform-*:latest for shopping/listings; :dev for others)..."
+  say "2e. Colima: ensuring app images (off-campus-housing-tracker-*:latest for shopping/listings; :dev for others)..."
   KARCH=$(kubectl get nodes -o jsonpath='{.items[0].status.nodeInfo.architecture}' 2>/dev/null || uname -m)
   case "$KARCH" in aarch64|arm64) PLAT="linux/arm64";; *) PLAT="linux/amd64";; esac
-  # Shopping and listings: K8s uses record-platform-shopping-service:latest and record-platform-listings-service:latest
-  for _img in record-platform-shopping-service:latest record-platform-listings-service:latest; do
+  # Shopping and listings: K8s uses off-campus-housing-tracker-shopping-service:latest and off-campus-housing-tracker-listings-service:latest
+  for _img in off-campus-housing-tracker-shopping-service:latest off-campus-housing-tracker-listings-service:latest; do
     if ! docker image inspect "$_img" &>/dev/null; then
-      _s="${_img%%:latest}"; _s="${_s#record-platform-}"; _s="${_s%-service}"
+      _s="${_img%%:latest}"; _s="${_s#off-campus-housing-tracker-}"; _s="${_s%-service}"
       _s="${_s}-service"
       info "Building $_img (required by K8s deploy)..."
       if [[ "$_s" == "shopping-service" ]] && [[ -f "$REPO_ROOT/services/shopping-service/Dockerfile" ]]; then
@@ -603,16 +603,16 @@ if [[ "${PREFLIGHT_ENSURE_IMAGES:-1}" == "1" ]] && [[ "$ctx" == *"colima"* ]]; t
   _colima_services=(api-gateway auth-service records-service listings-service analytics-service python-ai-service social-service shopping-service auction-monitor)
   _need_build=()
   for _s in "${_colima_services[@]}"; do
-    # shopping/listings: K8s uses record-platform-*:latest; we already ensured those above. Skip :dev for them so we don't build twice.
+    # shopping/listings: K8s uses off-campus-housing-tracker-*:latest; we already ensured those above. Skip :dev for them so we don't build twice.
     if [[ "$_s" == "shopping-service" ]] || [[ "$_s" == "listings-service" ]]; then
-      _latest="record-platform-${_s}:latest"
+      _latest="off-campus-housing-tracker-${_s}:latest"
       docker image inspect "$_latest" &>/dev/null && continue || _need_build+=("$_s")
     else
       docker image inspect "${_s}:dev" &>/dev/null || _need_build+=("$_s")
     fi
   done
   if [[ ${#_need_build[@]} -gt 0 ]] && command -v docker &>/dev/null; then
-    info "Building ${#_need_build[@]} missing image(s) in parallel (max 4 at a time; shopping/listings = record-platform-*:latest)..."
+    info "Building ${#_need_build[@]} missing image(s) in parallel (max 4 at a time; shopping/listings = off-campus-housing-tracker-*:latest)..."
     _max_parallel=4
     _idx=0
     while [[ $_idx -lt ${#_need_build[@]} ]]; do
@@ -624,8 +624,8 @@ if [[ "${PREFLIGHT_ENSURE_IMAGES:-1}" == "1" ]] && [[ "$ctx" == *"colima"* ]]; t
         (
           if [[ -f "$REPO_ROOT/services/$_s/Dockerfile" ]]; then
             _tag="${_s}:dev"
-            [[ "$_s" == "shopping-service" ]] && _tag="record-platform-shopping-service:latest"
-            [[ "$_s" == "listings-service" ]] && _tag="record-platform-listings-service:latest"
+            [[ "$_s" == "shopping-service" ]] && _tag="off-campus-housing-tracker-shopping-service:latest"
+            [[ "$_s" == "listings-service" ]] && _tag="off-campus-housing-tracker-listings-service:latest"
             if [[ "$_s" == "python-ai-service" ]]; then
               docker build --platform="$PLAT" -t "$_tag" -f "$REPO_ROOT/services/$_s/Dockerfile" "$REPO_ROOT/services/$_s" 2>/dev/null && echo "  built $_tag" || echo "  ⚠️  $_tag failed"
             else
@@ -661,7 +661,7 @@ if [[ "${PREFLIGHT_ENSURE_IMAGES:-1}" == "1" ]] && [[ "$ctx" == *"k3d"* ]]; then
       break
     fi
     if [[ $_attempt -eq 1 ]] && command -v docker >/dev/null 2>&1; then
-      docker start k3d-record-platform-registry 2>/dev/null && sleep 2 || true
+      docker start k3d-off-campus-housing-tracker-registry 2>/dev/null && sleep 2 || true
     fi
     [[ $_attempt -lt 6 ]] && sleep 3
   done
@@ -680,7 +680,7 @@ if [[ "${PREFLIGHT_ENSURE_IMAGES:-1}" == "1" ]] && [[ "$ctx" == *"k3d"* ]]; then
     fi
     ok "Required app images present in registry (127.0.0.1:$_reg_port)"
   else
-    warn "Registry (127.0.0.1:$_reg_port) not reachable after retries; skipping image check. To fix: (1) Start k3d: k3d cluster start record-platform  (2) Start registry: docker start k3d-record-platform-registry  (3) Push images: ./scripts/k3d-registry-push-and-patch.sh  See: ./scripts/k3d-status-and-http3-debug.sh"
+    warn "Registry (127.0.0.1:$_reg_port) not reachable after retries; skipping image check. To fix: (1) Start k3d: k3d cluster start off-campus-housing-tracker  (2) Start registry: docker start k3d-off-campus-housing-tracker-registry  (3) Push images: ./scripts/k3d-registry-push-and-patch.sh  See: ./scripts/k3d-status-and-http3-debug.sh"
   fi
 fi
 
@@ -1119,11 +1119,11 @@ fi
 
 # Helper: re-apply registry image on all app deployments (k3d only). Call after 4a recovery, which does apply -k base and can overwrite image to e.g. analytics-service:dev (no registry).
 _reapply_k3d_registry_images() {
-  local _reg_name="k3d-record-platform-registry"
+  local _reg_name="k3d-off-campus-housing-tracker-registry"
   local _deploys="auth-service api-gateway records-service listings-service social-service shopping-service analytics-service auction-monitor python-ai-service"
   for _d in $_deploys; do
-    if kubectl get deployment "$_d" -n record-platform --request-timeout=5s >/dev/null 2>&1; then
-      kubectl set image "deployment/$_d" -n record-platform "app=${_reg_name}:5000/${_d}:dev" --request-timeout=10s 2>/dev/null && true
+    if kubectl get deployment "$_d" -n off-campus-housing-tracker --request-timeout=5s >/dev/null 2>&1; then
+      kubectl set image "deployment/$_d" -n off-campus-housing-tracker "app=${_reg_name}:5000/${_d}:dev" --request-timeout=10s 2>/dev/null && true
     fi
   done
   info "Deployment images re-set to ${_reg_name}:5000/<service>:dev (recovery pass had overwritten some)"
@@ -1135,28 +1135,28 @@ _apply_k3d_host_aliases() {
   if [[ -z "$_host_ip" ]]; then
     # macOS + k3d: use k3d network gateway so pods can reach host (172.20.0.1). 192.168.65.254 is Docker Desktop host but often not routable from k3d pods.
     if [[ "$(uname -s)" == "Darwin" ]]; then
-      _host_ip=$(docker network inspect k3d-record-platform --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || true)
+      _host_ip=$(docker network inspect k3d-off-campus-housing-tracker --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || true)
       [[ -z "$_host_ip" ]] && _host_ip="172.20.0.1"
       [[ "$_host_ip" == "<no value>" ]] && _host_ip="172.20.0.1"
       # Prefer IP resolved from inside cluster when a pod is already up (most reliable for 502/logged:false).
       local _pod
-      _pod=$(kubectl get pods -n record-platform -l app=api-gateway -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+      _pod=$(kubectl get pods -n off-campus-housing-tracker -l app=api-gateway -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
       if [[ -n "$_pod" ]]; then
         local _resolved
-        _resolved=$(kubectl exec -n record-platform "$_pod" -- getent hosts host.docker.internal 2>/dev/null | awk '{print $1}' || true)
+        _resolved=$(kubectl exec -n off-campus-housing-tracker "$_pod" -- getent hosts host.docker.internal 2>/dev/null | awk '{print $1}' || true)
         if [[ -n "$_resolved" ]] && [[ "$_resolved" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
           _host_ip="$_resolved"
         fi
       fi
     else
-      _host_ip=$(docker run --rm --network k3d-record-platform 2>/dev/null alpine getent hosts host.k3d.internal 2>/dev/null | awk '{print $1}' || true)
+      _host_ip=$(docker run --rm --network k3d-off-campus-housing-tracker 2>/dev/null alpine getent hosts host.k3d.internal 2>/dev/null | awk '{print $1}' || true)
       [[ -z "$_host_ip" ]] && _host_ip=$(docker run --rm alpine getent hosts host.docker.internal 2>/dev/null | awk '{print $1}' || true)
       _host_ip="${_host_ip:-172.20.0.1}"
     fi
   fi
   for _d in auth-service api-gateway records-service listings-service social-service shopping-service analytics-service auction-monitor python-ai-service; do
-    if kubectl get deployment "$_d" -n record-platform --request-timeout=5s >/dev/null 2>&1; then
-      kubectl patch deployment "$_d" -n record-platform --type=merge -p "{\"spec\":{\"template\":{\"spec\":{\"hostAliases\":[{\"ip\":\"$_host_ip\",\"hostnames\":[\"host.docker.internal\",\"host.lima.internal\"]}]}}}}" 2>/dev/null && true
+    if kubectl get deployment "$_d" -n off-campus-housing-tracker --request-timeout=5s >/dev/null 2>&1; then
+      kubectl patch deployment "$_d" -n off-campus-housing-tracker --type=merge -p "{\"spec\":{\"template\":{\"spec\":{\"hostAliases\":[{\"ip\":\"$_host_ip\",\"hostnames\":[\"host.docker.internal\",\"host.lima.internal\"]}]}}}}" 2>/dev/null && true
     fi
   done
   info "host.docker.internal -> $_host_ip (k3d network gateway on macOS)"
@@ -1182,8 +1182,8 @@ _apply_colima_host_aliases() {
     _host_ip="${_host_ip:-192.168.5.2}"
   fi
   for _d in auth-service api-gateway records-service listings-service social-service shopping-service analytics-service auction-monitor python-ai-service; do
-    if kubectl get deployment "$_d" -n record-platform --request-timeout=5s >/dev/null 2>&1; then
-      kubectl patch deployment "$_d" -n record-platform --type=merge -p "{\"spec\":{\"template\":{\"spec\":{\"hostAliases\":[{\"ip\":\"$_host_ip\",\"hostnames\":[\"host.docker.internal\",\"host.lima.internal\"]}]}}}}" 2>/dev/null && true
+    if kubectl get deployment "$_d" -n off-campus-housing-tracker --request-timeout=5s >/dev/null 2>&1; then
+      kubectl patch deployment "$_d" -n off-campus-housing-tracker --type=merge -p "{\"spec\":{\"template\":{\"spec\":{\"hostAliases\":[{\"ip\":\"$_host_ip\",\"hostnames\":[\"host.docker.internal\",\"host.lima.internal\"]}]}}}}" 2>/dev/null && true
     fi
   done
   info "host.docker.internal -> $_host_ip (Colima: Mac host reachable from pods; ensure Postgres/Redis on host: docker compose up -d)"
@@ -1198,7 +1198,7 @@ if command -v docker >/dev/null 2>&1 && [[ -f "$REPO_ROOT/docker-compose.yml" ]]
   ( cd "$REPO_ROOT" && docker compose up -d postgres-auth 2>/dev/null ) && info "postgres-auth (5437) ensured up" || true
   ( cd "$REPO_ROOT" && docker compose up -d postgres postgres-social postgres-listings postgres-shopping postgres-auth postgres-auction-monitor postgres-analytics postgres-python-ai 2>/dev/null ) && ok "Docker Postgres (all 8) ensured up" || true
   if [[ -f "$REPO_ROOT/certs/dev-root.pem" ]] && [[ -f "$REPO_ROOT/certs/dev-root.key" ]] && [[ -f "$SCRIPT_DIR/kafka-ssl-from-dev-root.sh" ]]; then
-    if ! kubectl get secret kafka-ssl-secret -n record-platform --request-timeout=5s >/dev/null 2>&1; then
+    if ! kubectl get secret kafka-ssl-secret -n off-campus-housing-tracker --request-timeout=5s >/dev/null 2>&1; then
       chmod +x "$SCRIPT_DIR/kafka-ssl-from-dev-root.sh" 2>/dev/null || true
       "$SCRIPT_DIR/kafka-ssl-from-dev-root.sh" 2>/dev/null && ok "kafka-ssl-secret created (Kafka TLS for social/auction/shopping/analytics)" || warn "kafka-ssl-secret create failed (Kafka-consuming services need it)"
     fi
@@ -1491,7 +1491,7 @@ if [[ "${METALLB_ENABLED:-0}" == "1" ]]; then
     if docker image inspect caddy-with-tcpdump:dev >/dev/null 2>&1 && kubectl get deployment caddy-h3 -n ingress-nginx --request-timeout=5s >/dev/null 2>&1; then
       _img="caddy-with-tcpdump:dev"
       if [[ "$ctx" == *"k3d"* ]] && [[ -n "${K3D_REGISTRY_NAME:-}" ]]; then
-        _img="${K3D_REGISTRY_NAME:-k3d-record-platform-registry}:5000/caddy-with-tcpdump:dev"
+        _img="${K3D_REGISTRY_NAME:-k3d-off-campus-housing-tracker-registry}:5000/caddy-with-tcpdump:dev"
       fi
       if kubectl set image deployment/caddy-h3 -n ingress-nginx "caddy=$_img" --request-timeout=10s 2>/dev/null; then
         info "caddy-h3 patched to $_img (tcpdump in image); waiting for rollout..."
@@ -1505,7 +1505,7 @@ if [[ "${METALLB_ENABLED:-0}" == "1" ]]; then
     if docker image inspect envoy-with-tcpdump:dev >/dev/null 2>&1 && kubectl get deployment envoy-test -n envoy-test --request-timeout=5s >/dev/null 2>&1; then
       _eimg="envoy-with-tcpdump:dev"
       if [[ "$ctx" == *"k3d"* ]] && [[ -n "${K3D_REGISTRY_NAME:-}" ]]; then
-        _eimg="${K3D_REGISTRY_NAME:-k3d-record-platform-registry}:5000/envoy-with-tcpdump:dev"
+        _eimg="${K3D_REGISTRY_NAME:-k3d-off-campus-housing-tracker-registry}:5000/envoy-with-tcpdump:dev"
       fi
       kubectl set image deployment/envoy-test -n envoy-test "envoy=$_eimg" --request-timeout=10s 2>/dev/null && \
         kubectl rollout status deployment/envoy-test -n envoy-test --timeout=60s 2>/dev/null && \
@@ -1562,9 +1562,9 @@ say "3d. Removing in-cluster Kafka, Zookeeper, Postgres..."
 _rm_deploy() {
   local name=$1
   if [[ "$ctx" == *"colima"* ]] && command -v colima >/dev/null 2>&1; then
-    colima ssh -- kubectl delete deploy -n record-platform "$name" --ignore-not-found --request-timeout=10s 2>/dev/null || true
+    colima ssh -- kubectl delete deploy -n off-campus-housing-tracker "$name" --ignore-not-found --request-timeout=10s 2>/dev/null || true
   else
-    _kubectl delete deploy -n record-platform "$name" --ignore-not-found 2>/dev/null || true
+    _kubectl delete deploy -n off-campus-housing-tracker "$name" --ignore-not-found 2>/dev/null || true
   fi
 }
 _rm_deploy kafka
@@ -1572,11 +1572,11 @@ _rm_deploy zookeeper
 _rm_deploy postgres
 # Clean up Postgres PVC/SVC if present
 if [[ "$ctx" == *"colima"* ]] && command -v colima >/dev/null 2>&1; then
-  colima ssh -- kubectl delete svc -n record-platform postgres --ignore-not-found --request-timeout=10s 2>/dev/null || true
-  colima ssh -- kubectl delete pvc -n record-platform pgdata --ignore-not-found --request-timeout=10s 2>/dev/null || true
+  colima ssh -- kubectl delete svc -n off-campus-housing-tracker postgres --ignore-not-found --request-timeout=10s 2>/dev/null || true
+  colima ssh -- kubectl delete pvc -n off-campus-housing-tracker pgdata --ignore-not-found --request-timeout=10s 2>/dev/null || true
 else
-  _kubectl delete svc -n record-platform postgres --ignore-not-found 2>/dev/null || true
-  _kubectl delete pvc -n record-platform pgdata --ignore-not-found 2>/dev/null || true
+  _kubectl delete svc -n off-campus-housing-tracker postgres --ignore-not-found 2>/dev/null || true
+  _kubectl delete pvc -n off-campus-housing-tracker pgdata --ignore-not-found 2>/dev/null || true
 fi
 ok "In-cluster Kafka, Zookeeper, Postgres removed"
 
@@ -1596,9 +1596,9 @@ _restart_one() {
   local rc=1
   for _t in $(seq 1 $max_tries); do
     if [[ "$ctx" == *"colima"* ]] && command -v colima >/dev/null 2>&1; then
-      colima ssh -- kubectl rollout restart deploy -n record-platform "$name" --request-timeout=15s 2>/dev/null && rc=0
+      colima ssh -- kubectl rollout restart deploy -n off-campus-housing-tracker "$name" --request-timeout=15s 2>/dev/null && rc=0
     else
-      _kubectl rollout restart deploy -n record-platform "$name" 2>/dev/null && rc=0
+      _kubectl rollout restart deploy -n off-campus-housing-tracker "$name" 2>/dev/null && rc=0
     fi
     [[ $rc -eq 0 ]] && { ok "$name restarted"; return 0; }
     [[ $_t -lt $max_tries ]] && { warn "$name restart failed (attempt $_t); retrying in 15s..."; sleep 15; }
@@ -1613,7 +1613,7 @@ _restart_one auction-monitor
 _phase_start "4_scale_baseline"
 say "4. Scaling to baseline (service 1, exporters 1, Envoy 1, Caddy 2)..."
 _scale_one() {
-  local name=$1 ns=${2:-record-platform} rep=${3:-1} rc=1
+  local name=$1 ns=${2:-off-campus-housing-tracker} rep=${3:-1} rc=1
   if [[ "$ctx" == *"colima"* ]] && command -v colima >/dev/null 2>&1; then
     colima ssh -- kubectl scale deploy -n "$ns" "$name" --replicas="$rep" --request-timeout=15s 2>/dev/null && rc=0
   else
@@ -1661,7 +1661,7 @@ if [[ "${PREFLIGHT_RECOVERY_PASS:-1}" == "1" ]] && [[ "$PREFLIGHT_PHASE" == "ful
   fi
   if [[ "$ctx" == *"k3d"* ]]; then
     # Re-patch Caddy and Envoy to tcpdump images (registry) so both keep tcpdump preinstalled
-    _reg_name="k3d-record-platform-registry"
+    _reg_name="k3d-off-campus-housing-tracker-registry"
     if docker image inspect caddy-with-tcpdump:dev >/dev/null 2>&1 && kubectl get deployment caddy-h3 -n ingress-nginx --request-timeout=5s >/dev/null 2>&1; then
       kubectl set image "deployment/caddy-h3" -n ingress-nginx "caddy=${_reg_name}:5000/caddy-with-tcpdump:dev" --request-timeout=10s 2>/dev/null && \
       kubectl patch deployment caddy-h3 -n ingress-nginx --type=json -p='[{"op":"replace","path":"/spec/template/spec/containers/0/imagePullPolicy","value":"IfNotPresent"}]' 2>/dev/null && \
@@ -1766,7 +1766,7 @@ if ! _phase_a_only; then
     fi
   fi
 
-  # 4e. k3d: verify HTTP/3 (QUIC) on NodePort from host (record.local + --resolve; host UDP often broken on macOS).
+  # 4e. k3d: verify HTTP/3 (QUIC) on NodePort from host (off-campus-housing.local + --resolve; host UDP often broken on macOS).
   if [[ "$ctx" == *"k3d"* ]] && [[ -f "$SCRIPT_DIR/lib/http3.sh" ]]; then
     _ca="$REPO_ROOT/certs/dev-root.pem"
     if [[ -s "$_ca" ]]; then
@@ -1774,12 +1774,12 @@ if ! _phase_a_only; then
       # shellcheck source=scripts/lib/http3.sh
       if source "$SCRIPT_DIR/lib/http3.sh" 2>/dev/null; then
         _h3_code="000"
-        # QUIC invariant: use record.local URL + --resolve (no raw IP); PORT/HTTP3_RESOLVE_PORT for NodePort.
+        # QUIC invariant: use off-campus-housing.local URL + --resolve (no raw IP); PORT/HTTP3_RESOLVE_PORT for NodePort.
         _h3_out=$(PORT=30443 HTTP3_RESOLVE_PORT=30443 TARGET_IP=127.0.0.1 http3_curl --cacert "$_ca" -sS -o /dev/null -w "%{http_code}" --max-time 8 --http3-only \
-          "https://record.local:30443/_caddy/healthz" 2>/dev/null) || true
+          "https://off-campus-housing.local:30443/_caddy/healthz" 2>/dev/null) || true
         _h3_code="${_h3_out:-000}"
         if [[ "$_h3_code" == "200" ]]; then
-          ok "HTTP/3 (NodePort 30443) OK — QUIC reachable from host via record.local:30443"
+          ok "HTTP/3 (NodePort 30443) OK — QUIC reachable from host via off-campus-housing.local:30443"
         else
           info "HTTP/3 on 30443 not available from host (code $_h3_code). Normal on macOS (NodePort UDP). Step 4f verifies HTTP/3 in-cluster; suites use HTTP/2 from host or in-cluster QUIC."
         fi
@@ -1795,7 +1795,7 @@ if ! _phase_a_only; then
     _lb_ip=$(kubectl -n ingress-nginx get svc caddy-h3 -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
     if [[ -n "$_lb_ip" ]]; then
       say "4f. Verify HTTP/3 via MetalLB IP $_lb_ip (in-cluster; no host UDP)..."
-      if TARGET_IP="$_lb_ip" HOST="record.local" "$SCRIPT_DIR/verify-caddy-http3-in-cluster.sh" 2>/dev/null; then
+      if TARGET_IP="$_lb_ip" HOST="off-campus-housing.local" "$SCRIPT_DIR/verify-caddy-http3-in-cluster.sh" 2>/dev/null; then
         ok "HTTP/3 via MetalLB IP $_lb_ip OK (in-cluster)"
       else
         info "HTTP/3 via MetalLB IP $_lb_ip in-cluster not 200; host path may still work for HTTP/2. Run: ./scripts/verify-caddy-http3-in-cluster.sh TARGET_IP=$_lb_ip"
@@ -1920,8 +1920,8 @@ case "${k3d_ctx_6b2}" in
     ;;
   *) ;;
 esac
-echo "  Pod summary (record-platform, ingress-nginx, envoy-test):"
-kubectl get pods -n record-platform --no-headers 2>/dev/null | head -20
+echo "  Pod summary (off-campus-housing-tracker, ingress-nginx, envoy-test):"
+kubectl get pods -n off-campus-housing-tracker --no-headers 2>/dev/null | head -20
 kubectl get pods -n ingress-nginx --no-headers 2>/dev/null | head -5
 kubectl get pods -n envoy-test --no-headers 2>/dev/null | head -5
 ok "6b2 cluster health and pod summary done"
@@ -2014,10 +2014,10 @@ if [[ "${RUN_REBUILD_SHOPPING:-0}" == "1" ]] && [[ "$ctx" == *"k3d"* ]] && comma
   say "6g. Rebuilding and loading shopping-service (RUN_REBUILD_SHOPPING=1)..."
   _net_opt=()
   [[ "${BUILD_NETWORK:-host}" == "host" ]] && _net_opt=( --network host )
-  if ( cd "$REPO_ROOT" && docker build "${_net_opt[@]}" -t shopping-service:dev -f services/shopping-service/Dockerfile . 2>&1 ) && k3d image import shopping-service:dev -c record-platform 2>/dev/null && kubectl -n record-platform rollout restart deployment/shopping-service 2>/dev/null; then
+  if ( cd "$REPO_ROOT" && docker build "${_net_opt[@]}" -t shopping-service:dev -f services/shopping-service/Dockerfile . 2>&1 ) && k3d image import shopping-service:dev -c off-campus-housing-tracker 2>/dev/null && kubectl -n off-campus-housing-tracker rollout restart deployment/shopping-service 2>/dev/null; then
     ok "shopping-service rebuilt, loaded, and restarted"
   else
-    warn "shopping-service rebuild/load had issues (run manually: docker build -t shopping-service:dev -f services/shopping-service/Dockerfile . && k3d image import shopping-service:dev -c record-platform && kubectl -n record-platform rollout restart deployment/shopping-service)"
+    warn "shopping-service rebuild/load had issues (run manually: docker build -t shopping-service:dev -f services/shopping-service/Dockerfile . && k3d image import shopping-service:dev -c off-campus-housing-tracker && kubectl -n off-campus-housing-tracker rollout restart deployment/shopping-service)"
   fi
 fi
 
@@ -2029,7 +2029,7 @@ mkdir -p "$SUITE_LOG_DIR"
 export CAPTURE_STOP_TIMEOUT="${CAPTURE_STOP_TIMEOUT:-30}"
 export CAPTURE_MAX_STOP_SECONDS="${CAPTURE_MAX_STOP_SECONDS:-75}"
 export SUITE_TIMEOUT="${SUITE_TIMEOUT:-3600}"
-# Packet capture standard (all suites): (1) BPF (tcp or udp) and port 443 and dst host TARGET_IP on VM/node; (2) in-pod Caddy use -i eth0 and port 443; (3) after capture, tshark: udp.port==443 && ip.dst==TARGET_IP, stray udp.port==443 && ip.dst!=TARGET_IP must be 0, optional SNI record.local; (4) STRICT_QUIC_VALIDATION=1 fails run on stray.
+# Packet capture standard (all suites): (1) BPF (tcp or udp) and port 443 and dst host TARGET_IP on VM/node; (2) in-pod Caddy use -i eth0 and port 443; (3) after capture, tshark: udp.port==443 && ip.dst==TARGET_IP, stray udp.port==443 && ip.dst!=TARGET_IP must be 0, optional SNI off-campus-housing.local; (4) STRICT_QUIC_VALIDATION=1 fails run on stray.
 export STRICT_QUIC_VALIDATION="${STRICT_QUIC_VALIDATION:-1}"
 [[ -n "${TARGET_IP:-}" ]] && export CAPTURE_V2_LB_IP="$TARGET_IP"
 # Fast default: 10s DB verify cap so baseline finishes in ~2–3 min after tests (set DB_VERIFY_MAX_SECONDS=60 for full verify).

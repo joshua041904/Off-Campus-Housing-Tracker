@@ -24,7 +24,7 @@ log() {
   echo "$msg" >> "${WAIT_LOG:-/dev/stdout}" 2>/dev/null || echo "$msg"
 }
 
-NS="record-platform"
+NS="off-campus-housing-tracker"
 SERVICES=("auth-service" "records-service" "listings-service" "social-service" "shopping-service" "analytics-service" "auction-monitor" "python-ai-service" "api-gateway")
 EXPECTED_COUNT=${#SERVICES[@]}
 
@@ -119,7 +119,7 @@ while [[ $ELAPSED -lt $MAX_WAIT ]]; do
     fi
   fi
 
-  # If all ready (record-platform + optional caddy/envoy), exit immediately (check BEFORE sleep)
+  # If all ready (off-campus-housing-tracker + optional caddy/envoy), exit immediately (check BEFORE sleep)
   if [[ $READY_COUNT -eq $EXPECTED_COUNT ]] && [[ "$CADDY_ENVOY_OK" == "1" ]]; then
     ok "All $EXPECTED_COUNT services are ready!"
     [[ "$WAIT_CADDY_ENVOY" == "1" ]] && ok "Caddy (2/2) and Envoy (1/1) ready"
@@ -194,7 +194,7 @@ while [[ $ELAPSED -lt $MAX_WAIT ]]; do
     sleep 5
   fi
   
-  # If all ready (record-platform + optional caddy/envoy), exit (double-check before sleep)
+  # If all ready (off-campus-housing-tracker + optional caddy/envoy), exit (double-check before sleep)
   if [[ $READY_COUNT -eq $EXPECTED_COUNT ]] && [[ "$CADDY_ENVOY_OK" == "1" ]]; then
     ok "All $EXPECTED_COUNT services are ready!"
     [[ "$WAIT_CADDY_ENVOY" == "1" ]] && ok "Caddy (2/2) and Envoy (1/1) ready"

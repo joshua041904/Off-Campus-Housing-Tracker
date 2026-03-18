@@ -171,7 +171,7 @@ spec:
           limits:   { memory: "1Gi",   cpu: "1000m" }
         env:
         - name: HOST
-          value: "${HOST:-record.local}"
+          value: "${HOST:-off-campus-housing.local}"
         - name: DURATION
           value: "${DURATION:-180s}"
         - name: SSL_CERT_FILE
@@ -280,7 +280,7 @@ EOF
     # macOS: Go ignores SSL_CERT_FILE; k6 uses Keychain for cert verification. Must add CA to keychain.
     if [[ "$(uname -s)" == "Darwin" ]] && [[ -f "$SCRIPT_DIR/lib/trust-dev-root-ca-macos.sh" ]]; then
       if ! "$SCRIPT_DIR/lib/trust-dev-root-ca-macos.sh" "$CA"; then
-        echo "ERROR: On macOS, k6 cannot verify record.local without the CA in the keychain (Go ignores SSL_CERT_FILE)." >&2
+        echo "ERROR: On macOS, k6 cannot verify off-campus-housing.local without the CA in the keychain (Go ignores SSL_CERT_FILE)." >&2
         echo "  Run once: ./scripts/lib/trust-dev-root-ca-macos.sh" >&2
         echo "  Or: ROTATION_H2_KEYLOG=0 to use in-cluster k6 (no SSLKEYLOGFILE for wire decryption)." >&2
         exit 1
@@ -300,7 +300,7 @@ EOF
     H2_RATE="${H2_RATE:-320}"
     H3_RATE="${H3_RATE:-180}"
     DURATION="${DURATION:-90s}"
-    K6_TARGET="${K6_TARGET_URL:-https://record.local:30443/_caddy/healthz}"
+    K6_TARGET="${K6_TARGET_URL:-https://off-campus-housing.local:30443/_caddy/healthz}"
     export HOST H2_RATE H3_RATE DURATION K6_TARGET_URL="$K6_TARGET" \
       K6_RESOLVE K6_LB_IP \
       SSL_CERT_FILE="$CA" SSLKEYLOGFILE="$KEYLOG" \

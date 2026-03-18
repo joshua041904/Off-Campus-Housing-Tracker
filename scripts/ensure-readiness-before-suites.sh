@@ -7,7 +7,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NS_ING="${NS_ING:-ingress-nginx}"
-NS_APP="${NS_APP:-record-platform}"
+NS_APP="${NS_APP:-off-campus-housing-tracker}"
 READINESS_GRACE_SECONDS="${READINESS_GRACE_SECONDS:-8}"
 READINESS_TIMEOUT="${READINESS_TIMEOUT:-120}"
 
