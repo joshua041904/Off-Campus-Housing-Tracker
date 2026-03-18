@@ -30,4 +30,21 @@ Off-Campus-Housing-Tracker: 7 Postgres DBs (5441–5447), backup & bring-up alig
   7 DBs / 5441–5447; docker compose up commands include postgres-notification;
   port wait loops and messages updated.
 
+- README “How to run (team / first-time)”: Step-by-step for first-time users and
+  team — (1) one-time cluster via setup-new-colima-cluster.sh, (2) bring-up-
+  external-infra.sh for Zookeeper/Kafka/Redis/7 Postgres, (3) one person testing
+  their part (single Postgres or SKIP_KAFKA=1), (4) full preflight and suites.
+  Documents namespace, hostname, and that only housing + protocol suites run.
+
+- Test suites: Removed all non-housing suites. run-all-test-suites.sh now runs
+  only 4 suites — auth (housing), rotation (CA/leaf + protocol verification),
+  standalone-capture (wire capture), tls-mtls (cert chain, gRPC TLS, mTLS).
+  Removed: baseline, enhanced, adversarial, social, lb-coordinated. Updated
+  suite counts (9→4), error summary, re-run commands, and DB port hints (5441–5447).
+
+- run-preflight-scale-and-all-suites.sh: Removed step 6f (shopping schema) and
+  step 6g (RUN_REBUILD_SHOPPING). Step 7 breakdown and say message updated to
+  list only auth, rotation, standalone-capture, tls-mtls. Header comment
+  no longer references RUN_SHOPPING_SEQUENCE or Step 6f.
+
 Made with Tom.

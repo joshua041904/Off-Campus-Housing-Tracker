@@ -253,6 +253,57 @@ docker compose up -d postgres-auth postgres-listings postgres-bookings postgres-
 
 ---
 
+# How to run (team / first-time)
+
+Once the repo is set up and services are coded, use these steps so the whole team (and first-time users) can run the stack and tests.
+
+## 1. One-time: create the cluster
+
+- **Colima + k3s (recommended for Mac):**
+  ```bash
+  ./scripts/setup-new-colima-cluster.sh
+  ```
+  This starts Colima with k3s and installs MetalLB. Namespaces `ingress-nginx` and `envoy-test` stay as-is; the app runs in `off-campus-housing-tracker`. Hostname: `off-campus-housing.local`.
+
+- **k3d:** Use your existing k3d workflow; ensure the cluster name/context matches what the scripts expect (e.g. `off-campus-housing-tracker`).
+
+## 2. Bring up external infra (every time you need DBs/Kafka/Redis)
+
+Before running the app or tests, start Zookeeper, Kafka, Redis, and the 7 Postgres instances:
+
+```bash
+./scripts/bring-up-external-infra.sh
+```
+
+- Waits until ports 5441–5447 (Postgres), 6379 (Redis), and 29093 (Kafka) are reachable.
+- Kafka needs `certs/kafka-ssl` (see Runbook “Kafka SSL”); use `SKIP_KAFKA=1` to run without Kafka.
+- Optional: restore from backup with `RESTORE_BACKUP_DIR=latest` or `RESTORE_BACKUP_DIR=backups/all-7-<timestamp>`.
+
+## 3. One person testing their part
+
+- Start only what you need:
+  - **Just Postgres for one service:**  
+    `docker compose up -d postgres-auth` (or `postgres-listings`, etc.).
+  - **Full infra (no Kafka):**  
+    `SKIP_KAFKA=1 ./scripts/bring-up-external-infra.sh`
+- Then run your service locally or deploy to the cluster and hit it via the gateway or health endpoints.
+
+## 4. Full preflight and test suites
+
+After cluster + infra are up, you can run the full preflight (images, TLS, Caddy, Envoy, DBs) and the **housing + protocol** test suites (auth, rotation, standalone capture, TLS/mTLS only — no legacy social/shopping suites):
+
+```bash
+./scripts/run-preflight-scale-and-all-suites.sh
+```
+
+- Set `RUN_SUITES=0` to only bring up the cluster/infra and skip test suites.
+- Set `RUN_K6=1` to run k6 load after the rotation suite.
+- Suites run: **auth**, **rotation** (CA/leaf + protocol verification), **standalone-capture** (wire capture), **tls-mtls** (cert chain, gRPC TLS, mTLS).
+
+For more detail see the Runbook and comments in `scripts/run-all-test-suites.sh` and `scripts/run-preflight-scale-and-all-suites.sh`.
+
+---
+
 # Future Splits (When Scaling Demands It)
 
 listings-service → split search-index-service  

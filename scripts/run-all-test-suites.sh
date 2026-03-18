@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Run all test suites: auth, baseline, enhanced, adversarial, rotation, k6 (after rotation; strict TLS), standalone, tls-mtls, social.
-# CA and leaf are both rotated: preflight 3a (reissue-ca-and-leaf) and again in rotation suite; certs/dev-root.pem is the single source of truth. k6 runs after rotation and trusts that cert only (no insecure skip) to prove the new cert works.
+# Run housing + protocol test suites only: auth, rotation, standalone-capture, tls-mtls.
+# Legacy suites (baseline, enhanced, adversarial, social, lb-coordinated) are removed; only protocol checks and housing-relevant auth remain.
+# CA and leaf are both rotated in rotation suite; certs/dev-root.pem is the single source of truth. k6 runs after rotation when RUN_K6=1 (strict TLS only).
 #
-# Breakdown: (1) Guardrail: no Kind/h3; when REQUIRE_COLIMA=0 (k3d), any context allowed; when REQUIRE_COLIMA=1, Colima required. (2) If SKIP_FULL_PREFLIGHT!=1, runs full preflight first. (3) Kill stale pipeline/suite/capture processes, then cleanup port-forwards. (4) Kubeconfig/preflight fix and ensure-api-server-ready (k3d uses shorter ENSURE_CAP/API_SERVER_SLEEP). (5) Strict TLS/mTLS preflight. (6) Runs each suite in order; k6 after rotation (5b); DB & Cache verification after each and at end.
-# Speed: k3d gets shorter API wait (ENSURE_CAP=90, API_SERVER_SLEEP=2). Set SUITE_TIMEOUT or ENHANCED_SUITE_TIMEOUT (seconds) to cap suite duration for CI. See TEST-FAILURES-AND-WARNINGS.md "Speed and timeouts".
+# Breakdown: (1) Guardrail: no Kind/h3; when REQUIRE_COLIMA=0 (k3d), any context allowed; when REQUIRE_COLIMA=1, Colima required. (2) If SKIP_FULL_PREFLIGHT!=1, runs full preflight first. (3) Kill stale pipeline/suite/capture processes, then cleanup port-forwards. (4) Kubeconfig/preflight fix and ensure-api-server-ready. (5) Strict TLS/mTLS preflight. (6) Runs 4 suites in order; k6 after rotation when RUN_K6=1; DB & Cache verification after each suite.
 # Pipe: ./run-all-test-suites.sh 2>&1 | tee /tmp/full-run-$(date +%s).log
 
 set -euo pipefail
@@ -204,7 +204,7 @@ fi
 
 say "=== Running All Test Suites (gRPC + HTTP/2 + HTTP/3/QUIC) ==="
 ok "Protocol coverage: gRPC (Envoy), HTTP/2 (Caddy TCP 443), HTTP/3/QUIC (Caddy UDP 443)"
-ok "Packet capture: baseline, enhanced, rotation, standalone"
+ok "Packet capture: rotation, standalone-capture"
 ok "TLS/mTLS: Comprehensive certificate chain, gRPC TLS, mTLS configuration"
 ok "Auth: test-auth-service.sh (register, login, MFA, passkeys)"
 
@@ -212,11 +212,11 @@ SUITE_LOG_DIR="${SUITE_LOG_DIR:-/tmp/suite-logs-$(date +%s)}"
 mkdir -p "$SUITE_LOG_DIR"
 say "Suite logs: $SUITE_LOG_DIR"
 say "All results will be piped to: $SUITE_LOG_DIR"
-say "DB & Cache verification will run after EACH test suite (all 9 suites get verify-db-cache-quick.sh)"
-info "Per-suite timeout: SUITE_TIMEOUT=${SUITE_TIMEOUT:-0}; when 0, safety cap SUITE_TIMEOUT_SAFETY=${SUITE_TIMEOUT_SAFETY:-7200}s so all 9 suites run (set SUITE_TIMEOUT_DISABLE_SAFETY=1 for no cap)."
+say "DB & Cache verification will run after EACH test suite (all 4 suites get verify-db-cache-quick.sh)"
+info "Per-suite timeout: SUITE_TIMEOUT=${SUITE_TIMEOUT:-0}; when 0, safety cap SUITE_TIMEOUT_SAFETY=${SUITE_TIMEOUT_SAFETY:-7200}s so all 4 suites run (set SUITE_TIMEOUT_DISABLE_SAFETY=1 for no cap)."
 info "To analyze results: cat $SUITE_LOG_DIR/*.log | grep -E '(✅|❌|⚠️|FAILED|error)'"
 
-# Explicit timeout: set SUITE_TIMEOUT (seconds) to cap baseline and other suites so the run progresses and exits (e.g. SUITE_TIMEOUT=3600 for 1h). ENHANCED_SUITE_TIMEOUT caps enhanced only.
+# Explicit timeout: set SUITE_TIMEOUT (seconds) to cap suites so the run progresses and exits (e.g. SUITE_TIMEOUT=3600 for 1h).
 # When a suite hits the cap it is killed and marked timed out; remaining suites still run.
 # When SUITE_TIMEOUT=0 (no cap), use SUITE_TIMEOUT_SAFETY (default 7200) so one suite cannot hang forever and block 2/9..9/9. Set SUITE_TIMEOUT_DISABLE_SAFETY=1 for true no-timeout.
 SUITE_TIMEOUT="${SUITE_TIMEOUT:-0}"
@@ -235,7 +235,7 @@ _run_suite() {
   local timing_file="$SUITE_LOG_DIR/suite-timing.txt"
   mkdir -p "$SUITE_LOG_DIR"
   echo "$suite_name start $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$timing_file"
-  # Suite 2/9 (baseline) runs packet capture; timing here allows correlating capture window with this file.
+  # Suite 2/4 (rotation) runs packet capture; timing here allows correlating capture window with this file.
   set +e
   set +u
   if [[ "$timeout_sec" -gt 0 ]]; then
@@ -316,7 +316,7 @@ _run_suite() {
 FAILED=0
 FAILED_SUITES=()
 SUITES_START_TIME=$(date +%s)
-# Each _run_suite call uses "|| { FAILED+=1; FAILED_SUITES+=(...); }" so a failed suite does not exit the script — all 9 suites run. See scripts/SUITES_AND_METALLB.md.
+# Each _run_suite call uses "|| { FAILED+=1; FAILED_SUITES+=(...); }" so a failed suite does not exit the script — all 4 suites run.
 
 # Prefer LB IP when host can reach it (MetalLB verification wrote USE_LB_FOR_TESTS=1); else NodePort or port-forward.
 # Colima: MetalLB only. If metallb-reachable.env missing, derive TARGET_IP from caddy-h3 LoadBalancer.
@@ -491,9 +491,9 @@ if [[ "${USE_LB_FOR_TESTS:-0}" == "1" ]] && [[ -n "${REACHABLE_LB_IP:-}" ]]; the
     fi
     [[ -n "${DOCKER_FORWARD_PORT:-}" ]] && info "Docker bridge port: ${DOCKER_FORWARD_PORT} (HTTP/3 from containers via host.docker.internal:${DOCKER_FORWARD_PORT})"
     if [[ $_h3_ok -eq 1 ]]; then
-      ok "HTTP/3 (QUIC) to LB IP OK; baseline will test both LB IP and NodePort"
+      ok "HTTP/3 (QUIC) to LB IP OK; suites will use LB IP"
     else
-      info "HTTP/3 to LB IP not verified; baseline will test both LB IP and NodePort (see root cause above if QUIC fails)"
+      info "HTTP/3 to LB IP not verified; see root cause above if QUIC fails"
     fi
   fi
 else
@@ -545,7 +545,7 @@ if [[ "$ctx" == *"k3d"* ]] && [[ "${USE_LB_FOR_TESTS:-0}" != "1" ]]; then
   fi
 fi
 
-# Export traffic target for packet capture and logs (so baseline/enhanced report NodePort vs LB IP and which address was hit)
+# Export traffic target for packet capture and logs (rotation, standalone-capture report NodePort vs LB IP)
 if [[ "${USE_LB_FOR_TESTS:-0}" == "1" ]] && [[ -n "${REACHABLE_LB_IP:-}" ]] && [[ "${PORT:-443}" == "443" ]]; then
   export CAPTURE_TRAFFIC_TARGET="LB IP ${REACHABLE_LB_IP}:443"
 else
@@ -556,57 +556,26 @@ fi
 say "Suite run policy: strict TLS/mTLS enforced (CA cert, no -k); HTTP/3 uses --http3-only (no HTTP/2 fallback)"
 info "Traffic target: $CAPTURE_TRAFFIC_TARGET — packet capture and all suites use this IP and port"
 
-# Readiness gate: ensure Caddy + api-gateway + auth/listings/records/shopping/analytics are ready and grace delay (avoids 504, 404, curl 28, analytics DB timeout during rotation windows)
+# Readiness gate: ensure Caddy + api-gateway + housing services are ready and grace delay (avoids 504, 404, curl 28 during rotation)
 if [[ -f "$SCRIPT_DIR/ensure-readiness-before-suites.sh" ]] && [[ "${SKIP_READINESS_GATE:-0}" != "1" ]]; then
   chmod +x "$SCRIPT_DIR/ensure-readiness-before-suites.sh" 2>/dev/null || true
   "$SCRIPT_DIR/ensure-readiness-before-suites.sh" || warn "Readiness gate had issues (continuing)"
 fi
 
-# 1. Auth service (register, login, MFA, passkeys)
-say "1/9: Auth service"
+# 1. Auth service (housing: register, login, MFA, passkeys)
+say "1/4: Auth service"
 if [[ -f "$SCRIPT_DIR/test-auth-service.sh" ]]; then
   _run_suite "auth" "$SCRIPT_DIR/test-auth-service.sh" || { FAILED=$((FAILED + 1)); FAILED_SUITES+=(auth); }
 else
   warn "test-auth-service.sh not found; skipping auth suite"
 fi
 
-# 2. Baseline smoke test (includes packet capture; timing in suite-timing.txt for capture correlation)
-say "2/9: Baseline smoke test"
-info "Baseline (suite 2/9): packet capture runs during tests; start/end times in $SUITE_LOG_DIR/suite-timing.txt"
-_run_suite "baseline" "$SCRIPT_DIR/test-microservices-http2-http3.sh" "${SUITE_TIMEOUT:-0}" || { FAILED=$((FAILED + 1)); FAILED_SUITES+=(baseline); }
-# Propagate USER1_ID from baseline log for shopping cart verification and comprehensive (suites run in subshell so env is lost)
-if [[ -f "$SUITE_LOG_DIR/baseline.log" ]]; then
-  _uid=$(grep -oE 'User 1 ID: [a-f0-9-]{36}' "$SUITE_LOG_DIR/baseline.log" 2>/dev/null | head -1 | sed 's/User 1 ID: //')
-  [[ -n "$_uid" ]] && export USER1_ID="$_uid" && info "Propagated USER1_ID from baseline for cart/comprehensive verification"
-fi
-
-# Post-baseline settle: give Caddy/pods/DB verification time before enhanced (avoids auth schema check race, token dependency bleed).
-[[ "$ctx" == *"colima"* ]] && POST_BASELINE_SETTLE="${POST_BASELINE_SETTLE:-8}" || POST_BASELINE_SETTLE="${POST_BASELINE_SETTLE:-5}"
-info "Post-baseline settle (${POST_BASELINE_SETTLE}s) before enhanced suite…"
-sleep "$POST_BASELINE_SETTLE"
-
-# 3. Enhanced smoke test (includes packet capture + adversarial). No timeout by default — runs to completion.
-ENHANCED_SUITE_TIMEOUT="${ENHANCED_SUITE_TIMEOUT:-0}"
-say "3/9: Enhanced smoke test"
-_run_suite "enhanced" "$SCRIPT_DIR/test-microservices-http2-http3-enhanced.sh" "$ENHANCED_SUITE_TIMEOUT" || { FAILED=$((FAILED + 1)); FAILED_SUITES+=(enhanced); }
-# Re-propagate USER1_ID from enhanced if baseline didn't set it
-if [[ -z "${USER1_ID:-}" ]] && [[ -f "$SUITE_LOG_DIR/enhanced.log" ]]; then
-  _uid=$(grep -oE 'User 1 ID: [a-f0-9-]{36}' "$SUITE_LOG_DIR/enhanced.log" 2>/dev/null | head -1 | sed 's/User 1 ID: //')
-  [[ -n "$_uid" ]] && export USER1_ID="$_uid"
-fi
-
-# 4. Adversarial tests (DB disconnect, cache, capture, load)
-say "4/9: Adversarial tests"
-_run_suite "adversarial" "$SCRIPT_DIR/enhanced-adversarial-tests.sh" || { FAILED=$((FAILED + 1)); FAILED_SUITES+=(adversarial); }
-
-# 5. Rotation suite (CA/leaf rotation + wire-level capture)
-# ROTATION_UPDATE_KAFKA_SSL=1 so Kafka TLS is regenerated after CA rotation (avoids "unable to verify the first certificate" in social/auction-monitor)
-# ROTATION_SKIP_KEYCHAIN_TRUST=1 so macOS keychain is not updated (no security prompt); k6/ConfigMap use certs/dev-root.pem, no manual verify needed.
-# ROTATION_H2_KEYLOG=1 (default): k6 on host with SSLKEYLOGFILE → decrypted HTTP/2 frames in wire verification. Set 0 for in-cluster k6 only.
-# ROTATE_CA=1 (default): rotate CA and leaf for full cert chain test. Set 0 to skip CA rotation.
-# ROTATION_UDP_STATS=1 (Colima default from preflight): capture netstat/ss/proc pre/post k6 for QUIC queue pressure; see docs/RCA-HTTP3-QUIC-AND-METALLB-NETWORKING.md §7b.
-# Transport study: rotation-suite does wire capture + protocol verification; see docs/TRANSPORT_LAYER_STUDY_PLAN.md
-say "5/9: Rotation suite"
+# 2. Rotation suite (CA/leaf rotation + wire-level capture + protocol verification)
+# ROTATION_UPDATE_KAFKA_SSL=1 so Kafka TLS is regenerated after CA rotation.
+# ROTATION_SKIP_KEYCHAIN_TRUST=1 so macOS keychain is not updated; k6/ConfigMap use certs/dev-root.pem.
+# ROTATION_H2_KEYLOG=1 (default): k6 on host with SSLKEYLOGFILE → decrypted HTTP/2 frames in wire verification.
+# ROTATE_CA=1 (default): rotate CA and leaf for full cert chain test.
+say "2/4: Rotation suite"
 export ROTATION_UPDATE_KAFKA_SSL=1
 export ROTATION_SKIP_KEYCHAIN_TRUST=1
 export ROTATION_H2_KEYLOG="${ROTATION_H2_KEYLOG:-1}"
@@ -615,7 +584,7 @@ export ROTATION_UDP_STATS="${ROTATION_UDP_STATS:-0}"
 [[ "${ROTATION_UDP_STATS:-0}" == "1" ]] && info "  ROTATION_UDP_STATS=1: UDP stats (netstat/ss) pre/post → \$WIRE_CAPTURE_DIR"
 _run_suite "rotation" "$SCRIPT_DIR/rotation-suite.sh" || { FAILED=$((FAILED + 1)); FAILED_SUITES+=(rotation); }
 
-# 5b. k6 load phase *after* CA/leaf rotation — proves traffic works with the new cert (strict TLS only; trust certs/dev-root.pem).
+# 2b. k6 load phase *after* CA/leaf rotation — proves traffic works with the new cert (strict TLS only; trust certs/dev-root.pem).
 # Order: rotation updates certs/dev-root.pem → k6 uses that CA so we never skip TLS verification.
 if [[ "${RUN_K6:-0}" == "1" ]] && command -v k6 >/dev/null 2>&1; then
   say "5b. k6 load (after CA/leaf rotation; strict TLS — trust certs/dev-root.pem to prove new cert works)"
@@ -705,31 +674,19 @@ if [[ "${RUN_K6:-0}" == "1" ]] && command -v k6 >/dev/null 2>&1; then
   fi
 fi
 
-# 6. Standalone packet capture (gRPC + HTTP/2 + HTTP/3 only)
-say "6/9: Standalone packet capture"
+# 3. Standalone packet capture (gRPC + HTTP/2 + HTTP/3 wire capture only)
+say "3/4: Standalone packet capture"
 _run_suite "standalone-capture" "$SCRIPT_DIR/test-packet-capture-standalone.sh" || { FAILED=$((FAILED + 1)); FAILED_SUITES+=(standalone-capture); }
 
-# 7. TLS/mTLS comprehensive test
-say "7/9: TLS/mTLS comprehensive test"
+# 4. TLS/mTLS comprehensive test (cert chain, gRPC TLS, mTLS)
+say "4/4: TLS/mTLS comprehensive test"
 _run_suite "tls-mtls" "$SCRIPT_DIR/test-tls-mtls-comprehensive.sh" || { FAILED=$((FAILED + 1)); FAILED_SUITES+=(tls-mtls); }
-
-# 8. Social service comprehensive (all forum + messages routes)
-say "8/9: Social service comprehensive"
-_run_suite "social" "$SCRIPT_DIR/test-social-service-comprehensive.sh" || { FAILED=$((FAILED + 1)); FAILED_SUITES+=(social); }
-
-# 9. Coordinated LB: Caddy (LB/NodePort) + HAProxy + MetalLB
-say "9/9: Coordinated LB (Caddy + HAProxy + MetalLB)"
-if [[ -f "$SCRIPT_DIR/test-lb-coordinated.sh" ]]; then
-  _run_suite "lb-coordinated" "$SCRIPT_DIR/test-lb-coordinated.sh" || { FAILED=$((FAILED + 1)); FAILED_SUITES+=(lb-coordinated); }
-else
-  warn "test-lb-coordinated.sh not found; skipping lb-coordinated suite"
-fi
 
 SUITES_END_TIME=$(date +%s)
 SUITES_ELAPSED=$((SUITES_END_TIME - SUITES_START_TIME))
 say "=== All Test Suites Complete ==="
 echo ""
-info "All 9 suites have finished (auth, baseline, enhanced, adversarial, rotation, standalone-capture, tls-mtls, social, lb-coordinated). Total time: ${SUITES_ELAPSED}s. Exit code reflects failures only."
+info "All 4 suites have finished (auth, rotation, standalone-capture, tls-mtls). Total time: ${SUITES_ELAPSED}s. Exit code reflects failures only."
 echo ""
 
 # Run comprehensive database and cache verification (end-stage). Skip by default so full suite + enhanced/adversarial can run through; set SKIP_END_VERIFICATION=0 to run.
@@ -764,9 +721,7 @@ else
       echo "    Key issues:"
       grep -iE "error|failed|exit [1-9]|curl exit 77|SSL certificate|TLS.*failed|local: can only be used|context deadline exceeded|dial.*failed|Session open refused|mux_client_request_session|h3_fail|404.*purchase" "$suite_log" 2>/dev/null | head -8 | sed 's/^/      - /' || echo "      (see full log: $suite_log)"
       # Known root causes (see docs/PREFLIGHT_FAILURE_INVESTIGATION.md)
-      if [[ "$suite_name" == "baseline" ]]; then
-        echo "    Likely causes: Test 13g (Request Return) 404, or DB verification/SSH mux (Session open refused). Baseline continues on DB verify exit; re-run to confirm."
-      elif [[ "$suite_name" == "rotation" ]]; then
+      if [[ "$suite_name" == "rotation" ]]; then
         echo "    Likely causes: k6 HTTP/3 100% fail (stale QUIC / timeout), or SSH mux (Session open refused). Use ROTATION_H2_KEYLOG=0 for in-cluster k6, or K6_HTTP3_NO_REUSE=1 for host k6."
       fi
     fi
@@ -777,12 +732,12 @@ else
   echo "2. Review comprehensive verification (if run): $SUITE_LOG_DIR/comprehensive-verification.log (set SKIP_END_VERIFICATION=0 to enable)"
   echo "3. Common issues (by layer):"
   echo "   - Protocol: HTTP/3 (curl exit 77) = CA/cert chain; HTTP/2 = TLS/caddy"
-  echo "   - DB: Connection refused / schema = Postgres ports 5433–5440 (external Docker, not in-cluster; ensure Docker Compose Postgres is up)"
-  echo "   - Gateway/upstream: 502 'social upstream error' = api-gateway→social-service (pod health, DNS, TLS, or social-service→DB)"
+  echo "   - DB: Connection refused / schema = Postgres ports 5441–5447 (external Docker; ensure Docker Compose Postgres is up)"
+  echo "   - Gateway/upstream: 502 = api-gateway→service (pod health, DNS, TLS, or service→DB)"
   echo "   - gRPC: Envoy routing / TLS = Envoy + service TLS mounts"
   echo "   - Cache: Redis (externalized) = port 6379, Lua"
   echo "   - Rotation: Secret updates (use colima ssh kubectl if host cannot reach API); cert reissue; packet capture: tcpdump/tshark on Caddy/Envoy"
-  echo "   - Strict TLS/mTLS: test-tls-mtls-comprehensive.sh; packet capture: baseline, enhanced, rotation, standalone-capture"
+  echo "   - Strict TLS/mTLS: test-tls-mtls-comprehensive.sh; packet capture: rotation, standalone-capture"
   if [[ -f "$SUITE_LOG_DIR/rotation.log" ]] && grep -q 'Protocol mismatch: expected HTTP/3, got ""' "$SUITE_LOG_DIR/rotation.log" 2>/dev/null; then
     echo "   - Rotation H3 proto empty: xk6-http3 was not exposing protocol to JS. Rebuild host k6 (and image if using in-cluster):"
     echo "     ./scripts/build-k6-http3.sh   # host binary used when ROTATION_H2_KEYLOG=1"
@@ -804,16 +759,11 @@ else
   echo ""
   echo "4. To re-run a specific suite:"
   echo "   $SCRIPT_DIR/test-auth-service.sh  # auth"
-  echo "   $SCRIPT_DIR/test-microservices-http2-http3.sh  # baseline"
-  echo "   $SCRIPT_DIR/test-microservices-http2-http3-enhanced.sh  # enhanced"
-  echo "   $SCRIPT_DIR/enhanced-adversarial-tests.sh  # adversarial"
   echo "   $SCRIPT_DIR/rotation-suite.sh  # rotation"
-  echo "   $SCRIPT_DIR/test-packet-capture-standalone.sh  # standalone"
+  echo "   $SCRIPT_DIR/test-packet-capture-standalone.sh  # standalone-capture"
   echo "   $SCRIPT_DIR/test-tls-mtls-comprehensive.sh  # tls-mtls"
-  echo "   $SCRIPT_DIR/test-social-service-comprehensive.sh  # social"
   echo ""
-  echo "5. Load tests (strict TLS): RUN_K6=1 runs k6 after suites. CA is at repo root: certs/dev-root.pem (preflight syncs it there). If k6 shows x509: run full preflight first, or set K6_CA_CERT=$REPO_ROOT/certs/dev-root.pem."
-  echo "   RUN_PGBENCH=1 runs pgbench sweeps before suites (default deep). RUN_FULL_LOAD=1 = RUN_K6=1 + RUN_PGBENCH=1 for total platform coverage. See LOAD_TESTS_CATALOG.md, PGBENCH_HARDENING.md."
+  echo "5. Load tests (strict TLS): RUN_K6=1 runs k6 after rotation. CA: certs/dev-root.pem. If k6 shows x509: run full preflight first, or set K6_CA_CERT=$REPO_ROOT/certs/dev-root.pem."
   echo ""
   warn "Exiting with code 1 (one or more suites failed)."
   exit 1

@@ -57,10 +57,10 @@ fi
 #
 # Packet capture (step 7 suites): CAPTURE_STOP_TIMEOUT=30 and CAPTURE_MAX_STOP_SECONDS=75 are exported so baseline/enhanced capture stop phase never blocks (quick first-packet only when timeout set; full copy capped at 75s).
 #
-# Example (k3d + MetalLB, suites only, shopping sequence): METALLB_ENABLED=1 REQUIRE_COLIMA=0 RUN_PGBENCH=0 RUN_SHOPPING_SEQUENCE=1 ./scripts/run-preflight-scale-and-all-suites.sh
+# Example (k3d + MetalLB, suites only): METALLB_ENABLED=1 REQUIRE_COLIMA=0 RUN_PGBENCH=0 ./scripts/run-preflight-scale-and-all-suites.sh
 # Example (Colima + MetalLB, full preflight + k6 + all suites, no pgbench): METALLB_ENABLED=1 RUN_PGBENCH=0 ./scripts/run-preflight-scale-and-all-suites.sh
 #   RUN_PGBENCH=0 skips step 8 (pgbench); steps 0–7 run (reissue, MetalLB, Caddy, all suites, k6 phases). REQUIRE_COLIMA=1 is auto-set when METALLB_ENABLED=1 (unless METALLB_USE_K3D=1).
-#   Step 6f runs ensure-shopping-order-number-sequence when RUN_SHOPPING_SEQUENCE=1. Step 7 exports: SUITE_TIMEOUT=3600 (1h per suite; set 0 for no cap), DB_VERIFY_MAX_SECONDS=10 (fast default; set 60 for full verify), DB_VERIFY_CONNECT_TIMEOUT=3, CAPTURE_STOP_TIMEOUT=30.
+#   Step 7 exports: SUITE_TIMEOUT=3600 (1h per suite; set 0 for no cap), DB_VERIFY_MAX_SECONDS=10 (fast default; set 60 for full verify), DB_VERIFY_CONNECT_TIMEOUT=3, CAPTURE_STOP_TIMEOUT=30.
 #
 # k3d / avoiding stuck:
 #   - Step 0: kills only stale processes (other terminals/pipelines). This run's children (telemetry, ensure subprocess) are excluded; telemetry starts after step 0 so it is never killed.
@@ -1936,25 +1936,15 @@ if [[ "${RUN_SUITES:-1}" == "0" ]]; then
   exit 0
 fi
 
-# --- Step 7 breakdown: test suites + k6 (multi-protocol HTTP/1.1, HTTP/2, HTTP/3) ---
-# run-all-test-suites.sh runs the following in order:
+# --- Step 7 breakdown: housing + protocol test suites only ---
+# run-all-test-suites.sh runs the following in order (legacy baseline/enhanced/adversarial/social/lb-coordinated removed):
 #
-#  Suite 1/8 — auth          → test-auth-service.sh           (register, login, MFA, passkeys)
-#  Suite 2/8 — baseline      → test-microservices-http2-http3.sh  (REST via HTTP/2 + HTTP/3, gRPC health 15a–15j, packet capture)
-#  Suite 3/8 — enhanced      → test-microservices-http2-http3-enhanced.sh  (same + per-test capture, adversarial-style)
-#  Suite 4/8 — adversarial   → enhanced-adversarial-tests.sh (DB disconnect, cache, malformed, connection flood)
-#  Suite 5/8 — rotation      → rotation-suite.sh              (CA/leaf rotation, k6 during rotation, wire-level capture)
-#  Step 5b   — k6 load       → run-k6-phases.sh (when RUN_K6=1) — multi-protocol:
-#                               • HTTP/2: phases read, soak, sweep, limit, max (k6-reads.js, k6-limit-test-comprehensive.js)
-#                               • HTTP/3: xk6-http3 phases (run-k6-http3-phases.sh or k6-http3-complete.js) when K6_HTTP3=1
-#                               • HTTP/1.1: standard k6 over TLS uses ALPN; for explicit HTTP/1.1 use script with HTTP/1.1 option
-#                               • Protocol comparison: K6_PROTOCOL_COMPARISON=1 → run-k6-protocol-comparison.sh (HTTP/2 vs HTTP/3)
-#  Suite 6/8 — standalone-capture → test-packet-capture-standalone.sh (gRPC + HTTP/2 + HTTP/3 wire capture only)
-#  Suite 7/8 — tls-mtls      → test-tls-mtls-comprehensive.sh (cert chain, gRPC TLS, mTLS)
-#  Suite 8/8 — social        → test-social-service-comprehensive.sh (forum + messages routes)
-#  Post-suites: verify-db-and-cache-comprehensive.sh
-#
-# k6 phases (RUN_K6=1, K6_PHASES=read,soak,limit,max): HTTP/2 by default; HTTP/3 via xk6-http3 when K6_HTTP3=1/K6_HTTP3_PHASES=1.
+#  Suite 1/4 — auth              → test-auth-service.sh           (housing: register, login, MFA, passkeys)
+#  Suite 2/4 — rotation          → rotation-suite.sh              (CA/leaf rotation, wire-level capture, protocol verification)
+#  Step 2b   — k6 load           → run-k6-phases.sh (when RUN_K6=1); strict TLS only (certs/dev-root.pem)
+#  Suite 3/4 — standalone-capture → test-packet-capture-standalone.sh (gRPC + HTTP/2 + HTTP/3 wire capture only)
+#  Suite 4/4 — tls-mtls          → test-tls-mtls-comprehensive.sh (cert chain, gRPC TLS, mTLS)
+#  Post-suites: verify-db-and-cache-comprehensive.sh (when SKIP_END_VERIFICATION=0)
 
 # --- Step 6e: Ensure tcpdump in Caddy + Envoy pods (so baseline/enhanced/rotation capture does not block on install) ---
 # On k3d, 3c0a already patched caddy-h3 to caddy-with-tcpdump:dev so tcpdump is in the image; 6e is a no-op for those pods. Colima/other: 6e installs via apk/apt.
@@ -1969,32 +1959,8 @@ if [[ -f "$SCRIPT_DIR/ensure-tcpdump-in-capture-pods.sh" ]]; then
   fi
 fi
 
-# --- Step 6f: Always run shopping schema (order_number + returns) before suites so Test 13c/13j5/13g have schema ---
-say "6f. Ensuring shopping schema (order_number + returns) before suites..."
-if [[ -f "$SCRIPT_DIR/ensure-shopping-order-number-sequence.sh" ]]; then
-  chmod +x "$SCRIPT_DIR/ensure-shopping-order-number-sequence.sh" 2>/dev/null || true
-  "$SCRIPT_DIR/ensure-shopping-order-number-sequence.sh" 2>&1 | grep -E "✅|⚠️|ℹ️" || true
-fi
-if [[ -f "$SCRIPT_DIR/ensure-shopping-returns-migration.sh" ]]; then
-  chmod +x "$SCRIPT_DIR/ensure-shopping-returns-migration.sh" 2>/dev/null || true
-  "$SCRIPT_DIR/ensure-shopping-returns-migration.sh" 2>&1 | grep -E "✅|⚠️|ℹ️" || true
-fi
-ok "Shopping schema ensured before suites (Test 13c/13g/13j5)"
-
-# --- Step 6g: When RUN_REBUILD_SHOPPING=1, rebuild and load shopping-service so 13c/13j5 use atomic INSERT (fix duplicate key once and for all) ---
-if [[ "${RUN_REBUILD_SHOPPING:-0}" == "1" ]] && [[ "$ctx" == *"k3d"* ]] && command -v k3d >/dev/null 2>&1; then
-  say "6g. Rebuilding and loading shopping-service (RUN_REBUILD_SHOPPING=1)..."
-  _net_opt=()
-  [[ "${BUILD_NETWORK:-host}" == "host" ]] && _net_opt=( --network host )
-  if ( cd "$REPO_ROOT" && docker build "${_net_opt[@]}" -t shopping-service:dev -f services/shopping-service/Dockerfile . 2>&1 ) && k3d image import shopping-service:dev -c off-campus-housing-tracker 2>/dev/null && kubectl -n off-campus-housing-tracker rollout restart deployment/shopping-service 2>/dev/null; then
-    ok "shopping-service rebuilt, loaded, and restarted"
-  else
-    warn "shopping-service rebuild/load had issues (run manually: docker build -t shopping-service:dev -f services/shopping-service/Dockerfile . && k3d image import shopping-service:dev -c off-campus-housing-tracker && kubectl -n off-campus-housing-tracker rollout restart deployment/shopping-service)"
-  fi
-fi
-
 _phase_start "7_run_all_suites"
-say "7. Running all test suites (auth, baseline, enhanced, adversarial, rotation, standalone, tls-mtls, social)${RUN_K6:+ + k6}..."
+say "7. Running housing + protocol test suites (auth, rotation, standalone-capture, tls-mtls)${RUN_K6:+ + k6}..."
 export SUITE_LOG_DIR="${SUITE_LOG_DIR:-$PREFLIGHT_RUN_DIR/suite-logs}"
 mkdir -p "$SUITE_LOG_DIR"
 # Explicit timeouts and verification caps so the run progresses and never hangs (override with env when calling preflight).
@@ -2035,8 +2001,7 @@ if [[ -n "$_lb_ip" ]]; then
 fi
 [[ "$ctx" == *"k3d"* ]] && info "  (k3d: run-all-test-suites.sh will use NodePort 30443 if reachable for HTTP/2+HTTP/3, else port-forward 8443 for HTTP/2 only)"
 info "  SUITE_TIMEOUT=${SUITE_TIMEOUT}s per suite | DB_VERIFY_MAX_SECONDS=${DB_VERIFY_MAX_SECONDS}s | DB_VERIFY_FAST=${DB_VERIFY_FAST:-0} | CAPTURE_STOP_TIMEOUT=${CAPTURE_STOP_TIMEOUT}s (set to 0 for no suite cap)"
-info "  Suite 2/9 (baseline): packet capture; start/end times → $SUITE_LOG_DIR/suite-timing.txt (for capture correlation)"
-info "  Suite 5/9 (rotation): ROTATION_H2_KEYLOG=1, ROTATE_CA=1; Colima: ROTATION_UDP_STATS=1, BBR; wire capture + protocol verification; transport study (always on)"
+info "  Suite 2/4 (rotation): packet capture; ROTATION_H2_KEYLOG=1, ROTATE_CA=1; start/end times → $SUITE_LOG_DIR/suite-timing.txt"
 info "  DB verification timing (resolve_s, user1_parallel_s, ...) → $DB_VERIFY_TIMING_LOG (for correlation with pgbench)"
 # Rotation defaults: ROTATION_H2_KEYLOG=1 (decrypted HTTP/2 frames), ROTATE_CA=1 (full cert chain test)
 export ROTATION_H2_KEYLOG="${ROTATION_H2_KEYLOG:-1}"
