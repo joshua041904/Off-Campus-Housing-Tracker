@@ -72,7 +72,7 @@ This document provides in-depth technical documentation for the Off-Campus-Housi
         (HTTP/2/3)     │                           │  (HTTP/2 TLS via Envoy)
                        ▼                           ▼
         ┌──────────────────────┐      ┌──────────────────────────────┐
-        │  Nginx Edge (8080)   │      │    API Gateway (4000)        │
+        │  Nginx Edge (8080)   │      │    API Gateway (4020)        │
         │  - Static Assets     │      │    - JWT Verification        │
         │  - Micro-cache       │──────▶│    - Rate Limiting          │
         │  - Rate Limiting     │      │    - Identity Injection      │
@@ -607,7 +607,7 @@ Caddy (TLS Termination)
 ingress-nginx
     │
     ▼
-API Gateway (4000)
+API Gateway (4020)
     │
     ├─► JWT Verification (Redis cache check)
     │

@@ -72,7 +72,7 @@ services:
       retries: 20
       start_period: 5s
 
-  # Housing platform: 7 Postgres DBs on host ports 5441–5447 (5432–5440 reserved by other project)
+  # Housing platform: 7 Postgres DBs on host ports 5441–5447
   postgres-auth:
     image: postgres:16-alpine
     environment: { POSTGRES_PASSWORD: postgres, POSTGRES_DB: auth }
@@ -352,6 +352,7 @@ services:
   api-gateway:
     build: { context: ., dockerfile: services/api-gateway/Dockerfile }
     env_file: [.env]
+    environment: { GATEWAY_PORT: "4020" }
     depends_on:
       auth-service: { condition: service_healthy }
       records-service: { condition: service_healthy }
@@ -359,11 +360,11 @@ services:
       analytics-service: { condition: service_healthy }
       python-ai-service: { condition: service_healthy }
       social-service: { condition: service_healthy }
-    expose: ["4000"]
-    ports: ["4010:4000"]
+    expose: ["4020"]
+    ports: ["4020:4020"]
     restart: unless-stopped
     healthcheck:
-      test: ["CMD","wget","-qO-","http://localhost:4000/healthz"]
+      test: ["CMD","wget","-qO-","http://localhost:4020/healthz"]
       interval: 10s
       timeout: 3s
       retries: 10

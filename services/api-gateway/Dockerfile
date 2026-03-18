@@ -59,5 +59,5 @@ RUN rm -rf node_modules/.cache \
 
 USER nodejs
 
-EXPOSE 4000
+EXPOSE 4020
 CMD ["node","dist/server.js"]

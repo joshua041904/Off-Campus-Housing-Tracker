@@ -74,7 +74,7 @@ For detailed technical documentation, system design, and architectural decisions
         (HTTP/2/3)     │                           │  (HTTP/2 TLS)
                        ▼                           ▼
         ┌──────────────────────┐      ┌──────────────────────────────┐
-        │  Nginx Edge (8080)   │      │    API Gateway (4010)         │
+        │  Nginx Edge (8080)   │      │    API Gateway (4020)         │
         │  - Static Assets     │      │    - JWT Verification         │
         │  - Micro-cache       │──────▶│    - Rate Limiting           │
         │  - Rate Limiting     │      │    - Identity Injection      │
@@ -124,7 +124,7 @@ For detailed technical documentation, system design, and architectural decisions
         │              External Databases (Docker Compose)              │
         │                    (Outside Kubernetes)                       │
         ├───────────────────────────────────────────────────────────────┤
-        │  Ports 5441–5447 (5432–5440 reserved by other project)        │
+        │  Ports 5441–5447 (Postgres)                                   │
         │                                                               │
         │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
         │  │ Postgres     │  │ Postgres     │  │ Postgres     │       │
@@ -393,7 +393,7 @@ No business logic allowed in common.
 
 # Postgres (local Docker)
 
-Host ports **5432–5440** are used by another project. This repo uses **5441–5447** for the seven housing DBs:
+This repo uses **5441–5447** for the seven housing DBs:
 
 | Service                | Host port | DB name      |
 |------------------------|-----------|--------------|
@@ -415,23 +415,13 @@ docker compose up -d postgres-auth postgres-listings postgres-bookings postgres-
 
 ## No-conflict setup (same host as record platform)
 
-The **record platform** uses host **record.local**, Caddy NodePort **30443**, Redis **6379**, Kafka **29093**, and Postgres **5433–5440**. To run **this project (Off-Campus-Housing-Tracker)** on the same machine without port conflicts, use these **alternates**:
+**Optional (same host as other projects):** Use hostname **off-campus-housing.local**, Redis **6380**, Kafka **29094**, Caddy NodePort **30444**, Zookeeper **2182**, Postgres **5441–5447** so this project does not conflict with other stacks.
 
-| Component   | Record platform      | This project (housing, same host) |
-|------------|------------------------|-----------------------------------|
-| Hostname   | record.local           | off-campus-housing.local          |
-| Redis      | 6379                   | **6380**                          |
-| Kafka      | 29093                   | **29094**                         |
-| Caddy      | NodePort 30443         | **30444**                         |
-| Registry   | 5000 (if used)         | **5001** (if needed)              |
-| Zookeeper  | 2181                   | **2182**                          |
-| Postgres   | 5433–5440              | **5441–5447** (this project)     |
-
-**In-cluster service ports** are chosen so they do not overlap the record platform (RP). Use these for housing when running on the same host or in the same cluster as RP:
+**In-cluster service ports** for housing:
 
 | Service        | Record platform (RP) | This project (housing)   |
 |----------------|----------------------|--------------------------|
-| API Gateway    | —                    | **4010**                 |
+| API Gateway    | —                    | **4020**                 |
 | Auth           | 4001 HTTP, 50051 gRPC | **4011** HTTP, **50061** gRPC |
 | Records        | 4002 HTTP, 50051 gRPC | — (n/a)                  |
 | Listings       | 4003 HTTP, 50057 gRPC | **4012** HTTP, **50062** gRPC |
@@ -445,7 +435,7 @@ The **record platform** uses host **record.local**, Caddy NodePort **30443**, Re
 | Auction Monitor| 4008 HTTP, 50059 gRPC | — (n/a)                  |
 | Python AI      | 5005 HTTP, 50060 gRPC | — (n/a)                  |
 
-Ensure manifests and Caddy/Envoy route to these housing ports (4010–4017, 50061–50067) so they stay distinct from RP.
+Ensure manifests and Caddy/Envoy route to the gateway at **4020** and to these housing ports (4011–4017, 50061–50067).
 
 **MetalLB:** Use a **different L2 pool** so both clusters do not claim the same IPs. For this project set `METALLB_POOL=192.168.64.251-192.168.64.260` before running `./scripts/setup-new-colima-cluster.sh` (record platform typically uses `192.168.64.240-192.168.64.250`). This project’s docker-compose uses Redis **6380**, Kafka **29094**, and Zookeeper **2182** by default (no conflict with RP). Use `CADDY_NODEPORT=30444` when deploying Caddy.
 

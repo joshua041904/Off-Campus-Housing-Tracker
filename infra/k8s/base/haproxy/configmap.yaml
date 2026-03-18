@@ -41,7 +41,7 @@ data:
       # Only send traffic to ready pods; inter/fall/rise reduce 503 during rotation when backends restart.
       default-server inter 3s fall 2 rise 3
       # init-addr none + resolvers k8s: resolve at runtime via CoreDNS so health checks see api-gateway
-      server api api-gateway.off-campus-housing-tracker.svc.cluster.local:4000 check init-addr none resolvers k8s
+      server api api-gateway.off-campus-housing-tracker.svc.cluster.local:4020 check init-addr none resolvers k8s
 
     listen stats
       bind *:8404

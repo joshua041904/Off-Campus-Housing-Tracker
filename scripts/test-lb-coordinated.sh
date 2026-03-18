@@ -94,7 +94,7 @@ for attempt in $(seq 1 "$HAPROXY_ATTEMPTS"); do
     consecutive_503=$((consecutive_503 + 1))
     warn "HAProxy 503 (attempt $attempt/$HAPROXY_ATTEMPTS)"
     if [[ $consecutive_503 -ge "$HAPROXY_CONSECUTIVE_503_FAIL" ]]; then
-      info "  Diagnose (HAProxy pod has no curl): kubectl run curl-diagnose --rm -i --restart=Never -n $NS_APP --image=curlimages/curl:latest -- curl -s -o /dev/null -w '%{http_code}' http://api-gateway.${NS_APP}.svc.cluster.local:4000/healthz"
+      info "  Diagnose (HAProxy pod has no curl): kubectl run curl-diagnose --rm -i --restart=Never -n $NS_APP --image=curlimages/curl:latest -- curl -s -o /dev/null -w '%{http_code}' http://api-gateway.${NS_APP}.svc.cluster.local:4020/healthz"
       info "  If 200 → backend OK; HAProxy needs 'resolvers k8s' + server ... resolvers k8s so health checks resolve FQDN (see haproxy configmap). If 404/000 → path or connectivity."
       fail "HAProxy backend unhealthy for >30s (${consecutive_503} consecutive 503). Ensure api-gateway has ready pods and HAProxy config option httpchk GET /healthz."
     fi

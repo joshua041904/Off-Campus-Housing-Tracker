@@ -59,7 +59,7 @@ data:
           - source_labels: [__meta_kubernetes_pod_ip]
             action: replace
             target_label: __address__
-            replacement: $1:4000
+            replacement: $1:4020
           - source_labels: [__meta_kubernetes_pod_label_app]
             action: replace
             target_label: job

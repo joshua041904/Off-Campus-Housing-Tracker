@@ -277,7 +277,7 @@ app.use(
     origin: [
       /^http:\/\/localhost:3000$/,
       /^http:\/\/localhost:3001$/,
-      /^http:\/\/localhost:4000$/,
+      /^http:\/\/localhost:4020$/,
       /^http:\/\/localhost:8080$/,
       /^https:\/\/record\.local$/,
       /^https:\/\/off-campus-housing-tracker\.local$/,

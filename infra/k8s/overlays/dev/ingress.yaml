@@ -28,7 +28,7 @@ spec:
           service:
             name: api-gateway
             port:
-              number: 4000
+              number: 4020
       - path: /
         pathType: Prefix
         backend:
@@ -46,7 +46,7 @@ spec:
           service:
             name: api-gateway
             port:
-              number: 4000
+              number: 4020
       - path: /
         pathType: Prefix
         backend:

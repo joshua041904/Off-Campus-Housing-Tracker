@@ -16,7 +16,7 @@ data:
   SMS_USE_MOCK: "true"  # Force mock mode (FREE - logs to console, accessible via API)
   NEXT_PUBLIC_GATEWAY_URL: http://localhost:8080
 
-  GATEWAY_PORT: "4000"
+  GATEWAY_PORT: "4020"
   AUTH_PORT: "4001"
   RECORDS_PORT: "4002"
   LISTINGS_PORT: "4003"
