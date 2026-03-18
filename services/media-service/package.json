@@ -8,6 +8,7 @@
     "dev": "tsx watch src/server.ts",
     "start": "node dist/server.js",
     "test": "vitest run",
+    "test:integration": "vitest run tests/integration",
     "test:watch": "vitest"
   },
   "dependencies": {
