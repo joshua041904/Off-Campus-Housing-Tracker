@@ -2,7 +2,7 @@
 
 **Colima k3s only.** The script automatically sets up **127.0.0.1:6443** (tunnel + kubeconfig); you don't need to run `colima-forward-6443.sh` manually.
 
-## Prerequisites: Colima + externalized infra (Docker, 8 Postgres, Redis, Kafka)
+## Prerequisites: Colima + externalized infra (Docker, 7 Postgres housing DBs, Redis, Kafka)
 
 If you see **"Cannot connect to the Docker daemon"** or **pods stuck 0/1 Ready** (services can't reach DB/Redis/Kafka), start Colima and the externalized stack first:
 
@@ -13,17 +13,15 @@ If you see **"Cannot connect to the Docker daemon"** or **pods stuck 0/1 Ready**
 This will:
 
 1. **Start Colima** (so the Docker daemon is available at `~/.colima/default/docker.sock`).
-2. **Start externalized infra** via Docker Compose: **Zookeeper**, **Kafka** (port 29093), **Redis** (6379), and **8 Postgres** instances (ports 5433–5440: records, social, listings, shopping, auth, auction-monitor, analytics, python-ai).
+2. **Start externalized infra** via Docker Compose: **Zookeeper**, **Kafka** (port 29093), **Redis** (6379), and **7 Postgres** instances (ports 5441–5447: auth, listings, bookings, messaging, notification, trust, analytics).
 3. **Verify** all required ports are listening.
 
 After it succeeds, run preflight. To only check ports (no start): `./scripts/start-colima-and-external-deps.sh --verify-only`. If Colima is already running: `./scripts/start-colima-and-external-deps.sh --no-colima`.
 
 ## Run order: preflight first, then add data
 
-1. **Run preflight first** (pgbench tuning, suites, migrations). Preflight applies DB migrations in step 3b4 and runs pgbench in step 8; it expects external Postgres (5433–5440) with schema applied but **does not** load seed/CSV data.
-2. **After preflight completes**, add data:
-   - Records (5433): `./scripts/load-records-csv-5433.sh` or `./scripts/load-records-csv-5433.sh records_chunks/`
-   - Other DBs (5434–5437): `./scripts/seed-all-dbs.sh`
+1. **Run preflight first** (pgbench tuning, suites, migrations). Preflight applies DB migrations in step 3b4 and runs pgbench in step 8; it expects external Postgres (5441–5447) with schema applied but **does not** load seed/CSV data.
+2. **After preflight completes**, add data as needed (e.g. listings on 5442, auth on 5441) using project setup/seed scripts.
 
 Optional: apply schemas/tuning before preflight so step 3b4 is quick: `./scripts/ensure-all-schemas-and-tuning.sh`. Use `SKIP_PREFLIGHT_MIGRATIONS=1` when re-running preflight if you already ran ensure-all-schemas and don't want to re-run migrations.
 
@@ -81,7 +79,7 @@ This runs:
 
 - **Suites:** auth, baseline, enhanced, adversarial, rotation, standalone, tls-mtls, social
 - **k6 phases:** read, soak, sweep, limit, max, and HTTP3 (if xk6-http3 is built); **protocol comparison** (HTTP/2 vs HTTP/3) when `K6_PROTOCOL_COMPARISON=1` — logs under `bench_logs/suite-logs-<timestamp>/`
-- **pgbench:** all 8 DBs in parallel (records, social, auth, shopping, listings, analytics, auction_monitor, python_ai). **Postgres is external** (Docker Compose on host ports 5433–5440), not in-cluster; step 3b3 brings up Docker Postgres; suites and pgbench connect to `localhost:5433` etc.
+- **pgbench:** all 7 housing DBs in parallel (auth, listings, bookings, messaging, notification, trust, analytics). **Postgres is external** (Docker Compose on host ports 5441–5447), not in-cluster; step 3b3 brings up Docker Postgres; suites and pgbench connect to `localhost:5441` etc.
 - **Summary:** `bench_logs/PREFLIGHT_SUMMARY.md` and `bench_logs/preflight-results.json` (for the observation deck)
 - **Packaged run folder:** All artifacts for the run go into **`bench_logs/preflight-<timestamp>/`**: suite logs, per-DB pgbench logs, **EXPLAIN (ANALYZE, BUFFERS)** for all 8 DBs/schemas, combined pgbench log, PREFLIGHT_SUMMARY.md, preflight-results.json
 - **Telemetry:** Control-plane telemetry is captured automatically (apiserver metrics every 8s during run; post-run snapshot and raw `/metrics`). Paths are printed at exit: `telemetry-during-<ts>.log`, `telemetry-after-<ts>.txt`, `raw-metrics-<ts>.txt` in repo root. Set `PREFLIGHT_TELEMETRY=0` to disable.

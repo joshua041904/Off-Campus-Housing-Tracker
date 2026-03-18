@@ -25,4 +25,4 @@
 | 6 | trust-service | trust | Reviews, ratings, moderation, listing_flagged (skeleton) |
 | 7 | analytics-service | — | Kafka consumer only; never in request path (skeleton) |
 
-Event-driven: cross-domain only via Kafka. No cross-service DB access. Each service: own Prisma, /health, /metrics, Dockerfile (multi-stage, build common first). See docs/ARCHITECTURE.md and docs/CURSOR_SCAFFOLD_INSTRUCTIONS.md.
+Event-driven: cross-domain only via Kafka. No cross-service DB access. Each service: own Prisma, /health, /metrics, Dockerfile (multi-stage, build common first). See docs/ARCHITECTURE.md.

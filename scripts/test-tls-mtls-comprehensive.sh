@@ -792,24 +792,24 @@ else
   info "Redis: Externalized (not in cluster) - cache check skipped"
 fi
 
-# DB connectivity (quick: per-port DB name like verify-db-cache-quick)
+# DB connectivity (quick: housing 7 DBs on 5441–5447)
 say "DB connectivity (quick)"
-DB_PORTS=(5433 5434 5435 5436 5437 5438 5439 5440)
-DB_NAMES=(records records records records records postgres analytics postgres)
+DB_PORTS=(5441 5442 5443 5444 5445 5446 5447)
+DB_NAMES=(auth listings bookings messaging notification trust analytics)
 DB_OK=0
 for i in "${!DB_PORTS[@]}"; do
   port="${DB_PORTS[$i]}"
   db="${DB_NAMES[$i]:-postgres}"
   if PGPASSWORD=postgres psql -h localhost -p "$port" -U postgres -d "$db" -tAc "SELECT 1;" 2>/dev/null | grep -q 1; then
     DB_OK=$((DB_OK + 1))
-  elif [[ "$db" != "postgres" ]] && PGPASSWORD=postgres psql -h localhost -p "$port" -U postgres -d postgres -tAc "SELECT 1;" 2>/dev/null | grep -q 1; then
+  elif PGPASSWORD=postgres psql -h localhost -p "$port" -U postgres -d postgres -tAc "SELECT 1;" 2>/dev/null | grep -q 1; then
     DB_OK=$((DB_OK + 1))
   fi
 done
 if [[ $DB_OK -eq ${#DB_PORTS[@]} ]]; then
   test_result 0 "DB connectivity: PASSED ($DB_OK/${#DB_PORTS[@]} ports)"
 else
-  test_result 1 "DB connectivity: FAILED ($DB_OK/${#DB_PORTS[@]} ports - expected 5433-5440)"
+  test_result 1 "DB connectivity: FAILED ($DB_OK/${#DB_PORTS[@]} ports - expected 5441-5447)"
 fi
 
 # Summary

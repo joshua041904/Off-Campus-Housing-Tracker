@@ -19,8 +19,8 @@
 1. **`kubectl get pods` → TLS handshake timeout**  
    Colima (or your k8s VM) is not running. Start it: `colima start`. Wait until `colima status` shows running, then retry `kubectl get pods -n off-campus-housing-tracker`.
 
-2. **`./scripts/ensure-all-schemas-and-tuning.sh` hangs on "Port 5433 — records"**  
-   Postgres on 5433 is not reachable. The script now does a 5s connect check first and exits with a clear message. Start Docker (and Colima if you use it for k8s), then start the DBs:  
+2. **`./scripts/ensure-all-schemas-and-tuning.sh` hangs on "Port 5441 — auth" (or similar)**  
+   Postgres on 5441 (or the target port) is not reachable. The script now does a 5s connect check first and exits with a clear message. Start Docker (and Colima if you use it for k8s), then start the DBs:  
    `docker compose up -d postgres postgres-social postgres-listings postgres-shopping postgres-auth postgres-auction-monitor postgres-analytics postgres-python-ai`  
    Then run the ensure script again.
 

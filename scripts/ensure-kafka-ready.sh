@@ -12,7 +12,7 @@ ok()  { echo "✅ $*"; }
 warn(){ echo "⚠️  $*"; }
 log() { echo "[$(date +%H:%M:%S)] $*"; }
 
-KAFKA_PORT=29093
+KAFKA_PORT="${KAFKA_SSL_PORT:-29094}"
 MAX_WAIT=60
 
 say "=== Ensuring Kafka is Ready ==="

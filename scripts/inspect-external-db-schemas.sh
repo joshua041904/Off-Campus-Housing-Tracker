@@ -2,7 +2,7 @@
 # Inspect external Postgres DBs and write a schema report (portable, PGPASSWORD in script, MD with timestamp).
 # Usage: ./scripts/inspect-external-db-schemas.sh [report-dir]
 #   report-dir defaults to reports/; report: report-dir/schema-report-<timestamp>.md
-# Env: PGHOST (default localhost), PGPASSWORD (default postgres). DB list from INSPECT_DBS or built-in 8-DB layout.
+# Env: PGHOST (default localhost), PGPASSWORD (default postgres). DB list from INSPECT_DBS or built-in housing 7-DB layout (5441–5447).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -18,16 +18,15 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 REPORT_FILE="$REPORT_BASE/schema-report-$TIMESTAMP.md"
 mkdir -p "$REPORT_BASE"
 
-# Default: 8 DBs (off-campus-housing-tracker layout). Format: port:dbname:label
+# Default: housing 7 DBs (ports 5441–5447). Format: port:dbname:label
 if [[ -z "${INSPECT_DBS:-}" ]]; then
-  INSPECT_DBS="5433:records:records
-5434:records:social
-5435:records:listings
-5436:records:shopping
-5437:auth:auth
-5438:records:auction_monitor
-5439:records:analytics
-5440:python_ai:python_ai"
+  INSPECT_DBS="5441:auth:auth
+5442:listings:listings
+5443:bookings:bookings
+5444:messaging:messaging
+5445:notification:notification
+5446:trust:trust
+5447:analytics:analytics"
 fi
 if [[ -f "${INSPECT_DBS:-}" ]]; then
   DB_LIST="$(cat "$INSPECT_DBS")"

@@ -1,50 +1,32 @@
-Off-Campus-Housing-Tracker: 7 Postgres DBs (5441–5447), backup & bring-up aligned (made with Tom)
+Housing stack: auth without MFA, Postgres 5441–5447, ports aligned, auth restore
 
-- Postgres: Aligned with seven housing services. Host ports 5441–5447 (5432–5440
-  reserved by another project). Mapping: auth 5441, listings 5442, bookings 5443,
-  messaging 5444, notification 5445, trust 5446, analytics 5447.
+Auth
+- Login is email + password only; MFA step and MFA routes removed so token is
+  issued after password check. Request body no longer accepts mfaCode; log
+  simplified. MFA/passkey tables and schema remain for future use.
 
-- docker-compose.yml: Seven Postgres services — postgres-auth, postgres-listings,
-  postgres-bookings, postgres-messaging, postgres-notification (new), postgres-trust,
-  postgres-analytics. Removed legacy postgres, postgres-social, postgres-shopping,
-  postgres-auction-monitor, postgres-python-ai. postgres-backup depends on
-  postgres-auth and backs up DB auth.
+Postgres (housing 5441–5447)
+- infra/k8s/base/config/app-config.yaml: All DB URLs use host ports 5441–5447
+  and password postgres. Mapping: 5441 auth, 5442 listings, 5443 bookings,
+  5444 messaging, 5445 notification, 5446 trust, 5447 analytics. Removed
+  RP-only URLs (records, social, shopping, auction_monitor, python_ai).
+- docker-compose.yml: Each of the 7 Postgres services has POSTGRES_DB set
+  (auth, listings, bookings, messaging, notification, trust, analytics).
+  Explicit POSTGRES_URL_* (or POSTGRES_URL) for auth-service, records-service,
+  listings-service, analytics-service, cron-jobs, social-service so services
+  work without .env. Internal hostnames (postgres-auth:5432, etc.) unchanged.
 
-- scripts/bring-up-external-infra.sh: Starts 7 Postgres services (no longer 8).
-  Wait loop checks ports 5441–5447. RESTORE_BACKUP_DIR=latest uses backups/all-7-*.
-  Comments and volume list updated for housing volumes only.
+Expose / published ports (README-aligned)
+- docker-compose.yml: Host ports match README “this project (housing)”:
+  API Gateway 4010:4000, Auth 4011:4001, Records 4002:4002, Listings 4012:4003,
+  Analytics 4017:4004, Auction Monitor 4008:4010, Python AI 5005:5005.
+  Social 4006/50056 and Shopping 4007/50058 unchanged. Internal container
+  ports (4000, 4001, 4003, 4004, etc.) unchanged for HAProxy/backends.
 
-- scripts/backup-all-8-dbs.sh: Backs up 7 DBs on 5441–5447. PORT_DB map:
-  auth, listings, bookings, messaging, notification, trust, analytics. Output
-  directory backups/all-7-YYYYMMDD-HHMMSS. Version probe uses 5441/auth.
-  Restore examples updated to 5441 and auth.
-
-- scripts/backup-all-dbs.sh: New wrapper that runs backup-all-8-dbs.sh so
-  callers can use either name for the same 7-DB backup.
-
-- README.md: Postgres section lists 7 DBs (5441–5447) including
-  notification-service; docker compose up command includes postgres-notification.
-
-- Scripts (run-preflight-scale-and-all-suites.sh, ensure-ready-for-preflight.sh,
-  check-all-pods-and-tls.sh): All references to 6 DBs / 5441–5446 updated to
-  7 DBs / 5441–5447; docker compose up commands include postgres-notification;
-  port wait loops and messages updated.
-
-- README “How to run (team / first-time)”: Step-by-step for first-time users and
-  team — (1) one-time cluster via setup-new-colima-cluster.sh, (2) bring-up-
-  external-infra.sh for Zookeeper/Kafka/Redis/7 Postgres, (3) one person testing
-  their part (single Postgres or SKIP_KAFKA=1), (4) full preflight and suites.
-  Documents namespace, hostname, and that only housing + protocol suites run.
-
-- Test suites: Removed all non-housing suites. run-all-test-suites.sh now runs
-  only 4 suites — auth (housing), rotation (CA/leaf + protocol verification),
-  standalone-capture (wire capture), tls-mtls (cert chain, gRPC TLS, mTLS).
-  Removed: baseline, enhanced, adversarial, social, lb-coordinated. Updated
-  suite counts (9→4), error summary, re-run commands, and DB port hints (5441–5447).
-
-- run-preflight-scale-and-all-suites.sh: Removed step 6f (shopping schema) and
-  step 6g (RUN_REBUILD_SHOPPING). Step 7 breakdown and say message updated to
-  list only auth, rotation, standalone-capture, tls-mtls. Header comment
-  no longer references RUN_SHOPPING_SEQUENCE or Step 6f.
-
-Made with Tom.
+DB setup and auth restore
+- scripts/restore-auth-from-legacy-dump.sh: Restores backups/5437-auth.dump
+  into the auth DB on port 5441 (postgres-auth). Use after `docker compose up -d
+  postgres-auth`. Optional RESTORE_AUTH_DUMP and PGPASSWORD=postgres.
+- backups/README.md: How to restore 5437-auth.dump into 5441; short auth
+  schema summary (auth.users, oauth_providers, mfa_settings, verification_codes,
+  passkeys, passkey_challenges); and pointer to full 7-DB backup/restore.

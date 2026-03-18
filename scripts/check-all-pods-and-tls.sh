@@ -73,28 +73,29 @@ else
   warn "Only ${DB_UP:-0}/7 database ports UP (expected 5441–5447)"
 fi
 
-# 3. Kafka: external strict TLS (Docker Compose :29093). No in-cluster Kafka/ZK.
-say "3. Checking Kafka (external strict TLS, :29093)..."
-# Check from host (not inside cluster) - Kafka is on host.docker.internal from cluster perspective
-if nc -z 127.0.0.1 29093 2>/dev/null || nc -z localhost 29093 2>/dev/null; then
-  ok "Kafka (external 29093): UP"
+KAFKA_SSL_PORT="${KAFKA_SSL_PORT:-29094}"
+REDIS_PORT="${REDIS_PORT:-6380}"
+
+# 3. Kafka: external strict TLS (Docker Compose :29094 for housing; RP uses 29093). No in-cluster Kafka/ZK.
+say "3. Checking Kafka (external strict TLS, :$KAFKA_SSL_PORT)..."
+if nc -z 127.0.0.1 "$KAFKA_SSL_PORT" 2>/dev/null || nc -z localhost "$KAFKA_SSL_PORT" 2>/dev/null; then
+  ok "Kafka (external $KAFKA_SSL_PORT): UP"
 else
-  # Try checking if Docker container is running
   if command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' 2>/dev/null | grep -q "kafka"; then
-    warn "Kafka container running but port 29093 not accessible from host — may need to wait for startup"
+    warn "Kafka container running but port $KAFKA_SSL_PORT not accessible from host — may need to wait for startup"
   else
-    warn "Kafka (external 29093): DOWN — run: docker compose up -d kafka zookeeper"
+    warn "Kafka (external $KAFKA_SSL_PORT): DOWN — run: docker compose up -d kafka zookeeper"
   fi
 fi
 
-# 4. Redis external (port 6379) + Lua scripting (cache hits)
+# 4. Redis external (port 6380 for housing; RP uses 6379) + Lua scripting (cache hits)
 say "4. Checking Redis (external) and Lua scripting..."
-if nc -z localhost 6379 2>/dev/null; then
-  ok "Redis (6379): UP"
+if nc -z localhost "$REDIS_PORT" 2>/dev/null; then
+  ok "Redis ($REDIS_PORT): UP"
   if command -v redis-cli >/dev/null 2>&1; then
-    if redis-cli -h localhost -p 6379 ping 2>/dev/null | grep -q PONG; then
+    if redis-cli -h localhost -p "$REDIS_PORT" ping 2>/dev/null | grep -q PONG; then
       ok "Redis PING: OK"
-      if redis-cli -h localhost -p 6379 EVAL "return 1" 0 2>/dev/null | grep -q "1"; then
+      if redis-cli -h localhost -p "$REDIS_PORT" EVAL "return 1" 0 2>/dev/null | grep -q "1"; then
         ok "Redis Lua scripting: OK (cache-hit checks supported)"
       else
         warn "Redis Lua EVAL failed (cache-hit checks may be limited)"
@@ -106,7 +107,7 @@ if nc -z localhost 6379 2>/dev/null; then
     warn "redis-cli not installed; skipping Lua check"
   fi
 else
-  warn "Redis (6379): DOWN (external Redis required for cache hits)"
+  warn "Redis ($REDIS_PORT): DOWN (external Redis required for cache hits)"
 fi
 
 # 5. Service pods (off-campus-housing-tracker, 1/1 each) — use _kubectl (request-timeout); avoid cap timeouts
@@ -135,17 +136,17 @@ done
 # If not all ready, diagnose and fix
 if [[ "${READY:-0}" -ne 7 ]]; then
   warn "Only ${READY:-0}/7 services Ready - diagnosing issues..."
-  echo "  If pod logs show \"database X does not exist\", create that database on the correct port (e.g. infra/db/00-create-listings-database.sql on 5435) or run preflight without SKIP_PREFLIGHT_MIGRATIONS=1."
+  echo "  If pod logs show \"database X does not exist\", create that database on the correct port (e.g. listings on 5442) or run preflight without SKIP_PREFLIGHT_MIGRATIONS=1."
   echo ""
   
   # Ensure Kafka is up first (required for analytics-service)
   say "5a. Ensuring Kafka is accessible..."
-  if ! nc -z 127.0.0.1 29093 2>/dev/null && ! nc -z localhost 29093 2>/dev/null; then
-    warn "Kafka port 29093 not accessible, starting Kafka..."
+  if ! nc -z 127.0.0.1 "$KAFKA_SSL_PORT" 2>/dev/null && ! nc -z localhost "$KAFKA_SSL_PORT" 2>/dev/null; then
+    warn "Kafka port $KAFKA_SSL_PORT not accessible, starting Kafka..."
     if command -v docker >/dev/null 2>&1; then
       docker compose up -d zookeeper kafka 2>&1 | tail -5 || true
       for i in {1..30}; do
-        if nc -z 127.0.0.1 29093 2>/dev/null || nc -z localhost 29093 2>/dev/null; then
+        if nc -z 127.0.0.1 "$KAFKA_SSL_PORT" 2>/dev/null || nc -z localhost "$KAFKA_SSL_PORT" 2>/dev/null; then
           ok "Kafka is now accessible (took ${i}s)"
           break
         fi
@@ -153,7 +154,7 @@ if [[ "${READY:-0}" -ne 7 ]]; then
       done
     fi
   else
-    ok "Kafka (29093): UP"
+    ok "Kafka ($KAFKA_SSL_PORT): UP"
   fi
   
   # Diagnose each not-ready service
@@ -271,9 +272,9 @@ if [[ "${READY:-0}" -ne 7 ]]; then
             else
               HOST_IP="192.168.5.2"
             fi
-            warn "  Patching kafka-external endpoint to $HOST_IP:29093..."
-            echo "  Patching kafka-external endpoint to $HOST_IP:29093" | tee -a "$DIAG_LOG"
-            _kubectl patch endpoints kafka-external -n off-campus-housing-tracker --type=merge -p="{\"subsets\":[{\"addresses\":[{\"ip\":\"$HOST_IP\"}],\"ports\":[{\"port\":29093,\"name\":\"kafka-ssl\"}]}]}" 2>&1 | tee -a "$DIAG_LOG" || true
+            warn "  Patching kafka-external endpoint to $HOST_IP:${KAFKA_SSL_PORT:-29094}..."
+            echo "  Patching kafka-external endpoint to $HOST_IP:${KAFKA_SSL_PORT:-29094}" | tee -a "$DIAG_LOG"
+            _kubectl patch endpoints kafka-external -n off-campus-housing-tracker --type=merge -p="{\"subsets\":[{\"addresses\":[{\"ip\":\"$HOST_IP\"}],\"ports\":[{\"port\":${KAFKA_SSL_PORT:-29094},\"name\":\"kafka-ssl\"}]}]}" 2>&1 | tee -a "$DIAG_LOG" || true
             FIXED_THIS_SERVICE=1
           fi
         fi

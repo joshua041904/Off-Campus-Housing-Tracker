@@ -2,7 +2,7 @@
 
 # Off-Campus-Housing-Tracker — Engineering Documentation
 
-This document provides in-depth technical documentation for the Off-Campus-Housing-Tracker architecture, design decisions, and implementation details. For a high-level overview, see [`README.md`](README.md). *Last updated to reflect Colima k3s primary, 8-DB deterministic restore and schema inspection, preflight step 7c (in-cluster k6), and Runbook 79–80.*
+This document provides in-depth technical documentation for the Off-Campus-Housing-Tracker architecture, design decisions, and implementation details. For a high-level overview, see [`README.md`](README.md). *Last updated to reflect Colima k3s primary, 7-DB housing (5441–5447) deterministic restore and schema inspection, preflight step 7c (in-cluster k6), and Runbook 79–80.*
 
 ## Table of Contents
 
@@ -122,31 +122,26 @@ This document provides in-depth technical documentation for the Off-Campus-Housi
         ├───────────────────────────────────────────────────────────────┤
         │                                                               │
         │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
-        │  │  Postgres   │  │Postgres Auth │  │Postgres Social│       │
-        │  │  (Main DB)  │  │   (5437)     │  │   (5434)     │       │
-        │  │   (5433)    │  │              │  │              │       │
-        │  │ - records   │  │ - auth       │  │ - social      │       │
-        │  │   schema    │  │   schema     │  │   schema      │       │
+        │  │Postgres Auth │  │Postgres      │  │Postgres      │       │
+        │  │   (5441)     │  │Listings(5442)│  │Bookings(5443)│       │
+        │  │ - auth       │  │ - listings   │  │ - bookings   │       │
         │  └──────────────┘  └──────────────┘  └──────────────┘       │
         │                                                               │
         │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
         │  │Postgres      │  │Postgres      │  │Postgres      │       │
-        │  │Listings(5435)│  │Shopping(5436)│  │Auction (5438) │       │
-        │  │              │  │              │  │ default DB   │       │
-        │  │ - listings   │  │ - shopping   │  │ postgres;    │       │
-        │  │   schema     │  │   schema     │  │ in-place     │       │
-        │  │              │  │              │  │ restore      │       │
+        │  │Messaging     │  │Notification  │  │Trust (5446)  │       │
+        │  │  (5444)      │  │   (5445)     │  │              │       │
+        │  │ - messaging  │  │ - notif      │  │ - trust      │       │
         │  └──────────────┘  └──────────────┘  └──────────────┘       │
         │                                                               │
-        │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
-        │  │Postgres      │  │Postgres      │  │    Redis     │       │
-        │  │Analytics(5439)│ │Python AI(5440)│ │   (6379)     │       │
-        │  │              │  │              │  │ - JWT Cache  │       │
-        │  │ - analytics  │  │ - python_ai  │  │ - Search     │       │
-        │  │   schema     │  │   schema     │  │   Cache      │       │
-        │  │              │  │              │  │ - Lua: singleflight,  │
-        │  │              │  │              │  │   LFU/LRU, rate limit│
-        │  └──────────────┘  └──────────────┘  └──────────────┘       │
+        │  ┌──────────────┐  ┌──────────────┐                         │
+        │  │Postgres      │  │    Redis     │                         │
+        │  │Analytics(5447)│  │   (6379)     │                         │
+        │  │ - analytics   │  │ - JWT Cache  │                         │
+        │  │   schema      │  │ - Search     │                         │
+        │  │               │  │   Cache      │                         │
+        │  │               │  │ - Lua: singleflight, LFU/LRU, rate limit│
+        │  └──────────────┘  └──────────────┘                         │
         │                                                               │
         │  ┌──────────────┐                                           │
         │  │    Kafka     │                                           │
@@ -233,7 +228,7 @@ Preflight and all suites run on **Colima + k3s** by default. Colima is started w
    │             │   │           │    │  Postgres,  │
    │ --network-  │   │ Preflight │    │  Redis,     │
    │ address     │   │ when      │    │  Kafka      │
-   │ MetalLB L2  │   │ REQUIRE_  │    │  8 DBs      │
+   │ MetalLB L2  │   │ REQUIRE_  │    │  7 DBs      │
    │ LB IP       │   │ COLIMA=0  │    │             │
    └─────────────┘   └───────────┘    └─────────────┘
         ▲                  ▲
@@ -305,11 +300,11 @@ Preflight and all suites run on **Colima + k3s** by default. Colima is started w
 6. **Multi-tenancy**: Clear boundaries for future multi-tenant support
 
 **Trade-offs**:
-- Higher resource usage (8 instances vs 1)
+- Higher resource usage (7 instances vs 1)
 - More complex connection management
 - Cross-service queries require dual-DB connections (auction-monitor, analytics-service)
 
-**Implementation**: Services connect via Kubernetes Service names (e.g., `postgres-auth-external.off-campus-housing-tracker.svc.cluster.local:5437`) which route through Kubernetes Endpoints to Docker Compose postgres containers at `host.docker.internal:PORT`. All 8 instances have corresponding Kubernetes Services and Endpoints. Ports: 5433 records, 5434 social, 5435 listings, 5436 shopping, 5437 auth, 5438 auction-monitor (default DB `postgres`), 5439 analytics, 5440 python_ai. **Restore and schema:** Deterministic restore via `scripts/restore-external-postgres-from-backup.sh` (optional hook in `bring-up-external-infra.sh` with `RESTORE_BACKUP_DIR`); schema inspection and expected-DB assertion via `scripts/inspect-external-db-schemas.sh`. See *Database Redundancy & Disaster Recovery* and `docs/RUNBOOK_EXTERNAL_POSTGRES_RECOVERY.md`.
+**Implementation**: Services connect via Kubernetes Service names (e.g., `postgres-auth-external.off-campus-housing-tracker.svc.cluster.local:5441`) which route through Kubernetes Endpoints to Docker Compose postgres containers at `host.docker.internal:PORT`. All 7 housing instances have corresponding Kubernetes Services and Endpoints. Ports: 5441 auth, 5442 listings, 5443 bookings, 5444 messaging, 5445 notification, 5446 trust, 5447 analytics. **Restore and schema:** Deterministic restore via `scripts/restore-external-postgres-from-backup.sh` (optional hook in `bring-up-external-infra.sh` with `RESTORE_BACKUP_DIR`); schema inspection and expected-DB assertion via `scripts/inspect-external-db-schemas.sh`. See *Database Redundancy & Disaster Recovery* and `docs/RUNBOOK_EXTERNAL_POSTGRES_RECOVERY.md`.
 
 ### Strict TLS/mTLS and Preflight (Single Source of Truth)
 
@@ -404,7 +399,7 @@ Preflight and all suites run on **Colima + k3s** by default. Colima is started w
 **Decision**: Use **Colima with k3s** as the primary local Kubernetes cluster, with **MetalLB** for the LoadBalancer (real L2, HTTP/2 and HTTP/3 to the LB IP). **k3d** remains supported with `REQUIRE_COLIMA=0` for CI or lighter local runs. Kind is not used.
 
 **Rationale (why Colima + k3s)**:
-1. **Docker Desktop limitations**: Docker Desktop’s embedded Linux VM and storage layer became a single point of failure under sustained load (many containers, 8 Postgres instances, Kafka, Redis, plus K8s control plane and workloads). API server timeouts, TLS handshake timeouts, and “cluster unreachable” were common when Kind ran on top of Docker Desktop.
+1. **Docker Desktop limitations**: Docker Desktop’s embedded Linux VM and storage layer became a single point of failure under sustained load (many containers, 7 Postgres instances, Kafka, Redis, plus K8s control plane and workloads). API server timeouts, TLS handshake timeouts, and “cluster unreachable” were common when Kind ran on top of Docker Desktop.
 2. **Storage/metadata wedge at ~256 GB**: At large Docker disk usage (e.g. ~256 GB or when metadata/overlay grew unbounded), Docker Desktop’s VM could **wedge** — daemon unresponsive, build and run operations hanging, host disk pressure. This made Kind-based dev and long-running test suites (preflight + 8 suites + pgbench) unreliable and at times impossible without a full Docker reset.
 3. **Colima + k3s**: Colima provisions a Lima VM with containerd and optional k3s. k3s is a single-binary Kubernetes distribution with a smaller footprint than full K8s. Running **k3s inside Colima** (instead of Kind on Docker Desktop) reduces reliance on Docker Desktop’s VM and storage; API server is at 127.0.0.1:6443 and preflight scripts target this explicitly. Secret updates and kubectl from the host can require `colima ssh` when the host cannot reach 127.0.0.1:6443 (e.g. network or firewall); Runbook documents this.
 4. **Hygiene and reproducibility**: Preflight pipeline (`run-preflight-scale-and-all-suites.sh`) **requires** Colima + k3s by default (`REQUIRE_COLIMA=1`). This avoids accidental runs against a stale or wrong cluster and aligns everyone on one supported path.
@@ -478,8 +473,8 @@ The full test pipeline is structured as **preflight** followed by **eight suites
 - **HTTP/1.1:** Supported for legacy clients; we test that the edge accepts HTTP/1.1 and returns 200 where applicable.
 - **Head-of-line blocking (HOLB):** HTTP/2 multiplexes streams over one TCP connection — a single lost packet can block all streams. HTTP/3 (QUIC) uses independent streams over UDP. We run **both** HTTP/2 and HTTP/3 tests to demonstrate latency/throughput differences and to prove HOLB is real (e.g. `k6-limit-test-comprehensive.js` H2 vs H3, or `scripts/compare-http2-http3.sh`).
 
-### Database Verification (8 DBs: 5433–5440)
-- All **8 PostgreSQL instances** are checked: 5433 records, 5434 social, 5435 listings, 5436 shopping, 5437 auth, 5438 auction-monitor, 5439 analytics, 5440 python-ai. Scripts: `verify-db-cache-quick.sh` (after each suite), `verify-db-and-cache-comprehensive.sh` (at end). We do not limit checks to 5 DBs; full port range 5433–5440 is used for correctness.
+### Database Verification (7 housing DBs: 5441–5447)
+- All **7 PostgreSQL instances** are checked: 5441 auth, 5442 listings, 5443 bookings, 5444 messaging, 5445 notification, 5446 trust, 5447 analytics. Scripts: `verify-db-cache-quick.sh` (after each suite), `verify-db-and-cache-comprehensive.sh` (at end). Full port range 5441–5447 is used for correctness.
 
 ### Strict TLS and Packet Capture
 - **Strict TLS**: All gRPC and HTTP tests use CA verification (no insecure skip). `test-tls-mtls-comprehensive.sh` validates certificate chain and mTLS configuration; gRPC via Envoy must use strict TLS where applicable.
@@ -497,11 +492,11 @@ The **single entry point** for “cluster ready → certs valid → all suites (
 | **2** | Preflight kubeconfig (`preflight-fix-kubeconfig.sh`) | Kubeconfig may point at wrong host/port or stale API server; fixes `KUBECONFIG` so `kubectl` works from host. |
 | **3** | Ensure API server ready (`ensure-api-server-ready.sh`) | Under load or after restarts, the API server can be unreachable; retries until it responds so suites don’t fail with “cluster unreachable”. |
 | **3a** | Reissue CA + leaf (dev-root-ca, record-local-tls); `KAFKA_SSL=1` | Aligns CA and Caddy certs so strict TLS works (no curl 60); Kafka SSL uses same CA. |
-| **3b–3f** | Kafka SSL secret, Docker Kafka/Postgres up, social migrations, app-config/kafka-external apply, remove in-cluster Kafka/ZK/Postgres, patch kafka-external, restart Kafka-consuming services | All 8 Postgres and Kafka (strict TLS :29093) must be up and externalized; social suite needs archive/recall/kick/ban migrations. |
+| **3b–3f** | Kafka SSL secret, Docker Kafka/Postgres up, migrations, app-config/kafka-external apply, remove in-cluster Kafka/ZK/Postgres, patch kafka-external, restart Kafka-consuming services | All 7 Postgres (5441–5447) and Kafka (strict TLS :29093) must be up and externalized. |
 | **4** | Scale to baseline (service 1, exporters 1, Envoy 1, Caddy 2) | Consistent baseline so suites don’t hit scaled-down or missing deployments. |
 | **4c–4d** | Re-ensure API server; verify Caddy strict TLS (no curl 60) | Confirms cluster and edge are usable after reissue and scale. |
 | **5** | Strict TLS/mTLS preflight (`ensure-strict-tls-mtls-preflight.sh`); sync CA to `certs/dev-root.pem` | Single source of truth for service-tls + dev-root-ca; restarts gRPC/TLS workloads so pods pick up CA/certs; k6 uses repo CA. |
-| **6** | Pod health, DB, Redis; aggressive cleanup of rogue ReplicaSets; wait for all services ready; optional pgbench (6c) | No suite runs until pods and 8 DBs are healthy; cleanup avoids stuck ReplicaSets; pgbench runs when `RUN_PGBENCH=1` (default deep); set `RUN_PGBENCH=0` to skip. |
+| **6** | Pod health, DB, Redis; aggressive cleanup of rogue ReplicaSets; wait for all services ready; optional pgbench (6c) | No suite runs until pods and 7 DBs (5441–5447) are healthy; cleanup avoids stuck ReplicaSets; pgbench runs when `RUN_PGBENCH=1` (default deep); set `RUN_PGBENCH=0` to skip. |
 | **7** | Run all test suites (`run-all-test-suites.sh` with SKIP_PREFLIGHT/SKIP_TLS_PREFLIGHT); optional k6 | Eight suites in fixed order; RUN_FULL_LOAD=1 adds k6 + pgbench for total platform coverage. |
 | **7c** | In-cluster k6 (transport isolation) | When `RUN_K6=1` and `RUN_K6_IN_CLUSTER=1` (default), runs `scripts/run-k6-in-cluster.sh` (ClusterIP-only, no host/MetalLB); duration via `K6_IN_CLUSTER_DURATION` (default 30s). Proves HTTP/2 and HTTP/3 under load inside the cluster. |
 
@@ -509,7 +504,7 @@ The **single entry point** for “cluster ready → certs valid → all suites (
 
 ### Why eight suites (and what each one is for)
 
-We run **eight** suites because the platform has **multiple protocols**, **strict TLS/mTLS**, **zero-downtime rotation**, **wire-level proof**, and **eight databases**; a single “e2e” test cannot cover failure modes, rotation, and protocol behavior. Each suite has a distinct role:
+We run **eight** suites because the platform has **multiple protocols**, **strict TLS/mTLS**, **zero-downtime rotation**, **wire-level proof**, and **seven housing databases (5441–5447)**; a single “e2e” test cannot cover failure modes, rotation, and protocol behavior. Each suite has a distinct role:
 
 | # | Suite | Script | Why we need it |
 |---|--------|--------|------------------|
@@ -522,7 +517,7 @@ We run **eight** suites because the platform has **multiple protocols**, **stric
 | 7 | **TLS/mTLS** | test-tls-mtls-comprehensive.sh | Full chain validation, mTLS, gRPC strict TLS; proves cert chain and client cert handling. |
 | 8 | **Social** | test-social-service-comprehensive.sh | Forum, messages, archive/recall/kick/ban, groups; requires social DB migrations. |
 
-**Why so many tests:** One “e2e” cannot (1) prove HTTP/2 vs HTTP/3 at the wire, (2) prove zero-downtime rotation under load, (3) validate strict TLS/mTLS and cert chain, (4) stress auth and social and DBs in isolation, (5) run pgbench across 8 DBs. Splitting into eight suites gives clear failure scope (e.g. “rotation failed” vs “social 501”) and allows optional k6/pgbench without re-running auth/baseline every time. DB and cache verification (8 DBs, 5433–5440) after each suite keeps the platform honest.
+**Why so many tests:** One “e2e” cannot (1) prove HTTP/2 vs HTTP/3 at the wire, (2) prove zero-downtime rotation under load, (3) validate strict TLS/mTLS and cert chain, (4) stress auth and social and DBs in isolation, (5) run pgbench across 7 housing DBs. Splitting into eight suites gives clear failure scope (e.g. “rotation failed” vs “social 501”) and allows optional k6/pgbench without re-running auth/baseline every time. DB and cache verification (7 DBs, 5441–5447) after each suite keeps the platform honest.
 
 ### xk6-http3: what it is and why we use it
 
@@ -591,12 +586,12 @@ This section justifies the main technology choices as for a **senior design revi
 | **Messaging** | Kafka (strict TLS) | Event pipeline (forum, DMs, group chat); Python AI consumes from Kafka. SSL on 9093 with kafka-ssl-secret. | More moving parts; SSL cert and endpoint patching (e.g. kafka-external) required. |
 | **Local K8s** | Colima + k3s (primary) or k3d | Colima: primary path; start with `--network-address`, API at 127.0.0.1:6443, MetalLB LB IP for HTTP/3. k3d: `REQUIRE_COLIMA=0` for CI or lighter runs. See ADR 011. | Kind/h3 not supported. Single-node limits; 2-node minimum for reissue/MetalLB (ADR 008). |
 | **IAC** | Terraform + Ansible | Terraform for declarative infra (namespaces, ConfigMaps); Ansible for deploy and config (K8s collections). Dry-run and idempotency for safe ops. | Two tools to learn; Ansible playbooks skip cert/Caddy by default to avoid clobbering local state. |
-| **Testing** | Preflight + 8 suites + k6 + pgbench | Multi-protocol (HTTP/2, HTTP/3, gRPC), strict TLS/mTLS, rotation, 8 DBs — one “e2e” cannot cover failure modes and wire-level proof. Eight suites give clear scope; RUN_FULL_LOAD=1 adds load and DB sweep. | Many scripts and long runtimes; we accept complexity for reproducibility and debuggability. |
+| **Testing** | Preflight + 8 suites + k6 + pgbench | Multi-protocol (HTTP/2, HTTP/3, gRPC), strict TLS/mTLS, rotation, 7 housing DBs (5441–5447) — one “e2e” cannot cover failure modes and wire-level proof. Eight suites give clear scope; RUN_FULL_LOAD=1 adds load and DB sweep. | Many scripts and long runtimes; we accept complexity for reproducibility and debuggability. |
 | **HTTP/3 load** | xk6-http3 + curl | k6 doesn’t ship HTTP/3; xk6-http3 (quic-go) adds QUIC for load tests. NodePort UDP can fail externally; curl-based and in-cluster k6 are workarounds. | External xk6-http3 may not reach QUIC; we rely on in-cluster and packet capture for proof. |
 
-**Summary:** Every major choice (Caddy, Envoy, 8 Postgres, Redis+Lua, Kafka, Colima+k3s, Terraform+Ansible, preflight+8 suites) is justified by a concrete need (QUIC, gRPC correctness, isolation, cache safety, event pipeline, cluster stability, reproducibility, test coverage). Trade-offs are documented so a reviewer can see that we did not choose “everything”; we chose a coherent set and accepted the costs.
+**Summary:** Every major choice (Caddy, Envoy, 7 Postgres housing DBs, Redis+Lua, Kafka, Colima+k3s, Terraform+Ansible, preflight+8 suites) is justified by a concrete need (QUIC, gRPC correctness, isolation, cache safety, event pipeline, cluster stability, reproducibility, test coverage). Trade-offs are documented so a reviewer can see that we did not choose “everything”; we chose a coherent set and accepted the costs.
 
-**Architecture rationale (why this setup):** The overall design aims for **control-plane stability**, **service isolation**, and **reproducible testing** on a single developer machine. (1) **Colima + k3s** (primary) with `--network-address` gives real L2/MetalLB and API at 127.0.0.1:6443; k3d supported with `REQUIRE_COLIMA=0`. (2) **Eight dedicated Postgres** (5433–5440) in Docker Compose with deterministic restore and schema inspection (see Database Redundancy & Disaster Recovery). (3) **Redis + Lua** for atomic singleflight, LFU/LRU, and rate limiting. (4) **Data plane outside the cluster** keeps heavy I/O off the control plane. (5) **MetalLB** provides LB IP for Caddy when enabled; one-time host route for HTTP/3 to LB IP on Colima (Runbook 68). (6) **Strict TLS and one CA** (dev-root-ca, reissue in preflight). (7) **Preflight + ensure scripts** (ensure-k8s-api, ensure-pgbench-dbs-ready, ensure-ready-for-preflight) bring API, DBs, and Kafka to a known-good state. See ADR 007, ADR 011, Runbook 50–51, 79–80.
+**Architecture rationale (why this setup):** The overall design aims for **control-plane stability**, **service isolation**, and **reproducible testing** on a single developer machine. (1) **Colima + k3s** (primary) with `--network-address` gives real L2/MetalLB and API at 127.0.0.1:6443; k3d supported with `REQUIRE_COLIMA=0`. (2) **Seven dedicated Postgres** (5441–5447, housing: auth, listings, bookings, messaging, notification, trust, analytics) in Docker Compose with deterministic restore and schema inspection (see Database Redundancy & Disaster Recovery). (3) **Redis + Lua** for atomic singleflight, LFU/LRU, and rate limiting. (4) **Data plane outside the cluster** keeps heavy I/O off the control plane. (5) **MetalLB** provides LB IP for Caddy when enabled; one-time host route for HTTP/3 to LB IP on Colima (Runbook 68). (6) **Strict TLS and one CA** (dev-root-ca, reissue in preflight). (7) **Preflight + ensure scripts** (ensure-k8s-api, ensure-pgbench-dbs-ready, ensure-ready-for-preflight) bring API, DBs, and Kafka to a known-good state. See ADR 007, ADR 011, Runbook 50–51, 79–80.
 
 ## Data Flow Diagrams
 
@@ -640,7 +635,7 @@ Caddy → ingress-nginx → API Gateway
         │
         └─► Cache Miss
             │
-            ├─► Main DB (5433) - records schema
+            ├─► Listings DB (5442) - listings schema
             │   └─► Search Query (trgm, knn, or percent)
             │
             └─► Cache Results → Return
@@ -656,7 +651,7 @@ Caddy → ingress-nginx → API Gateway
     │
     └─► Envoy (gRPC Proxy:10000) → Social Service (gRPC:50056)
         │
-        ├─► Social DB (5434) - social schema
+        ├─► Messaging DB (5444) - messaging schema
         │   └─► Store Message
         │
         └─► Kafka Producer
@@ -838,16 +833,16 @@ ansible-playbook playbooks/deploy-services.yml          # Deploy
 
 ### Database Redundancy & Disaster Recovery
 
-**Current State**: Eight PostgreSQL instances run in Docker Compose (external to Kubernetes) on ports 5433–5440 (records, social, listings, shopping, auth, auction-monitor, analytics, python_ai). Pods reach them via `host.docker.internal`. Restore and schema inspection are deterministic and automated.
+**Current State**: Seven PostgreSQL instances (housing) run in Docker Compose (external to Kubernetes) on ports 5441–5447 (auth, listings, bookings, messaging, notification, trust, analytics). Pods reach them via `host.docker.internal`. Restore and schema inspection are deterministic and automated.
 
-**External Postgres layout (8 DBs)**:
-- **5433** records, **5434** social, **5435** listings, **5436** shopping, **5437** auth, **5438** auction-monitor (default DB `postgres`, in-place restore), **5439** analytics, **5440** python_ai.
-- **Schema inspection**: `scripts/inspect-external-db-schemas.sh` reports tables/schemas per port and enforces **expected DBs per port** (e.g. 5434 must have `postgres` and `social`). Use `SKIP_EXPECTED_DB_CHECK=1` to bypass. Output: `docs/CURRENT_DB_SCHEMA_REPORT.md` (refresh with the same script).
+**External Postgres layout (7 housing DBs)**:
+- **5441** auth, **5442** listings, **5443** bookings, **5444** messaging, **5445** notification, **5446** trust, **5447** analytics.
+- **Schema inspection**: `scripts/inspect-external-db-schemas.sh` reports tables/schemas per port. Use `SKIP_EXPECTED_DB_CHECK=1` to bypass checks. Output: `docs/CURRENT_DB_SCHEMA_REPORT.md` (refresh with the same script).
 
 **Deterministic restore**:
-- **Script**: `scripts/restore-external-postgres-from-backup.sh` — restores all 8 DBs from a backup directory (e.g. `backups/all-8-20260312-091418`). Requires `pg_restore`/`psql` 16.x; terminates active sessions before drop (except 5438); port **5438** uses in-place restore into `postgres` (no drop). Runs `ANALYZE` after each restore and prints a **snapshot fingerprint** (table counts). For CI/prod use an explicit snapshot path; `latest` is for local dev only (`RESTORE_ALLOW_LATEST=1` when calling the script with `latest`).
-- **Bring-up hook**: `RESTORE_BACKUP_DIR=backups/all-8-<timestamp> ./scripts/bring-up-external-infra.sh` runs restore after infra is healthy. Use `RESTORE_BACKUP_DIR=latest` for latest backup when bring-up is used locally.
-- **Runbook**: `docs/RUNBOOK_EXTERNAL_POSTGRES_RECOVERY.md` — preconditions, version guard, 5438 special case, verification, password (PGPASSWORD / ~/.pgpass).
+- **Script**: `scripts/restore-external-postgres-from-backup.sh` (or project-specific restore) — restores all 7 DBs from a backup directory (e.g. `backups/all-7-<timestamp>`). Requires `pg_restore`/`psql` 16.x; terminates active sessions before drop. Runs `ANALYZE` after each restore and prints a **snapshot fingerprint** (table counts). For CI/prod use an explicit snapshot path; `latest` is for local dev only (`RESTORE_ALLOW_LATEST=1` when calling the script with `latest`).
+- **Bring-up hook**: `RESTORE_BACKUP_DIR=backups/all-7-<timestamp> ./scripts/bring-up-external-infra.sh` runs restore after infra is healthy. Use `RESTORE_BACKUP_DIR=latest` for latest backup when bring-up is used locally.
+- **Runbook**: `docs/RUNBOOK_EXTERNAL_POSTGRES_RECOVERY.md` — preconditions, version guard, verification, password (PGPASSWORD / ~/.pgpass).
 
 **Production Requirements** (future):
 - **PostgreSQL**: Managed services (AWS RDS, Google Cloud SQL, Azure Database); automatic backups; read replicas; multi-AZ; connection pooling (e.g. PgBouncer).
@@ -862,19 +857,19 @@ ansible-playbook playbooks/deploy-services.yml          # Deploy
 
 ### Disaster recovery: shell script breakdown
 
-Four scripts form the backup and bring-back flow for **Colima + k3s** and the 8-DB data plane. Run **backup** regularly or before major changes; run **bring-back** (steps 2–4) after cluster or host loss.
+Four scripts form the backup and bring-back flow for **Colima + k3s** and the 7-DB housing data plane. Run **backup** regularly or before major changes; run **bring-back** (steps 2–4) after cluster or host loss.
 
 | Script | Purpose | How to run |
 |--------|---------|------------|
-| **`scripts/backup-all-8-dbs.sh`** | Hard backup of all 8 external Postgres instances (schema, indexes, data, tuning metadata). | `PGPASSWORD=postgres ./scripts/backup-all-8-dbs.sh`. Optional: `BACKUP_DIR=/path`, `PGHOST=127.0.0.1`. Output: `backups/all-8-YYYYMMDD-HHMMSS/` (or `BACKUP_DIR`). |
+| **`scripts/backup-all-dbs.sh`** | Hard backup of all 7 external Postgres instances (schema, indexes, data, tuning metadata). | `PGPASSWORD=postgres ./scripts/backup-all-dbs.sh`. Optional: `BACKUP_DIR=/path`, `PGHOST=127.0.0.1`. Output: `backups/all-7-YYYYMMDD-HHMMSS/` (or `BACKUP_DIR`). |
 | **`scripts/setup-new-colima-cluster.sh`** | One-shot: create a new Colima + k3s cluster and install MetalLB (L2). Use after `colima delete` or when no Colima instance exists. | `./scripts/setup-new-colima-cluster.sh`. Set `METALLB_POOL=192.168.64.240-192.168.64.250` (or your subnet range). Env: `CPU`, `MEMORY`, `DISK`, `COLIMA_K3S_VERSION`. |
-| **`scripts/bring-up-external-infra.sh`** | Bring up external stack: Zookeeper, Kafka (SSL), Redis, 8 Postgres. Uses Docker Compose; run before preflight or k8s so pods can reach `host.docker.internal:5433–5440`, 6379, 29093. | `./scripts/bring-up-external-infra.sh`. To restore DBs: `RESTORE_BACKUP_DIR=backups/all-8-YYYYMMDD-HHMMSS ./scripts/bring-up-external-infra.sh` or `RESTORE_BACKUP_DIR=latest`. Optional: `SKIP_KAFKA=1`, `SKIP_COMPOSE_UP=1`, `MAX_WAIT=180`. |
-| **`scripts/inspect-external-db-schemas.sh`** | Inspect external Postgres DBs and write a schema report (tables, schemas per port). Optional verification after restore. | `PGPASSWORD=postgres ./scripts/inspect-external-db-schemas.sh [report-dir]`. Default report: `reports/schema-report-<timestamp>.md`. To refresh current schema doc: `PGPASSWORD=postgres ./scripts/inspect-external-db-schemas.sh docs/CURRENT_DB_SCHEMA_REPORT.md` (or pass a dir and use the generated filename). |
+| **`scripts/bring-up-external-infra.sh`** | Bring up external stack: Zookeeper, Kafka (SSL), Redis, 7 Postgres (5441–5447). Uses Docker Compose; run before preflight or k8s so pods can reach `host.docker.internal:5441–5447`, 6379, 29093. | `./scripts/bring-up-external-infra.sh`. To restore DBs: `RESTORE_BACKUP_DIR=backups/all-7-YYYYMMDD-HHMMSS ./scripts/bring-up-external-infra.sh` or `RESTORE_BACKUP_DIR=latest`. Optional: `SKIP_KAFKA=1`, `SKIP_COMPOSE_UP=1`, `MAX_WAIT=180`. |
+| **`scripts/inspect-external-db-schemas.sh`** | Inspect external Postgres DBs and write a schema report (tables, schemas per port). Default: 7 housing DBs (5441–5447). | `PGPASSWORD=postgres ./scripts/inspect-external-db-schemas.sh [report-dir]`. Default report: `reports/schema-report-<timestamp>.md`. To refresh current schema doc: `PGPASSWORD=postgres ./scripts/inspect-external-db-schemas.sh docs/CURRENT_DB_SCHEMA_REPORT.md`. |
 
 **Order for full bring-back (after loss)**:
-1. **Backup** (before loss): `PGPASSWORD=postgres ./scripts/backup-all-8-dbs.sh`.
+1. **Backup** (before loss): `PGPASSWORD=postgres ./scripts/backup-all-dbs.sh`.
 2. **Cluster**: `METALLB_POOL=<start>-<end> ./scripts/setup-new-colima-cluster.sh`.
-3. **External infra + restore**: `RESTORE_BACKUP_DIR=backups/all-8-<newest-timestamp> ./scripts/bring-up-external-infra.sh`.
+3. **External infra + restore**: `RESTORE_BACKUP_DIR=backups/all-7-<newest-timestamp> ./scripts/bring-up-external-infra.sh`.
 4. **Schema check**: `PGPASSWORD=postgres ./scripts/inspect-external-db-schemas.sh docs/CURRENT_DB_SCHEMA_REPORT.md`.
 
 See **README.md** (Full disaster recovery protocol), **Runbook.md** (item 82), and **docs/EXTERNAL_POSTGRES_BACKUP_AND_RESTORE.md**.

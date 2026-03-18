@@ -37,7 +37,7 @@ The substrate bundle produced by `scripts/build-substrate-bundle.sh` is aligned 
 - **7 domain services:** auth-service (ported), listings-service, booking-service, messaging-service, notification-service, trust-service, analytics-service. Event-driven; cross-domain only via Kafka. No cross-service DB access.
 - **Root layout:** `package.json`, `pnpm-workspace.yaml`, `tsconfig.base.json`, `docker-compose.yml` (Postgres + Kafka + Redis), `services/`, `webapp/`, `proto/`, `infra/k8s/base` and `overlays/`, `scripts/`, `docs/`.
 - **Infra set in stone:** Caddy, Envoy, MetalLB, strict TLS, Kafka mTLS required. Each service: own DB/Prisma, /health, /metrics, multi-stage Dockerfile (build common first), non-root user, CI-ready.
-- **Spec docs in bundle:** When building with the housing spec, the bundle includes **docs/ARCHITECTURE.md** (full architecture and service boundaries) and **docs/CURSOR_SCAFFOLD_INSTRUCTIONS.md** (Cursor instruction block to scaffold workspace, Dockerfiles, and CI). Use them in the new repo to scaffold from the spec without over-coupling.
+- **Spec docs in bundle:** When building with the housing spec, the bundle includes **docs/ARCHITECTURE.md** (full architecture and service boundaries). Use it in the new repo to scaffold from the spec without over-coupling.
 - **Kafka in tarball:** Strict TLS (SSL only on 9093), mTLS required (`KAFKA_SSL_CLIENT_AUTH=required`), and exactly-once semantics (idempotent producer, read_committed consumer). Bundle includes **kafka-external** (Service+Endpoints to external broker), **kafka** (in-cluster optional), **scripts/kafka-ssl-from-dev-root.sh**, and **docs/KAFKA_SUBSTRATE.md**. After apply, patch kafka-external Endpoints IP to host.
 - **infra copied (excl. db, ansible):** Bundle copies **infra/docs**, **infra/haproxy**, **infra/kafka**, **infra/nginx**, **infra/k8s** from RP. **infra/db** and **infra/ansible** are not included.
 - **K8s base = substrate only:** **infra/k8s/base/** contains only substrate (namespaces, config, kafka-external, kafka, envoy-test, redis, haproxy, nginx, observability, monitoring, exporters). **No** RP app services; you add `base/<service>/` per app and register in **base/kustomization.yaml**. **overlays/dev** includes HPA example (hpa-api-gateway.yaml). Replace `off-campus-housing-tracker` namespace in all manifests.
@@ -153,7 +153,7 @@ All namespaces the substrate expects; create them so Kustomize and scripts apply
 
 | Path | Purpose |
 |------|---------|
-| `docker-compose.yml` | Defines Zookeeper, Kafka (SSL 9093, host 29093), **Redis** (6379), and **Postgres** instances. **Redis and Kafka are substrate** (same pattern across projects). **Postgres/DB count and schemas are per-project** (off-campus-housing-tracker: 8 DBs on 5433–5440; housing or others: e.g. 10 DBs with different ports/schemas). |
+| `docker-compose.yml` | Defines Zookeeper, Kafka (SSL 9093, host 29093), **Redis** (6379), and **Postgres** instances. **Redis and Kafka are substrate** (same pattern across projects). **Postgres/DB count and schemas are per-project** (off-campus-housing-tracker: 7 housing DBs on 5441–5447; other projects may use different ports/schemas). |
 | `infra/k8s/base/config/app-config.yaml` | `REDIS_URL`, `KAFKA_BROKER`, `KAFKA_USE_SSL`, `KAFKA_SSL_ENABLED`, and per-service `POSTGRES_URL_*`. Adapt DB URLs and count per project; keep Redis and Kafka config pattern. |
 | `scripts/kafka-ssl-from-dev-root.sh` | Build Kafka broker keystore/truststore from dev-root CA; create `kafka-ssl-secret` for broker and clients. Run after reissue. |
 | `certs/kafka-ssl/` | Broker JKS and CA PEM (output of kafka-ssl-from-dev-root.sh); mounted by Docker Compose Kafka and by pods that use Kafka. |
@@ -269,7 +269,7 @@ All namespaces the substrate expects; create them so Kustomize and scripts apply
    - k3d: create/start cluster; merge kubeconfig.
 
 2. **External data plane**
-   - Start Docker Compose (Postgres 5433–5440, Redis 6379, Kafka 9092/9093).
+   - Start Docker Compose (Postgres 5441–5447 (housing 7), Redis 6379, Kafka 9092/9093).
 
 3. **MetalLB** (if using LoadBalancer for Caddy)
    - `./scripts/install-metallb.sh` (or apply MetalLB manifests + pool/L2).

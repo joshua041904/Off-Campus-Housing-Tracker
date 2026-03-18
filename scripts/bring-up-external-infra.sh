@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Bring up the external stack: Zookeeper, Kafka (SSL), Redis, and 7 Postgres instances (housing platform).
 # Uses docker-compose volumes (pgdata-auth, pgdata-listings, etc.); all have healthchecks.
-# Run before preflight or k8s bring-up so pods can reach host.docker.internal:5441–5447, 6379, 29093.
+# Run before preflight or k8s bring-up so pods can reach host.docker.internal:5441–5447, Redis 6380, Kafka 29094.
+# Housing uses 6380/29094/2182 so it does not conflict with record platform (6379/29093/2181).
 #
 # Usage: ./scripts/bring-up-external-infra.sh
 #   SKIP_KAFKA=1             — do not start Kafka (e.g. certs not ready)
@@ -104,33 +105,36 @@ else
   info "SKIP_COMPOSE_UP=1: only waiting for existing containers."
 fi
 
-# Wait for Redis (port 6379)
+REDIS_PORT="${REDIS_PORT:-6380}"
+KAFKA_SSL_PORT="${KAFKA_SSL_PORT:-29094}"
+
+# Wait for Redis (port 6380 for housing; RP uses 6379)
 elapsed=0
 while [[ $elapsed -lt $MAX_WAIT ]]; do
-  if nc -z 127.0.0.1 6379 2>/dev/null; then
-    ok "Redis (6379): reachable"
+  if nc -z 127.0.0.1 "$REDIS_PORT" 2>/dev/null; then
+    ok "Redis ($REDIS_PORT): reachable"
     break
   fi
   sleep 5
   elapsed=$((elapsed + 5))
 done
-if ! nc -z 127.0.0.1 6379 2>/dev/null; then
-  warn "Redis (6379) not reachable after ${MAX_WAIT}s."
+if ! nc -z 127.0.0.1 "$REDIS_PORT" 2>/dev/null; then
+  warn "Redis ($REDIS_PORT) not reachable after ${MAX_WAIT}s."
 fi
 
-# Wait for Kafka SSL port 29093 (if we started it)
+# Wait for Kafka SSL port 29094 (if we started it; RP uses 29093)
 if [[ "$SKIP_KAFKA" != "1" ]]; then
   elapsed=0
   while [[ $elapsed -lt $MAX_WAIT ]]; do
-    if nc -z 127.0.0.1 29093 2>/dev/null; then
-      ok "Kafka (29093): reachable"
+    if nc -z 127.0.0.1 "$KAFKA_SSL_PORT" 2>/dev/null; then
+      ok "Kafka ($KAFKA_SSL_PORT): reachable"
       break
     fi
     sleep 5
     elapsed=$((elapsed + 5))
   done
-  if ! nc -z 127.0.0.1 29093 2>/dev/null; then
-    warn "Kafka (29093) not reachable after ${MAX_WAIT}s. Check certs/kafka-ssl and docker compose logs kafka."
+  if ! nc -z 127.0.0.1 "$KAFKA_SSL_PORT" 2>/dev/null; then
+    warn "Kafka ($KAFKA_SSL_PORT) not reachable after ${MAX_WAIT}s. Check certs/kafka-ssl and docker compose logs kafka."
   fi
 fi
 

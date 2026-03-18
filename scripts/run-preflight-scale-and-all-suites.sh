@@ -27,7 +27,7 @@ fi
 #   - API server ready (mandatory); re-checked after reissue
 #   - off-campus-housing-tracker: service 1, exporters 1, envoy-test 1, Caddy 2
 #   - Reissue CA + leaf (dev-root-ca / record-local-tls match); verify no curl 60
-#   - Strict TLS (CA + leaf), Kafka external strict TLS :29093, no in-cluster Postgres/Kafka/ZK
+#   - Strict TLS (CA + leaf), Kafka external strict TLS :29094 (housing; RP uses 29093), no in-cluster Postgres/Kafka/ZK
 #   RUN_SUITES=0 skip test suites.
 #   Preflight does not apply DB migrations or infra/db/*.sql; run scripts/setup-*-db.sh or scripts/ensure-*.sh manually when schema changes.
 #   CAPTURE_STOP_TIMEOUT=30 (default when running suites) — bounds packet capture stop phase so it never blocks; set higher for full pcap copy/analyze.
@@ -84,7 +84,7 @@ fi
 #   7     7a (Colima): ROTATION_USE_BBR=1 switches TCP congestion to BBR before suites. Run all test suites via run-all-test-suites.sh (auth, baseline, enhanced, adversarial, rotation, k6, standalone, tls-mtls, social). ROTATION_UDP_STATS=1 (Colima default) captures UDP stats pre/post k6. All 8 suites run to completion even if one fails; step 8 runs when RUN_PGBENCH=1. Step 5b inside run-all = k6 phases (HTTP/2 + xk6 HTTP/3 when K6_HTTP3=1). HTTP/3 on k3d: see docs/HTTP3-CURL-EXIT-CODES.md if baseline/enhanced hit exit 7/28/55.
 #   7b    Transport-layer study experiments (UDP drops, QUIC cwnd, BBR, NodePort, Caddy native, in-cluster k6). TRANSPORT_STUDY=1.
 #   7c    In-cluster k6 (Pod → Caddy ClusterIP; no host/VM). RUN_K6=1 and RUN_K6_IN_CLUSTER=1 (default). K6_IN_CLUSTER_DURATION=30s. Set RUN_K6_IN_CLUSTER=0 to skip.
-#   8     All 8 pgbench sweeps (cold then warm), EXPLAIN, observation-deck summary. RUN_PGBENCH=1.
+#   8     All 7 housing pgbench sweeps (ports 5441–5447, cold then warm), EXPLAIN, observation-deck summary. RUN_PGBENCH=1.
 
 set -euo pipefail
 
@@ -1040,15 +1040,16 @@ if ! _phase_a_only; then
     exit 1
   fi
 
-  # 3b1. Ensure Redis (6379) is up — externalized; pods connect via host
+  # 3b1. Ensure Redis (6380 for housing) is up — externalized; pods connect via host
+  REDIS_PORT="${REDIS_PORT:-6380}"
   if command -v docker >/dev/null 2>&1 && [[ -f "$REPO_ROOT/docker-compose.yml" ]]; then
-    say "3b1. Ensuring Docker Redis (6379) is up..."
+    say "3b1. Ensuring Docker Redis ($REDIS_PORT) is up..."
     ( cd "$REPO_ROOT" && docker compose up -d redis 2>/dev/null ) && ok "Docker Redis up" || warn "Docker Redis start skipped or failed (run manually: docker compose up -d redis)"
   else
     warn "Docker or docker-compose missing; skip starting Redis"
   fi
 
-  # 3b2. Ensure Docker Kafka (strict TLS :29093) is up — certs/kafka-ssl now exist
+  # 3b2. Ensure Docker Kafka (strict TLS :29094 for housing) is up — certs/kafka-ssl now exist
   if command -v docker >/dev/null 2>&1 && [[ -d "$REPO_ROOT/certs/kafka-ssl" ]] && [[ -f "$REPO_ROOT/docker-compose.yml" ]]; then
     say "3b2. Ensuring Docker Kafka (strict TLS) is up..."
     ( cd "$REPO_ROOT" && docker compose up -d zookeeper kafka 2>/dev/null ) && ok "Docker Kafka up" || warn "Docker Kafka start skipped or failed (run manually: docker compose up -d zookeeper kafka)"
@@ -1554,9 +1555,10 @@ else
 fi
 ok "In-cluster Kafka, Zookeeper, Postgres removed"
 
-# 3e. Patch kafka-external Endpoints to host IP (strict TLS :29093)
+# 3e. Patch kafka-external Endpoints to host IP (strict TLS :29094 for housing)
+KAFKA_SSL_PORT="${KAFKA_SSL_PORT:-29094}"
 if [[ "$ctx" == *"colima"* ]] && [[ -f "$SCRIPT_DIR/patch-kafka-external-host.sh" ]]; then
-  say "3e. Patching kafka-external host IP (strict TLS :29093)..."
+  say "3e. Patching kafka-external host IP (strict TLS :$KAFKA_SSL_PORT)..."
   chmod +x "$SCRIPT_DIR/patch-kafka-external-host.sh" 2>/dev/null || true
   "$SCRIPT_DIR/patch-kafka-external-host.sh" 2>/dev/null && ok "kafka-external patched" || warn "kafka-external patch skipped (run after kubectl apply -k)"
 fi
@@ -1845,7 +1847,7 @@ else
     warn "Kafka port 29093 not accessible, starting Kafka..."
     docker compose up -d zookeeper kafka 2>&1 | tail -5
     for i in {1..30}; do
-      if nc -z 127.0.0.1 29093 2>/dev/null; then
+      if nc -z 127.0.0.1 "${KAFKA_SSL_PORT:-29094}" 2>/dev/null; then
         ok "Kafka is now accessible (took ${i}s)"
         break
       fi
@@ -2062,67 +2064,51 @@ else
   [[ "${RUN_K6_IN_CLUSTER:-1}" == "0" ]] && info "7c. In-cluster k6 skipped (RUN_K6_IN_CLUSTER=0)"
 fi
 
-# --- Step 8: All 8 pgbench sweeps (cold-first then warm), EXPLAIN, observation-deck summary. RUN_PGBENCH=1 ---
-# Output: all artifacts in PREFLIGHT_RUN_DIR (pgbench per-DB logs, EXPLAIN for all 8 DBs, summary, JSON).
-# PGBENCH_PARALLEL=1 (default) runs the 8 sweeps in parallel; set 0 for sequential.
+# --- Step 8: All 7 housing pgbench sweeps (cold-first then warm), EXPLAIN, observation-deck summary. RUN_PGBENCH=1 ---
+# Housing DBs: ports 5441–5447 (auth, listings, bookings, messaging, notification, trust, analytics).
+# PGBENCH_PARALLEL=1 (default) runs the 7 sweeps in parallel; set 0 for sequential.
 if [[ "${RUN_PGBENCH:-0}" == "1" ]]; then
   PREFLIGHT_RUN_DIR="${PREFLIGHT_RUN_DIR:-$REPO_ROOT/bench_logs/preflight-$(date +%Y%m%d-%H%M%S)}"
   mkdir -p "$PREFLIGHT_RUN_DIR"
   PGBENCH_PARALLEL="${PGBENCH_PARALLEL:-1}"
-  say "8. Running all 8 pgbench sweeps (cold-first then warm; real cold=restart Postgres when COLD_POSTGRES_RESTART=1; mode=${PGBENCH_MODE:-deep}, parallel=${PGBENCH_PARALLEL})..."
+  say "8. Running all 7 housing pgbench sweeps (ports 5441–5447; cold-first then warm; real cold=restart Postgres when COLD_POSTGRES_RESTART=1; mode=${PGBENCH_MODE:-deep}, parallel=${PGBENCH_PARALLEL})..."
   PGBENCH_MODE="${PGBENCH_MODE:-deep}"
   PGBENCH_LOG="$PREFLIGHT_RUN_DIR/pgbench-combined.log"
   failed_pgbench=0
   export COLD_FIRST=1
   export RUN_COLD_CACHE=true
-  # Hot/cold path, randomized queries (PGBENCH_RANDOMIZED=1), EXPLAIN (ANALYZE, BUFFERS), pg_settings, and index usage → PREFLIGHT_RUN_DIR/explain/ and logs
-  # REAL_COLD_CACHE=1: CHECKPOINT + DISCARD + light evict per sweep.
   export REAL_COLD_CACHE="${REAL_COLD_CACHE:-1}"
-  # COLD_POSTGRES_RESTART=1 (default): restart Postgres before first cold phase for true cold (shared_buffers evicted). Set 0 to skip.
   export COLD_POSTGRES_RESTART="${COLD_POSTGRES_RESTART:-1}"
-  # Randomized queries per run (valid varied data): PGBENCH_RANDOMIZED=1 adds random variant (5 query patterns) to records sweep.
   export PGBENCH_RANDOMIZED="${PGBENCH_RANDOMIZED:-1}"
 
-  # --- Clear terminal summary: which DB, schema, port we are testing ---
+  # --- Clear terminal summary: which DB, port we are testing (housing 7) ---
   echo ""
-  echo "  PGBENCH TARGETS (host: ${PGHOST:-127.0.0.1})"
+  echo "  PGBENCH TARGETS — housing 7 (host: ${PGHOST:-127.0.0.1})"
   echo "  ┌──────────────────┬──────┬──────────────────┬─────────────────────────────┐"
   printf "  │ %-16s │ %4s │ %-16s │ %-27s │\n" "Sweep" "Port" "Database" "Schema(s)"
   echo "  ├──────────────────┼──────┼──────────────────┼─────────────────────────────┤"
-  printf "  │ %-16s │ %4s │ %-16s │ %-27s │\n" "records"          "5433" "records"           "public, records"
-  printf "  │ %-16s │ %4s │ %-16s │ %-27s │\n" "social"           "5434" "postgres"          "forum, messages"
-  printf "  │ %-16s │ %4s │ %-16s │ %-27s │\n" "listings"         "5435" "records"           "listings"
-  printf "  │ %-16s │ %4s │ %-16s │ %-27s │\n" "shopping"         "5436" "postgres"          "shopping"
-  printf "  │ %-16s │ %4s │ %-16s │ %-27s │\n" "auth"             "5437" "postgres"          "auth"
-  printf "  │ %-16s │ %4s │ %-16s │ %-27s │\n" "auction_monitor"  "5438" "auction_monitor"  "auction_monitor"
-  printf "  │ %-16s │ %4s │ %-16s │ %-27s │\n" "analytics"        "5439" "analytics"        "analytics"
-  printf "  │ %-16s │ %4s │ %-16s │ %-27s │\n" "python_ai"       "5440" "python_ai"        "ai"
+  printf "  │ %-16s │ %4s │ %-16s │ %-27s │\n" "auth"             "5441" "auth"             "auth"
+  printf "  │ %-16s │ %4s │ %-16s │ %-27s │\n" "listings"         "5442" "listings"         "listings"
+  printf "  │ %-16s │ %4s │ %-16s │ %-27s │\n" "bookings"         "5443" "bookings"         "bookings"
+  printf "  │ %-16s │ %4s │ %-16s │ %-27s │\n" "messaging"        "5444" "messaging"        "messaging"
+  printf "  │ %-16s │ %4s │ %-16s │ %-27s │\n" "notification"     "5445" "notification"     "notification"
+  printf "  │ %-16s │ %4s │ %-16s │ %-27s │\n" "trust"            "5446" "trust"            "trust"
+  printf "  │ %-16s │ %4s │ %-16s │ %-27s │\n" "analytics"        "5447" "analytics"        "analytics"
   echo "  └──────────────────┴──────┴──────────────────┴─────────────────────────────┘"
   echo ""
 
-  # Postgres is external (Docker Compose, host 5433–5440); not in-cluster. Suites and pgbench use localhost.
-  # --- Key PG settings per DB (so we know what we're testing) ---
+  # Postgres is external (Docker Compose, host 5441–5447); not in-cluster.
   _pg_settings_query="SELECT name, setting, unit FROM pg_settings WHERE name IN ('work_mem','shared_buffers','effective_cache_size','random_page_cost','max_connections','jit','synchronous_commit','statement_timeout','lock_timeout') ORDER BY name;"
-  for _port in 5433 5434 5435 5436 5437 5438 5439 5440; do
+  for _port in 5441 5442 5443 5444 5445 5446 5447; do
     case "$_port" in
-      5433) _db=records ;;
-      5434|5436|5437) _db=postgres ;;
-      5435) _db=records ;;
-      5438) _db=auction_monitor ;;
-      5439) _db=analytics ;;
-      5440) _db=python_ai ;;
-      *) _db=postgres ;;
-    esac
-    case "$_port" in
-      5433) _name=records ;;
-      5434) _name=social ;;
-      5435) _name=listings ;;
-      5436) _name=shopping ;;
-      5437) _name=auth ;;
-      5438) _name=auction_monitor ;;
-      5439) _name=analytics ;;
-      5440) _name=python_ai ;;
-      *) _name="port$_port" ;;
+      5441) _db=auth ; _name=auth ;;
+      5442) _db=listings ; _name=listings ;;
+      5443) _db=bookings ; _name=bookings ;;
+      5444) _db=messaging ; _name=messaging ;;
+      5445) _db=notification ; _name=notification ;;
+      5446) _db=trust ; _name=trust ;;
+      5447) _db=analytics ; _name=analytics ;;
+      *) _db=postgres ; _name="port$_port" ;;
     esac
     if PGPASSWORD="${PGPASSWORD:-postgres}" psql -h "${PGHOST:-127.0.0.1}" -p "$_port" -U postgres -d "$_db" -tAc "SELECT 1" >/dev/null 2>&1; then
       echo "  --- Port $_port ($_name) | database=$_db ---"
@@ -2133,26 +2119,27 @@ if [[ "${RUN_PGBENCH:-0}" == "1" ]]; then
   done
   echo ""
 
-  # One-line target for sequential runs (so log stream shows which DB/port/schema)
   _pgbench_target_line() {
     case "$1" in
-      records)          echo "  [records]          port=5433 db=records          schema=public,records" ;;
-      social)           echo "  [social]           port=5434 db=postgres         schema=forum,messages" ;;
-      listings)         echo "  [listings]         port=5435 db=records          schema=listings" ;;
-      shopping)         echo "  [shopping]         port=5436 db=postgres         schema=shopping" ;;
-      auth)             echo "  [auth]             port=5437 db=postgres         schema=auth" ;;
-      auction_monitor)  echo "  [auction_monitor]  port=5438 db=auction_monitor schema=auction_monitor" ;;
-      analytics)        echo "  [analytics]        port=5439 db=analytics        schema=analytics" ;;
-      python_ai)        echo "  [python_ai]        port=5440 db=python_ai        schema=ai" ;;
-      *)                echo "  [$1] running..." ;;
+      auth)             echo "  [auth]             port=5441 db=auth             schema=auth" ;;
+      listings)          echo "  [listings]         port=5442 db=listings         schema=listings" ;;
+      bookings)          echo "  [bookings]         port=5443 db=bookings         schema=bookings" ;;
+      messaging)         echo "  [messaging]        port=5444 db=messaging        schema=messaging" ;;
+      notification)      echo "  [notification]     port=5445 db=notification     schema=notification" ;;
+      trust)             echo "  [trust]            port=5446 db=trust            schema=trust" ;;
+      analytics)         echo "  [analytics]        port=5447 db=analytics        schema=analytics" ;;
+      *)                 echo "  [$1] running..." ;;
     esac
   }
 
   _pgbench_one() {
     local name=$1
-    local script=$2
-    shift 2
+    local port=$2
+    local db=$3
+    local script=$4
+    shift 4
     local logfile="$PREFLIGHT_RUN_DIR/$name.log"
+    export RECORDS_DB_PORT="$port" RECORDS_DB_NAME="$db"
     if [[ "$PGBENCH_PARALLEL" == "1" ]]; then
       ( "$SCRIPT_DIR/$script" "$@" >> "$logfile" 2>&1 ) || return 1
     else
@@ -2162,30 +2149,26 @@ if [[ "${RUN_PGBENCH:-0}" == "1" ]]; then
     fi
   }
 
+  # Housing 7: single run_pgbench_sweep.sh per DB with RECORDS_DB_PORT / RECORDS_DB_NAME
+  HOUSING_SWEEPS="auth:5441:auth listings:5442:listings bookings:5443:bookings messaging:5444:messaging notification:5445:notification trust:5446:trust analytics:5447:analytics"
   if [[ "$PGBENCH_PARALLEL" == "1" ]]; then
-    say "  Starting 8 pgbench sweeps in parallel — DB/port/schema per sweep see table above; logs: $PREFLIGHT_RUN_DIR/*.log; combined: $PGBENCH_LOG when done."
+    say "  Starting 7 housing pgbench sweeps in parallel — logs: $PREFLIGHT_RUN_DIR/*.log; combined: $PGBENCH_LOG when done."
     pids=()
-    if [[ -f "$SCRIPT_DIR/run_pgbench_sweep.sh" ]]; then
-      ( CHECK_RECORDS_DB="${CHECK_RECORDS_DB:-1}" MODE="$PGBENCH_MODE" _pgbench_one records run_pgbench_sweep.sh ) & pids+=( $! )
-    fi
-    for sweep_spec in "social:run_social_pgbench_sweep" "auth:run_auth_pgbench_sweep" "shopping:run_shopping_pgbench_sweep" "listings:run_listings_pgbench_sweep" "analytics:run_analytics_pgbench_sweep" "auction_monitor:run_auction-monitor_pgbench_sweep" "python_ai:run_python-ai_pgbench_sweep"; do
-      name="${sweep_spec%%:*}"
-      script="${sweep_spec#*:}"
-      if [[ -f "$SCRIPT_DIR/$script.sh" ]]; then
-        ( MODE="$PGBENCH_MODE" _pgbench_one "$name" "$script.sh" ) & pids+=( $! )
+    for spec in $HOUSING_SWEEPS; do
+      name="${spec%%:*}" rest="${spec#*:}" port="${rest%%:*}" db="${rest#*:}"
+      if [[ -f "$SCRIPT_DIR/run_pgbench_sweep.sh" ]]; then
+        ( RECORDS_DB_PORT="$port" RECORDS_DB_NAME="$db" MODE="$PGBENCH_MODE" _pgbench_one "$name" "$port" "$db" run_pgbench_sweep.sh ) & pids+=( $! )
       fi
     done
     for pid in "${pids[@]}"; do
       wait "$pid" || failed_pgbench=$((failed_pgbench + 1))
     done
-    # Build combined log for human readability (order: records, social, auth, shopping, listings, analytics, auction_monitor, python_ai)
     : > "$PGBENCH_LOG"
-    for n in records social auth shopping listings analytics auction_monitor python_ai; do
+    for n in auth listings bookings messaging notification trust analytics; do
       [[ -f "$PREFLIGHT_RUN_DIR/$n.log" ]] && cat "$PREFLIGHT_RUN_DIR/$n.log" >> "$PGBENCH_LOG"
     done
-    # Brief completion lines so terminal shows what ran (port reminder)
     say "  Sweeps finished (per-sweep logs above); summary:"
-    for n in records:5433 social:5434 listings:5435 shopping:5436 auth:5437 auction_monitor:5438 analytics:5439 python_ai:5440; do
+    for n in auth:5441 listings:5442 bookings:5443 messaging:5444 notification:5445 trust:5446 analytics:5447; do
       name="${n%%:*}" port="${n##*:}"
       if [[ -f "$PREFLIGHT_RUN_DIR/$name.log" ]]; then
         echo "    $name (port $port) -> $PREFLIGHT_RUN_DIR/$name.log"
@@ -2193,33 +2176,29 @@ if [[ "${RUN_PGBENCH:-0}" == "1" ]]; then
     done
   else
     : > "$PGBENCH_LOG"
-    if [[ -f "$SCRIPT_DIR/run_pgbench_sweep.sh" ]]; then
-      CHECK_RECORDS_DB="${CHECK_RECORDS_DB:-1}" MODE="$PGBENCH_MODE" _pgbench_one records run_pgbench_sweep.sh || failed_pgbench=$((failed_pgbench + 1))
-    fi
-    for sweep_spec in "social:run_social_pgbench_sweep" "auth:run_auth_pgbench_sweep" "shopping:run_shopping_pgbench_sweep" "listings:run_listings_pgbench_sweep" "analytics:run_analytics_pgbench_sweep" "auction_monitor:run_auction-monitor_pgbench_sweep" "python_ai:run_python-ai_pgbench_sweep"; do
-      name="${sweep_spec%%:*}"
-      script="${sweep_spec#*:}"
-      if [[ -f "$SCRIPT_DIR/$script.sh" ]]; then
-        MODE="$PGBENCH_MODE" _pgbench_one "$name" "$script.sh" || failed_pgbench=$((failed_pgbench + 1))
+    for spec in $HOUSING_SWEEPS; do
+      name="${spec%%:*}" rest="${spec#*:}" port="${rest%%:*}" db="${rest#*:}"
+      if [[ -f "$SCRIPT_DIR/run_pgbench_sweep.sh" ]]; then
+        RECORDS_DB_PORT="$port" RECORDS_DB_NAME="$db" MODE="$PGBENCH_MODE" _pgbench_one "$name" "$port" "$db" run_pgbench_sweep.sh || failed_pgbench=$((failed_pgbench + 1))
       fi
     done
   fi
 
   if [[ "$failed_pgbench" -eq 0 ]]; then
-    ok "All 8 pgbench sweeps complete (logs: $PREFLIGHT_RUN_DIR/*.log)"
+    ok "All 7 housing pgbench sweeps complete (logs: $PREFLIGHT_RUN_DIR/*.log)"
   else
     warn "Some pgbench sweeps had issues (failures: $failed_pgbench); see PGBENCH_HARDENING.md"
   fi
 
-  # EXPLAIN (ANALYZE, BUFFERS) for all 8 DBs/schemas — print and save into run folder
+  # EXPLAIN (ANALYZE, BUFFERS) for all 7 housing DBs/schemas — print and save into run folder
   if [[ -f "$SCRIPT_DIR/apply-tune-and-explain-all-dbs.sh" ]]; then
-    say "Running EXPLAIN (ANALYZE, BUFFERS) for all 8 DBs/schemas (output in $PREFLIGHT_RUN_DIR/explain/)..."
+    say "Running EXPLAIN (ANALYZE, BUFFERS) for all 7 housing DBs/schemas (output in $PREFLIGHT_RUN_DIR/explain/)..."
     RUN_EXPLAIN_ONLY=1 EXPLAIN_DIR="$PREFLIGHT_RUN_DIR/explain" "$SCRIPT_DIR/apply-tune-and-explain-all-dbs.sh" 2>&1 | tee "$PREFLIGHT_RUN_DIR/explain-all.log" || true
     [[ -d "$PREFLIGHT_RUN_DIR/explain" ]] && ok "EXPLAIN outputs: $PREFLIGHT_RUN_DIR/explain/"
     # Print each EXPLAIN file to terminal so plans and index usage are visible
     if [[ -d "$PREFLIGHT_RUN_DIR/explain" ]]; then
       say "EXPLAIN (ANALYZE, BUFFERS) — plans and index usage (full output below)"
-      for _f in "$PREFLIGHT_RUN_DIR/explain"/records.txt "$PREFLIGHT_RUN_DIR/explain"/records-count.txt "$PREFLIGHT_RUN_DIR/explain"/social-forum.txt "$PREFLIGHT_RUN_DIR/explain"/social-messages.txt "$PREFLIGHT_RUN_DIR/explain"/listings.txt "$PREFLIGHT_RUN_DIR/explain"/shopping.txt "$PREFLIGHT_RUN_DIR/explain"/auth.txt "$PREFLIGHT_RUN_DIR/explain"/auction-monitor.txt "$PREFLIGHT_RUN_DIR/explain"/analytics.txt "$PREFLIGHT_RUN_DIR/explain"/python-ai.txt; do
+      for _f in "$PREFLIGHT_RUN_DIR/explain"/auth.txt "$PREFLIGHT_RUN_DIR/explain"/listings.txt "$PREFLIGHT_RUN_DIR/explain"/bookings.txt "$PREFLIGHT_RUN_DIR/explain"/messaging.txt "$PREFLIGHT_RUN_DIR/explain"/notification.txt "$PREFLIGHT_RUN_DIR/explain"/trust.txt "$PREFLIGHT_RUN_DIR/explain"/analytics.txt; do
         if [[ -f "$_f" ]]; then
           echo ""
           echo "  ========== $(basename "$_f" .txt) (DB/schema plan; Index Scan vs Seq Scan in plan) =========="

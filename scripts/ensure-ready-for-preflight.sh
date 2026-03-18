@@ -4,7 +4,7 @@
 # 2) Ensure curl with HTTP/3 (optional)
 # 3) Ensure Kubernetes API (k3d or Colima)
 # 4) Ensure Redis + all 7 Postgres DBs (5441–5447)
-# 5) Ensure Kafka (Docker :29093)
+# 5) Ensure Kafka (Docker :29094 for housing)
 # 6) k3d only: Ensure required app images (:dev) exist locally and in registry (so pods don't ImagePullBackOff). ENSURE_IMAGES=0 to skip.
 #
 # Usage:
@@ -95,18 +95,19 @@ else
 fi
 
 # --- 4. Ensure external infra (Redis, then all 8 Postgres) ---
-say "4. Ensuring Redis (6379) and Postgres (5441–5447)..."
-if ! nc -z 127.0.0.1 6379 2>/dev/null; then
+REDIS_PORT="${REDIS_PORT:-6380}"
+say "4. Ensuring Redis ($REDIS_PORT) and Postgres (5441–5447)..."
+if ! nc -z 127.0.0.1 "$REDIS_PORT" 2>/dev/null; then
   if [[ -f "$SCRIPT_DIR/bring-up-external-infra.sh" ]]; then
     info "Redis not reachable; bringing up external infra (Redis, Kafka, 8 Postgres)..."
     "$SCRIPT_DIR/bring-up-external-infra.sh" 2>&1 || true
   fi
-  if ! nc -z 127.0.0.1 6379 2>/dev/null; then
-    warn "Redis (6379) not reachable. Run: ./scripts/bring-up-external-infra.sh  or docker compose up -d redis"
+  if ! nc -z 127.0.0.1 "$REDIS_PORT" 2>/dev/null; then
+    warn "Redis ($REDIS_PORT) not reachable. Run: ./scripts/bring-up-external-infra.sh  or docker compose up -d redis"
     exit 1
   fi
 fi
-ok "Redis reachable (6379)"
+ok "Redis reachable ($REDIS_PORT)"
 if [[ -x "$SCRIPT_DIR/ensure-pgbench-dbs-ready.sh" ]]; then
   if "$SCRIPT_DIR/ensure-pgbench-dbs-ready.sh"; then
     ok "All 7 Postgres DBs reachable (5441–5447)"
@@ -118,16 +119,17 @@ else
   warn "ensure-pgbench-dbs-ready.sh not found; skipping DB check."
 fi
 
-# --- 5. Ensure Kafka (Docker :29093 for strict TLS) ---
-say "5. Ensuring Kafka (Docker :29093)..."
+KAFKA_SSL_PORT="${KAFKA_SSL_PORT:-29094}"
+# --- 5. Ensure Kafka (Docker :29094 for housing strict TLS; RP uses 29093) ---
+say "5. Ensuring Kafka (Docker :$KAFKA_SSL_PORT)..."
 if command -v docker >/dev/null 2>&1 && [[ -f "$REPO_ROOT/docker-compose.yml" ]]; then
   ( cd "$REPO_ROOT" && docker compose up -d zookeeper kafka 2>/dev/null ) || true
   for i in 1 2 3 4 5 6 7 8 9 10; do
-    if nc -z 127.0.0.1 29093 2>/dev/null; then
-      ok "Kafka reachable (port 29093)"
+    if nc -z 127.0.0.1 "$KAFKA_SSL_PORT" 2>/dev/null; then
+      ok "Kafka reachable (port $KAFKA_SSL_PORT)"
       break
     fi
-    [[ $i -eq 10 ]] && warn "Kafka port 29093 not reachable after 20s (preflight will start it again)"
+    [[ $i -eq 10 ]] && warn "Kafka port $KAFKA_SSL_PORT not reachable after 20s (preflight will start it again)"
     sleep 2
   done
 else

@@ -23,7 +23,7 @@ The tarball is written as `$BUNDLE_OUTPUT_ROOT/$BUNDLE_FOLDER_NAME.tar.gz`. **Ro
   DB ops (portable, PGPASSWORD=postgres, report with timestamp): `backup-all-dbs.sh`, `inspect-external-db-schemas.sh`.  
   Kafka: `kafka-ssl-from-dev-root.sh` (broker + client certs when ssl.client.auth=required).  
   Helpers: `compare-h2-h3-headers.sh`, **scripts/lib/** (e.g. `http3.sh`, `packet-capture-v2.sh`, `kubectl-helper.sh`).
-- **docs:** `SUBSTRATE_OPERATIONS_REPORT.md`, `SUBSTRATE_BUNDLE_OPERATIONS.md` (this file), **REPO_SETUP_SPEC.md** (in-depth: objective, root structure, service responsibilities, event-driven, DB policy, CI, Docker, security, scaling, phase 1 order, Cursor instruction block — what to build and how), **ARCHITECTURE.md**, **CURSOR_SCAFFOLD_INSTRUCTIONS.md**, **KAFKA_SUBSTRATE.md**, METALLB, STRICT_TLS_MTLS_AND_KAFKA, KAFKA_CURRENT_AND_ROADMAP, RUN-PREFLIGHT, XK6_HTTP3_SETUP, VERIFY_VS_PREFLIGHT_HTTP3.
+- **docs:** `SUBSTRATE_OPERATIONS_REPORT.md`, `SUBSTRATE_BUNDLE_OPERATIONS.md` (this file), **REPO_SETUP_SPEC.md** (in-depth: objective, root structure, service responsibilities, event-driven, DB policy, CI, Docker, security, scaling, phase 1 order — what to build and how), **ARCHITECTURE.md**, **KAFKA_SUBSTRATE.md**, METALLB, STRICT_TLS_MTLS_AND_KAFKA, KAFKA_CURRENT_AND_ROADMAP, RUN-PREFLIGHT, XK6_HTTP3_SETUP, VERIFY_VS_PREFLIGHT_HTTP3.
 - **certs:** Placeholder dir; add dev-root, leaf, envoy-client. **Kafka mTLS:** run `scripts/kafka-ssl-from-dev-root.sh` → `certs/kafka-ssl/` and kafka-ssl-secret in cluster.
 
 ---
@@ -32,7 +32,7 @@ The tarball is written as `$BUNDLE_OUTPUT_ROOT/$BUNDLE_FOLDER_NAME.tar.gz`. **Ro
 
 So the bundle stays **portable**, the following are **not** included; add your own equivalents in your repo:
 
-- **Other application services:** The bundle includes `services/common`, `services/api-gateway`, `services/auth-service` (ported), `services/cron-jobs`, `webapp/`, and **6 housing skeletons** (listings, booking, messaging, notification, trust, analytics). RP-only services (records, shopping, social, auction-monitor, python-ai) are not included. Implement the 6 skeletons (see §4) using the same pattern as api-gateway and common; follow **docs/ARCHITECTURE.md** and **docs/CURSOR_SCAFFOLD_INSTRUCTIONS.md** in Cursor to scaffold.
+- **Other application services:** The bundle includes `services/common`, `services/api-gateway`, `services/auth-service` (ported), `services/cron-jobs`, `webapp/`, and **6 housing skeletons** (listings, booking, messaging, notification, trust, analytics). RP-only services (records, shopping, social, auction-monitor, python-ai) are not included. Implement the 6 skeletons (see §4) using the same pattern as api-gateway and common; follow **docs/ARCHITECTURE.md**.
 - **Proto:** All RP `proto/*.proto` files are included as gRPC reference; replace or add housing-specific protos as needed.
 - **RP DB schemas and migrations:** `infra/db/*.sql`. You add your own DB count (e.g. 7 DBs for the 7 domain services) and Prisma schemas per service.
 - **RP-only scripts:** e.g. `ensure-shopping-order-number-sequence.sh`. Use `backup-all-dbs.sh` / `inspect-external-db-schemas.sh` with your own DB list (env or file).
@@ -74,7 +74,7 @@ So the bundle stays **portable**, the following are **not** included; add your o
 
 ## 4. What to add: housing-platform (7 domain services)
 
-Use the substrate as the base; follow **docs/ARCHITECTURE.md** and **docs/CURSOR_SCAFFOLD_INSTRUCTIONS.md** (paste the latter into Cursor to scaffold).
+Use the substrate as the base; follow **docs/ARCHITECTURE.md**.
 
 **In the bundle:** Auth-service is **ported** (full code); restore its DB from `backups/5437-auth.dump` (see backups/README.txt). The other **6 services** are **skeletons** (README per service); implement using common + api-gateway pattern. No cross-service DB access; cross-domain only via Kafka.
 
@@ -97,4 +97,4 @@ Use the substrate as the base; follow **docs/ARCHITECTURE.md** and **docs/CURSOR
 - **MetalLB:** Included in the bundle (`infra/k8s/metallb/`, `scripts/install-metallb.sh`, `scripts/setup-new-colima-cluster.sh`). Always set **METALLB_POOL** per project.  
 - **run-preflight-scale-and-all-suites.sh:** Included; it drives MetalLB install (when enabled), Caddy deploy, TLS verify, and all suites. Override `NS`, `HOST`, and (if needed) namespace/hostname inside the script for your project.
 
-This keeps the tarball one coherent substrate: MetalLB, k3s, Kafka (strict TLS + **ssl.client.auth=required**), Redis, TLS CA, Ingress (Caddy), gRPC (all protos), services/common + api-gateway reference, protocol verification (HTTP/2, HTTP/3, strict TLS, mTLS), xk6 HTTP/3 and run-k6-phases, metrics-ready layout, DB backup/inspect scripts, and k6/rotation. **Housing-platform:** Follow docs/ARCHITECTURE.md (7 domain services, event-driven, no cross-service DB), use docs/CURSOR_SCAFFOLD_INSTRUCTIONS.md to scaffold, plug in the 6 skeletons + auth ported per §4, then run preflight and k6.
+This keeps the tarball one coherent substrate: MetalLB, k3s, Kafka (strict TLS + **ssl.client.auth=required**), Redis, TLS CA, Ingress (Caddy), gRPC (all protos), services/common + api-gateway reference, protocol verification (HTTP/2, HTTP/3, strict TLS, mTLS), xk6 HTTP/3 and run-k6-phases, metrics-ready layout, DB backup/inspect scripts, and k6/rotation. **Housing-platform:** Follow docs/ARCHITECTURE.md (7 domain services, event-driven, no cross-service DB), plug in the 6 skeletons + auth ported per §4, then run preflight and k6.

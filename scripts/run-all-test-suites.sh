@@ -735,7 +735,7 @@ else
   echo "   - DB: Connection refused / schema = Postgres ports 5441–5447 (external Docker; ensure Docker Compose Postgres is up)"
   echo "   - Gateway/upstream: 502 = api-gateway→service (pod health, DNS, TLS, or service→DB)"
   echo "   - gRPC: Envoy routing / TLS = Envoy + service TLS mounts"
-  echo "   - Cache: Redis (externalized) = port 6379, Lua"
+  echo "   - Cache: Redis (externalized) = port ${REDIS_PORT:-6380}, Lua"
   echo "   - Rotation: Secret updates (use colima ssh kubectl if host cannot reach API); cert reissue; packet capture: tcpdump/tshark on Caddy/Envoy"
   echo "   - Strict TLS/mTLS: test-tls-mtls-comprehensive.sh; packet capture: rotation, standalone-capture"
   if [[ -f "$SUITE_LOG_DIR/rotation.log" ]] && grep -q 'Protocol mismatch: expected HTTP/3, got ""' "$SUITE_LOG_DIR/rotation.log" 2>/dev/null; then

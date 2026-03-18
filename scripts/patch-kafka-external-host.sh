@@ -22,7 +22,8 @@ else
   fi
 fi
 
+KAFKA_SSL_PORT="${KAFKA_SSL_PORT:-29094}"
 kubectl patch endpoints kafka-external -n off-campus-housing-tracker --type=merge \
-  -p="{\"subsets\":[{\"addresses\":[{\"ip\":\"$HOST_IP\"}],\"ports\":[{\"port\":29093,\"name\":\"kafka-ssl\"}]}]}"
+  -p="{\"subsets\":[{\"addresses\":[{\"ip\":\"$HOST_IP\"}],\"ports\":[{\"port\":$KAFKA_SSL_PORT,\"name\":\"kafka-ssl\"}]}]}"
 
-echo "✅ kafka-external Endpoints -> $HOST_IP:29093 (external Kafka)"
+echo "✅ kafka-external Endpoints -> $HOST_IP:$KAFKA_SSL_PORT (external Kafka)"

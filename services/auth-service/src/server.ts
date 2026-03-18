@@ -5,10 +5,8 @@ import { signJwt, verifyJwt, type JwtPayload as TokenPayload } from "@common/uti
 import { randomUUID } from "node:crypto";
 import { createClient } from "redis";
 import { setupOAuthRoutes } from "./routes/oauth.js";
-import { setupMFARoutes } from "./routes/mfa.js";
 import { setupVerificationRoutes } from "./routes/verification.js";
 import passkeyRouter from "./routes/passkey.js";
-import { verifyMFA } from "./lib/mfa.js";
 import { getMockSmsProvider } from "./lib/sms-providers.js";
 import { prisma } from "./lib/prisma.js"; // Use shared PrismaClient instance
 import { hashPassword, comparePassword, getQueueStatus } from "./lib/bcrypt-queue.js"; // Use queued bcrypt operations
@@ -207,14 +205,10 @@ app.post("/register", async (req: Request, res: Response) => {
 
 app.post("/login", async (req: Request, res: Response) => {
   try {
-    const { email, password, mfaCode } = (req.body ?? {}) as {
-      email?: string;
-      password?: string;
-      mfaCode?: string;
-    };
+    const { email, password } = (req.body ?? {}) as { email?: string; password?: string };
     if (!email || !password) return res.status(400).json({ error: "email/password required" });
 
-    console.log(`[LOGIN] Login attempt for email: ${email}, hasMfaCode: ${!!mfaCode}`);
+    console.log(`[LOGIN] Login attempt for email: ${email}`);
 
     // Try cache first (fast path)
     const cacheStart = Date.now();
@@ -256,12 +250,7 @@ app.post("/login", async (req: Request, res: Response) => {
       }
     }
     
-    // Log MFA status for debugging
-    if (user) {
-      console.log(`[LOGIN] User ${user.email} (${user.id}) - mfaEnabled: ${user.mfaEnabled} (type: ${typeof user.mfaEnabled})`);
-    } else {
-      console.log(`[LOGIN] User not found for email: ${email}`);
-    }
+    if (!user) console.log(`[LOGIN] User not found for email: ${email}`);
     if (!user || !user.passwordHash) {
       // User doesn't exist or has no password - return 401 (not 500)
       return res.status(401).json({ error: "invalid credentials" });
@@ -276,31 +265,7 @@ app.post("/login", async (req: Request, res: Response) => {
     }
     if (!ok) return res.status(401).json({ error: "invalid credentials" });
 
-    // Check if MFA is enabled - use explicit boolean check
-    console.log(`[LOGIN] Checking MFA - user.mfaEnabled=${user.mfaEnabled}, typeof=${typeof user.mfaEnabled}, truthy=${!!user.mfaEnabled}`);
-    if (user.mfaEnabled === true) {
-      console.log(`[LOGIN] MFA is enabled, checking for mfaCode...`);
-      if (!mfaCode) {
-        console.log(`[LOGIN] MFA required but no code provided - returning requiresMFA response`);
-        return res.status(200).json({
-          requiresMFA: true,
-          userId: user.id,
-          message: "MFA code required",
-        });
-      }
-
-      // Verify MFA code
-      console.log(`[LOGIN] Verifying MFA code for user ${user.id}`);
-      const mfaValid = await verifyMFA(prisma, user.id, mfaCode);
-      if (!mfaValid) {
-        console.log(`[LOGIN] MFA code verification failed`);
-        return res.status(401).json({ error: "invalid MFA code" });
-      }
-      console.log(`[LOGIN] MFA code verified successfully`);
-    } else {
-      console.log(`[LOGIN] MFA not enabled, proceeding with login`);
-    }
-
+    // MFA/passkeys disabled for this setup — issue token after password check
     const jti = randomUUID();
     const payload: WithJti = { sub: user.id, email: user.email, jti };
     const token = signJwt(payload);
@@ -699,9 +664,6 @@ app.get("/terms", (_req: Request, res: Response) => {
 // OAuth routes
 app.use("/auth", setupOAuthRoutes(prisma));
 app.use("/passkeys", passkeyRouter);
-
-// MFA routes
-app.use("/mfa", setupMFARoutes(prisma));
 
 // Verification routes
 app.use("/verify", setupVerificationRoutes(prisma));

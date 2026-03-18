@@ -36,17 +36,8 @@ else
   info "1. Not Colima or script missing; skipping host aliases (k3d uses 192.168.5.2 from base)"
 fi
 
-# 2. Shopping: ensure order_number sequence (fixes "duplicate key orders_order_number_key" on checkout)
-say "2. Shopping DB: ensuring order_number sequence (port 5436)..."
-if [[ -x "$SCRIPT_DIR/ensure-shopping-order-number-sequence.sh" ]]; then
-  if "$SCRIPT_DIR/ensure-shopping-order-number-sequence.sh" 2>&1; then
-    ok "Shopping order_number sequence ensured"
-  else
-    warn "ensure-shopping-order-number-sequence.sh had issues (Postgres on 5436 may be down)"
-  fi
-else
-  warn "ensure-shopping-order-number-sequence.sh not found"
-fi
+# 2. Housing stack: no shopping DB (ports 5441–5447). Skip order_number sequence; use verify-db-cache-quick.sh for DB checks.
+say "2. Housing DBs (5441–5447): skipping shopping-specific steps; run scripts/verify-db-cache-quick.sh for connectivity."
 
 # 3. Wait for rollouts (patch in step 1 triggers new pods)
 say "3. Waiting for deployments to roll out (up to 120s per deploy)..."
