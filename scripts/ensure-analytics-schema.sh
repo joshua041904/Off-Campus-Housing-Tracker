@@ -25,4 +25,9 @@ if [[ -f "$SQL2" ]]; then
   psql -h "$PGHOST" -p "$PGPORT" -U postgres -d analytics -v ON_ERROR_STOP=1 -f "$SQL2"
   echo "✅ Analytics projections (02) applied."
 fi
+SQL3="$REPO_ROOT/infra/db/03-analytics-recommendation.sql"
+if [[ -f "$SQL3" ]]; then
+  psql -h "$PGHOST" -p "$PGPORT" -U postgres -d analytics -v ON_ERROR_STOP=1 -f "$SQL3"
+  echo "✅ Analytics recommendation (03) applied."
+fi
 echo "✅ Analytics schema applied (port $PGPORT, database analytics)."

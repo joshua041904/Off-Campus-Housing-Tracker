@@ -2,11 +2,21 @@ syntax = "proto3";
 
 package analytics;
 
+import "common.proto";
+
 option go_package = "github.com/yourorg/off-campus-housing-tracker/proto/analytics";
 
-// Analytics service – read-only. Consumes Kafka; never mutates state. Not in request path.
+// Analytics service – read-only for clients. Consumes Kafka; never mutates source-of-truth
+// service DBs. Recommendation admin RPCs are internal-only.
 service AnalyticsService {
   rpc GetDailyMetrics(GetDailyMetricsRequest) returns (DailyMetricsResponse);
+  rpc GetRecommendations(GetRecommendationsRequest) returns (GetRecommendationsResponse);
+}
+
+// Admin / internal control plane for recommendation models and experiments.
+service RecommendationAdminService {
+  rpc ActivateModel(ActivateModelRequest) returns (common.Empty);
+  rpc SetExperimentTraffic(SetExperimentTrafficRequest) returns (common.Empty);
 }
 
 message GetDailyMetricsRequest {
@@ -18,4 +28,37 @@ message DailyMetricsResponse {
   int32 new_listings = 2;
   int32 new_bookings = 3;
   int32 completed_bookings = 4;
+}
+
+// Recommendation API
+message GetRecommendationsRequest {
+  string user_id = 1;
+  double latitude = 2;
+  double longitude = 3;
+  int32 radius_meters = 4;
+  int32 min_price_cents = 5;
+  int32 max_price_cents = 6;
+}
+
+message Recommendation {
+  string listing_id = 1;
+  double score = 2;
+}
+
+message GetRecommendationsResponse {
+  repeated Recommendation listings = 1;
+  string model_name = 2;
+  string model_version = 3;
+}
+
+message ActivateModelRequest {
+  string name = 1;
+  string version = 2;
+}
+
+message SetExperimentTrafficRequest {
+  string experiment_name = 1;
+  string model_name = 2;
+  string model_version = 3;
+  int32 traffic_percentage = 4;
 }

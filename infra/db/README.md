@@ -93,10 +93,12 @@ Files:
   - **events** — id, event_type, event_version, payload JSONB, source_service, created_at. Immutable; never update; delete only per retention. Payload as JSONB so event schema can evolve.
   - **daily_metrics** — date PK, new_users, new_listings, new_bookings, completed_bookings, messages_sent, listings_flagged, updated_at. Updated on event consumption.
   - **user_activity** — user_id PK, listings_created, bookings_made, messages_sent, updated_at. Optional; for dashboards.
+  - **recommendation_models / recommendation_weights / recommendation_experiments** — versioned models, per-model weights, and experiments for traffic-split recommendations.
 - **Apply:** `PGPASSWORD=postgres ./scripts/ensure-analytics-schema.sh` or `psql -h 127.0.0.1 -p 5447 -U postgres -d analytics -f infra/db/01-analytics-schema.sql`
 - **Discipline:** Consume all domain events; project into aggregates. Do not normalize raw events into fixed columns; store payload as JSONB.
 - **Projections (02):** `infra/db/02-analytics-projections.sql` adds `event_id` (unique) on events, `processed_events` (idempotency), `projection_state`, `projection_versions` for replay and versioned rebuilds. Applied by `ensure-analytics-schema.sh` after 01.
 - **Notification idempotency (02):** `infra/db/02-notification-idempotency.sql` adds `notification.processed_events` for event_id dedup. Applied by `ensure-notification-schema.sh` after 01.
+- **Recommendations (03):** `infra/db/03-analytics-recommendation.sql` adds recommendation_models, recommendation_weights, recommendation_experiments for versioned ranking and experiments. Applied by `ensure-analytics-schema.sh` after 02.
 
 ## Kafka and architecture
 
