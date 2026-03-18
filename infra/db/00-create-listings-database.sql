@@ -1,0 +1,4 @@
+-- Create the listings database (port 5442).
+-- Optional: docker-compose already creates it via POSTGRES_DB=listings.
+-- Run once against database 'postgres': psql -h 127.0.0.1 -p 5442 -U postgres -d postgres -c "CREATE DATABASE listings;"
+-- (Ignore "already exists" if the DB was created by compose.)

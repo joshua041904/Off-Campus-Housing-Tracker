@@ -1,32 +1,14 @@
-Housing stack: auth without MFA, Postgres 5441–5447, ports aligned, auth restore
+feat(infra/db): SQL schemas and one-shot setup for all 7 housing DBs
 
-Auth
-- Login is email + password only; MFA step and MFA routes removed so token is
-  issued after password check. Request body no longer accepts mfaCode; log
-  simplified. MFA/passkey tables and schema remain for future use.
+- infra/db: SQL schemas for listings (01+02), booking, trust, messaging,
+  notification, analytics. Ports 5442–5447 per README; auth (5441) Prisma/restore.
+- scripts: ensure-*-schema.sh for each DB; setup-all-dbs.sh runs all of them
+  so every DB is set up from infra/db in one go (PGPASSWORD=postgres
+  ./scripts/setup-all-dbs.sh). Optional DO_DOCKER_UP=1 to start containers.
+- scripts/restore-good-db-settings.sh: apply DB-level and session-level
+  Postgres tuning to all 7 instances (localhost 5441–5447).
+- infra/db/README.md: document one-shot setup and ports; point to
+  setup-all-dbs.sh and restore-good-db-settings.sh.
 
-Postgres (housing 5441–5447)
-- infra/k8s/base/config/app-config.yaml: All DB URLs use host ports 5441–5447
-  and password postgres. Mapping: 5441 auth, 5442 listings, 5443 bookings,
-  5444 messaging, 5445 notification, 5446 trust, 5447 analytics. Removed
-  RP-only URLs (records, social, shopping, auction_monitor, python_ai).
-- docker-compose.yml: Each of the 7 Postgres services has POSTGRES_DB set
-  (auth, listings, bookings, messaging, notification, trust, analytics).
-  Explicit POSTGRES_URL_* (or POSTGRES_URL) for auth-service, records-service,
-  listings-service, analytics-service, cron-jobs, social-service so services
-  work without .env. Internal hostnames (postgres-auth:5432, etc.) unchanged.
-
-Expose / published ports (README-aligned)
-- docker-compose.yml: Host ports match README “this project (housing)”:
-  API Gateway 4010:4000, Auth 4011:4001, Records 4002:4002, Listings 4012:4003,
-  Analytics 4017:4004, Auction Monitor 4008:4010, Python AI 5005:5005.
-  Social 4006/50056 and Shopping 4007/50058 unchanged. Internal container
-  ports (4000, 4001, 4003, 4004, etc.) unchanged for HAProxy/backends.
-
-DB setup and auth restore
-- scripts/restore-auth-from-legacy-dump.sh: Restores backups/5437-auth.dump
-  into the auth DB on port 5441 (postgres-auth). Use after `docker compose up -d
-  postgres-auth`. Optional RESTORE_AUTH_DUMP and PGPASSWORD=postgres.
-- backups/README.md: How to restore 5437-auth.dump into 5441; short auth
-  schema summary (auth.users, oauth_providers, mfa_settings, verification_codes,
-  passkeys, passkey_challenges); and pointer to full 7-DB backup/restore.
+Ports match docker-compose and docs: auth 5441, listings 5442, bookings 5443,
+messaging 5444, notification 5445, trust 5446, analytics 5447.
