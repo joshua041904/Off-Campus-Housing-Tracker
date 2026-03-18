@@ -1,5 +1,5 @@
-# Production-grade CI: Postgres 16, Redis, Kafka (KRaft), MinIO; bootstrap all 7 DBs; unit, integration, event-layer, optional k6 smoke.
-# pnpm version from package.json packageManager (Corepack). Single Postgres in CI: all 7 DBs on port 5441.
+# Production-grade CI: Postgres 16, Redis, Kafka (KRaft), MinIO; bootstrap all 8 DBs from infra/db; optional restore from backups/*.dump; create Kafka topics; unit + integration (A–D) + event-layer; optional k6 smoke.
+# pnpm via pnpm/action-setup (version from packageManager). Single Postgres in CI: all DBs on port 5441.
 name: CI
 
 on:
@@ -73,15 +73,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: "pnpm"
-
-      - name: Enable Corepack and install pnpm from package.json
-        run: |
-          corepack enable
-          corepack install
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -95,12 +92,30 @@ jobs:
             sleep 2
           done
 
-      - name: Bootstrap all 7 databases
+      - name: Bootstrap all 8 databases (infra/db)
         run: |
           DROP_IF_EXISTS=true ./scripts/bootstrap-all-dbs.sh
 
       - name: Verify bootstrap
         run: ./scripts/verify-bootstrap.sh
+
+      - name: Restore auth dump if present
+        run: |
+          if [[ -f backups/5437-auth.dump || -f backups/5437-auth.dump.gz || -f backups/5437-auth.dump.zip ]]; then
+            PGPORT=5441 PGPASSWORD=postgres ./scripts/restore-auth-db.sh
+          else
+            echo "No auth dump in backups/, skipping restore"
+          fi
+
+      - name: Wait for Kafka and create event topics
+        run: |
+          for i in $(seq 1 30); do nc -z 127.0.0.1 9092 && break; sleep 2; done
+          for t in dev.booking.events dev.listing.events dev.trust.events dev.auth.events dev.messaging.events dev.notification.events dev.media.events dev.messaging.dlq; do
+            docker run --rm --network host bitnami/kafka:latest kafka-topics.sh \
+              --bootstrap-server 127.0.0.1:9092 \
+              --create --topic "$t" --partitions 6 --replication-factor 1 2>/dev/null || true
+          done
+          echo "Kafka topics created or already exist"
 
       - name: Run unit tests
         run: pnpm run test

@@ -143,5 +143,7 @@ bootstrap_messaging
 bootstrap_notification
 bootstrap_trust
 bootstrap_analytics
-bootstrap_media
-echo "Done (all 8 DBs)."
+if [[ "${BOOTSTRAP_SKIP_MEDIA:-0}" != "1" ]]; then
+  bootstrap_media
+fi
+echo "Done (all DBs)."
