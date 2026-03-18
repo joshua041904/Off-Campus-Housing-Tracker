@@ -1,38 +1,24 @@
-docs(messaging+kafka): lock messaging/Kafka role, media split, DLQ, observability, exactly-once
+docs(media+rate-limit+spam): full media design, MinIO, Redis rate limit, Trust spam, architecture overview
 
-Messaging + Kafka architecture (docs/MESSAGING_KAFKA_ARCHITECTURE.md)
---------------------------------------------------------------------
-- One-sentence model: Messaging is synchronous (gRPC); Kafka is asynchronous fanout (side-effect propagation).
-- Responsibility table: send/store/read via gRPC/Postgres; read receipts via last_read_at; emit event via outbox; analytics/notification/trust consume (messaging service does NOT consume its own topic).
-- What Kafka is NOT: chat delivery, UI updates, read receipts, RPC, message broker between users.
-- SendMessage flow: gRPC → insert message → insert outbox (MessageSentV1) → commit → publisher → produce to ${ENV_PREFIX}.messaging.events with key = conversation_id.
-- Partition key: conversation_id only (6 partitions; ordering per conversation; do not use message_id or random key).
-- Payload discipline: no message content in events; MessageSentV1 stays small.
-- Exactly-once: effectively exactly-once effect via outbox + idempotent consumers; do NOT add Kafka transactions, EOS, 2PC, sagas, distributed locking.
-- Messaging service design: gRPC + Postgres + outbox + publisher + Kafka producer + health; no consumer inside messaging.
-- Media split: messaging stores metadata + media_id; Media service handles upload/storage/signed URLs; no media bytes in Kafka/Postgres/gRPC.
-- gRPC/HTTP/3: keep unary RPC over HTTP/2; do not attempt gRPC over HTTP/3 manually.
-- DLQ: ${ENV_PREFIX}.messaging.dlq; on N consumer failures publish to DLQ, log, alert.
-- Observability: metrics for messaging (messages_sent_total, conversation_count, db_latency, kafka_publish_latency), media (uploads_total, upload_failures, upload_bytes_total), notification (notifications_sent_total, failures_total).
-- Break tests: referenced as verification of event spine (no loss, at-least-once, idempotent consumers, health).
+Media service — full design
+---------------------------
+- proto/media.proto: CreateUploadUrl, CompleteUpload, GetDownloadUrl (signed URLs only; no file streaming via gRPC).
+- infra/db/01-media-schema.sql: media.media_files (id, user_id, object_key, filename, content_type, size_bytes, status pending|uploaded|failed).
+- infra/db/02-media-outbox.sql: media.outbox_events for MediaUploadedV1 after CompleteUpload.
+- docs/MEDIA_SERVICE_DESIGN.md: responsibilities, signed URL flow (CreateUploadUrl → client uploads to MinIO/S3 → CompleteUpload → verify, status=uploaded, outbox), MinIO setup (docker-compose, mc bucket, media service env S3_*), health, what not to do.
+- docker-compose.yml: minio service (ports 9000, 9001, minio_data volume); healthcheck wget minio/health/live.
+- services/media-service/README.md: aligned to new proto; link MEDIA_SERVICE_DESIGN; MinIO bucket creation; no file bytes over gRPC.
+- scripts/ensure-media-schema.sh: apply 01-media-schema + 02-media-outbox to DB media port 5448.
+- infra/db/README.md: Media (5448) optional section; Trust spam score (05) in Trust section.
 
-Outbox + messaging (docs, proto, schema)
-----------------------------------------
-- OUTBOX_PUBLISHER_AND_CONSUMER_CONTRACT.md: aggregate_id for messaging = conversation_id; link to MESSAGING_KAFKA_ARCHITECTURE.
-- services/messaging-service/README.md: link to MESSAGING_KAFKA_ARCHITECTURE; outbox step 2 explicitly set aggregate_id = conversation_id.
-- proto/messaging.proto: SendMessageRequest.media_id (optional); Message.media_id (optional).
-- proto/events/messaging.proto: MessageSentV1.media_id (optional).
-- infra/db/04-messaging-media-id.sql: ADD COLUMN media_id to messaging.messages.
+Messaging rate limiting + spam + recommendation
+-------------------------------------------------
+- docs/MESSAGING_RATE_LIMIT_AND_SPAM.md: Redis rate limit (key rate:msg:{user_id}, INCR, EXPIRE 60s; max 30/min, 500/day); do NOT use Kafka for rate limiting. Trust spam: consume MessageSentV1, user_spam_score, emit UserSuspendedV1; messaging rejects SendMessage for suspended users. Recommendation: Analytics read model user_listing_engagement from MessageSentV1 + booking + views; signals and ranking inputs (tenant/landlord side).
+- infra/db/05-trust-spam-score.sql: trust.user_spam_score (user_id, score, updated_at).
+- scripts/ensure-trust-schema.sh: apply 05-trust-spam-score.sql after 04.
 
-Media service stub
-------------------
-- proto/media.proto: MediaService (UploadFile, GeneratePresignedUploadURL, GeneratePresignedDownloadURL); request/response messages.
-- proto/events/media.proto: MediaUploadedV1 (media_id, user_id, content_type, uploaded_at).
-- services/media-service/README.md: responsibilities (upload, presigned URLs, validate, emit event); storage MinIO/S3; metrics; no media bytes in Postgres/Kafka/gRPC.
+Architecture overview + exactly-once
+-----------------------------------
+- docs/ARCHITECTURE_OVERVIEW.md: exactly-once final statement (no loss, deterministic retry, idempotent consumption, per-conversation ordering, no 2PC, no event before commit); service map (Messaging, Media, Notification, Analytics, Trust, Booking, Listings, Auth); data flow; what is locked; next moves (media scaffold, messaging publisher + Redis rate limit, Trust spam consumer, Analytics read model, freeze event layer, search + recommendation).
 
-Kafka topics + DLQ
-------------------
-- scripts/create-kafka-event-topics.sh: add ${ENV_PREFIX}.media.events and ${ENV_PREFIX}.messaging.dlq; comment on partition key for messaging.events and DLQ purpose.
-- docs/KAFKA_TOPICS_AND_PARTITIONS.md: messaging.events partition key = conversation_id only; add media.events row.
-
-No code implementation in this commit; docs and contracts only. Next: implement messaging publisher, wire media service, consumers, DLQ handling.
+No implementation code in this commit; architecture and schema only. Implements: media-service scaffold, MinIO config, signed URL generation, messaging rate limiting (Redis), spam scoring consumer, analytics read model can follow from these docs.

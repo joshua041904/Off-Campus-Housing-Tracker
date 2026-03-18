@@ -3,7 +3,7 @@
 Auth (5441) is Prisma + optional restore. Listings (5442), **Booking (5443)**, **Messaging (5444)**, **Notification (5445)**, **Trust (5446)**, and **Analytics (5447)** are raw Postgres with SQL in this folder. See **docs/HOUSING_ARCHITECTURE_CONTRACT.md** for service/DB map and rules.
 
 **One-shot setup (all DBs, ports per table below):**  
-`PGPASSWORD=postgres ./scripts/setup-all-dbs.sh` — runs all ensure-*-schema scripts for listings, bookings, messaging, notification, trust, analytics. Auth is skipped (Prisma/restore). Optional: `DO_DOCKER_UP=1` to start the seven Postgres containers first.
+`PGPASSWORD=postgres ./scripts/setup-all-dbs.sh` — runs all ensure-*-schema scripts for listings, bookings, messaging, notification, trust, analytics. Auth is skipped (Prisma/restore). Optional: `DO_DOCKER_UP=1` to start the seven Postgres containers first. **Media (5448)** is optional: run `./scripts/ensure-media-schema.sh` when media-service is used (create DB `media` on port 5448 or add postgres-media to docker-compose).
 
 ## Auth (5441) — how login works
 
@@ -46,6 +46,8 @@ Files:
 - **listing_views** — listing_id, viewed_at, optional user_id (for analytics).
 - **neighborhoods** — id, name, slug, bounds (polygon or box) for geo filters. (Availability/booking slots live in **booking-service** DB only.)
 - **Vector ANN (HNSW):** In `02-listings-pgbench-trigram-knn.sql`, uncomment the `vector` extension and `embedding` column + HNSW index for semantic search (e.g. pgvector). Then add `search_listings_knn_ann(user_id, query_embedding, lim)` that orders by `embedding <=> query_embedding`.
+- **Outbox (03):** `03-listings-outbox.sql` — transactional outbox; payload = serialized proto bytes; publisher sets envelope.event_id = outbox.id, Kafka key = aggregate_id. See docs/OUTBOX_PUBLISHER_AND_CONSUMER_CONTRACT.md.
+- **Processed events (04):** `04-listings-processed-events.sql` — idempotent consumer table (listings consumes e.g. listing.flagged from trust). Applied by ensure-listings-schema.sh after 03.
 
 ## Booking (5443)
 
@@ -84,6 +86,9 @@ Files:
   - **reputation** — user_id PK, completed_bookings, positive_reviews, negative_reviews, flags_count, reputation_score (NUMERIC 0–5), updated_at. Materialized; updated on booking.completed, review created, flags.
   - **user_suspensions** — user_id, reason, suspended_at, expires_at, suspended_by. Trust owns suspension state; emits `user.suspended` / `user.unsuspended`.
 - **Scoring (02):** `infra/db/02-trust-scoring.sql` adds deterministic formula: score = LEAST(GREATEST(average_rating*0.6 + completed_bookings*0.2 - flags_count*0.3, 0), 5). Trigger recomputes on insert/update of reputation row. Applied by ensure-trust-schema.sh after 01.
+- **Outbox (03):** `03-trust-outbox.sql` — transactional outbox; payload = serialized proto bytes; publisher sets envelope.event_id = outbox.id, Kafka key = aggregate_id.
+- **Processed events (04):** `04-trust-processed-events.sql` — idempotent consumer table (trust consumes e.g. booking.completed from booking). Applied by ensure-trust-schema.sh after 03.
+- **Spam score (05):** `05-trust-spam-score.sql` — user_spam_score (user_id, score, updated_at) for MessageSentV1 consumption; threshold → UserSuspendedV1. Applied by ensure-trust-schema.sh after 04.
 - **Apply:** `PGPASSWORD=postgres ./scripts/ensure-trust-schema.sh` or `psql -h 127.0.0.1 -p 5446 -U postgres -d trust -f infra/db/01-trust-schema.sql`
 
 ## Analytics (5447)
@@ -100,7 +105,15 @@ Files:
 - **Notification idempotency (02):** `infra/db/02-notification-idempotency.sql` adds `notification.processed_events` for event_id dedup. Applied by `ensure-notification-schema.sh` after 01.
 - **Recommendations (03):** `infra/db/03-analytics-recommendation.sql` adds recommendation_models, recommendation_weights, recommendation_experiments for versioned ranking and experiments. Applied by `ensure-analytics-schema.sh` after 02.
 
+## Media (5448, optional)
+
+- **Database:** `media` on port **5448**. Optional; add postgres-media to docker-compose or create DB manually when media-service is used.
+- **Schema:** `media`. **media_files** — id (= media_id), user_id, object_key, filename, content_type, size_bytes, status (pending | uploaded | failed), created_at, updated_at. Blobs in MinIO/S3; metadata only here.
+- **Outbox (02):** `02-media-outbox.sql` — after CompleteUpload, insert MediaUploadedV1; publisher produces to ${ENV_PREFIX}.media.events.
+- **Apply:** `PGPASSWORD=postgres ./scripts/ensure-media-schema.sh` or `psql -h 127.0.0.1 -p 5448 -U postgres -d media -f infra/db/01-media-schema.sql` then 02-media-outbox.sql. See docs/MEDIA_SERVICE_DESIGN.md.
+
 ## Kafka and architecture
 
-- **Topics and partitions:** docs/KAFKA_TOPICS_AND_PARTITIONS.md
+- **Topics and partitions:** docs/KAFKA_TOPICS_AND_PARTITIONS.md (ENV_PREFIX for topic names; partition key = entity_id).
+- **Publisher and consumer contract:** docs/OUTBOX_PUBLISHER_AND_CONSUMER_CONTRACT.md — payload = proto bytes; envelope.event_id = outbox.id; Kafka key = entity_id; every consumer uses processed_events.
 - **Contract (service boundaries, events, no dual writes):** docs/HOUSING_ARCHITECTURE_CONTRACT.md

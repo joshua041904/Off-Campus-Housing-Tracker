@@ -4,41 +4,40 @@ package media;
 
 option go_package = "github.com/yourorg/off-campus-housing-tracker/proto/media";
 
-// Media service — upload, signed URLs. No video bytes in gRPC; store in object storage (MinIO/S3).
+// Media service — signed URLs only. No file streaming via gRPC. Client uploads directly to object storage (MinIO/S3).
 service MediaService {
-  rpc UploadFile(UploadFileRequest) returns (UploadFileResponse);
-  rpc GeneratePresignedUploadURL(GeneratePresignedUploadURLRequest) returns (GeneratePresignedUploadURLResponse);
-  rpc GeneratePresignedDownloadURL(GeneratePresignedDownloadURLRequest) returns (GeneratePresignedDownloadURLResponse);
+  rpc CreateUploadUrl(CreateUploadUrlRequest) returns (CreateUploadUrlResponse);
+  rpc CompleteUpload(CompleteUploadRequest) returns (CompleteUploadResponse);
+  rpc GetDownloadUrl(GetDownloadUrlRequest) returns (GetDownloadUrlResponse);
 }
 
-message UploadFileRequest {
-  string conversation_id = 1;  // or context for naming
-  string user_id = 2;
+message CreateUploadUrlRequest {
+  string user_id = 1;
+  string filename = 2;
   string content_type = 3;
-  bytes chunk = 4;             // stream or chunked; validate size/type server-side
+  int64 size_bytes = 4;
 }
 
-message UploadFileResponse {
+message CreateUploadUrlResponse {
   string media_id = 1;
-  string created_at = 2;
+  string upload_url = 2;
+  string object_key = 3;
+  int64 expires_at = 4;
 }
 
-message GeneratePresignedUploadURLRequest {
-  string content_type = 1;
-  string suggested_name = 2;
-}
-
-message GeneratePresignedUploadURLResponse {
-  string upload_url = 1;
-  string media_id = 2;
-  int32 expires_in_seconds = 3;
-}
-
-message GeneratePresignedDownloadURLRequest {
+message CompleteUploadRequest {
   string media_id = 1;
 }
 
-message GeneratePresignedDownloadURLResponse {
+message CompleteUploadResponse {
+  bool success = 1;
+}
+
+message GetDownloadUrlRequest {
+  string media_id = 1;
+}
+
+message GetDownloadUrlResponse {
   string download_url = 1;
-  int32 expires_in_seconds = 2;
+  int64 expires_at = 2;
 }

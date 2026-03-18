@@ -30,4 +30,14 @@ if [[ -f "$SQL3" ]]; then
   psql -h "$PGHOST" -p "$PGPORT" -U postgres -d trust -v ON_ERROR_STOP=1 -f "$SQL3"
   echo "✅ Trust outbox (03) applied."
 fi
+SQL4="$REPO_ROOT/infra/db/04-trust-processed-events.sql"
+if [[ -f "$SQL4" ]]; then
+  psql -h "$PGHOST" -p "$PGPORT" -U postgres -d trust -v ON_ERROR_STOP=1 -f "$SQL4"
+  echo "✅ Trust processed_events (04) applied."
+fi
+SQL5="$REPO_ROOT/infra/db/05-trust-spam-score.sql"
+if [[ -f "$SQL5" ]]; then
+  psql -h "$PGHOST" -p "$PGPORT" -U postgres -d trust -v ON_ERROR_STOP=1 -f "$SQL5"
+  echo "✅ Trust spam score (05) applied."
+fi
 echo "✅ Trust schema applied (port $PGPORT, database trust)."
