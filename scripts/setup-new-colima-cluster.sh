@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
-# One-shot: create a new Colima + k3s cluster and install MetalLB (L2).
-# Use after colima delete (or no Colima instance). Pool IP range is per-project to avoid conflicts.
+# One-shot: start Colima with k3s and create namespaces only (no MetalLB or other installs).
+# Use after colima delete (or no Colima instance).
 #
 # Usage:
 #   ./scripts/setup-new-colima-cluster.sh
-#   METALLB_POOL=192.168.64.251-192.168.64.260 ./scripts/setup-new-colima-cluster.sh   # e.g. housing (different range)
+#   # To avoid IP conflicts with other projects, set MetalLB pool before later installing MetalLB:
+#   METALLB_POOL=192.168.64.260-192.168.64.270 ./scripts/setup-new-colima-cluster.sh
 #
-# Default METALLB_POOL=192.168.64.240-192.168.64.250 (off-campus-housing-tracker). For a second project on the same
-# network (e.g. housing), set a different range (e.g. .251-.260) so LoadBalancer IPs do not clash.
+# Creates namespaces: ingress-nginx, envoy-test, off-campus-housing.
+# Next: install MetalLB (scripts/install-metallb.sh) if needed, then bring up DBs
+# (scripts/bring-up-external-infra.sh), build and load auth-service image, deploy.
 #
-# Env: CPU (default 12), MEMORY (default 16), DISK (default 256), METALLB_POOL, COLIMA_K3S_VERSION.
+# Env: CPU (default 12), MEMORY (default 16), DISK (default 256), COLIMA_K3S_VERSION.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -19,8 +21,6 @@ cd "$REPO_ROOT"
 CPU="${CPU:-12}"
 MEMORY="${MEMORY:-16}"
 DISK="${DISK:-256}"
-# Per-project: change this for housing or other projects to avoid IP conflict with off-campus-housing-tracker.
-METALLB_POOL="${METALLB_POOL:-192.168.64.240-192.168.64.250}"
 
 say() { printf "\n\033[1m%s\033[0m\n" "$*"; }
 ok() { echo "✅ $*"; }
@@ -53,9 +53,14 @@ if [[ -f "$HOME/.kube/config" ]]; then
   fi
 fi
 
-say "Step 3: Install MetalLB (L2 pool: $METALLB_POOL)"
-export METALLB_POOL
-"$SCRIPT_DIR/install-metallb.sh"
-ok "MetalLB installed"
+say "Step 3: Create namespaces (ingress-nginx, envoy-test, off-campus-housing)"
+for ns in ingress-nginx envoy-test off-campus-housing; do
+  if kubectl get namespace "$ns" --request-timeout=5s >/dev/null 2>&1; then
+    ok "Namespace $ns already exists"
+  else
+    kubectl create namespace "$ns"
+    ok "Created namespace $ns"
+  fi
+done
 
-say "Done. Next: apply namespaces, TLS secrets, and Caddy (e.g. scripts/strict-tls-bootstrap.sh, scripts/rollout-caddy.sh, kubectl apply -k infra/k8s/overlays/dev). Or run scripts/ensure-ready-for-preflight.sh then scripts/run-preflight-scale-and-all-suites.sh."
+say "Done. Next: install MetalLB if needed (METALLB_POOL=192.168.64.260-192.168.64.270 ./scripts/install-metallb.sh), bring up DBs (./scripts/bring-up-external-infra.sh), build and load auth-service (./scripts/build-and-load-auth-service.sh), then deploy."

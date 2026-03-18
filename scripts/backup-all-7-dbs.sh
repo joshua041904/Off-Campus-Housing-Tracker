@@ -3,8 +3,8 @@
 # Use when you need a complete snapshot so you can restore everything after a loss.
 #
 # Usage:
-#   PGPASSWORD=postgres ./scripts/backup-all-8-dbs.sh
-#   BACKUP_DIR=/path/to/backups PGHOST=127.0.0.1 ./scripts/backup-all-8-dbs.sh
+#   PGPASSWORD=postgres ./scripts/backup-all-7-dbs.sh
+#   BACKUP_DIR=/path/to/backups PGHOST=127.0.0.1 ./scripts/backup-all-7-dbs.sh
 #
 # Output: backups/all-7-YYYYMMDD-HHMMSS/ (or BACKUP_DIR)
 #   - <port>-<dbname>.dump     (pg_dump -Fc: custom format for pg_restore)

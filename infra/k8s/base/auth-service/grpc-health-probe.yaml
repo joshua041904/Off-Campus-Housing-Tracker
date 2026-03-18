@@ -1,0 +1,23 @@
+# gRPC Health Probe for auth-service
+# Uses grpc.health.v1.Health/Check over HTTP/2 (h2c) - NOT HTTP/1.1
+# This replaces the HTTP/1.1 healthz endpoint for production readiness
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grpc-health-probe
+  namespace: off-campus-housing
+data:
+  grpc-health-probe.sh: |
+    #!/bin/sh
+    # gRPC health check using grpcurl
+    # Uses HTTP/2 (h2c) - NOT HTTP/1.1
+    SERVICE_NAME="${1:-auth.AuthService}"
+    HOST="${2:-auth-service.off-campus-housing.svc.cluster.local:50061}"
+    
+    # Use grpcurl to call grpc.health.v1.Health/Check
+    # -plaintext: Use HTTP/2 cleartext (h2c) - NOT HTTP/1.1
+    grpcurl -plaintext -d "{\"service\":\"${SERVICE_NAME}\"}" \
+      "${HOST}" grpc.health.v1.Health/Check
+    
+    exit $?
+

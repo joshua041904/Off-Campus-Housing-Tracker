@@ -772,7 +772,7 @@ Services expose HTTP endpoints for:
 
 **Disaster Recovery Workflow**:
 1. **Cluster**: Colima bring-back (`./scripts/colima-start-and-ready.sh` or `./scripts/colima-teardown-and-start.sh`) or bootstrap destroy/recreate.
-2. **Data plane**: `./scripts/bring-up-external-infra.sh` (optionally with `RESTORE_BACKUP_DIR=backups/all-8-<timestamp>` to restore Postgres from backup).
+2. **Data plane**: `./scripts/bring-up-external-infra.sh` (optionally with `RESTORE_BACKUP_DIR=backups/all-7-<timestamp>` to restore Postgres from backup).
 3. **Standalone restore**: If not using bring-up hook, run `./scripts/restore-external-postgres-from-backup.sh <backup_dir>` after infra is up.
 4. **Verification**: `./scripts/inspect-external-db-schemas.sh`, then preflight or integration tests.
 

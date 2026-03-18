@@ -1,36 +1,33 @@
-feat(analytics): versioned recommendation engine (models, weights, experiments) + proto
+fix(infra): auth-service K8s ports/namespace, Colima namespaces-only, 7-DB backup rename, build-and-load auth
 
-Database (analytics 5447)
-------------------------
-- infra/db/03-analytics-recommendation.sql: adds three tables for versioned ranking
-  and traffic-split experiments.
-  - recommendation_models: id, name, version, is_active, created_at. One baseline
-    active at a time; multiple versions (e.g. baseline-ranking v1, geo-boost v2).
-  - recommendation_weights: model_id (FK), distance, price, popularity, trust,
-    recency. Per-model weights for hybrid scoring; no redeploy to tune.
-  - recommendation_experiments: name, model_id (FK), traffic_percentage (0–100),
-    is_active. Used with deterministic user bucketing (hash(user_id) % 100) to
-    assign users to baseline vs experiment model.
-- scripts/ensure-analytics-schema.sh: runs 03-analytics-recommendation.sql after
-  02 (projections). Same port 5447, database analytics.
-- infra/db/README.md: Analytics (5447) section updated to list
-  recommendation_models / recommendation_weights / recommendation_experiments and
-  the 03 script.
+Auth-service (infra/k8s/base/auth-service)
+-------------------------------------------
+- deploy.yaml, service.yaml, grpc-health-probe.yaml: namespace record-platform → off-campus-housing.
+- service.yaml: align with README exposed ports — http 4001→4011, grpc 50051→50061 (targetPorts remain 4001/50051).
+- grpc-health-probe ConfigMap: host updated to auth-service.off-campus-housing.svc.cluster.local:50061.
 
-Proto (analytics + admin control plane)
----------------------------------------
-- proto/analytics.proto:
-  - import "common.proto" for Empty on admin RPCs.
-  - AnalyticsService: added GetRecommendations(GetRecommendationsRequest) returns
-    GetRecommendationsResponse. Request: user_id, latitude, longitude,
-    radius_meters, min/max_price_cents. Response: repeated Recommendation
-    (listing_id, score), model_name, model_version for observability and A/B.
-  - RecommendationAdminService (internal): ActivateModel(name, version) returns
-    Empty; SetExperimentTraffic(experiment_name, model_name, model_version,
-    traffic_percentage) returns Empty. Enables rollback and traffic shifts
-    without redeploy.
-  - Messages: GetRecommendationsRequest, Recommendation, GetRecommendationsResponse,
-    ActivateModelRequest, SetExperimentTrafficRequest.
+Colima cluster setup (scripts/setup-new-colima-cluster.sh)
+-----------------------------------------------------------
+- Script now only starts Colima + k3s and creates namespaces: ingress-nginx, envoy-test, off-campus-housing.
+- MetalLB install removed from this script; document METALLB_POOL=192.168.64.260-192.168.64.270 in usage to avoid conflicts when installing MetalLB later.
+- Next steps documented: install-metallb.sh, bring-up-external-infra.sh, build-and-load-auth-service.sh, then deploy.
 
-No ML, no Redis cache, no async recompute in this change. Clean, deterministic,
-versioned ranking with DB-controlled weights and experiment traffic.
+Build and load auth-service into Colima k3s (scripts/build-and-load-auth-service.sh)
+------------------------------------------------------------------------------------
+- New script: build auth-service:dev from repo root, load into k3s via colima ssh + k3s ctr images import.
+- Uses Colima Docker context when available; run after setup-new-colima-cluster.sh.
+
+Backup script rename (7 DBs)
+---------------------------
+- backup-all-8-dbs.sh renamed to backup-all-7-dbs.sh (name aligned with all-7-* output and 7 DBs 5441–5447).
+- backup-all-dbs.sh now delegates to backup-all-7-dbs.sh.
+- ENGINEERING.md: RESTORE_BACKUP_DIR example all-8 → all-7.
+
+bring-up-external-infra.sh
+--------------------------
+- Already correct: 7 Postgres services (5441–5447), backups/all-7-*; no code change.
+
+Pgbench default namespace
+-------------------------
+- run_auth_pgbench_sweep.sh: default namespace record-platform → off-campus-housing (usage and NS).
+- run_pgbench_sweep.sh: default namespace off-campus-housing-tracker → off-campus-housing (usage, NS, and fallbacks for deploy/rollout).

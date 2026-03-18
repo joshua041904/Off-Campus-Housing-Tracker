@@ -22,7 +22,7 @@ export PGGSSENCMODE=disable
 usage() {
   cat <<USAGE
 Usage: ${0##*/} [options]
-  -n, --namespace NS       Kubernetes namespace (default: off-campus-housing-tracker, used for config only)
+  -n, --namespace NS       Kubernetes namespace (default: off-campus-housing, used for config only)
   -u, --user UUID          Tenant UUID to benchmark (default: 0dc268d0-a86f-4e12-8d10-9db0f1b735e0)
   -q, --query TEXT         Search query string (default: "鄧麗君 album 263 cn-041 polygram")
   -d, --duration SEC       Duration per benchmark run (default: 60)
@@ -44,7 +44,7 @@ RECORDS_DB_USER="${RECORDS_DB_USER:-postgres}"
 RECORDS_DB_NAME="${RECORDS_DB_NAME:-records}"
 RECORDS_DB_PASS="${RECORDS_DB_PASS:-postgres}"
 
-NS="off-campus-housing-tracker"
+NS="off-campus-housing"
 USER_UUID="0dc268d0-a86f-4e12-8d10-9db0f1b735e0"
 QUERY='鄧麗君 album 263 cn-041 polygram'
 DURATION=60
@@ -1911,9 +1911,9 @@ cold_cache_reset() {
         echo "   ✅ Postgres ready after restart (true cold)"
       fi
     else
-      if command -v kubectl >/dev/null 2>&1 && kubectl get deploy -n "${NS:-off-campus-housing-tracker}" 2>/dev/null | grep -q postgres; then
+      if command -v kubectl >/dev/null 2>&1 && kubectl get deploy -n "${NS:-off-campus-housing}" 2>/dev/null | grep -q postgres; then
         echo "   Real cold: restarting Postgres deploy (COLD_POSTGRES_RESTART=1)..."
-        kubectl rollout restart deploy/postgres -n "${NS:-off-campus-housing-tracker}" 2>/dev/null || true
+        kubectl rollout restart deploy/postgres -n "${NS:-off-campus-housing}" 2>/dev/null || true
         sleep 15
         wait_for_db_ready || echo "⚠️  Postgres may still be rolling; continuing with DB-level reset" >&2
       fi
