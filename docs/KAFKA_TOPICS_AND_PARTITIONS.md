@@ -41,6 +41,23 @@ All events about the same listing (or booking) stay in order per partition; cons
 
 ---
 
+## Domain event topics (dev.*.events) + EventEnvelope
+
+**Strong discipline:** One topic per domain; every message is a serialized **EventEnvelope** (see **proto/events/envelope.proto**). No raw domain messages on topics. Partition key = **entity_id**.
+
+| Topic | Producer | Partition key | Event protos |
+|-------|----------|---------------|--------------|
+| **dev.booking.events** | booking-service | entity_id (booking_id) | proto/events/booking.proto |
+| **dev.listing.events** | listings-service | entity_id (listing_id) | proto/events/listing.proto |
+| **dev.trust.events** | trust-service | entity_id | proto/events/trust.proto |
+| **dev.auth.events** | auth-service | entity_id (user_id) | proto/events/auth.proto |
+| **dev.messaging.events** | messaging-service | entity_id (conversation_id / message_id) | proto/events/messaging.proto |
+| **dev.notification.events** | notification-service (optional) | entity_id | proto/events/notification.proto |
+
+EventEnvelope fields: event_id, type, version, source, entity_id, timestamp, payload (bytes = serialized domain message). Create topics with **scripts/create-kafka-event-topics.sh** (or equivalent). Transactional outbox: see **proto/events/README.md** and **infra/db/*-outbox.sql**.
+
+---
+
 ## Event payload contract (minimal)
 
 - **type:** string (e.g. `listing.updated`, `booking.confirmed`).

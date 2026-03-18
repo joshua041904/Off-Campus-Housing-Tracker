@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package events.listing;
+
+option go_package = "github.com/yourorg/off-campus-housing-tracker/proto/events/listing";
+
+// Versioned event payloads for dev.listing.events. Lean; no description/amenities blob.
+
+message ListingCreatedV1 {
+  string listing_id = 1;
+  string user_id = 2;
+  int32 price_cents = 3;
+  string effective_from = 4;
+  string effective_until = 5;
+  double latitude = 6;
+  double longitude = 7;
+}
+
+message ListingUpdatedV1 {
+  string listing_id = 1;
+  int32 price_cents = 2;
+  string status = 3; // active, paused, closed
+}
+
+message ListingDeletedV1 {
+  string listing_id = 1;
+}
+
+message ListingPriceUpdatedV1 {
+  string listing_id = 1;
+  int32 old_price_cents = 2;
+  int32 new_price_cents = 3;
+}

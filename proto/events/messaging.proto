@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package events.messaging;
+
+option go_package = "github.com/yourorg/off-campus-housing-tracker/proto/events/messaging";
+
+// Versioned event payloads for dev.messaging.events. No message content in events.
+
+message ConversationCreatedV1 {
+  string conversation_id = 1;
+  string listing_id = 2;
+}
+
+message MessageSentV1 {
+  string message_id = 1;
+  string conversation_id = 2;
+  string sender_id = 3;
+  string recipient_id = 4;
+  string sent_at = 5;
+}
+
+message MessageReadV1 {
+  string message_id = 1;
+  string user_id = 2;
+  string read_at = 3;
+}

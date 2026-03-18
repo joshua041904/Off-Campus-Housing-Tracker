@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package events.notification;
+
+option go_package = "github.com/yourorg/off-campus-housing-tracker/proto/events/notification";
+
+// Optional emit: notification service can publish after delivery for analytics/audit.
+
+message NotificationSentV1 {
+  string notification_id = 1;
+  string user_id = 2;
+  string type = 3;
+}

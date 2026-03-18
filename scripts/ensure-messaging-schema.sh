@@ -20,4 +20,9 @@ if ! psql -h "$PGHOST" -p "$PGPORT" -U postgres -d messaging -tAc "SELECT 1" >/d
   exit 1
 fi
 psql -h "$PGHOST" -p "$PGPORT" -U postgres -d messaging -v ON_ERROR_STOP=1 -f "$SQL"
+SQL2="$REPO_ROOT/infra/db/02-messaging-outbox.sql"
+if [[ -f "$SQL2" ]]; then
+  psql -h "$PGHOST" -p "$PGPORT" -U postgres -d messaging -v ON_ERROR_STOP=1 -f "$SQL2"
+  echo "✅ Messaging outbox (02) applied."
+fi
 echo "✅ Messaging schema applied (port $PGPORT, database messaging)."

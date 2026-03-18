@@ -25,4 +25,9 @@ if [[ -f "$SQL2" ]]; then
   psql -h "$PGHOST" -p "$PGPORT" -U postgres -d trust -v ON_ERROR_STOP=1 -f "$SQL2"
   echo "✅ Trust scoring (02) applied."
 fi
+SQL3="$REPO_ROOT/infra/db/03-trust-outbox.sql"
+if [[ -f "$SQL3" ]]; then
+  psql -h "$PGHOST" -p "$PGPORT" -U postgres -d trust -v ON_ERROR_STOP=1 -f "$SQL3"
+  echo "✅ Trust outbox (03) applied."
+fi
 echo "✅ Trust schema applied (port $PGPORT, database trust)."

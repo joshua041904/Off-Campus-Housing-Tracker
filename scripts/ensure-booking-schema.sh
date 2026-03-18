@@ -25,4 +25,9 @@ if [[ -f "$SQL2" ]]; then
   psql -h "$PGHOST" -p "$PGPORT" -U postgres -d bookings -v ON_ERROR_STOP=1 -f "$SQL2"
   echo "✅ Booking state machine (02) applied."
 fi
+SQL3="$REPO_ROOT/infra/db/03-booking-outbox.sql"
+if [[ -f "$SQL3" ]]; then
+  psql -h "$PGHOST" -p "$PGPORT" -U postgres -d bookings -v ON_ERROR_STOP=1 -f "$SQL3"
+  echo "✅ Booking outbox (03) applied."
+fi
 echo "✅ Booking schema applied (port $PGPORT, database bookings)."

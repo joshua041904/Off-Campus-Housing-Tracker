@@ -25,4 +25,9 @@ if [[ -f "$SQL2" ]]; then
   psql -h "$PGHOST" -p "$PGPORT" -U postgres -d notification -v ON_ERROR_STOP=1 -f "$SQL2"
   echo "✅ Notification idempotency (02) applied."
 fi
+SQL3="$REPO_ROOT/infra/db/03-notification-outbox.sql"
+if [[ -f "$SQL3" ]]; then
+  psql -h "$PGHOST" -p "$PGPORT" -U postgres -d notification -v ON_ERROR_STOP=1 -f "$SQL3"
+  echo "✅ Notification outbox (03) applied."
+fi
 echo "✅ Notification schema applied (port $PGPORT, database notification)."

@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package events.auth;
+
+option go_package = "github.com/yourorg/off-campus-housing-tracker/proto/events/auth";
+
+message UserCreatedV1 {
+  string user_id = 1;
+  string email = 2;
+  string role = 3;
+}
+
+message UserDeletedV1 {
+  string user_id = 1;
+}
+
+message UserRoleUpdatedV1 {
+  string user_id = 1;
+  string old_role = 2;
+  string new_role = 3;
+}
+
+message UserSuspendedV1 {
+  string user_id = 1;
+  string reason = 2;
+}

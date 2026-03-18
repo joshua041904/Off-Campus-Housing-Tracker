@@ -45,3 +45,18 @@ Service READMEs: gRPC implementation guidance + proto refs
 api-gateway README
 -----------------
 - New services/api-gateway/README.md: describes gateway as single entrypoint; table of supported backends with proto file links (auth, listings, booking, messaging, notification, trust, analytics); pointer to common.proto and health.proto; link to each service’s implementation section for teammates new to gRPC.
+
+Event proto layer + transactional outbox (proto/events, infra/db, Kafka)
+-----------------------------------------------------------------------
+- proto/events/envelope.proto: mandatory EventEnvelope (event_id, type, version, source, entity_id, timestamp, payload bytes). All Kafka messages = serialized EventEnvelope; no raw domain messages on topics.
+- proto/events/auth.proto: UserCreatedV1, UserDeletedV1, UserRoleUpdatedV1, UserSuspendedV1.
+- proto/events/booking.proto: BookingCreatedV1, BookingConfirmedV1, BookingCancelledV1 (cancelled_by), BookingCompletedV1.
+- proto/events/listing.proto: ListingCreatedV1, ListingUpdatedV1, ListingDeletedV1, ListingPriceUpdatedV1.
+- proto/events/trust.proto: ListingFlaggedV1, ListingUnflaggedV1, ReviewCreatedV1, UserReputationUpdatedV1.
+- proto/events/messaging.proto: ConversationCreatedV1, MessageSentV1, MessageReadV1.
+- proto/events/notification.proto: NotificationSentV1 (optional emit).
+- proto/events/README.md: envelope + domain event table; topics dev.*.events; partition key entity_id; transactional outbox flow.
+- infra/db: outbox_events table for each producing service (01-auth-outbox.sql, 03-booking-outbox.sql, 03-listings-outbox.sql, 03-trust-outbox.sql, 02-messaging-outbox.sql, 03-notification-outbox.sql). Same-transaction write + outbox insert; background publisher to Kafka; mark published.
+- ensure-*-schema.sh and new ensure-auth-outbox.sh apply outbox SQL.
+- scripts/create-kafka-event-topics.sh: creates dev.booking.events, dev.listing.events, dev.trust.events, dev.auth.events, dev.messaging.events, dev.notification.events.
+- docs/KAFKA_TOPICS_AND_PARTITIONS.md: section "Domain event topics (dev.*.events) + EventEnvelope".

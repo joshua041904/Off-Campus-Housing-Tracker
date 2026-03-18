@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package events;
+
+option go_package = "github.com/yourorg/off-campus-housing-tracker/proto/events";
+
+// EventEnvelope is the only shape allowed on Kafka. All domain event payloads
+// are serialized into payload; type/version/source/entity_id enable routing and idempotency.
+// No raw domain messages on topics. Ever.
+message EventEnvelope {
+  string event_id = 1;   // UUID
+  string type = 2;       // e.g. booking.created
+  int32 version = 3;     // 1
+  string source = 4;     // e.g. booking-service
+  string entity_id = 5;  // e.g. booking_id (partition key)
+  string timestamp = 6;  // ISO-8601
+  bytes payload = 7;     // serialized domain event message (e.g. BookingCreatedV1)
+}
