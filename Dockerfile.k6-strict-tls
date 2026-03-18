@@ -1,0 +1,25 @@
+FROM grafana/k6:latest
+
+# k6 runs as non-root user, so we need to copy cert to a writable location
+# Go's TLS implementation checks /etc/ssl/certs/ for CA certificates
+# Since we can't modify system directories, we'll use SSL_CERT_FILE env var approach
+# But k6 doesn't support SSL_CERT_FILE, so we'll mount it at runtime instead
+# This Dockerfile just ensures the cert is available in the image
+
+USER root
+
+# Copy CA certificate to a location accessible by non-root user
+COPY certs/dev-root.pem /tmp/dev-root.pem
+
+# For Alpine-based images, we can try to add to system store if possible
+# But k6 image might be minimal, so we'll rely on runtime mounting
+RUN chmod 644 /tmp/dev-root.pem && \
+    ls -la /tmp/dev-root.pem
+
+# Switch back to k6 user
+USER 1000
+
+# Note: k6 uses Go's TLS which doesn't easily support custom CA via env vars
+# We'll need to use --insecure-skip-tls-verify for now, or build a custom Go-based solution
+# For strict TLS, we recommend using a reverse proxy with proper certs or
+# configuring the system trust store at the Kubernetes level

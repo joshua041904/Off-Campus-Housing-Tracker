@@ -129,6 +129,11 @@ bootstrap_media() {
     02-media-outbox.sql
 }
 
+# When auth dump exists, auth is dump-first: restore-auth-db.sh will drop/restore/outbox. Do not bootstrap auth.
+auth_dump_exists() {
+  [[ -f "$REPO_ROOT/backups/5437-auth.dump" ]] || [[ -f "$REPO_ROOT/backups/5437-auth.dump.gz" ]] || [[ -f "$REPO_ROOT/backups/5437-auth.dump.zip" ]]
+}
+
 only="${BOOTSTRAP_ONLY:-}"
 if [[ -n "$only" ]]; then
   "bootstrap_$only" || { echo "Unknown BOOTSTRAP_ONLY=$only" >&2; exit 1; }
@@ -136,7 +141,11 @@ if [[ -n "$only" ]]; then
   exit 0
 fi
 
-bootstrap_auth
+if auth_dump_exists; then
+  echo "⚠️  Auth dump detected — skipping auth bootstrap (use restore-auth-db.sh after bootstrap)."
+else
+  bootstrap_auth
+fi
 bootstrap_listings
 bootstrap_bookings
 bootstrap_messaging

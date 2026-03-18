@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS listings.listings (
   furnished          BOOLEAN,
   effective_from     DATE NOT NULL,
   effective_until    DATE,
-  status             TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused', 'closed', 'flagged')),
+  status             listings.listing_status NOT NULL DEFAULT 'active'::listings.listing_status,
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -50,8 +50,11 @@ BEGIN
     WHERE c.table_schema = 'listings' AND c.table_name = 'listings' AND c.column_name = 'status'
     AND c.data_type = 'text'
   ) THEN
+    ALTER TABLE listings.listings ALTER COLUMN status DROP DEFAULT;
+    ALTER TABLE listings.listings DROP CONSTRAINT IF EXISTS listings_listings_status_check;
     ALTER TABLE listings.listings
-      ALTER COLUMN status TYPE listings.listing_status USING (status::text::listings.listing_status);
+      ALTER COLUMN status TYPE listings.listing_status USING (status::listings.listing_status);
+    ALTER TABLE listings.listings ALTER COLUMN status SET DEFAULT 'active'::listings.listing_status;
   END IF;
 END $$;
 

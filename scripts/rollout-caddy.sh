@@ -42,10 +42,19 @@ elif [ -f "./caddy-deploy.yaml" ]; then
   kubectl -n "$NS" apply -f ./caddy-deploy.yaml
 fi
 
-# Service: LoadBalancer (Colima+MetalLB); ClusterIP (k3d hostPort); else NodePort
-if [ "${CADDY_USE_LOADBALANCER:-0}" = "1" ] && [ -f "infra/k8s/caddy-h3-service-loadbalancer.yaml" ]; then
-  kubectl -n "$NS" apply -f infra/k8s/caddy-h3-service-loadbalancer.yaml
-  echo "✅ Applied Caddy service (LoadBalancer, MetalLB) from caddy-h3-service-loadbalancer.yaml"
+# Service: LoadBalancer uses infra/k8s/loadbalancer.yaml (or caddy-h3-service-loadbalancer.yaml) so LB avoids hostPort/anti-affinity; TLS+mTLS at edge.
+# ClusterIP (k3d hostPort); else NodePort.
+if [ "${CADDY_USE_LOADBALANCER:-0}" = "1" ]; then
+  if [ -f "infra/k8s/loadbalancer.yaml" ]; then
+    kubectl -n "$NS" apply -f infra/k8s/loadbalancer.yaml
+    echo "✅ Applied Caddy service (LoadBalancer, MetalLB) from infra/k8s/loadbalancer.yaml"
+  elif [ -f "infra/k8s/caddy-h3-service-loadbalancer.yaml" ]; then
+    kubectl -n "$NS" apply -f infra/k8s/caddy-h3-service-loadbalancer.yaml
+    echo "✅ Applied Caddy service (LoadBalancer, MetalLB) from caddy-h3-service-loadbalancer.yaml"
+  else
+    echo "⚠️  No loadbalancer.yaml or caddy-h3-service-loadbalancer.yaml found"
+    exit 1
+  fi
 elif [ "${CADDY_USE_HOSTPORT:-0}" = "1" ] && [ -f "infra/k8s/caddy-h3-service-clusterip.yaml" ]; then
   kubectl -n "$NS" apply -f infra/k8s/caddy-h3-service-clusterip.yaml
   echo "✅ Applied Caddy service (ClusterIP, hostPort 443) from caddy-h3-service-clusterip.yaml"
@@ -75,9 +84,9 @@ elif [ -f "infra/k8s/caddy-h3-service.yaml" ]; then
   echo "✅ Applied Caddy service (NodePort ${CADDY_NODEPORT:-30443}) from caddy-h3-service.yaml"
 else
   echo "⚠️  WARNING: No Caddy service file found!"
+  echo "   For Colima+MetalLB (LB avoids anti-affinity): CADDY_USE_LOADBALANCER=1 (infra/k8s/loadbalancer.yaml)"
   echo "   For 443@loadbalancer + hostPort: infra/k8s/caddy-h3-service-clusterip.yaml"
-  echo "   For Colima+MetalLB: CADDY_USE_LOADBALANCER=1 (infra/k8s/caddy-h3-service-loadbalancer.yaml)"
-  echo "   For MetalLB/NodePort: infra/k8s/caddy-h3-svc.yaml or caddy-h3-service.yaml"
+  echo "   For NodePort: infra/k8s/caddy-h3-svc.yaml or caddy-h3-service-nodeport.yaml or caddy-h3-service.yaml"
 fi
 
 # Show what’s going on before waiting
@@ -104,10 +113,11 @@ if ! kubectl -n "$NS" rollout status deploy/caddy-h3 --timeout=120s 2>&1; then
   exit 1
 fi
 
-# Restart Envoy so listener 10000 stays plaintext (h2c); Caddy→Envoy must not use TLS. See docs/RCA-GRPC-CADDY-ENVOY-TLS.md.
+# Restart Envoy so listener 10000 stays plaintext (h2c); Caddy→Envoy must not use TLS. TLS/mTLS at edge (Caddy) and backend (Envoy→backends).
 if kubectl get namespace envoy-test &>/dev/null && kubectl -n envoy-test get deployment envoy-test &>/dev/null; then
   kubectl -n envoy-test rollout restart deployment envoy-test 2>/dev/null && echo "✅ Restarted envoy-test (plaintext listener 10000)"
   kubectl -n envoy-test rollout status deployment envoy-test --timeout=60s 2>/dev/null || true
 fi
 
-kubectl -n "$NS" logs deploy/caddy-h3 --tail=200 2>/dev/null | egrep -i 'HTTP/3 listener|server running|protocols|http.log.error|x509|verify|dial|lookup' || true
+# Surface Caddy logs (HTTP/3 listener, TLS, errors)
+kubectl -n "$NS" logs deploy/caddy-h3 --tail=200 2>/dev/null | grep -E -i 'HTTP/3 listener|server running|protocols|http.log.error|x509|verify|dial|lookup' || true

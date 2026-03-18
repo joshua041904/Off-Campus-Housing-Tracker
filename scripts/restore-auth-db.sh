@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Restore auth DB from backups/5437-auth.dump (or .gz / .zip) into port 5441.
-# Use after starting postgres-auth (e.g. docker compose up -d postgres-auth).
-# Unzip: if dump is 5437-auth.dump.gz or 5437-auth.dump.zip, it is decompressed on the fly.
+# Restore auth DB from dump (dump-first), then apply outbox migration. Authoritative for auth when dump exists.
+# Use after starting postgres-auth (e.g. docker compose up -d). No bootstrap of auth when using this.
 #
 # Usage:
 #   PGPASSWORD=postgres ./scripts/restore-auth-db.sh
@@ -15,50 +14,45 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
-PGHOST="${PGHOST:-127.0.0.1}"
-PGPORT="${PGPORT:-5441}"
-PGUSER="${PGUSER:-postgres}"
-PGDB="${PGDB:-auth}"
+HOST="${RESTORE_HOST:-${PGHOST:-127.0.0.1}}"
+PORT="${RESTORE_PORT:-${PGPORT:-5441}}"
+DB="${PGDB:-auth}"
 export PGPASSWORD="${PGPASSWORD:-postgres}"
 
-DUMP_FILE="${RESTORE_AUTH_DUMP:-$REPO_ROOT/backups/5437-auth.dump}"
-# Allow .gz or .zip without changing RESTORE_AUTH_DUMP base name
-if [[ ! -f "$DUMP_FILE" ]]; then
-  if [[ -f "${DUMP_FILE}.gz" ]]; then DUMP_FILE="${DUMP_FILE}.gz"; fi
-  if [[ -f "${DUMP_FILE}.zip" ]]; then DUMP_FILE="${DUMP_FILE}.zip"; fi
+DUMP_PATH="${RESTORE_AUTH_DUMP:-$REPO_ROOT/backups/5437-auth.dump}"
+if [[ ! -f "$DUMP_PATH" ]]; then
+  [[ -f "${DUMP_PATH}.gz" ]] && DUMP_PATH="${DUMP_PATH}.gz"
+  [[ -f "${DUMP_PATH}.zip" ]] && DUMP_PATH="${DUMP_PATH}.zip"
 fi
 
-PARALLEL_JOBS="${PG_RESTORE_JOBS:-4}"
-
-if [[ ! -f "$DUMP_FILE" ]]; then
-  echo "ERROR: Dump file not found: $DUMP_FILE" >&2
+if [[ ! -f "$DUMP_PATH" ]]; then
+  echo "❌ No auth dump found at $DUMP_PATH" >&2
   echo "Place 5437-auth.dump (or .gz / .zip) in backups/ or set RESTORE_AUTH_DUMP=/path/to/dump" >&2
   exit 1
 fi
 
 if ! command -v pg_restore >/dev/null 2>&1; then
-  echo "ERROR: pg_restore not found (e.g. brew install libpq)." >&2
+  echo "❌ pg_restore not found (e.g. brew install libpq)." >&2
   exit 1
 fi
 
-# Ensure DB exists (compose may have created it)
-psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d postgres -c "CREATE DATABASE $PGDB;" 2>/dev/null || true
+echo "🧨 Dropping and recreating auth DB..."
+psql -h "$HOST" -p "$PORT" -U postgres -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS $DB;"
+psql -h "$HOST" -p "$PORT" -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE $DB;"
 
-echo "Restoring auth DB from $DUMP_FILE into $PGHOST:$PGPORT/$PGDB ..."
-
-if [[ "$DUMP_FILE" == *.gz ]]; then
-  gunzip -c "$DUMP_FILE" | pg_restore -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDB" \
-    --clean --if-exists -j "${PARALLEL_JOBS}" -v || true
-elif [[ "$DUMP_FILE" == *.zip ]]; then
-  unzip -p "$DUMP_FILE" '*.dump' 2>/dev/null | pg_restore -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDB" \
-    --clean --if-exists -j "${PARALLEL_JOBS}" -v || true
-  [[ ${PIPESTATUS[0]} -eq 0 ]] || unzip -p "$DUMP_FILE" | pg_restore -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDB" \
-    --clean --if-exists -j "${PARALLEL_JOBS}" -v || true
+echo "📦 Restoring auth dump..."
+if [[ "$DUMP_PATH" == *.gz ]]; then
+  gunzip -c "$DUMP_PATH" | pg_restore -h "$HOST" -p "$PORT" -U postgres -d "$DB" --no-owner --no-privileges -v 2>/dev/null || true
+elif [[ "$DUMP_PATH" == *.zip ]]; then
+  ( unzip -p "$DUMP_PATH" '*.dump' 2>/dev/null || unzip -p "$DUMP_PATH" ) | pg_restore -h "$HOST" -p "$PORT" -U postgres -d "$DB" --no-owner --no-privileges -v 2>/dev/null || true
 else
-  pg_restore -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDB" \
-    --clean --if-exists -j "${PARALLEL_JOBS}" -v "$DUMP_FILE" || true
+  pg_restore -h "$HOST" -p "$PORT" -U postgres -d "$DB" --no-owner --no-privileges -v "$DUMP_PATH" 2>/dev/null || true
 fi
 
-echo "Running ANALYZE on $PGDB ..."
-psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -c "ANALYZE;" 2>/dev/null || true
-echo "Done. Verify with: psql -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDB -c '\\dt auth.*'"
+echo "➕ Applying outbox migration..."
+psql -h "$HOST" -p "$PORT" -U postgres -d "$DB" -v ON_ERROR_STOP=1 -f "$REPO_ROOT/infra/db/01-auth-outbox.sql"
+
+echo "📊 Running ANALYZE..."
+psql -h "$HOST" -p "$PORT" -U postgres -d "$DB" -v ON_ERROR_STOP=1 -c "ANALYZE;"
+
+echo "✅ Auth restore complete. Verify: psql -h $HOST -p $PORT -U postgres -d $DB -c '\\dt auth.*'"

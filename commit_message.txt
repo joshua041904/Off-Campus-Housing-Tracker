@@ -1,53 +1,68 @@
-feat(ci): production-grade CI + pnpm fix, auth restore, Kafka topics; how to bring up DBs, Redis, Kafka (TLS/mTLS)
+feat(infra): 8 Postgres (media 5448), backup all-8, K8s base (auth/messaging/media), Caddy LB + xcaddy HTTP/3, strict TLS/mTLS
 
 Why
 ---
-- CI previously had no Postgres, no Kafka/Redis/MinIO, and no deterministic DB state; pnpm was missing on PATH.
-- Integration tests were placeholders; no validation of outbox, rate limit, spam, or media upload.
-- Moving to production-style CI ensures every push is validated against real infra and real schemas.
+- Platform has eight domain DBs (auth, listings, bookings, messaging, notification, trust, analytics, media); backup and restore must include media (5448).
+- App services (auth, messaging, media) must be in K8s base so Colima/k3s apply deploys them; media needs HTTP 4018 and gRPC 50068.
+- Caddy must use LoadBalancer (no hostPort) so two replicas can run on one node (no anti-affinity); Caddy must be built with xcaddy for proper HTTP/3 (QUIC).
+- Preflight and k6 require Caddy (2 pods) and Envoy (1 pod) with strict TLS/mTLS and certs loaded; namespaces ingress-nginx, envoy-test, off-campus-housing.
 
-CI workflow (.github/workflows/ci.yml)
+Backup and restore: 8 DBs (5441–5448)
+-------------------------------------
+- scripts/backup-all-8-dbs.sh: new script; backs up ports 5441–5448 (adds 5448 media); output backups/all-8-YYYYMMDD-HHMMSS/; PORT_DB includes [5448]=media.
+- scripts/backup-all-dbs.sh: delegates to backup-all-8-dbs.sh; comments and output dir updated to all-8.
+- scripts/backup-all-7-dbs.sh: removed (replaced by backup-all-8-dbs.sh).
+- scripts/restore-external-postgres-from-backup.sh: restores all 8 DBs (5441–5448) in one loop; optional 5448 block removed; header and examples use backups/all-8-*.
+- scripts/bring-up-external-infra.sh: RESTORE_BACKUP_DIR=latest resolves newest backups/all-8-* first, then backups/all-7-*; restore message uses all-8.
+- scripts/bring-up-cluster-and-infra.sh: comments and RESTORE_BACKUP_DIR examples use backups/all-8-*.
+- backups/README.md: "Full 8-DB backup and restore"; all-8-* paths and 5441–5448.
+- ENGINEERING.md: all references to 7 DBs, 5441–5447, all-7 updated to 8 DBs, 5441–5448, all-8 (including script table, restore, bring-up, DB verification, rationale).
+
+K8s base: auth-, messaging-, media-service
+------------------------------------------
+- infra/k8s/base/kustomization.yaml: added resources auth-service, messaging-service, media-service.
+- infra/k8s/base/media-service: new Kustomize app.
+  - kustomization.yaml: deploy.yaml, service.yaml.
+  - deploy.yaml: Deployment image media-service:dev; HTTP 4018, gRPC 50068; env GRPC_PORT=50068, MEDIA_DB_PORT=5448, MEDIA_DB_NAME=media; namespace off-campus-housing; probes on grpc.
+  - service.yaml: Service ports 4018 (http), 50068 (grpc).
+- services/media-service/Dockerfile: new multi-stage build (pnpm, Node 20); exposes 4018 and 50068; for Colima load: docker build -f services/media-service/Dockerfile -t media-service:dev .
+
+README and docs
+---------------
+- README.md: architecture diagram Ports 5441–5448; Postgres Media (5448) box; Media Service 4018 HTTP / 50068 gRPC in services row; "8 core services" and media-service; Postgres table row media-service 5448 media; docker compose command includes postgres-media; in-cluster ports table Media 4018/50068; "2. Bring up external infra" 8 Postgres and all-8 restore; section 2b build/load messaging + media into Colima k3s; section 2c Caddy H3 (2 pods) and Envoy (1 pod) strict TLS/mTLS table and ensure-caddy-envoy-strict-tls.sh; Strict TLS k6 and xk6-http3 (root Dockerfile.k6-strict-tls-v2, xk6-http3 build).
+- scripts/ensure-ready-for-preflight.sh: comment "8 Postgres DBs (5441–5448)".
+
+Caddy: LoadBalancer + xcaddy (HTTP/3)
 --------------------------------------
-- pnpm: use pnpm/action-setup@v4 (version from packageManager) before setup-node so pnpm is on PATH; setup-node cache: "pnpm".
-- Services: Postgres 16 (5441), Redis 7 (6380), Bitnami Kafka KRaft (9092), MinIO (9000).
-- One Postgres in CI: all 8 DBs (auth, listings, bookings, messaging, notification, trust, analytics, media) on port 5441.
-- Steps: checkout → pnpm/action-setup → setup-node → install deps → postgresql-client → wait Postgres → bootstrap all 8 (infra/db) → verify-bootstrap → restore auth dump if present (backups/5437-auth.dump or .gz/.zip) → wait Kafka and create event topics (dev.*.events, dev.messaging.dlq) → unit tests → integration tests (A–D) → event-layer-verification → k6 install + optional smoke (|| true).
-- Env: REDIS_URL, all *_DB_PORT=5441, VERIFY_DB_PORT=5441.
+- scripts/rollout-caddy.sh: when CADDY_USE_LOADBALANCER=1, apply Service from infra/k8s/loadbalancer.yaml first, then fallback to caddy-h3-service-loadbalancer.yaml; Envoy restart and Caddy log tail (grep -E) after rollout; help text points to loadbalancer.yaml for LB.
+- infra/k8s/loadbalancer.yaml: unchanged; used as the Caddy LoadBalancer service (TCP/UDP 443, grpc-h2c 5000, admin 2019).
+- docker/caddy-with-tcpdump: new.
+  - Dockerfile: builder stage uses golang:1.22-alpine, installs xcaddy, runs xcaddy build (Caddy v2.8.4, HTTP/3 built-in); runtime stage alpine:3.19 with ca-certificates, tcpdump, libcap; copies caddy binary; setcap for bind 443; ENTRYPOINT caddy.
+  - README.md: build instructions, CADDY_USE_LOADBALANCER=1 rollout, why xcaddy.
+- infra/k8s/caddy-h3-deploy-loadbalancer.yaml, caddy-h3-deploy.yaml: image comment updated to xcaddy-built Caddy (HTTP/3) + tcpdump and Dockerfile path.
 
-Bootstrap and verify (single-Postgres support)
------------------------------------------------
-- scripts/bootstrap-all-dbs.sh: optional AUTH_DB_PORT … MEDIA_DB_PORT (defaults 5441–5448); BOOTSTRAP_SKIP_MEDIA=1 to skip media (7-DB-only). CI sets all to 5441. Includes bootstrap_media (8th DB).
-- scripts/verify-bootstrap.sh: VERIFY_DB_PORT or per-DB VERIFY_*_PORT; optional media DB check.
+Strict TLS/mTLS: Caddy 2 pods, Envoy 1 pod
+------------------------------------------
+- scripts/ensure-caddy-envoy-strict-tls.sh: new; ensures namespaces ingress-nginx, envoy-test; ensures TLS secrets (record-local-tls, dev-root-ca in ingress-nginx; dev-root-ca, envoy-client-tls in envoy-test); runs rollout-caddy.sh (LoadBalancer on Colima+MetalLB); applies base/envoy-test; scales caddy-h3=2, envoy-test=1; waits for rollouts; prints pod summary. Prereqs: certs in ./certs/, strict-tls-bootstrap.sh or generate-envoy-client-cert.sh.
 
-Stronger integration tests (A–D)
----------------------------------
-- A) Messaging outbox: insert conversation + message + outbox_events; assert COUNT(*) >= 1 (messaging-flow.integration.test.ts).
-- B) Media upload: createUploadUrl → mock S3 objectExists → completeUpload → assert status === 'uploaded' (media-upload.integration.test.ts).
-- C) Rate limit: checkAndIncrement 30× then 31st throws RATE_LIMIT_EXCEEDED; real Redis (REDIS_URL).
-- D) Spam: insert high trust.user_spam_score; assert row readable (403 when Trust check wired).
+Colima, MetalLB, bring-up (existing, unchanged in this message)
+----------------------------------------------------------------
+- scripts/setup-new-colima-cluster.sh: Colima + k3s, MetalLB pool (e.g. 251–260).
+- scripts/bring-up-external-infra.sh: Zookeeper, Kafka TLS, Redis, MinIO, 8 Postgres; optional RESTORE_BACKUP_DIR.
+- scripts/bring-up-cluster-and-infra.sh: one-shot cluster + infra + compose + bootstrap; RESTORE_BACKUP_DIR=latest or path (all-8-*).
+- scripts/restore-auth-db.sh, verify-auth-integrity.sh, bootstrap-all-dbs.sh: auth dump-first, then outbox; bootstrap-all-dbs.sh bootstraps 8 DBs (includes media).
+- scripts/inspect-external-db-schemas.sh: 5441–5448, expect_5448 media tables.
 
-How to test the setup (bring up DBs, Redis, Kafka)
---------------------------------------------------
-- Bring up Redis + Kafka (strict TLS/mTLS) and Postgres (7 instances 5441–5447):
-  ./scripts/bring-up-external-infra.sh
-  (Requires certs/kafka-ssl for Kafka: PLAINTEXT 9092, SSL 9093 → host 29094; Redis 6380.)
-  Optional: SKIP_KAFKA=1 if certs not ready; RESTORE_BACKUP_DIR=latest to restore all 7 from backups/all-7-*.
+Messaging service (existing)
+----------------------------
+- services/messaging-service: gRPC server, Postgres, Dockerfile, infra/k8s/base/messaging-service (deploy, service, gRPC 50064).
 
-- After bring-up: bootstrap all 8 DBs from infra/db (or 7 if no media Postgres):
-  PGPASSWORD=postgres ./scripts/bootstrap-all-dbs.sh
-  Single DB: BOOTSTRAP_ONLY=messaging PGPASSWORD=postgres ./scripts/bootstrap-all-dbs.sh
-
-- Auth dump (5437 → 5441): put 5437-auth.dump (or .gz/.zip) in backups/, then:
-  docker compose up -d postgres-auth   # or already up via bring-up-external-infra
-  PGPASSWORD=postgres ./scripts/restore-auth-db.sh
-
-- Optional one-shot after bring-up (bootstrap all 8 or 7 if no 5448, then restore auth if dump exists):
-  PGPASSWORD=postgres ./scripts/bootstrap-after-bring-up.sh
-
-- Deploy + smoke (k3s):
-  ./scripts/deploy-dev.sh
-  ./scripts/smoke-test-dev.sh
-
-Optional perf-smoke job (disabled)
-----------------------------------
-- perf-smoke job if: false; enable when app runs in CI for k6-messaging-limit-finder (fail if P99 > 500ms or error rate > 5%).
+How to test
+-----------
+- Backup all 8: PGPASSWORD=postgres ./scripts/backup-all-dbs.sh  # -> backups/all-8-YYYYMMDD-HHMMSS/
+- Restore: RESTORE_BACKUP_DIR=latest ./scripts/bring-up-external-infra.sh  or  ./scripts/restore-external-postgres-from-backup.sh backups/all-8-<timestamp>
+- Full stack: RESTORE_BACKUP_DIR=latest ./scripts/bring-up-cluster-and-infra.sh
+- Caddy + Envoy strict TLS: ./scripts/ensure-caddy-envoy-strict-tls.sh  then  CADDY_USE_LOADBALANCER=1 ./scripts/rollout-caddy.sh
+- Build Caddy (xcaddy HTTP/3): docker build -t caddy-with-tcpdump:dev -f docker/caddy-with-tcpdump/Dockerfile .
+- Build and load media/messaging: docker build -f services/media-service/Dockerfile -t media-service:dev . ; docker save media-service:dev | colima ssh -- docker load ; kubectl apply -k infra/k8s/base
+- Preflight: ./scripts/run-preflight-scale-and-all-suites.sh

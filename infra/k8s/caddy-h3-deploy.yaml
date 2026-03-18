@@ -40,7 +40,7 @@ spec:
               topologyKey: kubernetes.io/hostname
       containers:
       - name: caddy
-        # Image includes HTTP/3 (xcaddy build) and tcpdump for rotation-suite packet capture. Build: docker build -t caddy-with-tcpdump:dev docker/caddy-with-tcpdump . k3d: k3d image import caddy-with-tcpdump:dev -c off-campus-housing-tracker
+        # xcaddy-built Caddy (HTTP/3) + tcpdump. Build: docker build -t caddy-with-tcpdump:dev -f docker/caddy-with-tcpdump/Dockerfile .
         # imagePullPolicy: IfNotPresent avoids ImagePullBackOff after Docker restart when image is preloaded (scripts/preload-images.sh).
         image: caddy-with-tcpdump:dev
         imagePullPolicy: IfNotPresent

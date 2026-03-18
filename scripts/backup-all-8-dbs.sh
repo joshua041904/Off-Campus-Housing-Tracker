@@ -1,20 +1,17 @@
 #!/usr/bin/env bash
-# Hard backup of all 7 external Postgres instances (housing platform): full schema, indexes, data, and tuning metadata.
-# Use when you need a complete snapshot so you can restore everything after a loss.
+# Hard backup of all 8 external Postgres instances (housing platform): auth, listings, bookings, messaging, notification, trust, analytics, media.
+# Full schema, indexes, data, and tuning metadata.
 #
 # Usage:
-#   PGPASSWORD=postgres ./scripts/backup-all-7-dbs.sh
-#   BACKUP_DIR=/path/to/backups PGHOST=127.0.0.1 ./scripts/backup-all-7-dbs.sh
+#   PGPASSWORD=postgres ./scripts/backup-all-8-dbs.sh
+#   BACKUP_DIR=/path/to/backups PGHOST=127.0.0.1 ./scripts/backup-all-8-dbs.sh
 #
-# Output: backups/all-7-YYYYMMDD-HHMMSS/ (or BACKUP_DIR)
+# Output: backups/all-8-YYYYMMDD-HHMMSS/ (or BACKUP_DIR)
 #   - <port>-<dbname>.dump     (pg_dump -Fc: custom format for pg_restore)
-#   - <port>-<dbname>.sql.gz   (plain SQL, compressed, for portability)
-#   - <port>-<dbname>.sql      (plain SQL, only if BACKUP_PLAIN_SQL=1; good for piping)
-#   - <port>-<dbname>-pg_settings.tsv
-#   - <port>-<dbname>-extensions.tsv
-#   - manifest.txt             (port, db, files, timestamp)
+#   - <port>-<dbname>.sql.gz   (plain SQL, compressed)
+#   - manifest.txt
 #
-# Restore: see docs/EXTERNAL_POSTGRES_BACKUP_AND_RESTORE.md (restore script or per-DB).
+# Restore: RESTORE_BACKUP_DIR=backups/all-8-<timestamp> ./scripts/bring-up-external-infra.sh or ./scripts/restore-external-postgres-from-backup.sh <dir>
 
 set -euo pipefail
 
@@ -27,12 +24,11 @@ PGUSER="${PGUSER:-postgres}"
 export PGPASSWORD="${PGPASSWORD:-postgres}"
 TS="${BACKUP_TIMESTAMP:-$(date +%Y%m%d-%H%M%S)}"
 BACKUP_BASE="${BACKUP_DIR:-$REPO_ROOT/backups}"
-OUTDIR="$BACKUP_BASE/all-7-$TS"
+OUTDIR="$BACKUP_BASE/all-8-$TS"
 PARALLEL_JOBS="${PG_DUMP_JOBS:-4}"
-# When 1, use Docker postgres:16 for pg_dump/psql (avoids "server version mismatch" if host client is older)
 USE_PG_DOCKER="${USE_PG_DOCKER:-}"
 
-# Port → database name (housing platform: 5441–5447)
+# Port → database name (housing platform: 5441–5448)
 declare -A PORT_DB=(
   [5441]=auth
   [5442]=listings
@@ -41,9 +37,9 @@ declare -A PORT_DB=(
   [5445]=notification
   [5446]=trust
   [5447]=analytics
+  [5448]=media
 )
 
-# Host that containers use to reach host Postgres (Mac/Windows: host.docker.internal; Linux: host-gateway or 172.17.0.1)
 PGHOST_FOR_DOCKER="${PGHOST_FOR_DOCKER:-}"
 if [[ -z "$PGHOST_FOR_DOCKER" ]]; then
   if [[ "$PGHOST" == "127.0.0.1" ]] || [[ "$PGHOST" == "localhost" ]]; then
@@ -57,7 +53,7 @@ if ! command -v pg_dump >/dev/null 2>&1 || ! command -v psql >/dev/null 2>&1; th
   if command -v docker >/dev/null 2>&1; then
     USE_PG_DOCKER=1
   else
-    echo "❌ pg_dump and psql are required (e.g. brew install libpq), or Docker for postgres:16." >&2
+    echo "❌ pg_dump and psql required (e.g. brew install libpq), or Docker." >&2
     exit 1
   fi
 fi
@@ -65,7 +61,6 @@ fi
 mkdir -p "$OUTDIR"
 MANIFEST="$OUTDIR/manifest.txt"
 
-# Run psql (for metadata); used only when USE_PG_DOCKER=1.
 _run_psql() {
   local port="$1" db="$2" query="$3"
   docker run --rm \
@@ -73,8 +68,9 @@ _run_psql() {
     postgres:16-alpine \
     psql -h "$PGHOST_FOR_DOCKER" -p "$port" -U "$PGUSER" -d "$db" -X -P pager=off -Atc "$query"
 }
+
 {
-  echo "Backup all 7 DBs (5441–5447) — $TS"
+  echo "Backup all 8 DBs (5441–5448) — $TS"
   echo "Host: $PGHOST"
   echo "Started: $(date -Iseconds)"
   echo ""
@@ -105,7 +101,6 @@ _dump_one() {
 
   echo "Backing up $label ..."
 
-  # Full dump: schema + data + indexes (custom format for pg_restore)
   if [[ "${USE_PG_DOCKER}" == "1" ]]; then
     docker run --rm -e PGPASSWORD="$PGPASSWORD" -v "$OUTDIR:/backup:rw" postgres:16-alpine \
       pg_dump -h "$PGHOST_FOR_DOCKER" -p "$port" -U "$PGUSER" -d "$db" -Fc -j "$PARALLEL_JOBS" \
@@ -120,7 +115,6 @@ _dump_one() {
       -Fc --no-owner --no-privileges -f "${out}.dump"
   fi
 
-  # Plain SQL (portable, gzipped)
   if [[ "${USE_PG_DOCKER}" == "1" ]]; then
     docker run --rm -e PGPASSWORD="$PGPASSWORD" -v "$OUTDIR:/backup:rw" postgres:16-alpine \
       sh -c "pg_dump -h $PGHOST_FOR_DOCKER -p $port -U $PGUSER -d $db -Fp --no-owner --no-privileges | gzip -9 > /backup/$basename_sql.gz"
@@ -128,7 +122,6 @@ _dump_one() {
     pg_dump -h "$PGHOST" -p "$port" -U "$PGUSER" -d "$db" -Fp --no-owner --no-privileges 2>/dev/null | gzip -9 > "${out}.sql.gz"
   fi
 
-  # Optional: plain .sql per DB (pipe-friendly: psql ... -f 5433-records.sql)
   if [[ "${BACKUP_PLAIN_SQL:-0}" == "1" ]]; then
     if [[ "${USE_PG_DOCKER}" == "1" ]]; then
       docker run --rm -e PGPASSWORD="$PGPASSWORD" -v "$OUTDIR:/backup:rw" postgres:16-alpine \
@@ -138,7 +131,6 @@ _dump_one() {
     fi
   fi
 
-  # Tuning metadata (for reference when restoring server config)
   if [[ "${USE_PG_DOCKER}" == "1" ]]; then
     _run_psql "$port" "$db" "SELECT name||E'\t'||setting||E'\t'||source FROM pg_settings ORDER BY name" > "${out}-pg_settings.tsv" 2>/dev/null || true
     _run_psql "$port" "$db" "SELECT extname||E'\t'||extversion FROM pg_extension ORDER BY 1" > "${out}-extensions.tsv" 2>/dev/null || true
@@ -159,11 +151,10 @@ _dump_one() {
   echo "$manifest_line" >> "$MANIFEST"
 }
 
-# If not already forced, detect version mismatch: server 16.x with local pg_dump 14.x fails.
 if [[ -z "${USE_PG_DOCKER}" ]] && command -v pg_dump >/dev/null 2>&1; then
   probe_err=$(pg_dump -h "$PGHOST" -p 5441 -U "$PGUSER" -d auth -Fc --no-owner -f /dev/null 2>&1) || true
   if echo "$probe_err" | grep -q "server version mismatch"; then
-    echo "⚠️  Local pg_dump is older than server; using Docker postgres:16-alpine for dumps."
+    echo "⚠️  Local pg_dump older than server; using Docker postgres:16-alpine."
     USE_PG_DOCKER=1
   fi
 fi
@@ -172,22 +163,16 @@ if [[ "${USE_PG_DOCKER}" == "1" ]]; then
   echo ""
 fi
 
-echo "=== Hard backup: all 7 DBs (schema + indexes + data + tuning metadata) ==="
+echo "=== Hard backup: all 8 DBs (5441–5448, schema + data + tuning metadata) ==="
 echo "Output: $OUTDIR"
 echo ""
 
-for port in 5441 5442 5443 5444 5445 5446 5447; do
+for port in 5441 5442 5443 5444 5445 5446 5447 5448; do
   _dump_one "$port"
 done
 
 echo ""
 echo "Finished: $(date -Iseconds)" >> "$MANIFEST"
 echo "✅ Backup complete: $OUTDIR"
-echo "   Manifest: $MANIFEST"
+echo "   Restore: RESTORE_BACKUP_DIR=$OUTDIR ./scripts/bring-up-external-infra.sh  or  ./scripts/restore-external-postgres-from-backup.sh $OUTDIR"
 echo ""
-echo "To restore a single DB:"
-echo "  pg_restore -h $PGHOST -p 5441 -U $PGUSER -d auth --clean --if-exists -j 4 $OUTDIR/5441-auth.dump"
-echo "  Or: gunzip -c $OUTDIR/5441-auth.sql.gz | psql -h $PGHOST -p 5441 -U $PGUSER -d auth -f -"
-echo "  Or (if BACKUP_PLAIN_SQL=1): psql -h $PGHOST -p 5441 -U $PGUSER -d auth -f $OUTDIR/5441-auth.sql"
-echo ""
-echo "See docs/EXTERNAL_POSTGRES_BACKUP_AND_RESTORE.md for full restore steps (all 7)."

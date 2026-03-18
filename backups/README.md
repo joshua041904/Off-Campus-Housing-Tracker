@@ -36,15 +36,15 @@ The auth database uses schema **`auth`**. Main tables (see `services/auth-servic
 
 Login currently uses only **email + password** (no MFA step); the rest of the schema is present for future use or compatibility.
 
-## Full 7-DB backup and restore
+## Full 8-DB backup and restore
 
-- **Backup all 7 housing DBs** (5441–5447):  
+- **Backup all 8 housing DBs** (5441–5448):  
   `PGPASSWORD=postgres ./scripts/backup-all-dbs.sh`  
-  Output: `backups/all-7-YYYYMMDD-HHMMSS/` with `5441-auth.dump`, `5442-listings.dump`, etc.
+  Output: `backups/all-8-YYYYMMDD-HHMMSS/` with `5441-auth.dump`, … `5448-media.dump`.
 
-- **Restore after bring-up** (when `restore-external-postgres-from-backup.sh` is available):  
-  `RESTORE_BACKUP_DIR=backups/all-7-<timestamp> ./scripts/bring-up-external-infra.sh`  
-  or `RESTORE_BACKUP_DIR=latest` to use the newest `backups/all-7-*` directory.
+- **Restore after bring-up**:  
+  `RESTORE_BACKUP_DIR=backups/all-8-<timestamp> ./scripts/bring-up-external-infra.sh`  
+  or `RESTORE_BACKUP_DIR=latest` to use the newest `backups/all-8-*` (or `all-7-*`) directory.
 
 - **Restore a single DB manually** (e.g. auth):  
-  `pg_restore -h 127.0.0.1 -p 5441 -U postgres -d auth --clean --if-exists -j 4 backups/all-7-<timestamp>/5441-auth.dump`
+  `pg_restore -h 127.0.0.1 -p 5441 -U postgres -d auth --clean --if-exists -j 4 backups/all-8-<timestamp>/5441-auth.dump`

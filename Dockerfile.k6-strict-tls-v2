@@ -1,0 +1,32 @@
+# Custom k6 image with CA certificate in system trust store
+# This allows strict TLS verification while maintaining HTTP/2/3 support
+
+FROM grafana/k6:latest
+
+# Switch to root to install CA cert
+USER root
+
+# Create certs directory and copy CA cert
+RUN mkdir -p /usr/local/share/ca-certificates
+COPY certs/dev-root.pem /usr/local/share/ca-certificates/dev-root.pem
+
+# Update CA certificate store (works on Debian-based images)
+RUN if command -v update-ca-certificates >/dev/null 2>&1; then \
+      update-ca-certificates; \
+    elif command -v update-ca-trust >/dev/null 2>&1; then \
+      update-ca-trust force-enable && \
+      cp /usr/local/share/ca-certificates/dev-root.pem /etc/pki/ca-trust/source/anchors/ && \
+      update-ca-trust extract; \
+    else \
+      echo "Warning: No CA cert update tool found"; \
+    fi
+
+# Verify cert is accessible
+RUN test -f /usr/local/share/ca-certificates/dev-root.pem && echo "✓ CA cert installed" || echo "✗ CA cert missing"
+
+# Switch back to k6 user (UID 1000)
+USER 1000
+
+# Verify k6 still works
+RUN k6 version
+

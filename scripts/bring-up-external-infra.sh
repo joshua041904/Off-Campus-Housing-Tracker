@@ -9,12 +9,12 @@
 #   SKIP_COMPOSE_UP=1        — only wait for already-running containers
 #   ENFORCE_DB_TUNING=1      — after Postgres up, run enforce-external-db-schemas-and-tuning.sh if present
 #   MAX_WAIT=180             — max seconds to wait for all services (default 180)
-#   RESTORE_BACKUP_DIR=DIR   — after Postgres healthy, restore all 7 DBs from backup dir (e.g. backups/all-7-20260312-091418)
-#   RESTORE_BACKUP_DIR=latest — use newest backups/all-7-* directory (by name: all-7-YYYYMMDD-HHMMSS)
+#   RESTORE_BACKUP_DIR=DIR   — after Postgres healthy, restore all 8 DBs from backup dir (e.g. backups/all-8-20260318-174510)
+#   RESTORE_BACKUP_DIR=latest — use newest backups/all-8-* or backups/all-7-* directory (prefer all-8-*)
 #
 # Examples (restore is optional; by default no restore is run):
 #   ./scripts/bring-up-external-infra.sh
-#   RESTORE_BACKUP_DIR=backups/all-7-20260312-091418 ./scripts/bring-up-external-infra.sh
+#   RESTORE_BACKUP_DIR=backups/all-8-20260318-174510 ./scripts/bring-up-external-infra.sh
 #   RESTORE_BACKUP_DIR=latest ./scripts/bring-up-external-infra.sh
 #
 # Kafka requires certs in ./certs/kafka-ssl (keystore, truststore, passwords). See Runbook "Kafka SSL".
@@ -82,11 +82,11 @@ if [[ "$SKIP_KAFKA" != "1" ]]; then
   fi
 fi
 
-say "=== Bringing up external infra (Zookeeper, Kafka, Redis, 7 Postgres) ==="
-info "Volumes: pgdata-auth, pgdata-listings, pgdata-bookings, pgdata-messaging, pgdata-notification, pgdata-trust, pgdata-analytics"
+say "=== Bringing up external infra (Zookeeper, Kafka, Redis, 8 Postgres) ==="
+info "Volumes: pg-auth, pg-listings, pg-bookings, pg-messaging, pg-notification, pg-trust, pg-analytics, pg-media, minio_data"
 
 # Single line for all postgres service names so the command cannot be broken by line wrap
-POSTGRES_SERVICES="postgres-auth postgres-listings postgres-bookings postgres-messaging postgres-notification postgres-trust postgres-analytics"
+POSTGRES_SERVICES="postgres-auth postgres-listings postgres-bookings postgres-messaging postgres-notification postgres-trust postgres-analytics postgres-media"
 
 if [[ "$SKIP_COMPOSE_UP" != "1" ]]; then
   # Start in dependency order: zookeeper first, then kafka (depends_on zookeeper), redis, then all postgres
@@ -99,6 +99,7 @@ if [[ "$SKIP_COMPOSE_UP" != "1" ]]; then
     info "Skipping Kafka (SKIP_KAFKA=1 or certs missing)."
   fi
   docker compose up -d redis 2>&1 || true
+  docker compose up -d minio 2>&1 || true
   docker compose up -d $POSTGRES_SERVICES 2>&1 || true
   info "Containers started; waiting for health (max ${MAX_WAIT}s)..."
 else
@@ -138,8 +139,8 @@ if [[ "$SKIP_KAFKA" != "1" ]]; then
   fi
 fi
 
-# Wait for all 7 Postgres ports (5441–5447)
-PORTS="5441 5442 5443 5444 5445 5446 5447"
+# Wait for all 8 Postgres ports (5441–5448)
+PORTS="5441 5442 5443 5444 5445 5446 5447 5448"
 elapsed=0
 while [[ $elapsed -lt $MAX_WAIT ]]; do
   all_ok=true
@@ -150,13 +151,13 @@ while [[ $elapsed -lt $MAX_WAIT ]]; do
     fi
   done
   if [[ "$all_ok" == "true" ]]; then
-    ok "All 7 Postgres ports (5441–5447) reachable."
+    ok "All 8 Postgres ports (5441–5448) reachable."
     break
   fi
   sleep 5
   elapsed=$((elapsed + 5))
 done
-if ! ( nc -z 127.0.0.1 5441 2>/dev/null && nc -z 127.0.0.1 5447 2>/dev/null ); then
+if ! ( nc -z 127.0.0.1 5441 2>/dev/null && nc -z 127.0.0.1 5448 2>/dev/null ); then
   warn "Not all Postgres ports became ready within ${MAX_WAIT}s. Run: docker compose up -d $POSTGRES_SERVICES"
 fi
 
@@ -171,7 +172,7 @@ if [[ "$ENFORCE_DB_TUNING" == "1" ]]; then
 fi
 
 say "=== External infra status ==="
-docker compose ps zookeeper kafka redis $POSTGRES_SERVICES 2>/dev/null || true
+docker compose ps zookeeper kafka redis minio $POSTGRES_SERVICES 2>/dev/null || true
 info "Next: ./scripts/ensure-external-databases-created.sh  then  ./scripts/setup-metallb-and-namespaces.sh  then deploy k8s (or run preflight)."
 
 # ------------------------------------------------------------
@@ -183,8 +184,9 @@ if [[ -n "$RESTORE_BACKUP_DIR" ]]; then
   echo
   echo "=== Auto-restore requested: $RESTORE_BACKUP_DIR ==="
   if [[ "$RESTORE_BACKUP_DIR" == "latest" ]]; then
-    RESTORE_BACKUP_DIR=$(ls -d backups/all-7-* 2>/dev/null | sort -r | head -1)
-    [[ -z "$RESTORE_BACKUP_DIR" ]] && { echo "ERROR: RESTORE_BACKUP_DIR=latest but no backups/all-7-* directory found."; exit 1; }
+    RESTORE_BACKUP_DIR=$(ls -d backups/all-8-* 2>/dev/null | sort -r | head -1)
+    [[ -z "$RESTORE_BACKUP_DIR" ]] && RESTORE_BACKUP_DIR=$(ls -d backups/all-7-* 2>/dev/null | sort -r | head -1)
+    [[ -z "$RESTORE_BACKUP_DIR" ]] && { echo "ERROR: RESTORE_BACKUP_DIR=latest but no backups/all-8-* or backups/all-7-* found."; exit 1; }
   fi
   if [[ ! -d "$RESTORE_BACKUP_DIR" ]]; then
     echo "ERROR: Restore directory not found: $RESTORE_BACKUP_DIR"
@@ -194,6 +196,6 @@ if [[ -n "$RESTORE_BACKUP_DIR" ]]; then
 fi
 
 if [[ -z "${RESTORE_BACKUP_DIR:-}" ]]; then
-  info "Heads-up: No DB restore was run. To restore all 7 DBs from backup, re-run with RESTORE_BACKUP_DIR=latest  or  RESTORE_BACKUP_DIR=backups/all-7-<timestamp>"
+  info "Heads-up: No DB restore was run. To restore all 8 DBs from backup, re-run with RESTORE_BACKUP_DIR=latest  or  RESTORE_BACKUP_DIR=backups/all-8-<timestamp>"
 fi
  

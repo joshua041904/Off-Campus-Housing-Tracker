@@ -111,11 +111,12 @@ For detailed technical documentation, system design, and architectural decisions
         │  └──────┬───────┘  └──────┬───────┘  └──────┬──────┘     │
         │         │                 │                 │             │
         │  ┌──────────────┐         │                 │             │
-        │  │ Analytics    │         │                 │             │
-        │  │ Svc (4017)   │         │                 │             │
-        │  │ gRPC:50067   │         │                 │             │
-        │  │ HTTP:4017    │         │                 │             │
-        │  └──────────────┘         │                 │             │
+        │  │ Analytics    │  ┌──────────────┐         │             │
+        │  │ Svc (4017)   │  │ Media Svc    │         │             │
+        │  │ gRPC:50067   │  │   (4018)     │         │             │
+        │  │ HTTP:4017    │  │ gRPC:50068   │         │             │
+        │  └──────────────┘  │ HTTP:4018    │         │             │
+        │                   └──────────────┘         │             │
         └───────────────────────────┼─────────────────┼─────────────┘
                                   │
                                   │ gRPC/HTTP
@@ -124,7 +125,7 @@ For detailed technical documentation, system design, and architectural decisions
         │              External Databases (Docker Compose)              │
         │                    (Outside Kubernetes)                       │
         ├───────────────────────────────────────────────────────────────┤
-        │  Ports 5441–5447 (Postgres)                                   │
+        │  Ports 5441–5448 (Postgres)                                   │
         │                                                               │
         │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
         │  │ Postgres     │  │ Postgres     │  │ Postgres     │       │
@@ -140,12 +141,12 @@ For detailed technical documentation, system design, and architectural decisions
         │  │ - messaging  │  │ - notif.     │  │ - trust      │       │
         │  └──────────────┘  └──────────────┘  └──────────────┘       │
         │                                                               │
-        │  ┌──────────────┐  ┌──────────────┐                         │
-        │  │ Postgres     │  │    Redis     │                         │
-        │  │ Analytics    │  │   (6380)     │                         │
-        │  │   (5447)     │  │ - JWT Cache  │                         │
-        │  │ - analytics  │  │ - Search     │                         │
-        │  └──────────────┘  └──────────────┘                         │
+        │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
+        │  │ Postgres     │  │ Postgres     │  │    Redis     │       │
+        │  │ Analytics    │  │ Media (5448) │  │   (6380)     │       │
+        │  │   (5447)     │  │ - media      │  │ - JWT Cache  │       │
+        │  │ - analytics  │  └──────────────┘  │ - Search     │       │
+        │  └──────────────┘                    └──────────────┘       │
         │                                                               │
         │  ┌──────────────┐                                            │
         │  │    Kafka     │                                            │
@@ -181,7 +182,7 @@ For detailed technical documentation, system design, and architectural decisions
 
 Services are domain-based, not feature-based.
 
-We implement 7 core services:
+We implement 8 core services:
 
 1. auth-service
 2. listings-service
@@ -190,6 +191,7 @@ We implement 7 core services:
 5. notification-service
 6. trust-service
 7. analytics-service
+8. media-service
 
 All cross-service communication happens via Kafka events.
 
@@ -393,7 +395,7 @@ No business logic allowed in common.
 
 # Postgres (local Docker)
 
-This repo uses **5441–5447** for the seven housing DBs:
+This repo uses **5441–5448** for the eight housing DBs:
 
 | Service                | Host port | DB name      |
 |------------------------|-----------|--------------|
@@ -404,18 +406,19 @@ This repo uses **5441–5447** for the seven housing DBs:
 | notification-service   | 5445      | notification |
 | trust-service          | 5446      | trust        |
 | analytics-service      | 5447      | analytics    |
+| media-service          | 5448      | media        |
 
 Start DBs with:
 
 ```bash
-docker compose up -d postgres-auth postgres-listings postgres-bookings postgres-messaging postgres-notification postgres-trust postgres-analytics
+docker compose up -d postgres-auth postgres-listings postgres-bookings postgres-messaging postgres-notification postgres-trust postgres-analytics postgres-media
 ```
 
 ---
 
 ## No-conflict setup (same host as record platform)
 
-**Optional (same host as other projects):** Use hostname **off-campus-housing.local** (SNI must match; do not use record-local). Redis **6380**, Kafka **29094**, Caddy NodePort **30444**, Zookeeper **2182**, Postgres **5441–5447** so this project does not conflict with other stacks. Deploy Caddy with **CADDY_NODEPORT=30444** when using NodePort so the port diff is applied (e.g. `CADDY_NODEPORT=30444 ./scripts/rollout-caddy.sh`).
+**Optional (same host as other projects):** Use hostname **off-campus-housing.local** (SNI must match; do not use record-local). Redis **6380**, Kafka **29094**, Caddy NodePort **30444**, Zookeeper **2182**, Postgres **5441–5448** so this project does not conflict with other stacks. Deploy Caddy with **CADDY_NODEPORT=30444** when using NodePort so the port diff is applied (e.g. `CADDY_NODEPORT=30444 ./scripts/rollout-caddy.sh`).
 
 **In-cluster service ports** for housing:
 
@@ -432,10 +435,11 @@ docker compose up -d postgres-auth postgres-listings postgres-bookings postgres-
 | Shopping       | 4007 HTTP, 50058 gRPC | — (n/a)                  |
 | Notification   | —                    | **4015** (event-only)    |
 | Trust          | —                    | **4016** HTTP, **50066** gRPC |
+| Media          | —                    | **4018** HTTP, **50068** gRPC |
 | Auction Monitor| 4008 HTTP, 50059 gRPC | — (n/a)                  |
 | Python AI      | 5005 HTTP, 50060 gRPC | — (n/a)                  |
 
-Ensure manifests and Caddy/Envoy route to the gateway at **4020** and to these housing ports (4011–4017, 50061–50067).
+Ensure manifests and Caddy/Envoy route to the gateway at **4020** and to these housing ports (4011–4018, 50061–50068).
 
 **MetalLB:** Use a **different L2 pool** so both clusters do not claim the same IPs. For this project set `METALLB_POOL=192.168.64.251-192.168.64.260` before running `./scripts/setup-new-colima-cluster.sh` (record platform typically uses `192.168.64.240-192.168.64.250`). This project’s docker-compose uses Redis **6380**, Kafka **29094**, and Zookeeper **2182** by default (no conflict with RP). Use `CADDY_NODEPORT=30444` when deploying Caddy.
 
@@ -457,15 +461,54 @@ Once the repo is set up and services are coded, use these steps so the whole tea
 
 ## 2. Bring up external infra (every time you need DBs/Kafka/Redis)
 
-Before running the app or tests, start Zookeeper, Kafka, Redis, and the 7 Postgres instances:
+Before running the app or tests, start Zookeeper, Kafka, Redis, and the 8 Postgres instances:
 
 ```bash
 ./scripts/bring-up-external-infra.sh
 ```
 
-- Waits until ports 5441–5447 (Postgres), 6380 (Redis), and 29094 (Kafka SSL) are reachable.
+- Waits until ports 5441–5448 (Postgres), 6380 (Redis), and 29094 (Kafka SSL) are reachable.
 - Kafka needs `certs/kafka-ssl` (see Runbook “Kafka SSL”); use `SKIP_KAFKA=1` to run without Kafka.
-- Optional: restore from backup with `RESTORE_BACKUP_DIR=latest` or `RESTORE_BACKUP_DIR=backups/all-7-<timestamp>`.
+- Optional: restore from backup with `RESTORE_BACKUP_DIR=latest` or `RESTORE_BACKUP_DIR=backups/all-8-<timestamp>`.
+
+### 2b. Build and load app images into Colima k3s (for k6 and in-cluster tests)
+
+To run auth-, messaging-, and media-service in-cluster (and thus k6 + regular test suites), build the images and load them into Colima’s k3s:
+
+```bash
+# From repo root
+docker build -f services/messaging-service/Dockerfile -t messaging-service:dev .
+docker build -f services/media-service/Dockerfile -t media-service:dev .
+# Optional: docker build -f services/auth-service/Dockerfile -t auth-service:dev .
+
+# Load into Colima k3s so the cluster can use them
+docker save messaging-service:dev | colima ssh -- docker load
+docker save media-service:dev | colima ssh -- docker load
+# docker save auth-service:dev | colima ssh -- docker load
+
+# Deploy base stack (includes auth-, messaging-, media-service)
+kubectl apply -k infra/k8s/base
+```
+
+Ensure `app-config` ConfigMap and `app-secrets` provide DB hosts (e.g. `host.docker.internal` for Postgres 5441–5448) and `REDIS_URL`. Then run preflight and suites (step 4).
+
+### 2c. Caddy H3 (2 pods) and Envoy (1 pod) with strict TLS/mTLS
+
+For preflight and k6/strict-TLS tests, Caddy and Envoy must be running with certs loaded in the right namespaces:
+
+| Namespace           | Workload   | Replicas | Secrets (strict TLS/mTLS)     |
+|--------------------|------------|----------|--------------------------------|
+| **ingress-nginx**  | Caddy H3   | 2        | `record-local-tls`, `dev-root-ca` |
+| **envoy-test**     | Envoy      | 1        | `dev-root-ca`, `envoy-client-tls` |
+| **off-campus-housing** (or off-campus-housing-tracker) | App services | per deploy | `app-config`, `app-secrets`, optional `service-tls` |
+
+From repo root (after certs exist in `./certs/`):
+
+```bash
+./scripts/ensure-caddy-envoy-strict-tls.sh
+```
+
+This ensures namespaces, TLS secrets, Caddy deploy (LoadBalancer on Colima+MetalLB, else NodePort), Envoy deploy, scales Caddy to 2 and Envoy to 1, and waits for rollouts. Prerequisites: `./scripts/reissue-ca-and-leaf-load-all-services.sh`, `./scripts/generate-envoy-client-cert.sh`, and `./scripts/strict-tls-bootstrap.sh` (or run ensure-caddy-envoy-strict-tls.sh once certs are in place — it will run strict-tls-bootstrap if secrets are missing). Then run `./scripts/run-preflight-scale-and-all-suites.sh`. Verify from repo root: `./scripts/verify-metallb-and-traffic-policy.sh`.
 
 ## 3. One person testing their part
 
@@ -489,6 +532,22 @@ After cluster + infra are up, you can run the full preflight (images, TLS, Caddy
 - Suites run: **auth**, **rotation** (CA/leaf + protocol verification), **standalone-capture** (wire capture), **tls-mtls** (cert chain, gRPC TLS, mTLS).
 
 For more detail see the Runbook and comments in `scripts/run-all-test-suites.sh` and `scripts/run-preflight-scale-and-all-suites.sh`.
+
+### Strict TLS k6 and HTTP/3 (xk6-http3)
+
+- **Root Dockerfiles for strict TLS k6**  
+  `Dockerfile.k6-strict-tls` and `Dockerfile.k6-strict-tls-v2` build a k6 image with the dev CA (`certs/dev-root.pem`) so runs can use strict TLS (no `--insecure-skip-tls-verify`). Prefer **v2** (updates the system CA store; v1 only copies the cert). Build from repo root:
+  ```bash
+  docker build -f Dockerfile.k6-strict-tls-v2 -t k6-strict-tls:dev .
+  ```
+  Use this image for in-cluster k6 jobs that talk to Caddy with strict TLS.
+
+- **xk6-http3**  
+  HTTP/3 load phases use a custom k6 binary built with the xk6-http3 extension. Preflight step 6d builds it when `RUN_K6=1` (or run manually):
+  ```bash
+  ./scripts/build-k6-http3.sh   # produces .k6-build/k6-http3 (or .xk6-build)
+  ```
+  Use that binary (or an image that includes it) for k6 scripts that call `k6/x/http3`. The two root Dockerfiles above do not include xk6-http3; for host-based strict TLS + HTTP/3, use the built binary with `SSL_CERT_FILE=$PWD/certs/dev-root.pem` (or equivalent).
 
 ---
 

@@ -34,7 +34,7 @@ spec:
               topologyKey: kubernetes.io/hostname
       containers:
       - name: caddy
-        # Same as caddy-h3-deploy: includes HTTP/3 + tcpdump for capture. Build: docker build -t caddy-with-tcpdump:dev docker/caddy-with-tcpdump . k3d: k3d image import caddy-with-tcpdump:dev -c off-campus-housing-tracker
+        # xcaddy-built Caddy (HTTP/3) + tcpdump. Build: docker build -t caddy-with-tcpdump:dev -f docker/caddy-with-tcpdump/Dockerfile .  Use with LoadBalancer (infra/k8s/loadbalancer.yaml) to avoid anti-affinity.
         image: caddy-with-tcpdump:dev
         imagePullPolicy: IfNotPresent
         # QUIC is CPU-heavy; 1000m requests for H3 under load (Session open refused = stream exhaustion / CPU throttle).

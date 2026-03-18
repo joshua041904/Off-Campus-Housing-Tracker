@@ -120,7 +120,7 @@ CREATE TABLE IF NOT EXISTS trust.user_suspensions (
 
 COMMENT ON TABLE trust.user_suspensions IS 'Suspension state. Trust emits user.suspended; auth/listings/booking enforce via policy or event.';
 CREATE INDEX IF NOT EXISTS idx_user_suspensions_user ON trust.user_suspensions(user_id);
-CREATE INDEX IF NOT EXISTS idx_user_suspensions_expires ON trust.user_suspensions(expires_at) WHERE expires_at > now();
+CREATE INDEX IF NOT EXISTS idx_user_suspensions_expires ON trust.user_suspensions(expires_at);
 
 -- updated_at triggers (flags only; no version column per spec)
 CREATE OR REPLACE FUNCTION trust.set_updated_at()

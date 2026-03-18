@@ -1,5 +1,5 @@
-# Production-grade CI: Postgres 16, Redis, Kafka (KRaft), MinIO; bootstrap all 8 DBs from infra/db; optional restore from backups/*.dump; create Kafka topics; unit + integration (A–D) + event-layer; optional k6 smoke.
-# pnpm via pnpm/action-setup (version from packageManager). Single Postgres in CI: all DBs on port 5441.
+# Production-grade CI: Postgres 16, Redis, Kafka (KRaft), MinIO; bootstrap all 8 DBs (auth..media) from infra/db on single instance (port 5441); optional restore from backups/5437-auth.dump; Kafka topics; unit + integration + event-layer; optional k6 smoke.
+# All *_DB_PORT and VERIFY_DB_PORT=5441 so one Postgres container hosts all eight databases.
 name: CI
 
 on:
@@ -74,10 +74,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
+        with:
+          version: 9
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: "20"
           cache: "pnpm"
 
       - name: Install dependencies
@@ -102,7 +104,8 @@ jobs:
       - name: Restore auth dump if present
         run: |
           if [[ -f backups/5437-auth.dump || -f backups/5437-auth.dump.gz || -f backups/5437-auth.dump.zip ]]; then
-            PGPORT=5441 PGPASSWORD=postgres ./scripts/restore-auth-db.sh
+            PGHOST=127.0.0.1 PGPORT=5441 PGPASSWORD=postgres ./scripts/restore-auth-db.sh
+            PGHOST=127.0.0.1 PGPORT=5441 PGPASSWORD=postgres ./scripts/verify-auth-integrity.sh
           else
             echo "No auth dump in backups/, skipping restore"
           fi

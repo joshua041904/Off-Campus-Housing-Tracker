@@ -33,6 +33,7 @@ ok "Bootstrap done."
 say "=== Restore auth dump if present ==="
 if [[ -f backups/5437-auth.dump || -f backups/5437-auth.dump.gz || -f backups/5437-auth.dump.zip ]]; then
   PGPORT=5441 ./scripts/restore-auth-db.sh
+  PGPORT=5441 ./scripts/verify-auth-integrity.sh
   ok "Auth restore done."
 else
   warn "No backups/5437-auth.dump (.gz/.zip); skipping auth restore."
