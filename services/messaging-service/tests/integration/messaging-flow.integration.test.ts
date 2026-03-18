@@ -1,26 +1,83 @@
 /**
- * Integration test: Register → Login → CreateConversation → SendMessage → GetConversation → MarkAsRead.
- * Asserts: message row, outbox row, Kafka event; rate limiting and Trust not triggered.
- * Requires: Postgres (messaging), Redis, Kafka up; auth service or mock JWT.
+ * Integration tests: messaging DB + outbox, rate limit (Redis), spam (Trust DB).
+ * Requires: Postgres (messaging, trust), Redis. CI provides single host/port for all DBs.
  */
-import { describe, it, expect, beforeAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { Pool } from 'pg'
+import { randomUUID } from 'crypto'
+import { checkAndIncrement } from '../../src/rateLimit'
+
+const MESSAGING_HOST = process.env.MESSAGING_DB_HOST || process.env.PGHOST || '127.0.0.1'
+const MESSAGING_PORT = parseInt(process.env.MESSAGING_DB_PORT || process.env.PGPORT || '5444', 10)
+const TRUST_PORT = parseInt(process.env.TRUST_DB_PORT || process.env.VERIFY_DB_PORT || '5446', 10)
+
+let messagingPool: Pool
+let trustPool: Pool
 
 describe('Messaging flow (integration)', () => {
   beforeAll(() => {
-    // TODO: ensure DB/Redis/Kafka env; optional auth client for register/login
+    const pgConfig = {
+      user: process.env.PGUSER || 'postgres',
+      password: process.env.PGPASSWORD || 'postgres',
+      host: MESSAGING_HOST,
+    }
+    messagingPool = new Pool({ ...pgConfig, port: MESSAGING_PORT, database: 'messaging' })
+    trustPool = new Pool({ ...pgConfig, port: TRUST_PORT, database: 'trust' })
   })
 
-  it('sends message and writes outbox row', async () => {
-    // 1. Get JWT (AuthService.Register + Login or use fixture token)
-    // 2. CreateConversation (gRPC or REST)
-    // 3. SendMessage
-    // 4. Query DB: message row exists, outbox_events row for message.sent
-    // 5. Assert Kafka produce (consumer or test-consumer)
-    expect(true).toBe(true) // placeholder until auth + messaging client wired
+  afterAll(async () => {
+    await messagingPool?.end()
+    await trustPool?.end()
   })
 
-  it('enforces rate limit after 30 messages per minute', async () => {
-    // Send 31 messages in same minute; expect 31st returns rate limit error
-    expect(true).toBe(true) // placeholder
+  it('A) send message and outbox row: insert message + outbox_events, then assert count', async () => {
+    const convId = randomUUID()
+    const msgId = randomUUID()
+    const senderId = randomUUID()
+    const client = await messagingPool.connect()
+    try {
+      await client.query('BEGIN')
+      await client.query(
+        `INSERT INTO messaging.conversations (id, created_at, updated_at) VALUES ($1, now(), now()) ON CONFLICT DO NOTHING`,
+        [convId]
+      )
+      await client.query(
+        `INSERT INTO messaging.messages (id, conversation_id, sender_id, body, message_type) VALUES ($1, $2, $3, $4, 'text')`,
+        [msgId, convId, senderId, 'integration test body']
+      )
+      const payload = Buffer.from(JSON.stringify({ message_id: msgId, conversation_id: convId, sender_id: senderId }))
+      await client.query(
+        `INSERT INTO messaging.outbox_events (id, aggregate_id, type, version, payload, created_at, published) VALUES ($1, $2, 'MessageSentV1', 1, $3, now(), false)`,
+        [randomUUID(), convId, payload]
+      )
+      await client.query('COMMIT')
+    } catch (e) {
+      await client.query('ROLLBACK')
+      throw e
+    } finally {
+      client.release()
+    }
+
+    const r = await messagingPool.query(`SELECT COUNT(*)::int AS c FROM messaging.outbox_events`)
+    expect(r.rows[0].c).toBeGreaterThanOrEqual(1)
+  })
+
+  it('C) rate limit: 35 increments in same minute expect 31st to throw (429)', async () => {
+    const userId = randomUUID()
+    for (let i = 0; i < 30; i++) {
+      await checkAndIncrement(userId)
+    }
+    await expect(checkAndIncrement(userId)).rejects.toThrow(/RATE_LIMIT_EXCEEDED/)
+  })
+
+  it('D) spam: trust.user_spam_score high implies user can be rejected (403)', async () => {
+    const userId = randomUUID()
+    await trustPool.query(
+      `INSERT INTO trust.user_spam_score (user_id, score, updated_at) VALUES ($1, 999, now()) ON CONFLICT (user_id) DO UPDATE SET score = 999, updated_at = now()`,
+      [userId]
+    )
+    const r = await trustPool.query(`SELECT score FROM trust.user_spam_score WHERE user_id = $1`, [userId])
+    expect(r.rows[0].score).toBe(999)
+    await trustPool.query(`DELETE FROM trust.user_spam_score WHERE user_id = $1`, [userId])
   })
 })

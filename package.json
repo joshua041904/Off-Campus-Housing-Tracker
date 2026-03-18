@@ -10,6 +10,8 @@
   "scripts": {
     "build": "pnpm -r run build",
     "dev": "pnpm -r --parallel dev",
+    "test": "pnpm --filter @common/utils --filter media-service --filter messaging-service --filter event-layer-verification run test",
+    "test:integration": "pnpm --filter messaging-service run test:integration",
     "lint": "pnpm -r lint || true",
     "format": "pnpm -r format || true",
     "full-pipeline": "bash scripts/run-full-pipeline.sh",

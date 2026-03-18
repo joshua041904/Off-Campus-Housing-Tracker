@@ -11,6 +11,15 @@ cd "$REPO_ROOT"
 HOST="${VERIFY_DB_HOST:-127.0.0.1}"
 PGUSER="${PGUSER:-postgres}"
 export PGPASSWORD="${PGPASSWORD:-postgres}"
+# Single Postgres in CI: set VERIFY_DB_PORT=5441 to check all 7 DBs on one port
+VERIFY_AUTH_PORT="${VERIFY_DB_PORT:-${VERIFY_AUTH_PORT:-5441}}"
+VERIFY_LISTINGS_PORT="${VERIFY_DB_PORT:-${VERIFY_LISTINGS_PORT:-5442}}"
+VERIFY_BOOKINGS_PORT="${VERIFY_DB_PORT:-${VERIFY_BOOKINGS_PORT:-5443}}"
+VERIFY_MESSAGING_PORT="${VERIFY_DB_PORT:-${VERIFY_MESSAGING_PORT:-5444}}"
+VERIFY_NOTIFICATION_PORT="${VERIFY_DB_PORT:-${VERIFY_NOTIFICATION_PORT:-5445}}"
+VERIFY_TRUST_PORT="${VERIFY_DB_PORT:-${VERIFY_TRUST_PORT:-5446}}"
+VERIFY_ANALYTICS_PORT="${VERIFY_DB_PORT:-${VERIFY_ANALYTICS_PORT:-5447}}"
+VERIFY_MEDIA_PORT="${VERIFY_DB_PORT:-${VERIFY_MEDIA_PORT:-5448}}"
 
 ok()  { echo "✅ $*"; }
 fail(){ echo "❌ $*" >&2; exit 1; }
@@ -32,45 +41,48 @@ check_db_reachable() {
 
 echo "Verifying bootstrap (host=$HOST)..."
 
-# Auth (5441): outbox_events
-check_db_reachable 5441 auth || fail "auth DB unreachable"
-check_table 5441 auth auth outbox_events || fail "auth.outbox_events missing"
+# Auth: outbox_events
+check_db_reachable "$VERIFY_AUTH_PORT" auth || fail "auth DB unreachable"
+check_table "$VERIFY_AUTH_PORT" auth auth outbox_events || fail "auth.outbox_events missing"
 ok "auth"
 
-# Listings (5442): outbox, processed_events
-check_db_reachable 5442 listings || fail "listings DB unreachable"
-check_table 5442 listings listings outbox_events 2>/dev/null || true
-check_table 5442 listings listings processed_events 2>/dev/null || true
+# Listings: outbox, processed_events
+check_db_reachable "$VERIFY_LISTINGS_PORT" listings || fail "listings DB unreachable"
+check_table "$VERIFY_LISTINGS_PORT" listings listings outbox_events 2>/dev/null || true
+check_table "$VERIFY_LISTINGS_PORT" listings listings processed_events 2>/dev/null || true
 ok "listings"
 
-# Bookings (5443): outbox
-check_db_reachable 5443 bookings || fail "bookings DB unreachable"
-check_table 5443 bookings bookings outbox_events 2>/dev/null || check_table 5443 bookings public outbox_events || true
+# Bookings: outbox
+check_db_reachable "$VERIFY_BOOKINGS_PORT" bookings || fail "bookings DB unreachable"
+check_table "$VERIFY_BOOKINGS_PORT" bookings bookings outbox_events 2>/dev/null || check_table "$VERIFY_BOOKINGS_PORT" bookings public outbox_events || true
 ok "bookings"
 
-# Messaging (5444): messages, outbox_events, conversations
-check_db_reachable 5444 messaging || fail "messaging DB unreachable"
-check_table 5444 messaging messaging messages || fail "messaging.messages missing"
-check_table 5444 messaging messaging outbox_events || fail "messaging.outbox_events missing"
-check_table 5444 messaging messaging conversations || fail "messaging.conversations missing"
+# Messaging: messages, outbox_events, conversations
+check_db_reachable "$VERIFY_MESSAGING_PORT" messaging || fail "messaging DB unreachable"
+check_table "$VERIFY_MESSAGING_PORT" messaging messaging messages || fail "messaging.messages missing"
+check_table "$VERIFY_MESSAGING_PORT" messaging messaging outbox_events || fail "messaging.outbox_events missing"
+check_table "$VERIFY_MESSAGING_PORT" messaging messaging conversations || fail "messaging.conversations missing"
 ok "messaging"
 
-# Notification (5445)
-check_db_reachable 5445 notification || fail "notification DB unreachable"
+# Notification
+check_db_reachable "$VERIFY_NOTIFICATION_PORT" notification || fail "notification DB unreachable"
 ok "notification"
 
-# Trust (5446): outbox, processed_events, user_spam_score
-check_db_reachable 5446 trust || fail "trust DB unreachable"
-check_table 5446 trust trust outbox_events 2>/dev/null || true
-check_table 5446 trust trust processed_events 2>/dev/null || true
-check_table 5446 trust trust user_spam_score 2>/dev/null || true
+# Trust: outbox, processed_events, user_spam_score
+check_db_reachable "$VERIFY_TRUST_PORT" trust || fail "trust DB unreachable"
+check_table "$VERIFY_TRUST_PORT" trust trust outbox_events 2>/dev/null || true
+check_table "$VERIFY_TRUST_PORT" trust trust processed_events 2>/dev/null || true
+check_table "$VERIFY_TRUST_PORT" trust trust user_spam_score 2>/dev/null || true
 ok "trust"
 
-# Analytics (5447): events, processed_events, user_listing_engagement
-check_db_reachable 5447 analytics || fail "analytics DB unreachable"
-check_table 5447 analytics analytics events 2>/dev/null || true
-check_table 5447 analytics analytics processed_events 2>/dev/null || true
-check_table 5447 analytics analytics user_listing_engagement 2>/dev/null || true
+# Analytics: events, processed_events, user_listing_engagement
+check_db_reachable "$VERIFY_ANALYTICS_PORT" analytics || fail "analytics DB unreachable"
+check_table "$VERIFY_ANALYTICS_PORT" analytics analytics events 2>/dev/null || true
+check_table "$VERIFY_ANALYTICS_PORT" analytics analytics processed_events 2>/dev/null || true
+check_table "$VERIFY_ANALYTICS_PORT" analytics analytics user_listing_engagement 2>/dev/null || true
 ok "analytics"
 
-echo "Bootstrap verified (all 7 DBs)."
+# Media (optional)
+check_db_reachable "$VERIFY_MEDIA_PORT" media 2>/dev/null && check_table "$VERIFY_MEDIA_PORT" media media media_files 2>/dev/null && ok "media" || true
+
+echo "Bootstrap verified (all DBs)."

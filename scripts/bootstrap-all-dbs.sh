@@ -18,6 +18,15 @@ PGHOST="${BOOTSTRAP_HOST:-127.0.0.1}"
 PGUSER="${PGUSER:-postgres}"
 export PGPASSWORD="${PGPASSWORD:-postgres}"
 DROP_IF_EXISTS="${DROP_IF_EXISTS:-false}"
+# Single Postgres in CI: set all *_DB_PORT=5441 (or CI_POSTGRES_PORT) to use one instance for all 7 DBs
+AUTH_DB_PORT="${AUTH_DB_PORT:-5441}"
+LISTINGS_DB_PORT="${LISTINGS_DB_PORT:-5442}"
+BOOKINGS_DB_PORT="${BOOKINGS_DB_PORT:-5443}"
+MESSAGING_DB_PORT="${MESSAGING_DB_PORT:-5444}"
+NOTIFICATION_DB_PORT="${NOTIFICATION_DB_PORT:-5445}"
+TRUST_DB_PORT="${TRUST_DB_PORT:-5446}"
+ANALYTICS_DB_PORT="${ANALYTICS_DB_PORT:-5447}"
+MEDIA_DB_PORT="${MEDIA_DB_PORT:-5448}"
 
 run_psql() {
   local port=$1
@@ -39,60 +48,60 @@ drop_and_create_db() {
   psql -h "$PGHOST" -p "$port" -U "$PGUSER" -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"$db\";"
 }
 
-# 1) auth (5441) — outbox only; main schema from Prisma or restore-auth-db.sh
+# 1) auth — outbox only; main schema from Prisma or restore-auth-db.sh
 bootstrap_auth() {
-  echo "Bootstrap auth (5441)..."
-  [[ "$DROP_IF_EXISTS" == "true" ]] && drop_and_create_db 5441 auth
-  run_psql 5441 auth 01-auth-outbox.sql
+  echo "Bootstrap auth (port $AUTH_DB_PORT)..."
+  [[ "$DROP_IF_EXISTS" == "true" ]] && drop_and_create_db "$AUTH_DB_PORT" auth
+  run_psql "$AUTH_DB_PORT" auth 01-auth-outbox.sql
 }
 
-# 2) listings (5442)
+# 2) listings
 bootstrap_listings() {
-  echo "Bootstrap listings (5442)..."
-  [[ "$DROP_IF_EXISTS" == "true" ]] && drop_and_create_db 5442 listings
-  run_psql 5442 listings \
+  echo "Bootstrap listings (port $LISTINGS_DB_PORT)..."
+  [[ "$DROP_IF_EXISTS" == "true" ]] && drop_and_create_db "$LISTINGS_DB_PORT" listings
+  run_psql "$LISTINGS_DB_PORT" listings \
     00-create-listings-database.sql \
     01-listings-schema-and-tuning.sql \
     03-listings-outbox.sql \
     04-listings-processed-events.sql
 }
 
-# 3) bookings (5443)
+# 3) bookings
 bootstrap_bookings() {
-  echo "Bootstrap bookings (5443)..."
-  [[ "$DROP_IF_EXISTS" == "true" ]] && drop_and_create_db 5443 bookings
-  run_psql 5443 bookings \
+  echo "Bootstrap bookings (port $BOOKINGS_DB_PORT)..."
+  [[ "$DROP_IF_EXISTS" == "true" ]] && drop_and_create_db "$BOOKINGS_DB_PORT" bookings
+  run_psql "$BOOKINGS_DB_PORT" bookings \
     01-booking-schema.sql \
     02-booking-state-machine.sql \
     03-booking-outbox.sql
 }
 
-# 4) messaging (5444)
+# 4) messaging
 bootstrap_messaging() {
-  echo "Bootstrap messaging (5444)..."
-  [[ "$DROP_IF_EXISTS" == "true" ]] && drop_and_create_db 5444 messaging
-  run_psql 5444 messaging \
+  echo "Bootstrap messaging (port $MESSAGING_DB_PORT)..."
+  [[ "$DROP_IF_EXISTS" == "true" ]] && drop_and_create_db "$MESSAGING_DB_PORT" messaging
+  run_psql "$MESSAGING_DB_PORT" messaging \
     01-messaging-schema.sql \
     02-messaging-outbox.sql \
     04-messaging-media-id.sql \
     05-messaging-rate-limit.sql
 }
 
-# 5) notification (5445)
+# 5) notification
 bootstrap_notification() {
-  echo "Bootstrap notification (5445)..."
-  [[ "$DROP_IF_EXISTS" == "true" ]] && drop_and_create_db 5445 notification
-  run_psql 5445 notification \
+  echo "Bootstrap notification (port $NOTIFICATION_DB_PORT)..."
+  [[ "$DROP_IF_EXISTS" == "true" ]] && drop_and_create_db "$NOTIFICATION_DB_PORT" notification
+  run_psql "$NOTIFICATION_DB_PORT" notification \
     01-notification-schema.sql \
     02-notification-idempotency.sql \
     03-notification-outbox.sql
 }
 
-# 6) trust (5446)
+# 6) trust
 bootstrap_trust() {
-  echo "Bootstrap trust (5446)..."
-  [[ "$DROP_IF_EXISTS" == "true" ]] && drop_and_create_db 5446 trust
-  run_psql 5446 trust \
+  echo "Bootstrap trust (port $TRUST_DB_PORT)..."
+  [[ "$DROP_IF_EXISTS" == "true" ]] && drop_and_create_db "$TRUST_DB_PORT" trust
+  run_psql "$TRUST_DB_PORT" trust \
     01-trust-schema.sql \
     02-trust-scoring.sql \
     03-trust-outbox.sql \
@@ -100,15 +109,24 @@ bootstrap_trust() {
     05-trust-spam-score.sql
 }
 
-# 7) analytics (5447)
+# 7) analytics
 bootstrap_analytics() {
-  echo "Bootstrap analytics (5447)..."
-  [[ "$DROP_IF_EXISTS" == "true" ]] && drop_and_create_db 5447 analytics
-  run_psql 5447 analytics \
+  echo "Bootstrap analytics (port $ANALYTICS_DB_PORT)..."
+  [[ "$DROP_IF_EXISTS" == "true" ]] && drop_and_create_db "$ANALYTICS_DB_PORT" analytics
+  run_psql "$ANALYTICS_DB_PORT" analytics \
     01-analytics-schema.sql \
     02-analytics-projections.sql \
     03-analytics-recommendation.sql \
     04-analytics-user-listing-engagement.sql
+}
+
+# 8) media (optional; used by media-service integration tests)
+bootstrap_media() {
+  echo "Bootstrap media (port $MEDIA_DB_PORT)..."
+  [[ "$DROP_IF_EXISTS" == "true" ]] && drop_and_create_db "$MEDIA_DB_PORT" media
+  run_psql "$MEDIA_DB_PORT" media \
+    01-media-schema.sql \
+    02-media-outbox.sql
 }
 
 only="${BOOTSTRAP_ONLY:-}"
@@ -125,4 +143,5 @@ bootstrap_messaging
 bootstrap_notification
 bootstrap_trust
 bootstrap_analytics
-echo "Done (all 7 DBs)."
+bootstrap_media
+echo "Done (all 8 DBs)."
