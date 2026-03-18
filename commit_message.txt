@@ -1,62 +1,55 @@
-fix(infra): auth-service K8s ports/namespace, Colima namespaces-only, 7-DB backup rename, build-and-load auth
+feat(event-layer): codify stability, add intentional break tests, verification-before-freeze
 
-Auth-service (infra/k8s/base/auth-service)
--------------------------------------------
-- deploy.yaml, service.yaml, grpc-health-probe.yaml: namespace record-platform → off-campus-housing.
-- service.yaml: align with README exposed ports — http 4001→4011, grpc 50051→50061 (targetPorts remain 4001/50051).
-- grpc-health-probe ConfigMap: host updated to auth-service.off-campus-housing.svc.cluster.local:50061.
-
-Colima cluster setup (scripts/setup-new-colima-cluster.sh)
------------------------------------------------------------
-- Script now only starts Colima + k3s and creates namespaces: ingress-nginx, envoy-test, off-campus-housing.
-- MetalLB install removed from this script; document METALLB_POOL=192.168.64.260-192.168.64.270 in usage to avoid conflicts when installing MetalLB later.
-- Next steps documented: install-metallb.sh, bring-up-external-infra.sh, build-and-load-auth-service.sh, then deploy.
-
-Build and load auth-service into Colima k3s (scripts/build-and-load-auth-service.sh)
-------------------------------------------------------------------------------------
-- New script: build auth-service:dev from repo root, load into k3s via colima ssh + k3s ctr images import.
-- Uses Colima Docker context when available; run after setup-new-colima-cluster.sh.
-
-Backup script rename (7 DBs)
----------------------------
-- backup-all-8-dbs.sh renamed to backup-all-7-dbs.sh (name aligned with all-7-* output and 7 DBs 5441–5447).
-- backup-all-dbs.sh now delegates to backup-all-7-dbs.sh.
-- ENGINEERING.md: RESTORE_BACKUP_DIR example all-8 → all-7.
-
-bring-up-external-infra.sh
---------------------------
-- Already correct: 7 Postgres services (5441–5447), backups/all-7-*; no code change.
-
-Pgbench default namespace
--------------------------
-- run_auth_pgbench_sweep.sh: default namespace record-platform → off-campus-housing (usage and NS).
-- run_pgbench_sweep.sh: default namespace off-campus-housing-tracker → off-campus-housing (usage, NS, and fallbacks for deploy/rollout).
-
-K8s config: proto aligned with repo proto/ (infra/k8s/base/config)
-------------------------------------------------------------------
-- kustomization.yaml: proto-files ConfigMap now uses housing protos only. Files live under config/proto/ and are synced from repo root proto/ (source of truth). Included: common, health, auth, listings, booking, messaging, notification, trust, analytics. Dropped records, social, shopping, auction-monitor, python-ai. Config namespace set to off-campus-housing.
-- Replaced old config/proto/ copies with copies of repo proto/ (same set). Added config/proto/README.md with sync instructions (cp from repo proto/ after proto changes).
-
-Service READMEs: gRPC implementation guidance + proto refs
------------------------------------------------------------
-- Each of auth-, listings-, booking-, messaging-, notification-, trust-, analytics-service README: added "Implementing this service (gRPC)" with (1) pointer to the service’s proto in repo proto/, (2) short "first time with gRPC" steps (proto = contract, generate code, implement handlers, register server), (3) which service/RPCs to implement and health.proto for probes.
-- services/README.md: added note that gRPC contracts live in proto/ and each service README has implementation guidance; api-gateway bullet updated with link to api-gateway README and proto/.
-
-api-gateway README
+What we are doing
 -----------------
-- New services/api-gateway/README.md: describes gateway as single entrypoint; table of supported backends with proto file links (auth, listings, booking, messaging, notification, trust, analytics); pointer to common.proto and health.proto; link to each service’s implementation section for teammates new to gRPC.
+We are locking the event layer as production-grade and testable, then freezing it.
 
-Event proto layer + transactional outbox (proto/events, infra/db, Kafka)
------------------------------------------------------------------------
-- proto/events/envelope.proto: mandatory EventEnvelope (event_id, type, version, source, entity_id, timestamp, payload bytes). All Kafka messages = serialized EventEnvelope; no raw domain messages on topics.
-- proto/events/auth.proto: UserCreatedV1, UserDeletedV1, UserRoleUpdatedV1, UserSuspendedV1.
-- proto/events/booking.proto: BookingCreatedV1, BookingConfirmedV1, BookingCancelledV1 (cancelled_by), BookingCompletedV1.
-- proto/events/listing.proto: ListingCreatedV1, ListingUpdatedV1, ListingDeletedV1, ListingPriceUpdatedV1.
-- proto/events/trust.proto: ListingFlaggedV1, ListingUnflaggedV1, ReviewCreatedV1, UserReputationUpdatedV1.
-- proto/events/messaging.proto: ConversationCreatedV1, MessageSentV1, MessageReadV1.
-- proto/events/notification.proto: NotificationSentV1 (optional emit).
-- proto/events/README.md: envelope + domain event table; topics dev.*.events; partition key entity_id; transactional outbox flow.
-- infra/db: outbox_events table for each producing service (01-auth-outbox.sql, 03-booking-outbox.sql, 03-listings-outbox.sql, 03-trust-outbox.sql, 02-messaging-outbox.sql, 03-notification-outbox.sql). Same-transaction write + outbox insert; background publisher to Kafka; mark published.
-- ensure-*-schema.sh and new ensure-auth-outbox.sh apply outbox SQL.
-- scripts/create-kafka-event-topics.sh: creates dev.booking.events, dev.listing.events, dev.trust.events, dev.auth.events, dev.messaging.events, dev.notification.events.
-- docs/KAFKA_TOPICS_AND_PARTITIONS.md: section "Domain event topics (dev.*.events) + EventEnvelope".
+1. Stability document (docs/EVENT_LAYER_STABILITY.md)
+   - Critical ordering is codified: produce → UPDATE published = true → commit. Never mark published before produce; never commit the update before produce success.
+   - Failure scenarios are documented: produce fails → retry; produce succeeds but DB update/commit fails → duplicate, idempotent consumers absorb; update-before-produce → forbidden (event loss).
+   - Guarantees are explicit: no lost events, at-least-once delivery, idempotent consumption, deterministic retry.
+   - Anti-patterns and freeze criteria are written down. "Do NOT add" list: Kafka transactions, exactly-once producer, saga orchestrators, choreography engines.
+
+2. Verification before freeze (same doc)
+   - Design does not freeze the layer; verification does. The doc now states that explicitly and lists the exact steps: implement → run → test → break intentionally → verify idempotency/retry/health → then freeze.
+   - The three intentional break tests are specified in full:
+     - Test 1 — Kill after produce: inject crash after Kafka produce success, before UPDATE published = true. Expected: row still published = false; restart republishes; consumer idempotency absorbs duplicate.
+     - Test 2 — Kill after UPDATE but before commit: simulate transaction rollback. Expected: row still published = false; retry works.
+     - Test 3 — Kafka down: publish fails, published remains false, health NOT_SERVING when Kafka required; when Kafka returns, retries succeed.
+   - After all three pass, the event layer is considered battle-tested and frozen. Focus then shifts to search/filtering, recommendation engine, UX, observability—not event-layer tweaking.
+
+3. Architecture rules (ARCHITECTURE_RULES.md)
+   - Rule 9 — Event layer ordering (outbox) is already in place: publisher must produce → update published → commit; consumers must be idempotent (processed_events, insert event_id before handle, on conflict skip). No Kafka transactions, exactly-once, sagas, or choreography. This makes the event layer a system invariant, not a suggestion.
+
+4. Automated break tests (services/event-layer-verification)
+   - New package with vitest that encodes the three break tests as automated tests.
+   - Uses in-memory mocks (MockOutboxDb, MockProducer, MockKafkaHealthCheck) so no real Kafka or Postgres is required. The same ordering and failure hooks can be used against real infra for manual or CI integration runs.
+   - Test 1: Crash after produce → assert row stays false, produce called once; "restart" (run again without crash) → assert row now true, produce called twice; consumer dedupe → assert only one logical process (duplicate skipped).
+   - Test 2: Crash after UPDATE but before commit → assert row stays false (rollback); retry → assert row true and produce called again.
+   - Test 3: Kafka down (producer fails) → assert published stays false, health check false; Kafka back → retry succeeds, row true.
+   - All six tests pass. Run with: pnpm --filter event-layer-verification test (or from services/event-layer-verification: pnpm test).
+
+Why we are doing this
+---------------------
+- Most teams never codify ordering, failure cases, and freeze criteria for their event backbone. We are doing it so the system stays predictable and maintainable.
+- Freezing by verification (not by design alone) is the correct order of maturity: implement, run, test, break intentionally, verify idempotency and retry and health, then freeze. That is behavior-driven architecture instead of docs-driven wishful thinking.
+- Putting Rule 9 in ARCHITECTURE_RULES.md makes the event layer governance-level. It prevents future "let's try Kafka transactions," random choreography experiments, and half-baked exactly-once changes. That is how stable systems are maintained.
+- The intentional break tests prove that (1) we never lose events when we follow the order, (2) duplicates are safe because consumers are idempotent, and (3) when Kafka is down we do not mark published and health correctly reflects NOT_SERVING. Once these pass, further complexity in the event layer decreases reliability; the architecture is at equilibrium.
+
+What we are not doing
+---------------------
+- We are not adding Kafka transactions, exactly-once producer mode, saga orchestrators, or choreography engines. The stability doc and Rule 9 explicitly forbid these unless there is an explicit architecture decision.
+- We are not touching the ordering or adding extra layers. The spine is built; the next work is the body: search, recommendations, UX, observability.
+
+Summary of changes in this commit
+---------------------------------
+- docs/EVENT_LAYER_STABILITY.md: Verification-before-freeze section expanded with "Design does not freeze the layer; verification does"; three break tests written out in full with expected outcomes; explicit freeze and shift-focus wording.
+- services/event-layer-verification (new): package.json, tsconfig.json, vitest.config.ts; src/types.ts (OutboxRow, EventEnvelope); src/mocks.ts (MockOutboxDb with staged commit/rollback, MockProducer with fail-next, MockKafkaHealthCheck); src/publisher-core.ts (processOneRow with afterProduce and afterUpdateBeforeCommit hooks); src/consumer-idempotent.ts (MockProcessedEvents, consumeIdempotent); src/event-layer-break-tests.test.ts (6 tests for Test 1, Test 2, Test 3); README.md with purpose, test descriptions, and run instructions.
+
+References
+----------
+- docs/EVENT_LAYER_STABILITY.md
+- docs/OUTBOX_PUBLISHER_IMPLEMENTATION.md
+- docs/OUTBOX_PUBLISHER_AND_CONSUMER_CONTRACT.md
+- docs/CONSUMER_WIRING.md
+- ARCHITECTURE_RULES.md (Rule 9)
