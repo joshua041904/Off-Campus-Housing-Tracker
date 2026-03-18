@@ -2,7 +2,7 @@
 
 ## Auth DB: legacy dump (5437 → 5441)
 
-The file **`5437-auth.dump`** is a pg_dump custom-format dump of the auth database from the old port **5437**. The housing stack uses **port 5441** for auth. To load this dump into the current stack:
+The file **`5437-auth.dump`** is a pg_dump custom-format dump of the auth database from the old port **5437**. The housing stack uses **port 5441** for auth. Place the dump in `backups/` (plain **5437-auth.dump**, or **5437-auth.dump.gz** / **5437-auth.dump.zip**; restore script decompresses on the fly).
 
 1. Start the auth Postgres container:
    ```bash
@@ -10,11 +10,15 @@ The file **`5437-auth.dump`** is a pg_dump custom-format dump of the auth databa
    ```
 2. Restore into `localhost:5441` / database `auth`:
    ```bash
+   PGPASSWORD=postgres ./scripts/restore-auth-db.sh
+   ```
+   Or legacy script (plain .dump only):
+   ```bash
    PGPASSWORD=postgres ./scripts/restore-auth-from-legacy-dump.sh
    ```
-   Or with a custom path:
+   Custom path:
    ```bash
-   RESTORE_AUTH_DUMP=backups/5437-auth.dump PGPASSWORD=postgres ./scripts/restore-auth-from-legacy-dump.sh
+   RESTORE_AUTH_DUMP=backups/5437-auth.dump PGPASSWORD=postgres ./scripts/restore-auth-db.sh
    ```
 
 ## Auth schema (after restore)

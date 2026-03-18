@@ -25,19 +25,23 @@ data:
   SHOPPING_PORT: "4007"
 
   # Redis URL (Docker Compose Redis has NO password configured)
-  # Format: redis://host:port/db
-  # CRITICAL: From Colima/k3s pods, host.docker.internal is not in DNS. Deployments include hostAliases
-  # (host.docker.internal → 192.168.5.2) so pods reach externalized Redis on the host. Override the alias
-  # in a Colima overlay if your VM uses a different gateway (e.g. 192.168.106.1 for host networking).
   REDIS_URL: redis://host.docker.internal:6380/0
 
   PROTO_ROOT: /app/proto
 
-  # EXTERNAL Postgres (Docker) - Housing stack: 7 DBs on host ports 5441–5447, password postgres
-  # Connection from K8s pods: host.docker.internal:5441–5447 (hostAliases in deployments)
+  # Canonical externalized DB (no hostAliases). Build URLs as postgres://user:pass@${DATABASE_HOST}:${PORT}/dbname.
+  # Colima: DATABASE_HOST=host.lima.internal. Docker Desktop: host.docker.internal. Override in overlay if needed.
+  DATABASE_HOST: host.docker.internal
+  AUTH_DB_PORT: "5441"
+  LISTINGS_DB_PORT: "5442"
+  BOOKINGS_DB_PORT: "5443"
+  MESSAGING_DB_PORT: "5444"
+  NOTIFICATION_DB_PORT: "5445"
+  TRUST_DB_PORT: "5446"
+  ANALYTICS_DB_PORT: "5447"
+  # Full URLs (for services that read single env); prefer building from DATABASE_HOST + *_DB_PORT where possible.
   DATABASE_URL:         postgresql://postgres:postgres@host.docker.internal:5441/auth?connect_timeout=5
   POSTGRES_URL:         postgresql://postgres:postgres@host.docker.internal:5441/auth?connect_timeout=5
-
   POSTGRES_URL_AUTH:        postgresql://postgres:postgres@host.docker.internal:5441/auth?connect_timeout=5
   POSTGRES_URL_LISTINGS:    postgresql://postgres:postgres@host.docker.internal:5442/listings?connect_timeout=5
   POSTGRES_URL_BOOKINGS:    postgresql://postgres:postgres@host.docker.internal:5443/bookings?connect_timeout=5

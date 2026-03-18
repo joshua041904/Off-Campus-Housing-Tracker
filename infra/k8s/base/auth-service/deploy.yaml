@@ -18,11 +18,7 @@ spec:
         prometheus.io/path: "/metrics"
         linkerd.io/inject: enabled  # Enable Linkerd sidecar injection
     spec:
-      hostAliases:
-        - ip: "192.168.5.2"
-          hostnames:
-            - "host.docker.internal"
-            - "host.lima.internal"
+      # DATABASE_HOST from app-config (host.docker.internal / host.lima.internal); ensure resolvable in cluster (CoreDNS or overlay hostAliases).
       containers:
         - name: app
           image: auth-service:dev
