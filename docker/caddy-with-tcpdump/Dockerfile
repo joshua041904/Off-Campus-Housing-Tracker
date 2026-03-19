@@ -1,14 +1,15 @@
-# Caddy built with xcaddy for proper HTTP/3 (QUIC) support, plus tcpdump for rotation-suite packet capture.
+# Caddy built with xcaddy for first-class HTTP/3 (QUIC) support, plus tcpdump for rotation-suite packet capture.
+# HTTP/3 is built into the official Caddy 2 build; xcaddy produces the same. No extra plugins required.
 # TLS/mTLS at edge; use with LoadBalancer (infra/k8s/loadbalancer.yaml) to avoid hostPort and anti-affinity.
 # Build: docker build -t caddy-with-tcpdump:dev -f docker/caddy-with-tcpdump/Dockerfile .
 # k3d: k3d image import caddy-with-tcpdump:dev -c off-campus-housing-tracker
 
-# --- builder: xcaddy builds Caddy with default modules (includes HTTP/3) ---
+# --- builder: xcaddy builds Caddy with default modules (includes HTTP/3 / QUIC) ---
 FROM golang:1.22-alpine AS builder
 RUN apk add --no-cache git ca-certificates
 RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
 WORKDIR /build
-# Build Caddy with xcaddy (no extra plugins; HTTP/3 is built-in). Optional: --with for custom plugins.
+# xcaddy build includes HTTP/3 (QUIC); no --with needed. Optional: --with for custom plugins.
 ENV CADDY_VERSION=v2.8.4
 RUN xcaddy build "${CADDY_VERSION}" --output /usr/bin/caddy
 

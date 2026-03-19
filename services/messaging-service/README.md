@@ -41,14 +41,14 @@ Outbox table: [infra/db/02-messaging-outbox.sql](../../infra/db/02-messaging-out
 
 **gRPC server (in-cluster):** Use server TLS (e.g. `messaging-service.crt`, `messaging-service.key`, signed by cluster CA). Mount via Secret; e.g. volumeMount path `/certs`.
 
-**Kafka (common):** Use [services/common/src/kafka.ts](../common/src/kafka.ts). No bypass.
+**Kafka (common):** Use [services/common/src/kafka.ts](../common/src/kafka.ts). No bypass. Strict TLS/mTLS: when `KAFKA_SSL_ENABLED=true`, CA + client cert + key are **required** (no plaintext fallback).
 
-- Set `KAFKA_SSL_ENABLED=true` for TLS (port 9093).
-- Certificates: pass **file paths** via env so K8s can mount secrets:
-  - `KAFKA_CA_CERT` — path to CA (e.g. `/kafka-certs/ca.pem`)
-  - `KAFKA_CLIENT_CERT` — path to client cert (e.g. `/kafka-certs/client.crt`)
-  - `KAFKA_CLIENT_KEY` — path to client key (e.g. `/kafka-certs/client.key`)
-- Common reads these paths and loads cert content; do not set inline cert content in env.
+- Set `KAFKA_SSL_ENABLED=true` for TLS (port 9093). Broker uses `ssl.client.auth=required` (mTLS).
+- Certificates: pass **file paths** via env so K8s can mount secrets. The base deploy mounts **kafka-ssl-secret** at `/etc/kafka/secrets` with `ca-cert.pem`, `client.crt`, `client.key`.
+  - `KAFKA_CA_CERT` — path to CA (e.g. `/etc/kafka/secrets/ca-cert.pem`)
+  - `KAFKA_CLIENT_CERT` — path to client cert (e.g. `/etc/kafka/secrets/client.crt`)
+  - `KAFKA_CLIENT_KEY` — path to client key (e.g. `/etc/kafka/secrets/client.key`)
+- Create/update **kafka-ssl-secret** (including client cert) with: `./scripts/kafka-ssl-from-dev-root.sh` (requires `certs/dev-root.pem` and `certs/dev-root.key`).
 
 ---
 

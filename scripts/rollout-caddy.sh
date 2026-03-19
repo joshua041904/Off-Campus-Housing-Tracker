@@ -1,49 +1,78 @@
 #!/usr/bin/env bash
 set -euo pipefail
-NS=ingress-nginx
+
+# Project-aware: housing uses off-campus-housing-local-tls; override for other projects (e.g. PROJECT_NAME=record-platform).
+PROJECT_NAME="${PROJECT_NAME:-off-campus-housing}"
+NAMESPACE_INGRESS="${NAMESPACE_INGRESS:-ingress-nginx}"
+HOSTNAME="${HOSTNAME:-off-campus-housing.local}"
+TLS_SECRET="${TLS_SECRET:-${PROJECT_NAME}-local-tls}"
+
+echo "🚀 Rolling out Caddy for project: $PROJECT_NAME"
+echo "   Namespace (Caddy): $NAMESPACE_INGRESS"
+echo "   Hostname: $HOSTNAME"
+echo "   TLS Secret: $TLS_SECRET"
+
+NS="$NAMESPACE_INGRESS"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-# Ensure namespace exists (fresh cluster after k3d-create-off-campus-housing-tracker-443-lb.sh)
+# Ensure namespace exists (fresh cluster)
 kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f -
 
-# Colima + MetalLB: default to LoadBalancer deploy (no hostPort, soft anti-affinity so 2 pods on 1 node)
+# Colima + MetalLB: default to LoadBalancer deploy (no hostPort, soft anti-affinity so 2 replicas on 1 node)
 ctx=$(kubectl config current-context 2>/dev/null || true)
 if [[ "$ctx" == *"colima"* ]] && kubectl get ns metallb-system --request-timeout=3s &>/dev/null; then
   CADDY_USE_LOADBALANCER="${CADDY_USE_LOADBALANCER:-1}"
 fi
 
-# When using hostPort or LoadBalancer (Colima+MetalLB), Caddy needs TLS secrets
+# When using hostPort or LoadBalancer, Caddy needs TLS secrets (dynamic per project)
 if [ "${CADDY_USE_HOSTPORT:-0}" = "1" ] || [ "${CADDY_USE_LOADBALANCER:-0}" = "1" ]; then
-  for sec in record-local-tls dev-root-ca; do
-    if ! kubectl -n "$NS" get secret "$sec" &>/dev/null; then
-      echo "❌ Missing secret $sec in namespace $NS. Create TLS secrets first, e.g.:"
-      echo "   ./scripts/strict-tls-bootstrap.sh   # requires certs in ./certs/"
-      echo "   or: scripts/rotate-ca-and-fix-tls.sh"
-      exit 1
-    fi
-  done
+  if ! kubectl get secret "$TLS_SECRET" -n "$NS" &>/dev/null; then
+    echo "❌ Missing secret $TLS_SECRET in namespace $NS."
+    echo "Create it with:"
+    echo ""
+    echo "  kubectl create secret tls $TLS_SECRET \\"
+    echo "    --cert=certs/off-campus-housing.local.crt \\"
+    echo "    --key=certs/off-campus-housing.local.key \\"
+    echo "    -n $NS"
+    echo ""
+    echo "  Or run: ./scripts/strict-tls-bootstrap.sh   # (requires certs in ./certs/)"
+    exit 1
+  fi
+  if ! kubectl get secret dev-root-ca -n "$NS" &>/dev/null; then
+    echo "❌ Missing secret dev-root-ca in namespace $NS. Create with ./scripts/strict-tls-bootstrap.sh"
+    exit 1
+  fi
 fi
 
-# Apply Caddy ConfigMap (gRPC must use h2c://envoy-test...:10000; do not use https:// for Envoy)
+# Apply Caddy ConfigMap from repo root Caddyfile (api-gateway:4020, auth:4011 per README; gRPC h2c://envoy-test:10000)
 kubectl -n "$NS" create configmap caddy-h3 --from-file=Caddyfile=./Caddyfile -o yaml --dry-run=client | kubectl apply -f -
 
-# Apply Caddy Deployment (LoadBalancer path: no hostPort so 2 replicas can run on one node for zero-downtime).
-# If you previously had the hostPort deploy applied, delete the deployment first so apply is clean:
-#   kubectl -n ingress-nginx delete deployment caddy-h3
-#   then re-run this script (or apply caddy-h3-deploy-loadbalancer.yaml).
-# Deploy uses caddy-with-tcpdump:dev (HTTP/3 + tcpdump for rotation-suite capture). Build: docker build -t caddy-with-tcpdump:dev docker/caddy-with-tcpdump . k3d: k3d image import caddy-with-tcpdump:dev -c off-campus-housing-tracker
-if [ "${CADDY_USE_LOADBALANCER:-0}" = "1" ] && [ -f "infra/k8s/caddy-h3-deploy-loadbalancer.yaml" ]; then
-  kubectl -n "$NS" apply -f infra/k8s/caddy-h3-deploy-loadbalancer.yaml
-  echo "✅ Applied Caddy deployment (LoadBalancer: 2 replicas, no hostPort)"
-elif [ -f "infra/k8s/caddy-h3-deploy.yaml" ]; then
-  kubectl -n "$NS" apply -f infra/k8s/caddy-h3-deploy.yaml
-elif [ -f "./caddy-deploy.yaml" ]; then
+# Apply Caddy Deployment: substitute TLS secret name so deploy matches project (default off-campus-housing-local-tls in YAML)
+_apply_deploy() {
+  local file="$1"
+  if [[ -f "$file" ]]; then
+    sed "s/off-campus-housing-local-tls/$TLS_SECRET/g" "$file" | kubectl -n "$NS" apply -f -
+    return 0
+  fi
+  return 1
+}
+
+if [ "${CADDY_USE_LOADBALANCER:-0}" = "1" ]; then
+  if _apply_deploy "infra/k8s/caddy-h3-deploy-loadbalancer.yaml"; then
+    echo "✅ Applied Caddy deployment (LoadBalancer: 2 replicas, no hostPort)"
+  else
+    echo "⚠️  infra/k8s/caddy-h3-deploy-loadbalancer.yaml not found"; exit 1
+  fi
+elif _apply_deploy "infra/k8s/caddy-h3-deploy.yaml"; then
+  true
+elif [[ -f "./caddy-deploy.yaml" ]]; then
   kubectl -n "$NS" apply -f ./caddy-deploy.yaml
+else
+  echo "⚠️  No Caddy deploy file found"; exit 1
 fi
 
-# Service: LoadBalancer uses infra/k8s/loadbalancer.yaml (or caddy-h3-service-loadbalancer.yaml) so LB avoids hostPort/anti-affinity; TLS+mTLS at edge.
-# ClusterIP (k3d hostPort); else NodePort.
+# Service: LoadBalancer uses infra/k8s/loadbalancer.yaml (or caddy-h3-service-loadbalancer.yaml)
 if [ "${CADDY_USE_LOADBALANCER:-0}" = "1" ]; then
   if [ -f "infra/k8s/loadbalancer.yaml" ]; then
     kubectl -n "$NS" apply -f infra/k8s/loadbalancer.yaml
@@ -52,12 +81,11 @@ if [ "${CADDY_USE_LOADBALANCER:-0}" = "1" ]; then
     kubectl -n "$NS" apply -f infra/k8s/caddy-h3-service-loadbalancer.yaml
     echo "✅ Applied Caddy service (LoadBalancer, MetalLB) from caddy-h3-service-loadbalancer.yaml"
   else
-    echo "⚠️  No loadbalancer.yaml or caddy-h3-service-loadbalancer.yaml found"
-    exit 1
+    echo "⚠️  No loadbalancer.yaml or caddy-h3-service-loadbalancer.yaml found"; exit 1
   fi
 elif [ "${CADDY_USE_HOSTPORT:-0}" = "1" ] && [ -f "infra/k8s/caddy-h3-service-clusterip.yaml" ]; then
   kubectl -n "$NS" apply -f infra/k8s/caddy-h3-service-clusterip.yaml
-  echo "✅ Applied Caddy service (ClusterIP, hostPort 443) from caddy-h3-service-clusterip.yaml"
+  echo "✅ Applied Caddy service (ClusterIP, hostPort 443)"
 elif [ -f "infra/k8s/caddy-h3-svc.yaml" ]; then
   _np="${CADDY_NODEPORT:-30443}"
   if [[ "$_np" != "30443" ]]; then
@@ -65,7 +93,7 @@ elif [ -f "infra/k8s/caddy-h3-svc.yaml" ]; then
   else
     kubectl -n "$NS" apply -f infra/k8s/caddy-h3-svc.yaml
   fi
-  echo "✅ Applied Caddy service (NodePort ${CADDY_NODEPORT:-30443}) from caddy-h3-svc.yaml"
+  echo "✅ Applied Caddy service (NodePort ${_np})"
 elif [ -f "infra/k8s/caddy-h3-service-nodeport.yaml" ]; then
   _np="${CADDY_NODEPORT:-30443}"
   if [[ "$_np" != "30443" ]]; then
@@ -73,7 +101,7 @@ elif [ -f "infra/k8s/caddy-h3-service-nodeport.yaml" ]; then
   else
     kubectl -n "$NS" apply -f infra/k8s/caddy-h3-service-nodeport.yaml
   fi
-  echo "✅ Applied Caddy service (NodePort ${CADDY_NODEPORT:-30443}) from caddy-h3-service-nodeport.yaml"
+  echo "✅ Applied Caddy service (NodePort ${_np})"
 elif [ -f "infra/k8s/caddy-h3-service.yaml" ]; then
   _np="${CADDY_NODEPORT:-30443}"
   if [[ "$_np" != "30443" ]]; then
@@ -81,15 +109,14 @@ elif [ -f "infra/k8s/caddy-h3-service.yaml" ]; then
   else
     kubectl -n "$NS" apply -f infra/k8s/caddy-h3-service.yaml
   fi
-  echo "✅ Applied Caddy service (NodePort ${CADDY_NODEPORT:-30443}) from caddy-h3-service.yaml"
+  echo "✅ Applied Caddy service (NodePort ${_np})"
 else
-  echo "⚠️  WARNING: No Caddy service file found!"
-  echo "   For Colima+MetalLB (LB avoids anti-affinity): CADDY_USE_LOADBALANCER=1 (infra/k8s/loadbalancer.yaml)"
-  echo "   For 443@loadbalancer + hostPort: infra/k8s/caddy-h3-service-clusterip.yaml"
-  echo "   For NodePort: infra/k8s/caddy-h3-svc.yaml or caddy-h3-service-nodeport.yaml or caddy-h3-service.yaml"
+  echo "⚠️  No Caddy service file found!"
+  echo "   For Colima+MetalLB: CADDY_USE_LOADBALANCER=1 (infra/k8s/loadbalancer.yaml)"
+  echo "   For NodePort: infra/k8s/caddy-h3-svc.yaml or caddy-h3-service-nodeport.yaml"
+  exit 1
 fi
 
-# Show what’s going on before waiting
 echo ""
 echo "--- Pods (before rollout complete) ---"
 kubectl -n "$NS" get pods -l app=caddy-h3 -o wide 2>/dev/null || true
@@ -98,22 +125,18 @@ echo "--- Recent events ---"
 kubectl -n "$NS" get events --sort-by='.lastTimestamp' 2>/dev/null | tail -12 || true
 echo ""
 
-# Wait for rollout with timeout; on failure show why
 if ! kubectl -n "$NS" rollout status deploy/caddy-h3 --timeout=120s 2>&1; then
   echo ""
-  echo "--- Rollout didn’t complete; pod status and events ---"
+  echo "--- Rollout didn't complete; pod status and events ---"
   kubectl -n "$NS" get pods -l app=caddy-h3 -o wide
   kubectl -n "$NS" get events --sort-by='.lastTimestamp' | tail -20
   for p in $(kubectl -n "$NS" get pods -l app=caddy-h3 -o jsonpath='{.items[*].metadata.name}'); do
-    if [ -n "$p" ]; then
-      echo "--- $p ---"
-      kubectl -n "$NS" describe pod "$p" | sed -n '1,/^Events:/p' | tail -30
-    fi
+    [[ -n "$p" ]] && kubectl -n "$NS" describe pod "$p" | sed -n '1,/^Events:/p' | tail -30
   done
   exit 1
 fi
 
-# Restart Envoy so listener 10000 stays plaintext (h2c); Caddy→Envoy must not use TLS. TLS/mTLS at edge (Caddy) and backend (Envoy→backends).
+# Restart Envoy so listener 10000 stays plaintext (h2c); Caddy→Envoy no TLS. TLS/mTLS at edge (Caddy) and backend (Envoy→backends).
 if kubectl get namespace envoy-test &>/dev/null && kubectl -n envoy-test get deployment envoy-test &>/dev/null; then
   kubectl -n envoy-test rollout restart deployment envoy-test 2>/dev/null && echo "✅ Restarted envoy-test (plaintext listener 10000)"
   kubectl -n envoy-test rollout status deployment envoy-test --timeout=60s 2>/dev/null || true
@@ -121,3 +144,16 @@ fi
 
 # Surface Caddy logs (HTTP/3 listener, TLS, errors)
 kubectl -n "$NS" logs deploy/caddy-h3 --tail=200 2>/dev/null | grep -E -i 'HTTP/3 listener|server running|protocols|http.log.error|x509|verify|dial|lookup' || true
+
+# --- Preflight validation (never break again) ---
+echo ""
+echo "🔎 Preflight validation..."
+kubectl get namespace "$NS" &>/dev/null || { echo "❌ Namespace $NS does not exist."; exit 1; }
+kubectl get secret "$TLS_SECRET" -n "$NS" &>/dev/null || { echo "❌ TLS secret $TLS_SECRET missing in $NS."; exit 1; }
+kubectl get secret dev-root-ca -n "$NS" &>/dev/null || { echo "❌ CA secret dev-root-ca missing in $NS."; exit 1; }
+if kubectl get svc caddy-h3 -n "$NS" &>/dev/null; then
+  echo "✅ Caddy service caddy-h3 present in $NS"
+else
+  echo "⚠️  Caddy service caddy-h3 not found in $NS (may still be creating)"
+fi
+echo "✅ Preflight checks passed."

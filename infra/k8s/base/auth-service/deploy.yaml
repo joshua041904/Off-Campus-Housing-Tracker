@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: auth-service
-  namespace: off-campus-housing
+  namespace: off-campus-housing-tracker
   labels: { app: auth-service }
 spec:
   replicas: 1
@@ -25,9 +25,9 @@ spec:
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
-              containerPort: 4001
+              containerPort: 4011
             - name: grpc
-              containerPort: 50051
+              containerPort: 50061
           envFrom:
             - configMapRef: { name: app-config }
             - secretRef:    { name: app-secrets }
@@ -35,7 +35,7 @@ spec:
             - name: NODE_ENV
               value: "development"
             - name: GRPC_PORT
-              value: "50051"
+              value: "50061"
             - name: ENABLE_GRPC
               value: "true"
             - name: GRPC_REQUIRE_CLIENT_CERT
@@ -54,6 +54,10 @@ spec:
               value: "/etc/kafka/secrets/ca-cert.pem"
             - name: KAFKA_CA_CERT
               value: "/etc/kafka/secrets/ca-cert.pem"
+            - name: KAFKA_CLIENT_CERT
+              value: "/etc/kafka/secrets/client.crt"
+            - name: KAFKA_CLIENT_KEY
+              value: "/etc/kafka/secrets/client.key"
             # Debug logging for gRPC 403 investigation
             - name: GRPC_VERBOSITY
               value: "DEBUG"
@@ -99,7 +103,7 @@ spec:
                 - -tls-ca-cert=/etc/certs/ca.crt
                 - -tls-client-cert=/etc/certs/tls.crt
                 - -tls-client-key=/etc/certs/tls.key
-                - -tls-server-name=record.local
+                - -tls-server-name=off-campus-housing.local
                 - -connect-timeout=10s
                 - -rpc-timeout=5s
             initialDelaySeconds: 90
@@ -117,7 +121,7 @@ spec:
                 - -tls-ca-cert=/etc/certs/ca.crt
                 - -tls-client-cert=/etc/certs/tls.crt
                 - -tls-client-key=/etc/certs/tls.key
-                - -tls-server-name=record.local
+                - -tls-server-name=off-campus-housing.local
                 - -connect-timeout=10s
                 - -rpc-timeout=5s
             initialDelaySeconds: 150
@@ -135,7 +139,7 @@ spec:
                 - -tls-ca-cert=/etc/certs/ca.crt
                 - -tls-client-cert=/etc/certs/tls.crt
                 - -tls-client-key=/etc/certs/tls.key
-                - -tls-server-name=record.local
+                - -tls-server-name=off-campus-housing.local
                 - -connect-timeout=10s
                 - -rpc-timeout=5s
             initialDelaySeconds: 45
@@ -154,7 +158,7 @@ spec:
                 path: dev-root.pem
         - name: service-tls
           secret:
-            secretName: service-tls
+            secretName: och-service-tls
             items:
               - key: tls.key
                 path: tls.key
@@ -164,8 +168,12 @@ spec:
                 path: ca.crt
         - name: kafka-ssl-certs
           secret:
-            secretName: kafka-ssl-secret
+            secretName: och-kafka-ssl-secret
             optional: true
             items:
               - key: ca-cert.pem
                 path: ca-cert.pem
+              - key: client.crt
+                path: client.crt
+              - key: client.key
+                path: client.key

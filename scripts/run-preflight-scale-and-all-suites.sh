@@ -26,7 +26,7 @@ fi
 # Ensures:
 #   - API server ready (mandatory); re-checked after reissue
 #   - off-campus-housing-tracker: service 1, exporters 1, envoy-test 1, Caddy 2
-#   - Reissue CA + leaf (dev-root-ca / record-local-tls match); verify no curl 60
+#   - Reissue CA + leaf (dev-root-ca / off-campus-housing-local-tls match); verify no curl 60
 #   - Strict TLS (CA + leaf), Kafka external strict TLS :29094 (housing; RP uses 29093), no in-cluster Postgres/Kafka/ZK
 #   RUN_SUITES=0 skip test suites.
 #   Preflight does not apply DB migrations or infra/db/*.sql; run scripts/setup-*-db.sh or scripts/ensure-*.sh manually when schema changes.
@@ -972,7 +972,7 @@ if ! _phase_a_only; then
   fi
 fi
 
-# 3a. Reissue CA + leaf first (dev-root-ca / record-local-tls, CA/Caddy match). KAFKA_SSL=1 persists CA key for Kafka.
+# 3a. Reissue CA + leaf first (dev-root-ca / off-campus-housing-local-tls, CA/Caddy match). KAFKA_SSL=1 persists CA key for Kafka.
 # Phase A skips cert work (control-plane sanity only).
 if ! _phase_a_only; then
   REISSUE_USE_6443=0
@@ -991,7 +991,7 @@ if ! _phase_a_only; then
     export REISSUE_STEP2_VIA_SSH="${REISSUE_STEP2_VIA_SSH:-1}"
     if REISSUE_SKIP_PREFLIGHT="$REISSUE_USE_6443" REISSUE_CAP="${REISSUE_CAP:-0}" KAFKA_SSL=1 "$SCRIPT_DIR/reissue-ca-and-leaf-load-all-services.sh"; then
       ok "Reissue done; CA and Caddy certs aligned"
-      ok "CA and leaf both rotated (dev-root-ca, record-local-tls, service-tls); certs/dev-root.pem is single source of truth"
+      ok "CA and leaf both rotated (dev-root-ca, off-campus-housing-local-tls, service-tls); certs/dev-root.pem is single source of truth"
     else
       warn "Reissue failed — suites may hit curl 60. Fix cluster/certs and re-run."
       # Only run connection-reset diagnostic on Colima (6443 tunnel); skip on k3d or run with short timeout to avoid hanging.

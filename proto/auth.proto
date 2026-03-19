@@ -4,7 +4,7 @@ package auth;
 
 import "health.proto";
 
-option go_package = "github.com/yourorg/record-platform/proto/auth";
+option go_package = "github.com/yourorg/off-campus-housing-tracker/proto/auth";
 
 // Auth service for gRPC
 service AuthService {

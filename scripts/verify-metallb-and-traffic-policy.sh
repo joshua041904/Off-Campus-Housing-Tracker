@@ -156,12 +156,15 @@ say "3. LoadBalancer services (all namespaces)"
 lb_ip=""
 # Prefer caddy-h3 so we never use another LoadBalancer (e.g. multi-subnet leftover) for host/HTTP/3 checks
 lb_ip=$(_kb -n "$NS_ING" get svc caddy-h3 -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+# kubectl custom-columns prints "<none>" when EXTERNAL-IP is pending; never treat that as a valid IP (bad hostname in 4b).
+_is_valid_ip() { [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && [[ "$1" != "0.0.0.0" ]]; }
+[[ -n "$lb_ip" ]] && ! _is_valid_ip "$lb_ip" && lb_ip=""
 while IFS= read -r line; do
   [[ -z "$line" ]] && continue
   ns=$(echo "$line" | awk '{print $1}')
   name=$(echo "$line" | awk '{print $2}')
   ext_ip=$(echo "$line" | awk '{print $4}')
-  if [[ -z "$ext_ip" ]]; then
+  if [[ -z "$ext_ip" ]] || [[ "$ext_ip" == "<none>" ]] || ! _is_valid_ip "$ext_ip"; then
     warn "  $ns/$name EXTERNAL-IP <pending>"
   else
     ok "  $ns/$name EXTERNAL-IP $ext_ip"
@@ -170,6 +173,7 @@ while IFS= read -r line; do
 done < <(_kb get svc -A -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name,TYPE:.spec.type,EXTERNAL:.status.loadBalancer.ingress[0].ip --no-headers 2>/dev/null | awk '$3=="LoadBalancer"')
 if [[ -z "$lb_ip" ]]; then
   lb_ip=$(_kb get svc -A -o jsonpath='{.items[?(@.spec.type=="LoadBalancer")].status.loadBalancer.ingress[0].ip}' 2>/dev/null | head -1 || echo "")
+  ! _is_valid_ip "$lb_ip" 2>/dev/null && lb_ip=""
 fi
 if [[ -z "$lb_ip" ]]; then
   warn "No LoadBalancer service has an external IP yet. Caddy-h3 may still be Pending; wait or check METALLB_POOL."

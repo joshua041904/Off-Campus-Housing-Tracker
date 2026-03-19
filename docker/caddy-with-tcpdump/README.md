@@ -29,7 +29,7 @@ That applies:
 - **Deployment**: `infra/k8s/caddy-h3-deploy-loadbalancer.yaml` (2 replicas, no hostPort)
 - **Service**: `infra/k8s/loadbalancer.yaml` (type: LoadBalancer, MetalLB)
 
-Ensure TLS secrets exist in `ingress-nginx`: `record-local-tls`, `dev-root-ca` (e.g. `./scripts/strict-tls-bootstrap.sh`).
+Ensure TLS secrets exist in `ingress-nginx`: `off-campus-housing-local-tls`, `dev-root-ca` (e.g. `./scripts/strict-tls-bootstrap.sh` or `./scripts/setup-tls-and-edge.sh`).
 
 ## Why xcaddy
 

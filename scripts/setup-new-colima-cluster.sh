@@ -7,7 +7,7 @@
 #   # Override MetalLB pool (default 192.168.5.251-192.168.5.260):
 #   METALLB_POOL=192.168.64.251-192.168.64.260 ./scripts/setup-new-colima-cluster.sh
 #
-# Creates namespaces: ingress-nginx, envoy-test, off-campus-housing.
+# Creates namespaces: ingress-nginx, envoy-test, off-campus-housing-tracker.
 # Installs MetalLB with pool 251-260 so LoadBalancer IPs are in that range.
 # Next: bring up DBs (scripts/bring-up-external-infra.sh), build and load auth-service, deploy.
 #
@@ -22,8 +22,8 @@ cd "$REPO_ROOT"
 CPU="${CPU:-12}"
 MEMORY="${MEMORY:-16}"
 DISK="${DISK:-256}"
-# MetalLB pool 251-260 on VM subnet (gateway 192.168.5.2). Override if your VM uses different subnet (e.g. 192.168.64.x).
-export METALLB_POOL="${METALLB_POOL:-192.168.5.251-192.168.5.260}"
+# MetalLB pool: leave unset so install-metallb-colima.sh auto-detects VM subnet (eth0). Override if needed: METALLB_POOL=192.168.64.240-192.168.64.250
+export METALLB_POOL="${METALLB_POOL:-}"
 
 say() { printf "\n\033[1m%s\033[0m\n" "$*"; }
 ok() { echo "✅ $*"; }
@@ -56,8 +56,8 @@ if [[ -f "$HOME/.kube/config" ]]; then
   fi
 fi
 
-say "Step 3: Create namespaces (ingress-nginx, envoy-test, off-campus-housing)"
-for ns in ingress-nginx envoy-test off-campus-housing; do
+say "Step 3: Create namespaces (ingress-nginx, envoy-test, off-campus-housing-tracker)"
+for ns in ingress-nginx envoy-test off-campus-housing-tracker; do
   if kubectl get namespace "$ns" --request-timeout=5s >/dev/null 2>&1; then
     ok "Namespace $ns already exists"
   else

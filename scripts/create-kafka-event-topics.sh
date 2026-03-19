@@ -17,7 +17,8 @@ KAFKA_BOOTSTRAP="${KAFKA_BOOTSTRAP:-127.0.0.1:29094}"
 PARTITIONS="${PARTITIONS:-6}"
 
 # One topic per domain; no hardcoded env in topic names
-EVENT_TOPICS="${ENV_PREFIX}.booking.events ${ENV_PREFIX}.listing.events ${ENV_PREFIX}.trust.events ${ENV_PREFIX}.auth.events ${ENV_PREFIX}.messaging.events ${ENV_PREFIX}.notification.events ${ENV_PREFIX}.media.events"
+# messaging is locked to an immutable v1 topic name (no ENV_PREFIX) for strict production-grade wiring.
+EVENT_TOPICS="${ENV_PREFIX}.booking.events ${ENV_PREFIX}.listing.events ${ENV_PREFIX}.trust.events ${ENV_PREFIX}.auth.events messaging.events.v1 ${ENV_PREFIX}.notification.events ${ENV_PREFIX}.media.events"
 # DLQ topics for failed consumer processing (optional; create when consumers are wired)
 DLQ_TOPICS="${ENV_PREFIX}.messaging.dlq"
 TOPICS="$EVENT_TOPICS $DLQ_TOPICS"
@@ -43,4 +44,4 @@ else
   done
 fi
 
-say "Done. Event topics: messages must be serialized EventEnvelope; partition key = entity_id (conversation_id for messaging.events). DLQ topics: failed envelopes for alerting/replay."
+say "Done. Event topics: messages must be serialized EventEnvelope; partition key = entity_id (conversation_id for messaging.events.v1). DLQ topics: failed envelopes for alerting/replay."

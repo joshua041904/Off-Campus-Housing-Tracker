@@ -370,14 +370,15 @@ say "9. Checking no in-cluster postgres..."
 UNWANTED=$(_kubectl get pods -n off-campus-housing-tracker -l 'app=postgres' --no-headers 2>/dev/null | wc -l | tr -d ' ' || echo "0")
 [[ "${UNWANTED:-0}" -eq 0 ]] && ok "No in-cluster postgres" || warn "Found ${UNWANTED:-0} in-cluster postgres pod(s) (external PG expected)"
 
-# 10. TLS secrets (dev-root-ca + record-local-tls for CA/Caddy match)
+# 10. TLS secrets (dev-root-ca + off-campus-housing-local-tls for CA/Caddy match)
 say "10. Checking TLS secrets..."
 [[ -n "$(_kubectl get secret -n ingress-nginx dev-root-ca -o name 2>/dev/null)" ]] && ok "dev-root-ca (ingress-nginx)" || warn "dev-root-ca missing"
-# record-local-tls should exist in ingress-nginx namespace (for Caddy)
-if [[ -n "$(_kubectl get secret -n ingress-nginx record-local-tls -o name 2>/dev/null)" ]]; then
-  ok "record-local-tls (ingress-nginx)"
+# off-campus-housing-local-tls should exist in ingress-nginx namespace (for Caddy)
+LEAF_TLS_SECRET="${LEAF_TLS_SECRET:-off-campus-housing-local-tls}"
+if [[ -n "$(_kubectl get secret -n ingress-nginx "$LEAF_TLS_SECRET" -o name 2>/dev/null)" ]]; then
+  ok "$LEAF_TLS_SECRET (ingress-nginx)"
 else
-  warn "record-local-tls missing in ingress-nginx (run: pnpm run reissue)"
+  warn "$LEAF_TLS_SECRET missing in ingress-nginx (run: pnpm run reissue)"
 fi
 
 say "=== Check Complete ==="

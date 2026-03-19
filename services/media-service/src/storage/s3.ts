@@ -22,12 +22,12 @@ const PRESIGN_GET_EXPIRES = 60 * 60 // 1 h
 
 export async function createPresignedPutUrl(objectKey: string): Promise<string> {
   const command = new PutObjectCommand({ Bucket: bucket, Key: objectKey })
-  return getSignedUrl(s3Client, command, { expiresIn: PRESIGN_PUT_EXPIRES })
+  return getSignedUrl(s3Client as any, command, { expiresIn: PRESIGN_PUT_EXPIRES })
 }
 
 export async function createPresignedGetUrl(objectKey: string): Promise<string> {
   const command = new GetObjectCommand({ Bucket: bucket, Key: objectKey })
-  return getSignedUrl(s3Client, command, { expiresIn: PRESIGN_GET_EXPIRES })
+  return getSignedUrl(s3Client as any, command, { expiresIn: PRESIGN_GET_EXPIRES })
 }
 
 export async function objectExists(objectKey: string): Promise<boolean> {

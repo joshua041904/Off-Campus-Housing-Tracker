@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Baseline smoke: REST via HTTP/2 + HTTP/3, gRPC health (15a–15j), optional packet capture.
+# For housing-only (auth + messaging, no RP): use ./scripts/test-microservices-http2-http3-housing.sh instead.
 # Protocol strict: HTTP/2 tests use strict_curl with --http2 (strict TLS; ALPN = no prior knowledge). HTTP/3 tests use strict_http3_curl with --http3-only (no fallback).
 # We do NOT use --http2-prior-knowledge (use ALPN negotiation). All H2: --http2; all H3: --http3-only.
 # Capture: starts on Caddy + Envoy before tests; stops after Test 15b (delete account via HTTP/3) so 15b is included (bounded: BASELINE_CAPTURE_WAIT_CAP=10s default).

@@ -17,7 +17,7 @@ spec:
   ingressClassName: nginx
   tls:
   - hosts: [off-campus-housing.local]
-    secretName: record-local-tls
+    secretName: off-campus-housing-local-tls
   rules:
   # Catch-all rule for any hostname (ngrok, etc.)
   - http:

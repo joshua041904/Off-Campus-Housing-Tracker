@@ -2,9 +2,9 @@
 # Re-issue CA + leaf certs and load into all services.
 #
 # WHEN TO RUN: Test suite fails with "curl exit 60" or "CA and Caddy don't match".
-# Same CA signs the leaf; dev-root-ca (tests) and record-local-tls (Caddy) stay in sync.
+# Same CA signs the leaf; dev-root-ca (tests) and off-campus-housing-local-tls (Caddy) stay in sync.
 #
-# Updates: dev-root-ca, record-local-tls, service-tls (off-campus-housing-tracker + ingress-nginx),
+# Updates: dev-root-ca, LEAF_TLS_SECRET (default off-campus-housing-local-tls), service-tls (off-campus-housing-tracker + ingress-nginx),
 # envoy-test (via sync-envoy-tls-secrets), certs/, restarts Caddy and optionally all services.
 #
 # Prerequisites: Cluster reachable (kubectl cluster-info), openssl.
@@ -35,6 +35,7 @@ cd "$REPO_ROOT"
 
 NS_ING="ingress-nginx"
 NS_APP="off-campus-housing-tracker"
+LEAF_TLS_SECRET="${LEAF_TLS_SECRET:-off-campus-housing-local-tls}"
 HOST="${HOST:-off-campus-housing.local}"
 RESTART_SERVICES="${RESTART_SERVICES:-1}"
 
@@ -470,17 +471,17 @@ EXT
         fi
       fi
     fi
-    # Secret type is immutable: if record-local-tls exists as kubernetes.io/tls, apply with type Opaque fails. Delete first then apply.
+    # Secret type is immutable: if leaf TLS secret exists as kubernetes.io/tls, apply with type Opaque fails. Delete first then apply.
     for n in "$NS_APP" "$NS_ING"; do
-      _kubectl_step2 -n "$n" delete secret record-local-tls --ignore-not-found 2>/dev/null || true
+      _kubectl_step2 -n "$n" delete secret "$LEAF_TLS_SECRET" --ignore-not-found 2>/dev/null || true
       sleep "$STEP2_SLEEP"
     done
     for n in "$NS_APP" "$NS_ING"; do
-      local f_rlt="$TMP/secret-record-local-tls-$n.yaml"
+      local f_rlt="$TMP/secret-leaf-tls-$n.yaml"
       echo "apiVersion: v1
 kind: Secret
 metadata:
-  name: record-local-tls
+  name: $LEAF_TLS_SECRET
   namespace: $n
 type: Opaque
 data:
@@ -535,15 +536,15 @@ data:
   else
     # Legacy: delete + create (more writes, more watch churn).
     for n in "$NS_APP" "$NS_ING"; do
-      _kubectl_step2 -n "$n" delete secret record-local-tls 2>/dev/null || true
+      _kubectl_step2 -n "$n" delete secret "$LEAF_TLS_SECRET" 2>/dev/null || true
       sleep "$STEP2_SLEEP"
       if [[ -n "$SSH_DIR" ]]; then
-        _apply_with_retry -n "$n" create secret generic record-local-tls --from-file=tls.crt="$SSH_DIR/tls-chain.crt" --from-file=tls.key="$SSH_DIR/tls.key"
+        _apply_with_retry -n "$n" create secret generic "$LEAF_TLS_SECRET" --from-file=tls.crt="$SSH_DIR/tls-chain.crt" --from-file=tls.key="$SSH_DIR/tls.key"
       else
-        _apply_with_retry -n "$n" create secret generic record-local-tls --from-file=tls.crt="$CHAIN_CRT" --from-file=tls.key="$LEAF_KEY"
+        _apply_with_retry -n "$n" create secret generic "$LEAF_TLS_SECRET" --from-file=tls.crt="$CHAIN_CRT" --from-file=tls.key="$LEAF_KEY"
       fi
       sleep "$STEP2_SLEEP"
-      _kubectl_step2 -n "$n" patch secret record-local-tls -p '{"type":"kubernetes.io/tls"}' 2>/dev/null || true
+      _kubectl_step2 -n "$n" patch secret "$LEAF_TLS_SECRET" -p '{"type":"kubernetes.io/tls"}' 2>/dev/null || true
       sleep "$STEP2_SLEEP"
       _kubectl_step2 -n "$n" delete secret dev-root-ca 2>/dev/null || true
       sleep "$STEP2_SLEEP"
@@ -557,7 +558,7 @@ data:
         sleep 15
       fi
     done
-    ok "record-local-tls (with full chain) and dev-root-ca updated in both namespaces"
+    ok "$LEAF_TLS_SECRET (with full chain) and dev-root-ca updated in both namespaces"
     _kubectl_step2 -n "$NS_APP" delete secret service-tls 2>/dev/null || true
     sleep "$STEP2_SLEEP"
     if [[ -n "$SSH_DIR" ]]; then

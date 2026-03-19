@@ -2,7 +2,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: media-service
-  namespace: off-campus-housing
+  namespace: off-campus-housing-tracker
   labels: { app: media-service }
 spec:
   selector: { app: media-service }

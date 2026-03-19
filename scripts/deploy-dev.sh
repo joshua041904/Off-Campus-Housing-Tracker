@@ -36,8 +36,9 @@ ok "Namespaces present"
 if ! kubectl get secret -n "$NS" app-secrets &>/dev/null 2>&1; then
   warn "app-secrets not found in $NS. Create TLS/secrets first (e.g. scripts/strict-tls-bootstrap.sh)."
 fi
-if ! kubectl get secret -n ingress-nginx record-local-tls dev-root-ca &>/dev/null 2>&1; then
-  warn "Caddy TLS secrets (record-local-tls, dev-root-ca) missing in ingress-nginx. Run scripts/rollout-caddy.sh after creating secrets."
+LEAF_TLS_SECRET="${LEAF_TLS_SECRET:-off-campus-housing-local-tls}"
+if ! kubectl get secret -n ingress-nginx "$LEAF_TLS_SECRET" &>/dev/null 2>&1 || ! kubectl get secret -n ingress-nginx dev-root-ca &>/dev/null 2>&1; then
+  warn "Caddy TLS secrets ($LEAF_TLS_SECRET, dev-root-ca) missing in ingress-nginx. Run scripts/rollout-caddy.sh after creating secrets."
 fi
 
 # 4) ConfigMap (canonical DATABASE_HOST + ports)

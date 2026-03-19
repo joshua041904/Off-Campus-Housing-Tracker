@@ -4,17 +4,20 @@
 
 The file **`5437-auth.dump`** is a pg_dump custom-format dump of the auth database from the old port **5437**. The housing stack uses **port 5441** for auth. Place the dump in `backups/` (plain **5437-auth.dump**, or **5437-auth.dump.gz** / **5437-auth.dump.zip**; restore script decompresses on the fly).
 
+**Important:** For extensions, use **`backups/5437-auth-extensions.sql`** (the `.sql` file), not the **`.tsv`** file. The `.tsv` files are data exports and will cause `psql` syntax errors.
+
 1. Start the auth Postgres container:
    ```bash
    docker compose up -d postgres-auth
    ```
-2. Restore into `localhost:5441` / database `auth`:
+2. Restore into `localhost:5441` / database `auth` (from repo root, password `postgres`):
+   ```bash
+   PGPASSWORD=postgres ./scripts/restore-5437-to-5441-auth.sh
+   ```
+   That script: drops/creates DB `auth`, runs `backups/5437-auth-extensions.sql`, then `pg_restore` on `backups/5437-auth.dump`, then `ANALYZE`.
+   Or legacy scripts:
    ```bash
    PGPASSWORD=postgres ./scripts/restore-auth-db.sh
-   ```
-   Or legacy script (plain .dump only):
-   ```bash
-   PGPASSWORD=postgres ./scripts/restore-auth-from-legacy-dump.sh
    ```
    Custom path:
    ```bash
@@ -35,6 +38,23 @@ The auth database uses schema **`auth`**. Main tables (see `services/auth-servic
 | `auth.passkey_challenges` | Temporary passkey challenges |
 
 Login currently uses only **email + password** (no MFA step); the rest of the schema is present for future use or compatibility.
+
+## Messaging DB: restore from 5434-social (forum + messages)
+
+The **messaging** service uses the same DB as the former social service (forum + messages schemas). To rebuild the messaging DB from the legacy 5434-social dump into housing port **5444**:
+
+**Important:** Use the **`.sql`** extension files only. Do **not** run the **`.tsv`** files with `psql` — they are tab-separated data (e.g. `pg_settings` export), not SQL, and will cause syntax errors.
+
+1. Start the messaging Postgres container: `docker compose up -d postgres-messaging`
+2. Restore (from repo root, password `postgres`):
+   ```bash
+   PGPASSWORD=postgres ./scripts/restore-5434-to-5444-messaging.sh
+   ```
+   That script: drops/creates DB `messaging` on 5444, runs `backups/5434-social-extensions.sql`, then `pg_restore` on `backups/5434-social.dump`, then `ANALYZE`. **Skip** `5434-social-pg_settings.tsv` — it is not executable SQL; system-level settings belong to the Postgres container, not the DB restore.
+3. Optional: to add the `messaging.*` schema (conversations, outbox) for integration tests:
+   ```bash
+   PGPASSWORD=postgres ./scripts/ensure-messaging-schema.sh
+   ```
 
 ## Full 8-DB backup and restore
 

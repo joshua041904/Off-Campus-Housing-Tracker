@@ -1,4 +1,5 @@
 # Caddy LoadBalancer service for MetalLB (Colima L2 / k3s).
+# TCP 443 = HTTP/1.1 + HTTP/2; UDP 443 = HTTP/3 (QUIC). Both required for full protocol support.
 # Apply after MetalLB is installed and pool is configured; MetalLB assigns an IP to this service.
 # Usage: kubectl apply -f infra/k8s/loadbalancer.yaml
 # Then: kubectl -n ingress-nginx get svc caddy-h3  (EXTERNAL-IP will be set)

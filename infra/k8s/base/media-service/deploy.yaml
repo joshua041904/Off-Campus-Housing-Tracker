@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: media-service
-  namespace: off-campus-housing
+  namespace: off-campus-housing-tracker
   labels: { app: media-service }
 spec:
   replicas: 1

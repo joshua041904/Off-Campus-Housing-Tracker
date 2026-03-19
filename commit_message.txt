@@ -66,3 +66,21 @@ How to test
 - Build Caddy (xcaddy HTTP/3): docker build -t caddy-with-tcpdump:dev -f docker/caddy-with-tcpdump/Dockerfile .
 - Build and load media/messaging: docker build -f services/media-service/Dockerfile -t media-service:dev . ; docker save media-service:dev | colima ssh -- docker load ; kubectl apply -k infra/k8s/base
 - Preflight: ./scripts/run-preflight-scale-and-all-suites.sh
+
+Messaging events v1 lock + HTTP→Kafka final wiring
+-----------------------------------------------------
+- services/messaging-service: HTTP routes now publish only immutable v1 event contracts on Kafka topic `messaging.events.v1`:
+  - `MessageSent`, `MessageReplied`, `MessageUpdated`, `MessageDeleted`, `MessageMarkedRead`
+  - Forum parity for `PostCreated` and `CommentCreated`
+- infra ConfigMap protos:
+  - ensures `infra/k8s/base/config/proto/messaging.proto` (RPC) and `infra/k8s/base/config/proto/events/messaging/v1/messaging_events.proto` (events) are present
+  - `infra/k8s/base/config/kustomization.yaml` includes `messaging_events.v1.proto=proto/events/messaging/v1/messaging_events.proto`
+- Strict topic creation wiring (no legacy):
+  - `scripts/create-kafka-event-topics.sh` now creates `messaging.events.v1` (not `*.messaging.events`)
+  - `.github/workflows/ci.yml` bootstraps `messaging.events.v1` instead of `dev.messaging.events`
+- K8s readinessProbe strict mTLS correctness:
+  - `infra/k8s/base/messaging-service/deploy.yaml` adds `-service=messaging.v1.MessagingService`
+  - remaps Kafka cert mount paths so `/etc/kafka/secrets` exposes `ca-cert.pem`, `tls.crt`, `tls.key`
+- TypeScript build unblock:
+  - fixes Redis error callback typing in `services/messaging-service/src/lib/cache.ts`
+  - adds a local ioredis TS shim (`services/messaging-service/src/types/ioredis.d.ts`) so `pnpm exec tsc --noEmit` passes without extra dependency churn

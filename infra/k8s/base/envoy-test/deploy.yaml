@@ -53,9 +53,9 @@ data:
                       cluster: records_service
                       timeout: 15s
                   - match:
-                      path: "/social."
+                      path: "/messaging."
                     route:
-                      cluster: social_service
+                      cluster: messaging_service
                       timeout: 15s
                   - match:
                       path: "/listings."
@@ -158,20 +158,20 @@ data:
               validation_context:
                 trusted_ca:
                   filename: /etc/certs/ca/dev-root.pem
-      - name: social_service
+      - name: messaging_service
         connect_timeout: 5s
         type: LOGICAL_DNS
         lb_policy: ROUND_ROBIN
         http2_protocol_options: {}
         load_assignment:
-          cluster_name: social_service
+          cluster_name: messaging_service
           endpoints:
           - lb_endpoints:
             - endpoint:
                 address:
                   socket_address:
-                    address: social-service.off-campus-housing-tracker.svc.cluster.local
-                    port_value: 50056
+                    address: messaging-service.off-campus-housing-tracker.svc.cluster.local
+                    port_value: 50064
         transport_socket:
           name: envoy.transport_sockets.tls
           typed_config:

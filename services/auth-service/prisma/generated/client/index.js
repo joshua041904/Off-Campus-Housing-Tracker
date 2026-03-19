@@ -205,7 +205,7 @@ const config = {
       "value": "prisma-client-js"
     },
     "output": {
-      "value": "/Users/tom/record-platform/services/auth-service/prisma/generated/client",
+      "value": "/Users/tom/Off-Campus-Housing-Tracker/services/auth-service/prisma/generated/client",
       "fromEnvVar": null
     },
     "config": {
@@ -227,7 +227,7 @@ const config = {
       }
     ],
     "previewFeatures": [],
-    "sourceFilePath": "/Users/tom/record-platform/services/auth-service/prisma/schema.prisma",
+    "sourceFilePath": "/Users/tom/Off-Campus-Housing-Tracker/services/auth-service/prisma/schema.prisma",
     "isCustomOutput": true
   },
   "relativeEnvPaths": {

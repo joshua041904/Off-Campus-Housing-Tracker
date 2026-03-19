@@ -1,0 +1,80 @@
+# API Gateway: single entrypoint for REST/gRPC (port 4020 per README). Strict TLS/mTLS for gRPC to auth etc.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: off-campus-housing-tracker
+  labels:
+    app: api-gateway
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "4020"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/yourorg/api-gateway:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 4020
+          envFrom:
+            - configMapRef: { name: app-config }
+            - secretRef: { name: app-secrets }
+          env:
+            - name: NODE_ENV
+              value: "development"
+            - name: GATEWAY_PORT
+              value: "4020"
+            - name: NODE_TLS_REJECT_UNAUTHORIZED
+              value: "1"
+            # Gateway does not use Kafka; avoid common/kafka SSL cert validation at startup
+            - name: KAFKA_SSL_ENABLED
+              value: "false"
+            # Strict TLS/mTLS for gRPC calls to auth-service etc. (mount service-tls at /etc/certs)
+            - name: GRPC_CA_CERT
+              value: "/etc/certs/ca.crt"
+            - name: GRPC_CLIENT_CERT
+              value: "/etc/certs/tls.crt"
+            - name: GRPC_CLIENT_KEY
+              value: "/etc/certs/tls.key"
+            - name: GRPC_SERVER_NAME
+              value: "off-campus-housing.local"
+          volumeMounts:
+            - name: service-tls
+              mountPath: /etc/certs
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 4020
+            periodSeconds: 5
+            initialDelaySeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 4020
+            periodSeconds: 15
+            initialDelaySeconds: 10
+      volumes:
+        - name: service-tls
+          secret:
+            secretName: service-tls
+            items:
+              - key: tls.key
+                path: tls.key
+              - key: tls.crt
+                path: tls.crt
+              - key: ca.crt
+                path: ca.crt

@@ -703,7 +703,8 @@ if [[ -n "$CADDY_POD" ]]; then
 fi
 # 2) Fallback: get chain from Kubernetes secret (leaf + CA)
 if [[ -z "$CERT_FILE" ]] || [[ "${CERT_COUNT:-0}" -lt 2 ]]; then
-  SECRET_LEAF=$(_kb -n "$NS_ING" get secret record-local-tls -o jsonpath='{.data.tls\.crt}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
+  LEAF_TLS_SECRET="${LEAF_TLS_SECRET:-off-campus-housing-local-tls}"
+  SECRET_LEAF=$(_kb -n "$NS_ING" get secret "$LEAF_TLS_SECRET" -o jsonpath='{.data.tls\.crt}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
   SECRET_CA=$(_kb -n "$NS_ING" get secret dev-root-ca -o jsonpath='{.data.dev-root\.pem}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
   if [[ -n "$SECRET_LEAF" ]]; then
     SECRET_CHAIN="$SECRET_LEAF"
@@ -722,10 +723,10 @@ fi
 if [[ -n "$CERT_COUNT" ]] && [[ "$CERT_COUNT" =~ ^[0-9]+$ ]] && [[ $CERT_COUNT -ge 2 ]]; then
   test_result 0 "Certificate chain completeness: PASSED ($CERT_COUNT certificates)"
 elif [[ "${CERT_COUNT:-0}" -eq 1 ]] && [[ -n "${SECRET_CA:-}" ]]; then
-  # Leaf in record-local-tls + CA in dev-root-ca (separate secrets) is valid
-  test_result 0 "Certificate chain completeness: PASSED (leaf in record-local-tls + CA in dev-root-ca)"
+  # Leaf in off-campus-housing-local-tls + CA in dev-root-ca (separate secrets) is valid
+  test_result 0 "Certificate chain completeness: PASSED (leaf in $LEAF_TLS_SECRET + CA in dev-root-ca)"
 elif [[ "${CERT_COUNT:-0}" -eq 1 ]]; then
-  test_result 1 "Certificate chain completeness: FAILED (only 1 certificate, expected 2+ for full chain - leaf+CA in record-local-tls and dev-root-ca)"
+  test_result 1 "Certificate chain completeness: FAILED (only 1 certificate, expected 2+ for full chain - leaf+CA in $LEAF_TLS_SECRET and dev-root-ca)"
 else
   test_result 1 "Certificate chain test: FAILED (could not retrieve chain from pod or secret)"
 fi

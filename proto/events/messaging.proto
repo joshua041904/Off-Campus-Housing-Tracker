@@ -4,6 +4,9 @@ package events.messaging;
 
 option go_package = "github.com/yourorg/off-campus-housing-tracker/proto/events/messaging";
 
+// DEPRECATED: Prefer immutable versioned contracts in proto/events/messaging/v1/messaging_events.proto
+// (package events.messaging.v1, Kafka topic messaging.events.v1). Do not add new messages here.
+
 // Versioned event payloads for dev.messaging.events. No message content in events.
 
 message ConversationCreatedV1 {

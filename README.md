@@ -257,6 +257,8 @@ Database: `messaging`
 
 No booking or listing logic.
 
+Kafka: publishes immutable, versioned events to topic `messaging.events.v1` using `proto/events/messaging/v1/messaging_events.proto` (MessageSent, MessageReplied, MessageUpdated, MessageDeleted, MessageMarkedRead; plus PostCreated and CommentCreated).
+
 ---
 
 ## 5. notification-service
@@ -459,7 +461,17 @@ Once the repo is set up and services are coded, use these steps so the whole tea
 
 - **k3d:** Use your existing k3d workflow; ensure the cluster name/context matches what the scripts expect (e.g. `off-campus-housing-tracker`).
 
-## 2. Bring up external infra (every time you need DBs/Kafka/Redis)
+## 2. TLS + Edge (one command) — certs, Caddy, Envoy, namespaces
+
+**Idiot-proof:** Run one script from repo root. It generates all certs, loads TLS secrets, and rolls out Caddy (2 pods) and Envoy (1 pod) with tcpdump in the images. No manual cert steps.
+
+```bash
+./scripts/setup-tls-and-edge.sh
+```
+
+This creates namespaces **ingress-nginx** (Caddy), **envoy-test** (Envoy), **off-campus-housing-tracker** (app pods), generates dev CA + Caddy leaf + Envoy client certs, builds **caddy-with-tcpdump** (xcaddy, HTTP/3) and **envoy-with-tcpdump**, and applies everything in order. See **[docs/TLS-AND-EDGE-SETUP.md](docs/TLS-AND-EDGE-SETUP.md)** for the full guide and troubleshooting. To verify HTTP/3: **`./scripts/verify-http3-edge.sh`** (checks Caddy h3 build, UDP 443, alt-svc, and `curl --http3`).
+
+## 2b. Bring up external infra (every time you need DBs/Kafka/Redis)
 
 Before running the app or tests, start Zookeeper, Kafka, Redis, and the 8 Postgres instances:
 
@@ -471,7 +483,7 @@ Before running the app or tests, start Zookeeper, Kafka, Redis, and the 8 Postgr
 - Kafka needs `certs/kafka-ssl` (see Runbook “Kafka SSL”); use `SKIP_KAFKA=1` to run without Kafka.
 - Optional: restore from backup with `RESTORE_BACKUP_DIR=latest` or `RESTORE_BACKUP_DIR=backups/all-8-<timestamp>`.
 
-### 2b. Build and load app images into Colima k3s (for k6 and in-cluster tests)
+### 2c. Build and load app images into Colima k3s (for k6 and in-cluster tests)
 
 To run auth-, messaging-, and media-service in-cluster (and thus k6 + regular test suites), build the images and load them into Colima’s k3s:
 
@@ -492,15 +504,15 @@ kubectl apply -k infra/k8s/base
 
 Ensure `app-config` ConfigMap and `app-secrets` provide DB hosts (e.g. `host.docker.internal` for Postgres 5441–5448) and `REDIS_URL`. Then run preflight and suites (step 4).
 
-### 2c. Caddy H3 (2 pods) and Envoy (1 pod) with strict TLS/mTLS
+### 2d. Caddy H3 (2 pods) and Envoy (1 pod) with strict TLS/mTLS
 
-For preflight and k6/strict-TLS tests, Caddy and Envoy must be running with certs loaded in the right namespaces:
+If you didn’t use the one-shot script in step 2, you can bring up Caddy and Envoy manually. For preflight and k6/strict-TLS tests, they must run with certs in the right namespaces:
 
-| Namespace           | Workload   | Replicas | Secrets (strict TLS/mTLS)     |
-|--------------------|------------|----------|--------------------------------|
-| **ingress-nginx**  | Caddy H3   | 2        | `record-local-tls`, `dev-root-ca` |
-| **envoy-test**     | Envoy      | 1        | `dev-root-ca`, `envoy-client-tls` |
-| **off-campus-housing** (or off-campus-housing-tracker) | App services | per deploy | `app-config`, `app-secrets`, optional `service-tls` |
+| Namespace                     | Workload   | Replicas | Secrets (strict TLS/mTLS)        |
+|------------------------------|------------|----------|-----------------------------------|
+| **ingress-nginx**             | Caddy H3   | 2        | `off-campus-housing-local-tls`, `dev-root-ca` |
+| **envoy-test**                | Envoy      | 1        | `dev-root-ca`, `envoy-client-tls` |
+| **off-campus-housing-tracker**| App services | per deploy | `app-config`, `app-secrets`, optional `service-tls` |
 
 From repo root (after certs exist in `./certs/`):
 
@@ -508,7 +520,7 @@ From repo root (after certs exist in `./certs/`):
 ./scripts/ensure-caddy-envoy-strict-tls.sh
 ```
 
-This ensures namespaces, TLS secrets, Caddy deploy (LoadBalancer on Colima+MetalLB, else NodePort), Envoy deploy, scales Caddy to 2 and Envoy to 1, and waits for rollouts. Prerequisites: `./scripts/reissue-ca-and-leaf-load-all-services.sh`, `./scripts/generate-envoy-client-cert.sh`, and `./scripts/strict-tls-bootstrap.sh` (or run ensure-caddy-envoy-strict-tls.sh once certs are in place — it will run strict-tls-bootstrap if secrets are missing). Then run `./scripts/run-preflight-scale-and-all-suites.sh`. Verify from repo root: `./scripts/verify-metallb-and-traffic-policy.sh`.
+This ensures namespaces, TLS secrets, Caddy deploy (LoadBalancer on Colima+MetalLB, else NodePort), Envoy deploy, scales Caddy to 2 and Envoy to 1, and waits for rollouts. To create certs first: `./scripts/dev-generate-certs.sh`, then `./scripts/generate-envoy-client-cert.sh`, then `./scripts/strict-tls-bootstrap.sh`. Or run the one-shot: `./scripts/setup-tls-and-edge.sh`. Then run `./scripts/run-preflight-scale-and-all-suites.sh`. Verify: `./scripts/verify-metallb-and-traffic-policy.sh`.
 
 ## 3. One person testing their part
 
@@ -531,7 +543,7 @@ After cluster + infra are up, you can run the full preflight (images, TLS, Caddy
 - Set `RUN_K6=1` to run k6 load after the rotation suite.
 - Suites run: **auth**, **rotation** (CA/leaf + protocol verification), **standalone-capture** (wire capture), **tls-mtls** (cert chain, gRPC TLS, mTLS).
 
-For more detail see the Runbook and comments in `scripts/run-all-test-suites.sh` and `scripts/run-preflight-scale-and-all-suites.sh`.
+For a **housing-only** HTTP/2 + HTTP/3 smoke (auth register/login for two users, Caddy/gateway health, messaging integration tests), run **`./scripts/test-microservices-http2-http3-housing.sh`** (no RP/records/social). For more detail see the Runbook and comments in `scripts/run-all-test-suites.sh` and `scripts/run-preflight-scale-and-all-suites.sh`.
 
 ### Strict TLS k6 and HTTP/3 (xk6-http3)
 

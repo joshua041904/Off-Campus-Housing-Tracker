@@ -1,6 +1,9 @@
 # FILE: k8s/caddy-h3-deploy-loadbalancer.yaml
 # Colima + MetalLB: no hostPort, soft anti-affinity — 2 replicas on 1 node, zero downtime.
 # Use: CADDY_USE_LOADBALANCER=1 ./scripts/rollout-caddy.sh
+#
+# HTTP/3 (QUIC): Image caddy-with-tcpdump:dev is built with xcaddy (docker/caddy-with-tcpdump/Dockerfile);
+# Caddyfile has servers { protocols h1 h2 h3 }. Service must expose UDP 443 (see loadbalancer.yaml).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -82,7 +85,7 @@ spec:
           items: [{ key: Caddyfile, path: Caddyfile }]
       - name: caddy-certs
         secret:
-          secretName: record-local-tls
+          secretName: off-campus-housing-local-tls
           items:
             - { key: tls.crt, path: tls.crt }
             - { key: tls.key, path: tls.key }

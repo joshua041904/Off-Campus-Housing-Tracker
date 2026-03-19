@@ -10,9 +10,17 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 METALLB_VERSION="${METALLB_VERSION:-v0.14.5}"
-# Pool must be on the Colima VM's L2 (same subnet as eth0). VM has eth0=192.168.5.x, col0=192.168.64.x.
-# Using 192.168.1.x (home LAN) breaks: host can't reach LB IP, script falls back to socat, HTTP/3 (QUIC) fails.
-# Find VM subnet: colima ssh ip addr
+# Pool must be on the Colima VM's L2 (same subnet as eth0). VM may be 192.168.5.x or 192.168.64.x.
+# Using wrong subnet (e.g. 192.168.1.x home LAN) → EXTERNAL-IP stays <pending>, "bad hostname", HTTP/3 fails.
+# Auto-detect VM subnet when METALLB_POOL not set so pool always matches Colima.
+if [[ -z "${METALLB_POOL:-}" ]] && command -v colima &>/dev/null 2>&1; then
+  VM_INET=$(colima ssh -- ip -4 addr show eth0 2>/dev/null | grep -oE 'inet [0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/inet //' || true)
+  if [[ -n "$VM_INET" ]]; then
+    VM_SUBNET=$(echo "$VM_INET" | cut -d. -f1-3)
+    METALLB_POOL="${VM_SUBNET}.240-${VM_SUBNET}.250"
+    echo "Auto-detected Colima VM subnet $VM_SUBNET.x (eth0 $VM_INET); using METALLB_POOL=$METALLB_POOL"
+  fi
+fi
 METALLB_POOL="${METALLB_POOL:-192.168.5.240-192.168.5.250}"
 # Single-node stable: L2 only (no BGP). BGP + L2 on one node = dual advertisement = QUIC unstable after speaker churn.
 METALLB_L2_ONLY="${METALLB_L2_ONLY:-1}"

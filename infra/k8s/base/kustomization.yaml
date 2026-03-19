@@ -14,6 +14,7 @@ resources:
   - observability
   - monitoring
   - exporters
+  - api-gateway
   - auth-service
   - messaging-service
   - media-service

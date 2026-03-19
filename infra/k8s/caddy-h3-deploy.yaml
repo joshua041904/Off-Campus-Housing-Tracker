@@ -95,7 +95,7 @@ spec:
           items: [{ key: Caddyfile, path: Caddyfile }]
       - name: caddy-certs
         secret:
-          secretName: record-local-tls
+          secretName: off-campus-housing-local-tls
           items:
             - { key: tls.crt, path: tls.crt }
             - { key: tls.key, path: tls.key }
