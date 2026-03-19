@@ -16,7 +16,7 @@ spec:
         prometheus.io/scrape: "true"
         prometheus.io/port: "4001"
         prometheus.io/path: "/metrics"
-        linkerd.io/inject: enabled  # Enable Linkerd sidecar injection
+        linkerd.io/inject: disabled  # Disable sidecar: strict local gRPC health probes must reach app directly
     spec:
       # DATABASE_HOST from app-config (host.docker.internal / host.lima.internal); ensure resolvable in cluster (CoreDNS or overlay hostAliases).
       containers:
@@ -41,11 +41,11 @@ spec:
             - name: GRPC_REQUIRE_CLIENT_CERT
               value: "true"  # Strict mTLS: Envoy presents client cert to backends
             - name: TLS_CA_PATH
-              value: "/certs/dev-root.pem"  # Must match CA that signs Envoy client cert (envoy-client-tls)
+              value: "/etc/certs/ca.crt"  # Align server trust root with mounted service TLS chain
             - name: NODE_TLS_REJECT_UNAUTHORIZED
               value: "1"
             - name: NODE_EXTRA_CA_CERTS
-              value: "/certs/dev-root.pem"
+              value: "/etc/certs/ca.crt"
             - name: TLS_KEY_PATH
               value: "/etc/certs/tls.key"
             - name: TLS_CERT_PATH
@@ -96,7 +96,7 @@ spec:
             exec:
               command:
                 - /usr/local/bin/grpc-health-probe
-                - -addr=localhost:50051
+                - -addr=localhost:50061
                 - -service=auth.AuthService
                 - -tls
                 - -tls-no-verify=false
@@ -114,7 +114,7 @@ spec:
             exec:
               command:
                 - /usr/local/bin/grpc-health-probe
-                - -addr=localhost:50051
+                - -addr=localhost:50061
                 - -service=auth.AuthService
                 - -tls
                 - -tls-no-verify=false
@@ -132,7 +132,7 @@ spec:
             exec:
               command:
                 - /usr/local/bin/grpc-health-probe
-                - -addr=localhost:50051
+                - -addr=localhost:50061
                 - -service=auth.AuthService
                 - -tls
                 - -tls-no-verify=false

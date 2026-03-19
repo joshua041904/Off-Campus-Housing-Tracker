@@ -58,8 +58,12 @@ export function makeRedis(): Redis | null {
   const client = url
     ? new Redis(url, { ...common, tls: useTLS ? {} : undefined })
     : new Redis({
-        host: process.env.REDIS_HOST || 'redis',
-        port: Number(process.env.REDIS_PORT || 6379),
+        host:
+          process.env.REDIS_HOST ||
+          (process.env.NODE_ENV === 'test'
+            ? '127.0.0.1'
+            : 'redis-external.off-campus-housing-tracker.svc.cluster.local'),
+        port: Number(process.env.REDIS_PORT || 6380),
         ...common,
       })
 

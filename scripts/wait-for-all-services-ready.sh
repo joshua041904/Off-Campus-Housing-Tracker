@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Wait for all services to be ready before proceeding with test suite
-# Ensures all 9 services are 1/1 Ready before continuing
+# Wait for app Deployments to be ready before proceeding with test suite.
+# Default list includes media-service; preflight sets WAIT_APP_SERVICES / PREFLIGHT_APP_DEPLOYS to scope (full vs core).
 
 set -euo pipefail
 
@@ -25,7 +25,14 @@ log() {
 }
 
 NS="off-campus-housing-tracker"
-SERVICES=("auth-service" "listings-service" "booking-service" "messaging-service" "trust-service" "analytics-service" "api-gateway")
+# Space-separated deploy names; preflight exports WAIT_APP_SERVICES from PREFLIGHT_APP_DEPLOYS.
+if [[ -n "${WAIT_APP_SERVICES:-}" ]]; then
+  read -r -a SERVICES <<< "$WAIT_APP_SERVICES"
+elif [[ -n "${PREFLIGHT_APP_DEPLOYS:-}" ]]; then
+  read -r -a SERVICES <<< "$PREFLIGHT_APP_DEPLOYS"
+else
+  SERVICES=("auth-service" "listings-service" "booking-service" "messaging-service" "trust-service" "analytics-service" "api-gateway" "media-service")
+fi
 EXPECTED_COUNT=${#SERVICES[@]}
 
 # Optional: also wait for Caddy (ingress-nginx) and Envoy (envoy-test) so cluster is fully ready for suites

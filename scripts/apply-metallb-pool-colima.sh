@@ -12,16 +12,26 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 NS_ING="${NS_ING:-ingress-nginx}"
 
-# Auto-detect Colima VM subnet when METALLB_POOL not set (same logic as install-metallb-colima.sh)
-if [[ -z "${METALLB_POOL:-}" ]] && command -v colima &>/dev/null 2>&1; then
-  VM_INET=$(colima ssh -- ip -4 addr show eth0 2>/dev/null | grep -oE 'inet [0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/inet //' || true)
-  if [[ -n "$VM_INET" ]]; then
-    VM_SUBNET=$(echo "$VM_INET" | cut -d. -f1-3)
-    METALLB_POOL="${VM_SUBNET}.240-${VM_SUBNET}.250"
-    echo "Auto-detected Colima VM subnet $VM_SUBNET.x (eth0 $VM_INET); using METALLB_POOL=$METALLB_POOL"
+# Auto-detect pool from cluster node InternalIP first (works even if Colima VM subnet changed).
+if [[ -z "${METALLB_POOL:-}" ]]; then
+  NODE_IP_RAW="$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || true)"
+  NODE_IP="$(printf '%s\n' "$NODE_IP_RAW" | awk '{for(i=1;i<=NF;i++) if ($i ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) {print $i; exit}}')"
+  if [[ -n "$NODE_IP" ]]; then
+    NODE_SUBNET="$(echo "$NODE_IP" | awk -F. '{print $1"."$2"."$3}')"
+    METALLB_POOL="${NODE_SUBNET}.240-${NODE_SUBNET}.250"
+    echo "Auto-detected node InternalIP subnet ${NODE_SUBNET}.x (node ${NODE_IP}); using METALLB_POOL=${METALLB_POOL}"
   fi
 fi
-METALLB_POOL="${METALLB_POOL:-192.168.5.240-192.168.5.250}"
+# Fallback to Colima eth0 if node lookup is unavailable.
+if [[ -z "${METALLB_POOL:-}" ]] && command -v colima &>/dev/null 2>&1; then
+  VM_INET="$(colima ssh -- ip -4 addr show eth0 2>/dev/null | awk '/inet / {print $2; exit}' | cut -d/ -f1 || true)"
+  if [[ -n "$VM_INET" ]]; then
+    VM_SUBNET="$(echo "$VM_INET" | cut -d. -f1-3)"
+    METALLB_POOL="${VM_SUBNET}.240-${VM_SUBNET}.250"
+    echo "Fallback auto-detected Colima subnet ${VM_SUBNET}.x (eth0 ${VM_INET}); using METALLB_POOL=${METALLB_POOL}"
+  fi
+fi
+METALLB_POOL="${METALLB_POOL:-192.168.64.240-192.168.64.250}"
 
 echo "Applying IPAddressPool and L2Advertisement (pool: $METALLB_POOL)..."
 sed "s|\$METALLB_POOL|$METALLB_POOL|g" "$REPO_ROOT/infra/k8s/metallb/ipaddresspool.yaml" | kubectl apply -f - --validate=false

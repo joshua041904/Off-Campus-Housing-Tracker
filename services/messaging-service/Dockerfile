@@ -11,7 +11,7 @@ COPY proto ./proto
 
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
     --mount=type=cache,id=pnpm-cache,target=/root/.cache/pnpm \
-    pnpm -w --filter @common/utils... --filter messaging-service... install --frozen-lockfile --ignore-scripts
+    pnpm -w --filter @common/utils... --filter messaging-service... install --no-frozen-lockfile --ignore-scripts
 
 # --- build ---
 FROM node:20-bookworm-slim AS build
@@ -45,6 +45,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
 COPY --from=build /app/node_modules /app/node_modules
 COPY --from=build /app/services/messaging-service/node_modules ./node_modules
 COPY --from=build /app/services/messaging-service/dist ./dist
+COPY --from=build /app/services/messaging-service/src/lib/singleflight_cache.lua ./dist/lib/singleflight_cache.lua
 COPY --from=build /app/services/messaging-service/package.json ./package.json
 COPY --from=build /app/services/common /app/services/common
 COPY --from=build /app/proto /app/proto

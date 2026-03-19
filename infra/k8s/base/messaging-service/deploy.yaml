@@ -88,12 +88,17 @@ spec:
               command:
                 - /usr/local/bin/grpc-health-probe
                 - -addr=localhost:50064
+                - -service=messaging.v1.MessagingService
                 - -tls
                 - -tls-ca-cert=/etc/certs/ca.crt
                 - -tls-client-cert=/etc/certs/tls.crt
                 - -tls-client-key=/etc/certs/tls.key
+                - -tls-server-name=off-campus-housing.local
+                - -connect-timeout=10s
+                - -rpc-timeout=5s
             initialDelaySeconds: 15
             periodSeconds: 10
+            timeoutSeconds: 5
             failureThreshold: 18
 
           readinessProbe:
@@ -106,20 +111,29 @@ spec:
                 - -tls-ca-cert=/etc/certs/ca.crt
                 - -tls-client-cert=/etc/certs/tls.crt
                 - -tls-client-key=/etc/certs/tls.key
+                - -tls-server-name=off-campus-housing.local
+                - -connect-timeout=10s
+                - -rpc-timeout=5s
             initialDelaySeconds: 20
             periodSeconds: 10
+            timeoutSeconds: 5
 
           livenessProbe:
             exec:
               command:
                 - /usr/local/bin/grpc-health-probe
                 - -addr=localhost:50064
+                - -service=messaging.v1.MessagingService
                 - -tls
                 - -tls-ca-cert=/etc/certs/ca.crt
                 - -tls-client-cert=/etc/certs/tls.crt
                 - -tls-client-key=/etc/certs/tls.key
+                - -tls-server-name=off-campus-housing.local
+                - -connect-timeout=10s
+                - -rpc-timeout=5s
             initialDelaySeconds: 60
             periodSeconds: 30
+            timeoutSeconds: 5
 
           resources:
             requests:

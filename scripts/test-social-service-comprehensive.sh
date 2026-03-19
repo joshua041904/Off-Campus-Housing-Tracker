@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Comprehensive social-service test: all forum + messages routes (HTTP/2 via gateway).
+# Comprehensive messaging-service test: all forum + messages routes (HTTP/2 via gateway).
 # Requires: HOST, PORT, strict TLS CA. Obtains auth tokens via register/login.
-# Run standalone or as part of run-all-test-suites (social suite).
+# Run standalone or as part of run-all-test-suites (messaging suite).
 # Exit 0 if all tests pass; non-zero otherwise.
 #
 # If archive/recall/kick/ban (or list archived/delete thread/list groups) return 501,
-# ensure Postgres social DB (port 5434) is up and run:
-#   PGHOST=127.0.0.1 PGPASSWORD=postgres ./scripts/ensure-social-migrations.sh
+# ensure Postgres messaging DB (port 5444) is up and run:
+#   PGHOST=127.0.0.1 PGPASSWORD=postgres ./scripts/ensure-messaging-schema.sh
 
 set -euo pipefail
 
@@ -18,9 +18,36 @@ export PATH="$SCRIPT_DIR/shims:/opt/homebrew/bin:/usr/local/bin:${PATH:-}"
 NS="${NS:-off-campus-housing-tracker}"
 HOST="${HOST:-off-campus-housing.local}"
 PORT="${PORT:-30443}"
+
+# Auto-detect current Caddy LoadBalancer IP/hostname when not provided.
+# This keeps standalone runs aligned with the active MetalLB subnet.
+if [[ -z "${TARGET_IP:-}" ]] && [[ -z "${REACHABLE_LB_IP:-}" ]]; then
+  _live_lb=$(_kb -n ingress-nginx get svc caddy-h3 -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+  [[ -z "$_live_lb" ]] && _live_lb=$(_kb -n ingress-nginx get svc caddy-h3 -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+  if [[ -n "$_live_lb" ]]; then
+    export TARGET_IP="$_live_lb"
+    export REACHABLE_LB_IP="$_live_lb"
+  fi
+  unset _live_lb 2>/dev/null || true
+fi
+
 # When run after run-all-test-suites with LB IP, TARGET_IP/REACHABLE_LB_IP and PORT=443 are set — use for --resolve so requests hit Caddy
 CURL_RESOLVE_IP="${TARGET_IP:-${REACHABLE_LB_IP:-127.0.0.1}}"
-[[ -n "${TARGET_IP:-}" ]] || [[ -n "${REACHABLE_LB_IP:-}" ]] && PORT="${PORT:-443}"
+if [[ -n "${TARGET_IP:-}" ]] || [[ -n "${REACHABLE_LB_IP:-}" ]]; then
+  PORT="443"
+fi
+
+# Extra fallback for local standalone runs: resolve directly via kubectl when
+# helper-based detection falls back to 127.0.0.1 (causes HTTP 000 from host).
+if [[ -z "${CURL_RESOLVE_IP:-}" ]] || [[ "${CURL_RESOLVE_IP:-}" == "127.0.0.1" ]]; then
+  _lb_direct="$(kubectl get svc -n ingress-nginx caddy-h3 -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
+  [[ -z "$_lb_direct" ]] && _lb_direct="$(kubectl get svc -n ingress-nginx caddy-h3 -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
+  if [[ -n "$_lb_direct" ]]; then
+    CURL_RESOLVE_IP="$_lb_direct"
+    PORT="443"
+  fi
+  unset _lb_direct 2>/dev/null || true
+fi
 CURL_BIN="${CURL_BIN:-/opt/homebrew/opt/curl/bin/curl}"
 
 ctx=$(kubectl config current-context 2>/dev/null || echo "")
@@ -48,11 +75,11 @@ export PORT="${PORT:-30443}"
 CA_CERT=""
 K8S_CA_ING=$(_kb -n ingress-nginx get secret dev-root-ca -o jsonpath='{.data.dev-root\.pem}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
 if [[ -n "$K8S_CA_ING" ]]; then
-  CA_CERT="/tmp/test-social-ca-$$.pem"
+  CA_CERT="/tmp/test-messaging-ca-$$.pem"
   echo "$K8S_CA_ING" > "$CA_CERT"
 fi
 [[ -z "$CA_CERT" ]] && [[ -n "$(_kb -n "$NS" get secret dev-root-ca -o jsonpath='{.data.dev-root\.pem}' 2>/dev/null)" ]] && {
-  CA_CERT="/tmp/test-social-ca-$$.pem"
+  CA_CERT="/tmp/test-messaging-ca-$$.pem"
   _kb -n "$NS" get secret dev-root-ca -o jsonpath='{.data.dev-root\.pem}' | base64 -d > "$CA_CERT"
 }
 [[ -z "$CA_CERT" ]] && [[ -f "/tmp/grpc-certs/ca.crt" ]] && CA_CERT="/tmp/grpc-certs/ca.crt"
@@ -108,21 +135,21 @@ _check_social() {
   return 1
 }
 
-# --- Ensure social DB migrations (archive, recall, kick/ban, roles) so all message routes work ---
-# Preflight also runs this; running here ensures standalone runs and late DB bring-up still get migrations.
-if [[ -f "$SCRIPT_DIR/ensure-social-migrations.sh" ]]; then
-  say "Ensuring social DB migrations (archive, recall, kick/ban, roles)..."
-  chmod +x "$SCRIPT_DIR/ensure-social-migrations.sh" 2>/dev/null || true
-  if "$SCRIPT_DIR/ensure-social-migrations.sh" 2>/dev/null; then
-    ok "Social migrations applied"
+# --- Ensure messaging schema/outbox (Kafka payload support) ---
+# Preflight also runs DB setup; this block keeps standalone runs consistent.
+if [[ -f "$SCRIPT_DIR/ensure-messaging-schema.sh" ]]; then
+  say "Ensuring messaging schema (port 5444) and outbox..."
+  chmod +x "$SCRIPT_DIR/ensure-messaging-schema.sh" 2>/dev/null || true
+  if "$SCRIPT_DIR/ensure-messaging-schema.sh" 2>/dev/null; then
+    ok "Messaging schema applied"
   else
-    warn "Social migrations skipped or partial (psql required; Postgres social on port 5434 must be up). Archive/list archived/delete thread/list groups/kick/ban/recall may return 501. Run: PGHOST=127.0.0.1 PGPASSWORD=postgres $SCRIPT_DIR/ensure-social-migrations.sh"
+    warn "Messaging schema skipped or partial (psql required; Postgres messaging on port 5444 must be up)."
   fi
 fi
 
 # --- Wait for service stability (especially after rotation/chaos tests) ---
 say "Waiting for service stability..."
-for svc in social-service api-gateway; do
+for svc in messaging-service api-gateway; do
   _kb wait --for=condition=ready pod -l app=$svc -n off-campus-housing-tracker --timeout=60s 2>/dev/null || true
 done
 sleep 10
@@ -178,22 +205,22 @@ else
 fi
 
 if [[ -z "$TOKEN" ]]; then
-  warn "No User 1 token; social tests will skip authenticated routes"
+  warn "No User 1 token; messaging tests will skip authenticated routes"
 fi
 if [[ -z "$TOKEN_USER2" ]]; then
   warn "No User 2 token; P2P/group tests may be limited"
 fi
 
-# --- Social healthz ---
-say "=== Social: healthz ==="
+# --- Messaging healthz ---
+say "=== Messaging: healthz ==="
 HEALTH=$(strict_curl -sS -w "\n%{http_code}" --http2 --max-time 10 \
   --resolve "$HOST:${PORT}:$CURL_RESOLVE_IP" -H "Host: $HOST" \
-  "https://$HOST:${PORT}/api/social/healthz" 2>&1) || true
+  "https://$HOST:${PORT}/api/messaging/healthz" 2>&1) || true
 HEALTH_CODE=$(echo "$HEALTH" | tail -1)
 if [[ "$HEALTH_CODE" == "200" ]]; then
-  ok "Social healthz 200"
+  ok "Messaging healthz 200"
 else
-  warn "Social healthz HTTP $HEALTH_CODE"; FAILED=$((FAILED+1))
+  warn "Messaging healthz HTTP $HEALTH_CODE"; FAILED=$((FAILED+1))
 fi
 
 # --- Forum: list posts (requires auth — api-gateway uses requireUserIdFromRequest) ---

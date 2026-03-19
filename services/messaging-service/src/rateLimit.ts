@@ -20,6 +20,31 @@ export async function checkAndIncrement(userId: string): Promise<void> {
   let countDay: number
 
   try {
+    // ioredis can be in "wait"/"connecting" when the first test call arrives.
+    // With offline queue disabled, commands issued too early throw stream errors.
+    const status = (redis as any).status as string
+    if (status === 'wait') {
+      await redis.connect()
+    } else if (status === 'connecting') {
+      await new Promise<void>((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error('Redis connect timeout')), 5000)
+        const cleanup = () => {
+          clearTimeout(t)
+          ;(redis as any).off?.('ready', onReady)
+          ;(redis as any).off?.('error', onError)
+        }
+        const onReady = () => {
+          cleanup()
+          resolve()
+        }
+        const onError = (err: unknown) => {
+          cleanup()
+          reject(err)
+        }
+        ;(redis as any).once?.('ready', onReady)
+        ;(redis as any).once?.('error', onError)
+      })
+    }
     const multi = redis.multi()
     multi.incr(keyMin)
     multi.expire(keyMin, WINDOW_SEC)

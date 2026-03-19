@@ -18,7 +18,13 @@ warn(){ echo "⚠️  $*"; }
 log() { echo "[$(date +%H:%M:%S)] $*" | tee -a "${CLEANUP_LOG:-/dev/stdout}"; }
 
 NS="off-campus-housing-tracker"
-SERVICES=("auth-service" "listings-service" "booking-service" "messaging-service" "trust-service" "analytics-service" "api-gateway")
+if [[ -n "${WAIT_APP_SERVICES:-}" ]]; then
+  read -r -a SERVICES <<< "$WAIT_APP_SERVICES"
+elif [[ -n "${PREFLIGHT_APP_DEPLOYS:-}" ]]; then
+  read -r -a SERVICES <<< "$PREFLIGHT_APP_DEPLOYS"
+else
+  SERVICES=("auth-service" "listings-service" "booking-service" "messaging-service" "trust-service" "analytics-service" "api-gateway" "media-service")
+fi
 
 say "=== Aggressive ReplicaSet Cleanup ==="
 CLEANUP_LOG="${CLEANUP_LOG:-/tmp/cleanup-$(date +%Y%m%d-%H%M%S).log}"

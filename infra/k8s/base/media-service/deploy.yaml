@@ -40,6 +40,19 @@ spec:
               value: "5448"
             - name: MEDIA_DB_NAME
               value: "media"
+            - name: KAFKA_CA_CERT
+              value: "/etc/kafka/secrets/ca-cert.pem"
+            - name: KAFKA_CLIENT_CERT
+              value: "/etc/kafka/secrets/tls.crt"
+            - name: KAFKA_CLIENT_KEY
+              value: "/etc/kafka/secrets/tls.key"
+          volumeMounts:
+            - name: proto-files
+              mountPath: /app/proto
+              readOnly: true
+            - name: kafka-ssl
+              mountPath: /etc/kafka/secrets
+              readOnly: true
           resources:
             requests:
               cpu: "100m"
@@ -59,3 +72,18 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 3
             failureThreshold: 2
+      volumes:
+        - name: proto-files
+          configMap:
+            name: proto-files
+        - name: kafka-ssl
+          secret:
+            secretName: och-kafka-ssl-secret
+            optional: true
+            items:
+              - key: ca-cert.pem
+                path: ca-cert.pem
+              - key: client.crt
+                path: tls.crt
+              - key: client.key
+                path: tls.key

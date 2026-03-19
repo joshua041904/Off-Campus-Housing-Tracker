@@ -331,6 +331,19 @@ app.use("/api/booking", injectIdentityHeadersIfAny, createProxyMiddleware(proxyO
 app.use("/messaging", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(MESSAGING_HTTP, { "^/messaging": "" }) as any));
 app.use("/api/messaging", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(MESSAGING_HTTP, { "^/api/messaging": "" }) as any));
 
+// Backward compatible: forum + messages are served by messaging-service,
+// historically accessed under /api/forum and /api/messages.
+app.use(
+  "/api/forum",
+  injectIdentityHeadersIfAny,
+  createProxyMiddleware(proxyOpts(`${MESSAGING_HTTP}/forum`, { "^/": "/" }) as any)
+);
+app.use(
+  "/api/messages",
+  injectIdentityHeadersIfAny,
+  createProxyMiddleware(proxyOpts(`${MESSAGING_HTTP}/messages`, { "^/": "/" }) as any)
+);
+
 app.use("/trust", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(TRUST_HTTP, { "^/trust": "" }) as any));
 app.use("/api/trust", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(TRUST_HTTP, { "^/api/trust": "" }) as any));
 

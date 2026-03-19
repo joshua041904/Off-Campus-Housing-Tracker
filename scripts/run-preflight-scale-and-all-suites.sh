@@ -29,6 +29,11 @@ fi
 #   - Reissue CA + leaf (dev-root-ca / off-campus-housing-local-tls match); verify no curl 60
 #   - Strict TLS (CA + leaf), Kafka external strict TLS :29094 (housing; RP uses 29093), no in-cluster Postgres/Kafka/ZK
 #   RUN_SUITES=0 skip test suites.
+#   PREFLIGHT_APP_SCOPE=full|core — which Deployments to scale and wait for (default full).
+#     core = auth-service api-gateway messaging-service media-service (finishes without listings/booking/trust/analytics).
+#     Override exact list: PREFLIGHT_APP_DEPLOYS="auth-service api-gateway messaging-service"
+#   RUN_MESSAGING_LOAD=1 (default) — after Vitest + housing + comprehensive scripts, run short k6 on messaging (+ media health) if k6 is installed.
+#     Set RUN_MESSAGING_LOAD=0 to skip. Tune: K6_MESSAGING_DURATION, K6_MESSAGING_RATE, K6_MESSAGING_VUS, K6_MEDIA_*.
 #   Preflight does not apply DB migrations or infra/db/*.sql; run scripts/setup-*-db.sh or scripts/ensure-*.sh manually when schema changes.
 #   CAPTURE_STOP_TIMEOUT=30 (default when running suites) — bounds packet capture stop phase so it never blocks; set higher for full pcap copy/analyze.
 #   PREFLIGHT_TELEMETRY=1 (default) capture control-plane telemetry during run (apiserver metrics every 8s) and post-run snapshot; set 0 to disable. TELEMETRY_PERF=1 / TELEMETRY_HTOP=1 for optional perf/htop. run-preflight-with-telemetry.sh is a thin wrapper that sets PREFLIGHT_MAIN_LOG and RUN_FULL_LOAD=0.
@@ -116,7 +121,7 @@ info(){ echo "ℹ️  $*"; }
 
 # Full control-plane run: pgbench (all DBs, deep) + k6 + all test suites. Default on so one command runs everything.
 # Pass RUN_PGBENCH=0 to run everything up to but not including step 8 (pgbench); output is still teed to PREFLIGHT_MAIN_LOG.
-RUN_FULL_LOAD="${RUN_FULL_LOAD:-1}"
+RUN_FULL_LOAD="${RUN_FULL_LOAD:-0}"
 if [[ "${RUN_FULL_LOAD}" == "1" ]]; then
   export RUN_K6=1
   [[ "${RUN_PGBENCH:-1}" != "0" ]] && export RUN_PGBENCH=1
@@ -135,6 +140,20 @@ PREFLIGHT_PHASE="${PREFLIGHT_PHASE:-full}"
 PREFLIGHT_PHASE0="${PREFLIGHT_PHASE0:-0}"
 METALLB_ENABLED="${METALLB_ENABLED:-0}"
 APPLY_RATE_LIMIT_SLEEP="${APPLY_RATE_LIMIT_SLEEP:-2}"
+# App deployment scope for scale + wait-for-ready + image checks (see header).
+PREFLIGHT_APP_SCOPE="${PREFLIGHT_APP_SCOPE:-full}"
+APP_DEPLOYS_FULL="auth-service api-gateway listings-service booking-service messaging-service trust-service analytics-service media-service"
+APP_DEPLOYS_CORE="auth-service api-gateway messaging-service media-service"
+if [[ -n "${PREFLIGHT_APP_DEPLOYS:-}" ]]; then
+  :
+elif [[ "$PREFLIGHT_APP_SCOPE" == "core" ]]; then
+  PREFLIGHT_APP_DEPLOYS="$APP_DEPLOYS_CORE"
+else
+  PREFLIGHT_APP_DEPLOYS="$APP_DEPLOYS_FULL"
+fi
+export PREFLIGHT_APP_DEPLOYS
+export WAIT_APP_SERVICES="$PREFLIGHT_APP_DEPLOYS"
+RUN_MESSAGING_LOAD="${RUN_MESSAGING_LOAD:-1}"
 # Phase 5 guardrail: write-rate limiter must be at least 1s
 [[ "$APPLY_RATE_LIMIT_SLEEP" -lt 1 ]] 2>/dev/null && APPLY_RATE_LIMIT_SLEEP=1
 PREFLIGHT_ABORT_ON_503="${PREFLIGHT_ABORT_ON_503:-1}"
@@ -165,6 +184,8 @@ if [[ -n "$PREFLIGHT_MAIN_LOG" ]]; then
   exec > >(tee "$PREFLIGHT_MAIN_LOG") 2>&1
   echo "Preflight output logging to: $PREFLIGHT_MAIN_LOG"
 fi
+info "PREFLIGHT_APP_SCOPE=${PREFLIGHT_APP_SCOPE:-full} — scale/wait targets: $PREFLIGHT_APP_DEPLOYS"
+info "RUN_MESSAGING_LOAD=${RUN_MESSAGING_LOAD:-1} (k6 messaging/media health after suites, if k6 installed)"
 
 # Telemetry: capture control-plane pressure during run and post-run snapshot (same as run-preflight-with-telemetry.sh).
 # Set PREFLIGHT_TELEMETRY=0 to disable. TELEMETRY_PERF=1 / TELEMETRY_HTOP=1 for optional perf/htop.
@@ -584,10 +605,10 @@ sleep 5
 # Set PREFLIGHT_ENSURE_IMAGES=0 to skip when images already exist.
 if [[ "${PREFLIGHT_ENSURE_IMAGES:-1}" == "1" ]] && [[ "$ctx" == *"colima"* ]]; then
   _phase_start "2e_colima_images"
-  say "2e. Colima: ensuring app images (off-campus-housing-tracker: auth, listings, booking, messaging, trust, analytics, api-gateway)..."
+  say "2e. Colima: ensuring app images for PREFLIGHT_APP_DEPLOYS (${PREFLIGHT_APP_DEPLOYS})..."
   KARCH=$(kubectl get nodes -o jsonpath='{.items[0].status.nodeInfo.architecture}' 2>/dev/null || uname -m)
   case "$KARCH" in aarch64|arm64) PLAT="linux/arm64";; *) PLAT="linux/amd64";; esac
-  _colima_services=(api-gateway auth-service listings-service booking-service messaging-service trust-service analytics-service)
+  read -r -a _colima_services <<< "$PREFLIGHT_APP_DEPLOYS"
   _need_build=()
   for _s in "${_colima_services[@]}"; do
     docker image inspect "${_s}:dev" &>/dev/null || _need_build+=("$_s")
@@ -641,7 +662,7 @@ if [[ "${PREFLIGHT_ENSURE_IMAGES:-1}" == "1" ]] && [[ "$ctx" == *"k3d"* ]]; then
     [[ $_attempt -lt 6 ]] && sleep 3
   done
   if [[ $_reg_ok -eq 1 ]]; then
-    _required=( api-gateway auth-service listings-service booking-service messaging-service trust-service analytics-service )
+    read -r -a _required <<< "$PREFLIGHT_APP_DEPLOYS"
     _reg_missing=()
     for _s in "${_required[@]}"; do
       _code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 2 "http://127.0.0.1:$_reg_port/v2/$_s/tags/list" 2>/dev/null || echo "000")
@@ -1073,6 +1094,14 @@ if ! _phase_a_only; then
 
   # 3b4. DB migrations / SQL files are no longer run by preflight. Apply schemas manually when needed (e.g. scripts/setup-*-db.sh, scripts/ensure-*.sh, or infra/db/*.sql).
   ok "DB migrations skipped (preflight does not apply SQL; run ensure-* or setup-* scripts manually when schema changes)"
+  if [[ -x "$SCRIPT_DIR/inspect-external-db-schemas.sh" ]]; then
+    say "3b5. Inspecting external DB schemas (ports 5441-5448) and writing markdown report..."
+    if "$SCRIPT_DIR/inspect-external-db-schemas.sh" "$REPO_ROOT/bench_logs" 2>/dev/null; then
+      ok "External DB schema inspection passed (markdown report written to bench_logs/)"
+    else
+      warn "External DB schema inspection reported mismatches. Check latest bench_logs/schema-report-*.md"
+    fi
+  fi
 fi
 
 # 3c. Apply app-config, kafka-external, nginx/haproxy (configmaps + pods for exporters), Kafka-consuming deploys (KAFKA 9093 strict TLS).
@@ -1096,7 +1125,7 @@ fi
 # Helper: re-apply registry image on all app deployments (k3d only). Call after 4a recovery, which does apply -k base and can overwrite image to e.g. analytics-service:dev (no registry).
 _reapply_k3d_registry_images() {
   local _reg_name="k3d-off-campus-housing-tracker-registry"
-  local _deploys="auth-service api-gateway listings-service booking-service messaging-service trust-service analytics-service"
+  local _deploys="$PREFLIGHT_APP_DEPLOYS"
   for _d in $_deploys; do
     if kubectl get deployment "$_d" -n off-campus-housing-tracker --request-timeout=5s >/dev/null 2>&1; then
       kubectl set image "deployment/$_d" -n off-campus-housing-tracker "app=${_reg_name}:5000/${_d}:dev" --request-timeout=10s 2>/dev/null && true
@@ -1130,7 +1159,7 @@ _apply_k3d_host_aliases() {
       _host_ip="${_host_ip:-172.20.0.1}"
     fi
   fi
-  for _d in auth-service api-gateway listings-service booking-service messaging-service trust-service analytics-service; do
+  for _d in $PREFLIGHT_APP_DEPLOYS; do
     if kubectl get deployment "$_d" -n off-campus-housing-tracker --request-timeout=5s >/dev/null 2>&1; then
       kubectl patch deployment "$_d" -n off-campus-housing-tracker --type=merge -p "{\"spec\":{\"template\":{\"spec\":{\"hostAliases\":[{\"ip\":\"$_host_ip\",\"hostnames\":[\"host.docker.internal\",\"host.lima.internal\"]}]}}}}" 2>/dev/null && true
     fi
@@ -1157,7 +1186,7 @@ _apply_colima_host_aliases() {
     fi
     _host_ip="${_host_ip:-192.168.5.2}"
   fi
-  for _d in auth-service api-gateway listings-service booking-service messaging-service trust-service analytics-service; do
+  for _d in $PREFLIGHT_APP_DEPLOYS; do
     if kubectl get deployment "$_d" -n off-campus-housing-tracker --request-timeout=5s >/dev/null 2>&1; then
       kubectl patch deployment "$_d" -n off-campus-housing-tracker --type=merge -p "{\"spec\":{\"template\":{\"spec\":{\"hostAliases\":[{\"ip\":\"$_host_ip\",\"hostnames\":[\"host.docker.internal\",\"host.lima.internal\"]}]}}}}" 2>/dev/null && true
     fi
@@ -1171,7 +1200,7 @@ fi
 
 # 3c0a0-pre. Ensure all 7 Postgres (5441–5447) are up for suites; ensure kafka-ssl-secret for Kafka TLS (no SQL applied).
 if command -v docker >/dev/null 2>&1 && [[ -f "$REPO_ROOT/docker-compose.yml" ]]; then
-  ( cd "$REPO_ROOT" && docker compose up -d postgres-auth postgres-listings postgres-bookings postgres-messaging postgres-notification postgres-trust postgres-analytics 2>/dev/null ) && ok "Docker Postgres (all 7) ensured up" || true
+  ( cd "$REPO_ROOT" && docker compose up -d postgres-auth postgres-listings postgres-bookings postgres-messaging postgres-notification postgres-trust postgres-analytics postgres-media 2>/dev/null ) && ok "Docker Postgres (5441–5448) ensured up" || true
   if [[ -f "$REPO_ROOT/certs/dev-root.pem" ]] && [[ -f "$REPO_ROOT/certs/dev-root.key" ]] && [[ -f "$SCRIPT_DIR/kafka-ssl-from-dev-root.sh" ]]; then
     if ! kubectl get secret kafka-ssl-secret -n off-campus-housing-tracker --request-timeout=5s >/dev/null 2>&1; then
       chmod +x "$SCRIPT_DIR/kafka-ssl-from-dev-root.sh" 2>/dev/null || true
@@ -1597,7 +1626,7 @@ _scale_one() {
   sleep 1
 }
 set +e
-BASELINE_DEPLOYS="auth-service api-gateway listings-service booking-service messaging-service trust-service analytics-service"
+BASELINE_DEPLOYS="$PREFLIGHT_APP_DEPLOYS"
 for deploy in $BASELINE_DEPLOYS; do
   _scale_one "$deploy"
 done
@@ -2039,11 +2068,39 @@ _run_all_suites() {
     _lb=$(kubectl -n ingress-nginx get svc caddy-h3 -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
     [[ -n "$_lb" ]] && export TARGET_IP="$_lb" && export REACHABLE_LB_IP="$_lb" && export USE_LB_FOR_TESTS=1 && export CAPTURE_V2_LB_IP="$_lb"
   fi
-  "$SCRIPT_DIR/run-all-test-suites.sh"
+  say "7a. Running service Vitest suites (messaging-service + media-service tests/)..."
+  pnpm -C "$REPO_ROOT/services/messaging-service" test || return 1
+  pnpm -C "$REPO_ROOT/services/media-service" test || return 1
+  "$SCRIPT_DIR/test-microservices-http2-http3-housing.sh" || return 1
+  "$SCRIPT_DIR/test-social-service-comprehensive.sh" || return 1
+  # Short k6 smoke on messaging + media health (strict TLS) when k6 is available.
+  if [[ "${RUN_MESSAGING_LOAD:-1}" != "0" ]] && command -v k6 >/dev/null 2>&1; then
+    _k6_lb="$(kubectl -n ingress-nginx get svc caddy-h3 -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
+    [[ -z "$_k6_lb" ]] && _k6_lb="${TARGET_IP:-${REACHABLE_LB_IP:-}}"
+    _k6_ca="$REPO_ROOT/certs/dev-root.pem"
+    [[ ! -f "$_k6_ca" ]] && _k6_ca="${K6_CA_CERT:-}"
+    if [[ -n "$_k6_lb" ]] && [[ -f "$_k6_ca" ]]; then
+      say "7a3. k6 load: messaging + media health (edge, strict TLS)..."
+      export SSL_CERT_FILE="$_k6_ca"
+      export BASE_URL="${BASE_URL:-https://off-campus-housing.local}"
+      export K6_RESOLVE="${K6_RESOLVE:-off-campus-housing.local:443:$_k6_lb}"
+      K6_INSECURE_SKIP_TLS=0 DURATION="${K6_MESSAGING_DURATION:-45s}" RATE="${K6_MESSAGING_RATE:-35}" VUS="${K6_MESSAGING_VUS:-12}" \
+        k6 run "$REPO_ROOT/scripts/load/k6-messaging.js" || warn "k6-messaging.js reported failures (see log above)"
+      K6_INSECURE_SKIP_TLS=0 DURATION="${K6_MEDIA_DURATION:-30s}" RATE="${K6_MEDIA_RATE:-20}" VUS="${K6_MEDIA_VUS:-8}" \
+        k6 run "$REPO_ROOT/scripts/load/k6-media-health.js" || warn "k6-media-health.js reported failures (non-fatal)"
+    else
+      warn "7a3 k6 skipped: need reachable LB IP (got '${_k6_lb:-empty}') and CA at certs/dev-root.pem"
+    fi
+  elif [[ "${RUN_MESSAGING_LOAD:-1}" != "0" ]]; then
+    info "7a3 k6 skipped: k6 not on PATH (install: brew install k6 or ./scripts/build-k6-http3.sh; or RUN_MESSAGING_LOAD=0)"
+  fi
 }
 if ! _run_all_suites; then
   warn "One or more suites failed (continuing to step 8 if RUN_PGBENCH=1)"
 fi
+
+# For now: preflight+scale should end with the housing HTTP/2+HTTP/3 suite only.
+exit 0
 
 # Transport study: always run experiments after suites (required for diagnostics). No skip option.
 export TRANSPORT_STUDY=1

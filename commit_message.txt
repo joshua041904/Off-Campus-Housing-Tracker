@@ -1,86 +1,40 @@
-feat(infra): 8 Postgres (media 5448), backup all-8, K8s base (auth/messaging/media), Caddy LB + xcaddy HTTP/3, strict TLS/mTLS
+feat(preflight): run media-service Vitest alongside messaging in step 7a
 
 Why
 ---
-- Platform has eight domain DBs (auth, listings, bookings, messaging, notification, trust, analytics, media); backup and restore must include media (5448).
-- App services (auth, messaging, media) must be in K8s base so Colima/k3s apply deploys them; media needs HTTP 4018 and gRPC 50068.
-- Caddy must use LoadBalancer (no hostPort) so two replicas can run on one node (no anti-affinity); Caddy must be built with xcaddy for proper HTTP/3 (QUIC).
-- Preflight and k6 require Caddy (2 pods) and Envoy (1 pod) with strict TLS/mTLS and certs loaded; namespaces ingress-nginx, envoy-test, off-campus-housing.
+- Preflight must exercise both **services/messaging-service/tests/** and
+  **services/media-service/tests/** so DB + handler integration runs in CI/local
+  the same way as messaging (Vitest before shell HTTP/2|3 suites).
 
-Backup and restore: 8 DBs (5441–5448)
--------------------------------------
-- scripts/backup-all-8-dbs.sh: new script; backs up ports 5441–5448 (adds 5448 media); output backups/all-8-YYYYMMDD-HHMMSS/; PORT_DB includes [5448]=media.
-- scripts/backup-all-dbs.sh: delegates to backup-all-8-dbs.sh; comments and output dir updated to all-8.
-- scripts/backup-all-7-dbs.sh: removed (replaced by backup-all-8-dbs.sh).
-- scripts/restore-external-postgres-from-backup.sh: restores all 8 DBs (5441–5448) in one loop; optional 5448 block removed; header and examples use backups/all-8-*.
-- scripts/bring-up-external-infra.sh: RESTORE_BACKUP_DIR=latest resolves newest backups/all-8-* first, then backups/all-7-*; restore message uses all-8.
-- scripts/bring-up-cluster-and-infra.sh: comments and RESTORE_BACKUP_DIR examples use backups/all-8-*.
-- backups/README.md: "Full 8-DB backup and restore"; all-8-* paths and 5441–5448.
-- ENGINEERING.md: all references to 7 DBs, 5441–5447, all-7 updated to 8 DBs, 5441–5448, all-8 (including script table, restore, bring-up, DB verification, rationale).
+Changes
+-------
+- scripts/run-preflight-scale-and-all-suites.sh: after messaging `pnpm test`,
+  run **pnpm -C services/media-service test** (fails preflight on non-zero exit).
+- services/media-service/tests/setup/env.ts: set **PG_HOST**, **PG_PORT** (5448),
+  **PG_DATABASE** (media), credentials for integration tests on host Postgres.
+- services/media-service/vitest.config.ts: **setupFiles** → `./tests/setup/env.ts`
+  (removes ambiguous PG_HOST warning; matches messaging-service pattern).
+- services/media-service/tests/integration/media-upload.integration.test.ts: fix
+  comment (media DB is 5448, not 5441).
+- README.md + docs/CERTS_AND_TESTING_FOR_MORTALS.md: document dual Vitest in 7a.
 
-K8s base: auth-, messaging-, media-service
-------------------------------------------
-- infra/k8s/base/kustomization.yaml: added resources auth-service, messaging-service, media-service.
-- infra/k8s/base/media-service: new Kustomize app.
-  - kustomization.yaml: deploy.yaml, service.yaml.
-  - deploy.yaml: Deployment image media-service:dev; HTTP 4018, gRPC 50068; env GRPC_PORT=50068, MEDIA_DB_PORT=5448, MEDIA_DB_NAME=media; namespace off-campus-housing; probes on grpc.
-  - service.yaml: Service ports 4018 (http), 50068 (grpc).
-- services/media-service/Dockerfile: new multi-stage build (pnpm, Node 20); exposes 4018 and 50068; for Colima load: docker build -f services/media-service/Dockerfile -t media-service:dev .
+Verified (local, Colima)
+------------------------
+- pnpm -C services/messaging-service test — pass (3 tests)
+- pnpm -C services/media-service test — pass (4 tests, setup ~97ms)
+- PREFLIGHT_APP_SCOPE=core RUN_MESSAGING_LOAD=0 test-microservices-http2-http3-housing.sh — exit 0
+  (expected 504 on non-deployed listings/booking/trust/analytics/media edge health when scope is core;
+  messaging/auth/gateway paths green)
+- test-social-service-comprehensive.sh — exit 0, all messaging/forum checks passed
 
-README and docs
----------------
-- README.md: architecture diagram Ports 5441–5448; Postgres Media (5448) box; Media Service 4018 HTTP / 50068 gRPC in services row; "8 core services" and media-service; Postgres table row media-service 5448 media; docker compose command includes postgres-media; in-cluster ports table Media 4018/50068; "2. Bring up external infra" 8 Postgres and all-8 restore; section 2b build/load messaging + media into Colima k3s; section 2c Caddy H3 (2 pods) and Envoy (1 pod) strict TLS/mTLS table and ensure-caddy-envoy-strict-tls.sh; Strict TLS k6 and xk6-http3 (root Dockerfile.k6-strict-tls-v2, xk6-http3 build).
-- scripts/ensure-ready-for-preflight.sh: comment "8 Postgres DBs (5441–5448)".
+How to run
+----------
+- Full Vitest gate only:
+    pnpm -C services/messaging-service test
+    pnpm -C services/media-service test
+- With preflight (core app deploys):
+    PREFLIGHT_APP_SCOPE=core ./scripts/run-preflight-scale-and-all-suites.sh
 
-Caddy: LoadBalancer + xcaddy (HTTP/3)
---------------------------------------
-- scripts/rollout-caddy.sh: when CADDY_USE_LOADBALANCER=1, apply Service from infra/k8s/loadbalancer.yaml first, then fallback to caddy-h3-service-loadbalancer.yaml; Envoy restart and Caddy log tail (grep -E) after rollout; help text points to loadbalancer.yaml for LB.
-- infra/k8s/loadbalancer.yaml: unchanged; used as the Caddy LoadBalancer service (TCP/UDP 443, grpc-h2c 5000, admin 2019).
-- docker/caddy-with-tcpdump: new.
-  - Dockerfile: builder stage uses golang:1.22-alpine, installs xcaddy, runs xcaddy build (Caddy v2.8.4, HTTP/3 built-in); runtime stage alpine:3.19 with ca-certificates, tcpdump, libcap; copies caddy binary; setcap for bind 443; ENTRYPOINT caddy.
-  - README.md: build instructions, CADDY_USE_LOADBALANCER=1 rollout, why xcaddy.
-- infra/k8s/caddy-h3-deploy-loadbalancer.yaml, caddy-h3-deploy.yaml: image comment updated to xcaddy-built Caddy (HTTP/3) + tcpdump and Dockerfile path.
-
-Strict TLS/mTLS: Caddy 2 pods, Envoy 1 pod
-------------------------------------------
-- scripts/ensure-caddy-envoy-strict-tls.sh: new; ensures namespaces ingress-nginx, envoy-test; ensures TLS secrets (record-local-tls, dev-root-ca in ingress-nginx; dev-root-ca, envoy-client-tls in envoy-test); runs rollout-caddy.sh (LoadBalancer on Colima+MetalLB); applies base/envoy-test; scales caddy-h3=2, envoy-test=1; waits for rollouts; prints pod summary. Prereqs: certs in ./certs/, strict-tls-bootstrap.sh or generate-envoy-client-cert.sh.
-
-Colima, MetalLB, bring-up (existing, unchanged in this message)
-----------------------------------------------------------------
-- scripts/setup-new-colima-cluster.sh: Colima + k3s, MetalLB pool (e.g. 251–260).
-- scripts/bring-up-external-infra.sh: Zookeeper, Kafka TLS, Redis, MinIO, 8 Postgres; optional RESTORE_BACKUP_DIR.
-- scripts/bring-up-cluster-and-infra.sh: one-shot cluster + infra + compose + bootstrap; RESTORE_BACKUP_DIR=latest or path (all-8-*).
-- scripts/restore-auth-db.sh, verify-auth-integrity.sh, bootstrap-all-dbs.sh: auth dump-first, then outbox; bootstrap-all-dbs.sh bootstraps 8 DBs (includes media).
-- scripts/inspect-external-db-schemas.sh: 5441–5448, expect_5448 media tables.
-
-Messaging service (existing)
-----------------------------
-- services/messaging-service: gRPC server, Postgres, Dockerfile, infra/k8s/base/messaging-service (deploy, service, gRPC 50064).
-
-How to test
------------
-- Backup all 8: PGPASSWORD=postgres ./scripts/backup-all-dbs.sh  # -> backups/all-8-YYYYMMDD-HHMMSS/
-- Restore: RESTORE_BACKUP_DIR=latest ./scripts/bring-up-external-infra.sh  or  ./scripts/restore-external-postgres-from-backup.sh backups/all-8-<timestamp>
-- Full stack: RESTORE_BACKUP_DIR=latest ./scripts/bring-up-cluster-and-infra.sh
-- Caddy + Envoy strict TLS: ./scripts/ensure-caddy-envoy-strict-tls.sh  then  CADDY_USE_LOADBALANCER=1 ./scripts/rollout-caddy.sh
-- Build Caddy (xcaddy HTTP/3): docker build -t caddy-with-tcpdump:dev -f docker/caddy-with-tcpdump/Dockerfile .
-- Build and load media/messaging: docker build -f services/media-service/Dockerfile -t media-service:dev . ; docker save media-service:dev | colima ssh -- docker load ; kubectl apply -k infra/k8s/base
-- Preflight: ./scripts/run-preflight-scale-and-all-suites.sh
-
-Messaging events v1 lock + HTTP→Kafka final wiring
------------------------------------------------------
-- services/messaging-service: HTTP routes now publish only immutable v1 event contracts on Kafka topic `messaging.events.v1`:
-  - `MessageSent`, `MessageReplied`, `MessageUpdated`, `MessageDeleted`, `MessageMarkedRead`
-  - Forum parity for `PostCreated` and `CommentCreated`
-- infra ConfigMap protos:
-  - ensures `infra/k8s/base/config/proto/messaging.proto` (RPC) and `infra/k8s/base/config/proto/events/messaging/v1/messaging_events.proto` (events) are present
-  - `infra/k8s/base/config/kustomization.yaml` includes `messaging_events.v1.proto=proto/events/messaging/v1/messaging_events.proto`
-- Strict topic creation wiring (no legacy):
-  - `scripts/create-kafka-event-topics.sh` now creates `messaging.events.v1` (not `*.messaging.events`)
-  - `.github/workflows/ci.yml` bootstraps `messaging.events.v1` instead of `dev.messaging.events`
-- K8s readinessProbe strict mTLS correctness:
-  - `infra/k8s/base/messaging-service/deploy.yaml` adds `-service=messaging.v1.MessagingService`
-  - remaps Kafka cert mount paths so `/etc/kafka/secrets` exposes `ca-cert.pem`, `tls.crt`, `tls.key`
-- TypeScript build unblock:
-  - fixes Redis error callback typing in `services/messaging-service/src/lib/cache.ts`
-  - adds a local ioredis TS shim (`services/messaging-service/src/types/ioredis.d.ts`) so `pnpm exec tsc --noEmit` passes without extra dependency churn
+Prereqs for media Vitest
+------------------------
+- Postgres **media** listening on **127.0.0.1:5448** (e.g. docker compose postgres-media).

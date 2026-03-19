@@ -24,7 +24,7 @@ spec:
     spec:
       containers:
         - name: app
-          image: ghcr.io/yourorg/api-gateway:dev
+          image: api-gateway:dev
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -70,7 +70,7 @@ spec:
       volumes:
         - name: service-tls
           secret:
-            secretName: service-tls
+            secretName: och-service-tls
             items:
               - key: tls.key
                 path: tls.key

@@ -18,7 +18,7 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 REPORT_FILE="$REPORT_BASE/schema-report-$TIMESTAMP.md"
 mkdir -p "$REPORT_BASE"
 
-# Default: housing 8 DBs (ports 5441–5448). Format: port:dbname:label
+# Default: OCH external DB layout (ports 5441–5448). Format: port:dbname:label
 if [[ -z "${INSPECT_DBS:-}" ]]; then
   INSPECT_DBS="5441:auth:auth
 5442:listings:listings
@@ -35,9 +35,9 @@ else
   DB_LIST="$INSPECT_DBS"
 fi
 
-# Expected tables per DB (schema.table) from infra/db SQL and auth dump. Used for integrity comparison.
-# auth: dump + 01-auth-outbox.sql
-expect_5441="auth.outbox_events auth.users auth.sessions auth.mfa_settings auth.oauth_providers auth.passkeys auth.passkey_challenges auth.verification_codes auth.user_addresses"
+# Expected tables per DB (schema.table) from infra/db SQL and runtime schema.
+# auth: runtime schema in this repo does not require auth.outbox_events
+expect_5441="auth.users auth.sessions auth.mfa_settings auth.oauth_providers auth.passkeys auth.passkey_challenges auth.verification_codes auth.user_addresses"
 # listings: 00-create-listings-database.sql, 01-listings-schema-and-tuning.sql, 03-listings-outbox.sql, 04-listings-processed-events.sql
 expect_5442="listings.listings listings.outbox_events listings.processed_events"
 # bookings: 01-booking-schema.sql, 02-booking-state-machine.sql, 03-booking-outbox.sql
@@ -53,7 +53,7 @@ expect_5447="analytics.events analytics.processed_events analytics.daily_metrics
 # media: 01-media-schema.sql, 02-media-outbox.sql
 expect_5448="media.media_files media.outbox_events"
 
-echo "=== Inspect external DB schemas (5441–5448) ==="
+echo "=== Inspect external DB schemas (OCH) ==="
 echo "Report: $REPORT_FILE"
 echo ""
 
@@ -62,7 +62,21 @@ echo ""
   echo ""
   echo "Generated: $(date -Iseconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S%z')"
   echo ""
-  echo "Host: \`$PGHOST\` (user: $PGUSER). Ports: 5441 (auth) … 5448 (media)."
+  echo "Host: \`$PGHOST\` (user: $PGUSER)."
+  echo ""
+  echo "Inspected DB targets:"
+  echo ""
+  echo "| Port | DB | Label |"
+  echo "|------|----|-------|"
+  while IFS= read -r _line; do
+    [[ -z "$_line" ]] && continue
+    _port="${_line%%:*}"
+    _rest="${_line#*:}"
+    _db="${_rest%%:*}"
+    _label="${_rest#*:}"
+    _label="${_label:-$_db}"
+    echo "| \`$_port\` | \`$_db\` | \`$_label\` |"
+  done <<< "$DB_LIST"
   echo ""
   echo "---"
   echo ""

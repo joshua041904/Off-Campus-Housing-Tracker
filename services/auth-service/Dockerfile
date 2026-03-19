@@ -35,20 +35,15 @@ RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
 FROM node:20-bookworm-slim
 WORKDIR /app/services/auth-service
 
-# Vendored grpc-health-probe (run: curl -Lf -o scripts/vendor/grpc_health_probe-linux-arm64 https://github.com/grpc-ecosystem/grpc-health-probe/releases/download/v0.4.24/grpc_health_probe-linux-arm64)
-COPY scripts/vendor/ /tmp/grpc-vendor/
-RUN ARCH=$(dpkg --print-architecture) && \
-    if [ "$ARCH" = "aarch64" ]; then ARCH="arm64"; fi && \
-    if [ -f /tmp/grpc-vendor/grpc_health_probe-linux-${ARCH} ]; then \
-      cp /tmp/grpc-vendor/grpc_health_probe-linux-${ARCH} /usr/local/bin/grpc-health-probe && chmod +x /usr/local/bin/grpc-health-probe && /usr/local/bin/grpc-health-probe -version && echo "✅ grpc-health-probe (vendored)"; \
-    else \
-      apt-get update && apt-get install -y --no-install-recommends curl ca-certificates file && \
-      BINARY_ARCH="$ARCH" && \
-      curl -Lf -o /tmp/grpc-health-probe \
-        https://github.com/grpc-ecosystem/grpc-health-probe/releases/download/v0.4.24/grpc_health_probe-linux-${BINARY_ARCH} && \
-      file /tmp/grpc-health-probe | grep -q "ELF.*executable" && chmod +x /tmp/grpc-health-probe && mv /tmp/grpc-health-probe /usr/local/bin/grpc-health-probe && \
-      apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/* && echo "✅ grpc-health-probe (downloaded)"; \
-    fi
+# grpc-health-probe for strict TLS/mTLS health checks (K8s exec probes)
+ARG GRPC_HEALTH_PROBE_VERSION=v0.4.24
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && \
+  ARCH=$(dpkg --print-architecture) && \
+  case "$ARCH" in amd64) BINARY_ARCH=amd64 ;; arm64) BINARY_ARCH=arm64 ;; *) BINARY_ARCH=amd64 ;; esac && \
+  curl -Lf -o /usr/local/bin/grpc-health-probe \
+    "https://github.com/grpc-ecosystem/grpc-health-probe/releases/download/${GRPC_HEALTH_PROBE_VERSION}/grpc_health_probe-linux-${BINARY_ARCH}" && \
+  chmod +x /usr/local/bin/grpc-health-probe && \
+  apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production
 
