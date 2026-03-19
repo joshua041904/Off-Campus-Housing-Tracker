@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { startGrpcServer } from "./grpc-server.js";
 
 const port = Number(process.env.PORT || 50052);
