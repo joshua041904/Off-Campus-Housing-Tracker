@@ -25,3 +25,14 @@ build/
 coverage/
 .nyc_output/
 *.tgz
+
+# Local dev only (copy from docs/PR_REVIEW_GRPC_HANDLER_PASTE.example.txt if you want this path)
+docs/PR_REVIEW_GRPC_HANDLER_PASTE.txt
+
+# Preflight / control-plane telemetry dumps (repo root; dev noise)
+telemetry-during-*.log
+telemetry-after-*.txt
+raw-metrics-*.txt
+live-telemetry.csv
+perf-*.data
+htop-after-*.txt

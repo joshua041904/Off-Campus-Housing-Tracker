@@ -1,40 +1,29 @@
-feat(preflight): run media-service Vitest alongside messaging in step 7a
+chore(gitignore): ignore PR paste local copy + preflight telemetry artifacts
 
 Why
 ---
-- Preflight must exercise both **services/messaging-service/tests/** and
-  **services/media-service/tests/** so DB + handler integration runs in CI/local
-  the same way as messaging (Vitest before shell HTTP/2|3 suites).
+- PR review snippets are dev convenience; keep a tracked **template** in-repo but do not
+  force every clone to commit local wordings.
+- Preflight writes telemetry/metrics snapshots to the repo root by default; those files are
+  local noise and should not appear in `git status`.
 
 Changes
 -------
-- scripts/run-preflight-scale-and-all-suites.sh: after messaging `pnpm test`,
-  run **pnpm -C services/media-service test** (fails preflight on non-zero exit).
-- services/media-service/tests/setup/env.ts: set **PG_HOST**, **PG_PORT** (5448),
-  **PG_DATABASE** (media), credentials for integration tests on host Postgres.
-- services/media-service/vitest.config.ts: **setupFiles** → `./tests/setup/env.ts`
-  (removes ambiguous PG_HOST warning; matches messaging-service pattern).
-- services/media-service/tests/integration/media-upload.integration.test.ts: fix
-  comment (media DB is 5448, not 5441).
-- README.md + docs/CERTS_AND_TESTING_FOR_MORTALS.md: document dual Vitest in 7a.
+- .gitignore:
+  - docs/PR_REVIEW_GRPC_HANDLER_PASTE.txt (optional local copy; edit without tracking)
+  - telemetry-during-*.log, telemetry-after-*.txt, raw-metrics-*.txt, live-telemetry.csv,
+    perf-*.data, htop-after-*.txt (run-preflight-scale-and-all-suites.sh outputs)
+- docs/PR_REVIEW_GRPC_HANDLER_PASTE.example.txt: tracked template (same content as before)
+- Removed docs/PR_REVIEW_GRPC_HANDLER_PASTE.txt from the tree (use example + local copy)
+- README.md, docs/GRPC_ONBOARDING.md, services/listings-service/README.md: link to
+  **.example.txt**; document gitignored PASTE.txt
 
-Verified (local, Colima)
-------------------------
-- pnpm -C services/messaging-service test — pass (3 tests)
-- pnpm -C services/media-service test — pass (4 tests, setup ~97ms)
-- PREFLIGHT_APP_SCOPE=core RUN_MESSAGING_LOAD=0 test-microservices-http2-http3-housing.sh — exit 0
-  (expected 504 on non-deployed listings/booking/trust/analytics/media edge health when scope is core;
-  messaging/auth/gateway paths green)
-- test-social-service-comprehensive.sh — exit 0, all messaging/forum checks passed
+Follow-up (if these were already committed)
+-------------------------------------------
+  git rm --cached telemetry-after-*.txt telemetry-during-*.log raw-metrics-*.txt 2>/dev/null || true
+  git rm --cached docs/PR_REVIEW_GRPC_HANDLER_PASTE.txt 2>/dev/null || true
 
-How to run
-----------
-- Full Vitest gate only:
-    pnpm -C services/messaging-service test
-    pnpm -C services/media-service test
-- With preflight (core app deploys):
-    PREFLIGHT_APP_SCOPE=core ./scripts/run-preflight-scale-and-all-suites.sh
-
-Prereqs for media Vitest
-------------------------
-- Postgres **media** listening on **127.0.0.1:5448** (e.g. docker compose postgres-media).
+Local workflow
+--------------
+  cp docs/PR_REVIEW_GRPC_HANDLER_PASTE.example.txt docs/PR_REVIEW_GRPC_HANDLER_PASTE.txt
+  # edit PASTE.txt — stays untracked

@@ -34,7 +34,7 @@ Off-Campus-Housing-Tracker provides:
 
 This codebase sits at the intersection of off-campus housing needs and a focus on distributed systems and observability. The goal is to understand how real platforms layer ingress controllers, service meshes, CI/CD-friendly manifests, and QUIC edges. Every choice (Caddy at the edge, nginx micro-cache, HAProxy fan-in, the Kustomize base/overlay split, Terraform/Ansible IAC) is framed so you can trace data flow from a listing search or booking UI through the API gateway and services to Postgres and Grafana. The repo is **Kubernetes-driven** (Colima k3s for local dev, k3d supported) and keeps workflows sharp while remaining a place to try new infra ideas.
 
-For detailed technical documentation, system design, and architectural decisions, see [**ENGINEERING.md**](ENGINEERING.md).
+For detailed technical documentation, system design, and architectural decisions, see [**ENGINEERING.md**](ENGINEERING.md). **Implementing gRPC handlers:** [**docs/GRPC_ONBOARDING.md**](docs/GRPC_ONBOARDING.md); **PR comment templates (tracked):** [`docs/PR_REVIEW_GRPC_HANDLER_PASTE.example.txt`](docs/PR_REVIEW_GRPC_HANDLER_PASTE.example.txt) — optional local copy `docs/PR_REVIEW_GRPC_HANDLER_PASTE.txt` is gitignored for private tweaks.
 
 ---
 

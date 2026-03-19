@@ -1,0 +1,44 @@
+================================================================================
+PASTE INTO PR (one block = one review comment, or one summary comment)
+Adjust service/proto/table names as needed (e.g. listings vs messaging).
+
+Local dev: copy this file to PR_REVIEW_GRPC_HANDLER_PASTE.txt (gitignored) to customize.
+================================================================================
+
+--- COMMENT 1 (opening) ---
+Nice work getting the first gRPC handler in and manually verified—this aligns with our proto-as-contract approach. I left a few focused asks below so we stay consistent with the rest of OCH (status codes, schema, tests).
+
+--- COMMENT 2 (contract / proto) ---
+Can you confirm this strictly matches proto/listings.proto (or the relevant proto)—required fields, types, and no extra assumptions? The handler should be a direct reflection of the contract so gateway-generated clients don’t drift.
+
+--- COMMENT 3 (error handling) ---
+Happy path looks good. Can we tighten error mapping: invalid / missing inputs → InvalidArgument; DB / unexpected failures → Internal (safe client message; full detail in logs)? That will make cross-service debugging much easier than generic failures.
+
+--- COMMENT 4 (database / schema) ---
+Please double-check listings.listings (or the target table) for required columns, defaults, and enums—so we don’t silently diverge from migrations. Call out anything the proto allows but the DB doesn’t (or vice versa).
+
+--- COMMENT 5 (testing / reproducibility) ---
+Great that you exercised it with grpcurl. Next step for merge bar: either add a Vitest integration test (see services/media-service/tests) or expand the README with a full grpcurl example (TLS flags if applicable, -d JSON, expected response shape). That gives the next person a one-command verify.
+
+--- COMMENT 6 (logging) ---
+Can we add minimal structured logging for this RPC (received / success / error code)? Helps when tracing from gateway or Kafka consumers back to the service.
+
+--- COMMENT 7 (close) ---
+Overall direction is solid. Once status codes + reproducible test/docs are in, I’m good to merge; we can reuse the same pattern for the next RPC (GetListing, etc.).
+
+================================================================================
+OPTIONAL: single summary comment (paste all in one)
+================================================================================
+Nice work on the first handler. Asks before merge: (1) confirm strict proto parity, (2) map errors to InvalidArgument vs Internal, (3) verify DB schema alignment, (4) add grpcurl+TLS recipe in README or a small integration test, (5) minimal RPC logging. After that LGTM and we can mirror for GetListing.
+
+================================================================================
+REVIEWER RUBRIC (for you; do not have to paste into PR)
+================================================================================
+Proto parity: types/fields match contract
+gRPC statuses: InvalidArgument / NotFound / Internal used appropriately
+DB: inserts/updates match schema + migrations
+Security: no secrets or stack traces returned to clients
+Tests/docs: grpcurl recipe OR integration test
+Ops: logging; health probes still OK if applicable
+
+More context: docs/GRPC_ONBOARDING.md and Runbook.md (TLS/mTLS).
