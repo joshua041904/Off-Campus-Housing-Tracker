@@ -107,6 +107,7 @@ This document catalogs cluster and infrastructure bugs, issues, and solutions fo
 | 88 | Vitest / Redis | Default Redis host **`redis`** does not resolve on laptop → `ENOTFOUND`, `RATE_LIMIT_UNAVAILABLE`; tests use **127.0.0.1:6380** | OCH edge & gateway debugging (below) |
 | 89 | Kafka topology | In-cluster **kafka** Deployment violates “external only” policy; remove in-cluster broker; point apps at **kafka-external** + mTLS secrets | OCH edge & gateway debugging (below) |
 | 90 | DB inspection | `inspect-external-db-schemas.sh` expected Record Platform tables (e.g. `auth.outbox_events`) on OCH auth DB → false mismatch; expectations aligned to OCH | OCH edge & gateway debugging (below) |
+| 91 | macOS curl / HTTP/3 | Default `/usr/bin/curl` = **SecureTransport** → no ngtcp2/nghttp3 → **no HTTP/3** and **no `SSLKEYLOGFILE`**; suites use **`http3_curl`** (native Homebrew curl or Docker). Confirm with `./scripts/verify-curl-http3.sh` | macOS curl vs `http3_curl` (below) |
 
 **PostgreSQL restore and recover (item 79)**  
 **When:** Restoring from backup after failure or to a known state. **Preconditions:** All external Postgres containers (per-service DBs) healthy. **Client version:** `pg_restore`/`psql` must match dump version (e.g. 16.x); `brew install postgresql@16` if needed. **Procedure:** (1) Per-DB: drop DB, create DB, `pg_restore -h localhost -p <PORT> -U postgres -d <DB> --clean --if-exists -v backups/<timestamp>/<PORT>-<DB>.dump`. (2) Verify: `\dn`, `\dt *.*`, row counts. **Checklist:** All schemas present, row counts as expected, sequences OK, app pods connect, no crash loops. **Full runbook:** **docs/RUNBOOK_EXTERNAL_POSTGRES_RECOVERY.md** when present. **Scripts:** use project-specific restore scripts for your DB set. **Lessons:** pg_restore version match; `\dt *.*` for all schemas.
@@ -206,6 +207,28 @@ App pods (e.g. auth-service, listings-service, api-gateway) stay **0/1** when th
 
 **HTTP/3 GSO (item 61)**  
 **Symptoms:** MetalLB step 6/6a or baseline HTTP/3 tests fail with `curl: (28) sendmsg() returned -1 (errno 5); disable GSO`. **Cause:** ngtcp2’s GSO (Generic Segmentation Offload) can fail on macOS or in Docker VM where the NIC doesn’t support it; sendmsg returns EIO. **Fix:** (1) Scripts set `NGTCP2_ENABLE_GSO=0`. (2) Re-run `setup-lb-ip-host-access.sh` — it now uses socat UDP without fork (fork broke QUIC). Kill old socat first. (3) Test uses CURL_BIN when available. See docs/METALLB_ADVANCED.md. **HTTP/3 path (L3/L4), curl 28:** LB IP path = host UDP to 127.0.0.1:443 (socat); can hit GSO. Docker bridge = curl in container to host.docker.internal:18443; 28 = timeout. For real L2 (ARP, asymmetric) run on Colima: `./scripts/verify-metallb-colima-l2-only.sh`. **Use the right curl:** macOS system curl does not support HTTP/3; install Homebrew curl (`brew install curl`) and ensure it is used for tests. Run `./scripts/verify-curl-http3.sh` to confirm which curl is in PATH and that it has `--http3` (script checks `curl --help all`). Tests prefer Homebrew curl at `/opt/homebrew/opt/curl/bin/curl` or `/usr/local/opt/curl/bin/curl` when it has HTTP/3, so native curl is used and Docker-bridge exit 28 is avoided.
+
+**macOS curl vs `http3_curl` — SecureTransport, Homebrew, Docker (item 91)**  
+**The trap:** `curl -V` on the **first** `curl` in your PATH may show `libcurl/… (SecureTransport)`. That stack has **no** OpenSSL/BoringSSL **ngtcp2/nghttp3** path as shipped by Apple — so **no real HTTP/3** and **no `SSLKEYLOGFILE`** for decrypting QUIC in Wireshark/tshark. **Yet** a health probe or script may still print **HTTP version 3** because it did **not** use that binary.
+
+**What actually runs HTTP/3 in this repo:** `http3_curl` is a **bash function** in `scripts/lib/http3.sh` (not a separate `/usr/bin` — `which http3_curl` is usually empty). Selection order: (1) **`CURL_BIN`** if set and executable **and** `curl --help all` lists `--http3`; (2) else if **`HTTP3_USE_NATIVE_CURL=1`**, same check against `curl` on PATH; (3) else **`docker run`** using **`HTTP3_IMAGE`** (default `alpine/curl-http3:latest` or `http3-curl-enhanced:latest` if present). So your **interactive** `curl -V` can disagree with what suites use.
+
+**Quick diagnosis (host):** `./scripts/verify-curl-http3.sh` — prints `command -v curl`, `type -a curl`, full `curl -V`, optional `CURL_BIN`, common Homebrew paths, and whether each supports `--http3`.
+
+**Fix PATH for real HTTP/3 + key log (recommended on Mac):** `brew install curl` then put Homebrew’s curl **first** (persist in `~/.zshrc` if you use zsh):  
+`export PATH="/opt/homebrew/opt/curl/bin:$PATH"` (Apple Silicon) or `export PATH="/usr/local/opt/curl/bin:$PATH"` (Intel). Re-check: `curl -V` should show **`Features:`** including **HTTP3** and a **`libcurl`** line with **OpenSSL** and **ngtcp2** / **nghttp3** (exact spelling varies by version). If **HTTP3** is missing, try `brew install curl --HEAD` or rely on the repo’s Docker **`HTTP3_IMAGE`**. Old `brew install curl --with-nghttp3` flags are often removed — use current formula docs.
+
+**Prove QUIC + decrypt:**  
+```bash
+export SSLKEYLOGFILE=/tmp/sslkeys.log
+rm -f /tmp/sslkeys.log
+curl --http3-only \
+  --resolve off-campus-housing.local:443:<LB_OR_NODE_IP> \
+  https://off-campus-housing.local/_caddy/healthz -v
+# Expect traffic secrets in:
+cat /tmp/sslkeys.log
+```  
+Then: `tshark -r caddy-capture.pcap -o tls.keylog_file:/tmp/sslkeys.log -Y quic` and e.g. `-T fields -e quic.tls.handshake.extensions_alpn` for **`h3`**. SecureTransport curl will not populate `SSLKEYLOGFILE` for this workflow.
 
 **HTTP/3 fallback (LB IP first, NodePort fallback on k3d):** **Policy:** Use the **LB IP** as the first choice for HTTP/2 and HTTP/3 when MetalLB is enabled and the LB IP is reachable (socat or native); use NodePort only when the LB IP is unavailable. When running suites with MetalLB, `run-all-test-suites.sh` runs `setup-lb-ip-host-access.sh` (socat TCP+UDP 443) so HTTP/2 and HTTP/3 work via the LB IP. If the HTTP/3 probe to the LB IP fails (e.g. curl exit 7 or 28), the script falls back to NodePort 30443 and sets `TARGET_IP=127.0.0.1` so HTTP/3 tests complete. Check the run-all log for `HTTP/3 probe to LB IP failed; falling back to NodePort 30443`.
 

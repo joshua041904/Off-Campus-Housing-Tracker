@@ -45,7 +45,7 @@ else
   CADDY_POD="tmp-curl-caddy-$$"
   # Host: off-campus-housing.local required so Caddy matches https://off-campus-housing.local vhost (otherwise :443 catch-all; -k = no CA in pod)
   _kb run "$CADDY_POD" --image="$CURL_IMAGE" --restart=Never -n "$NS_ING" -- \
-    curl -sS -o /dev/null -w "%{http_code}" -k --connect-timeout 5 --max-time 10 -H "Host: off-campus-housing.local" "https://${CLUSTER_IP}:443/_caddy/healthz" 2>/dev/null || true
+    curl -sS -o /dev/null -w "%{http_code}" -k --connect-timeout 5 --max-time 10 --resolve "off-campus-housing.local:443:${CLUSTER_IP}" "https://off-campus-housing.local/_caddy/healthz" 2>/dev/null || true
   # Wait for pod to complete so logs are flushed (avoid empty CODE from reading too early)
   for _w in $(seq 1 20); do
     _phase=$(_kb -n "$NS_ING" get pod "$CADDY_POD" -o jsonpath='{.status.phase}' 2>/dev/null || echo "Pending")

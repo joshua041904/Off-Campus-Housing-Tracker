@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 
-# Shared helpers for issuing HTTP/3 (QUIC) requests. Paths (in order of use):
+# Shared helpers for issuing HTTP/3 (QUIC) requests.
+#
+# macOS default curl often reports libcurl "(SecureTransport)" — no ngtcp2/nghttp3 on that stack, so no
+# real HTTP/3 and no SSLKEYLOGFILE-based QUIC decryption in tshark. http3_curl is a shell function
+# (there is no /usr/bin/http3_curl): it may use CURL_BIN, native curl if "curl --help all" shows --http3,
+# or Docker (HTTP3_IMAGE). Interactive "curl -V" on PATH can disagree with what probes use.
+# Run: ./scripts/verify-curl-http3.sh — Runbook.md item 91.
+#
+# Paths (in order of use):
 #   1. Native curl + MetalLB LB IP (HTTP3_USE_NATIVE_CURL=1): host curl → LB IP:443 → socat → NodePort 30443 → Caddy.
 #   2. Docker + host network + Docker bridge (HTTP3_DOCKER_FORWARD_PORT=18443): container curl → 127.0.0.1:18443 → host socat → NodePort → Caddy.
 #   3. NodePort fallback (HTTP3_USE_LB_IP=0): resolve off-campus-housing.local to 127.0.0.1:30443.

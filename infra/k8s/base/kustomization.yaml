@@ -15,5 +15,6 @@ resources:
   - exporters
   - api-gateway
   - auth-service
+  - booking-service
   - messaging-service
   - media-service

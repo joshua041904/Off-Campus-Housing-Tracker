@@ -41,6 +41,8 @@ data:
                     route: { cluster: analytics_service }
                   - match: { prefix: "/shopping." }
                     route: { cluster: shopping_service }
+                  - match: { prefix: "/booking." }
+                    route: { cluster: booking_service }
                   - match: { prefix: "/auction_monitor." }
                     route: { cluster: auction_monitor_service }
                   - match: { prefix: "/auction-monitor." }
@@ -180,6 +182,28 @@ data:
                   socket_address:
                     address: shopping-service.off-campus-housing-tracker.svc.cluster.local
                     port_value: 50058
+        transport_socket:
+          name: envoy.transport_sockets.tls
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+            sni: off-campus-housing.local
+            common_tls_context:
+              validation_context:
+                trusted_ca: { filename: /etc/certs/ca/dev-root.pem }
+      - name: booking_service
+        connect_timeout: 5s
+        type: LOGICAL_DNS
+        lb_policy: ROUND_ROBIN
+        http2_protocol_options: {}
+        load_assignment:
+          cluster_name: booking_service
+          endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: booking-service.off-campus-housing-tracker.svc.cluster.local
+                    port_value: 50063
         transport_socket:
           name: envoy.transport_sockets.tls
           typed_config:

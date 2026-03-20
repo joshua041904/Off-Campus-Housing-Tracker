@@ -147,7 +147,7 @@ if _has_exp 4; then
     _node_ip=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null | head -1 | awk '{print $1}' || true)
     _np=$(kubectl -n ingress-nginx get svc caddy-h3 -o jsonpath='{.spec.ports[?(@.name=="https")].nodePort}' 2>/dev/null || echo "30443")
     if [[ -n "$_node_ip" ]] && [[ -n "$_np" ]] && [[ "$_node_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-      _code=$(curl -k -sS -o /dev/null -w "%{http_code}" --connect-timeout 3 --max-time 8 "https://${_node_ip}:${_np}/_caddy/healthz" -H "Host: off-campus-housing.local" 2>/dev/null || echo "000")
+      _code=$(curl -k -sS -o /dev/null -w "%{http_code}" --connect-timeout 3 --max-time 8 --resolve "off-campus-housing.local:${_np}:${_node_ip}" "https://off-campus-housing.local:${_np}/_caddy/healthz" 2>/dev/null || echo "000")
       if [[ "$_code" == "200" ]]; then
         ok "  NodePort check: $_node_ip:$_np reachable (HTTP $_code)"
       else

@@ -42,7 +42,20 @@ start_capture() {
   # Default: port-only (tcp/udp 443). MetalLB L2: traffic inside pod is DNAT'd — we see pod IP, not LB IP; host filter would show 0 packets.
   local filter="${3:-}"
   if [[ -z "$filter" ]]; then
-    filter="tcp port 443 or udp port 443"
+    # Strict BPF: only TCP/UDP 443 destined to this pod's IP (ingress on eth0). Proves capture is not random host QUIC.
+    if [[ "${CAPTURE_STRICT_ENDPOINT_BPF:-1}" != "0" ]]; then
+      local _pip
+      _pip=$(_capture_kubectl get pod "$pod" -n "$ns" -o jsonpath='{.status.podIP}' 2>/dev/null || true)
+      if [[ -n "$_pip" ]] && [[ "$_pip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        filter="(tcp and dst host ${_pip} and dst port 443) or (udp and dst host ${_pip} and dst port 443)"
+        echo "  [packet-capture] Strict endpoint BPF: dst host ${_pip} && port 443 (tcp|udp)"
+      else
+        filter="tcp port 443 or udp port 443"
+        echo "  [packet-capture] Pod IP unavailable; fallback BPF: tcp or udp port 443"
+      fi
+    else
+      filter="tcp port 443 or udp port 443"
+    fi
   fi
   local dir
   dir="$(packet_capture_dir)"
@@ -90,7 +103,13 @@ start_capture() {
   local logfile="$dir/capture-$name.log"
   # Log interfaces before starting tcpdump (diagnostic when capture shows 0 packets — confirms which interface has traffic)
   _capture_kubectl -n "$ns" exec "$pod" -- sh -c "echo \"=== $ns/$pod interfaces ===\"; ip addr 2>/dev/null || ifconfig 2>/dev/null || true" >> "$logfile" 2>&1 || true
-  local base_cmd="tcpdump -i eth0 -nn -s 0 -B 8192 -U -w /tmp/capture-$name.pcap $filter 2>&1"
+  # Prefer eth0 (ingress to Caddy only); fall back to any if eth0 missing in minimal images.
+  local _iface=eth0
+  if ! _capture_kubectl -n "$ns" exec "$pod" -- sh -c "ip link show eth0 >/dev/null 2>&1" 2>/dev/null; then
+    _iface=any
+    echo "  [packet-capture] eth0 not found on $pod; using -i any (prefer eth0 image for isolation)"
+  fi
+  local base_cmd="tcpdump -i ${_iface} -nn -s 0 -B 8192 -U -w /tmp/capture-$name.pcap $filter 2>&1"
   local run_cmd="$base_cmd"
   if [[ -n "${CAPTURE_MAX_DURATION:-}" ]] && [[ "${CAPTURE_MAX_DURATION:-0}" -gt 0 ]]; then
     run_cmd="timeout ${CAPTURE_MAX_DURATION}s $base_cmd || $base_cmd"
@@ -334,6 +353,20 @@ stop_and_analyze_captures() {
     if command -v tshark >/dev/null 2>&1 && type verify_protocol_in_dir &>/dev/null 2>&1; then
       echo "  [packet-capture] Verifying protocols (tshark) in $copy_dir_used"
       verify_protocol_in_dir "$copy_dir_used" "capture" || true
+    fi
+    # Per-pod QUIC proof: stray UDP/443 vs pod IP + optional SNI (OCH: CAPTURE_EXPECTED_SNI default off-campus-housing.local)
+    if [[ "${CAPTURE_POST_VERIFY_QUIC:-1}" != "0" ]] && command -v tshark >/dev/null 2>&1 && type verify_caddy_pcap_quic_enforcement &>/dev/null 2>&1; then
+      for (( _ci=0; _ci<${#_CAPTURE_PODS[@]}; _ci++ )); do
+        local _cns="${_CAPTURE_NS[$_ci]}" _cpod="${_CAPTURE_PODS[$_ci]}"
+        [[ "$_cns" == "ingress-nginx" ]] || continue
+        local _cname="${_cpod//[^a-zA-Z0-9_-]/_}"
+        local _cdest="$copy_dir_used/capture-$_cname.pcap"
+        [[ -f "$_cdest" ]] && [[ -s "$_cdest" ]] || continue
+        local _cpip
+        _cpip=$(_capture_kubectl get pod "$_cpod" -n "$_cns" -o jsonpath='{.status.podIP}' 2>/dev/null || true)
+        [[ -n "$_cpip" ]] || continue
+        verify_caddy_pcap_quic_enforcement "$_cdest" "$_cpip" || { [[ "${STRICT_QUIC_VALIDATION:-0}" == "1" ]] && echo "  [packet-capture] STRICT_QUIC_VALIDATION=1: capture verify failed" && return 1; }
+      done
     fi
     fi
   fi

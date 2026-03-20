@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Housing-only: HTTP/2 + HTTP/3 smoke for auth (two users) and messaging.
 # Replaces RP-specific test-microservices-http2-http3.sh for off-campus-housing-tracker.
+# Booking: at end (Test 19), runs test-booking-http2-http3.sh (MetalLB HTTP/2+HTTP/3 + edge grpcurl) unless SKIP_BOOKING_IN_HOUSING_SUITE=1.
 # - Auth: register + login (User 1 and User 2) via HTTP/2 and HTTP/3.
 # - Health: Caddy, api-gateway (HTTP/2 and HTTP/3 where supported).
 # - Messaging: run messaging-service integration tests (DB + rate limit + spam).
@@ -1417,4 +1418,17 @@ generate_latency_svg_graph "$LATENCY_CSV" "$LATENCY_SVG"
 ok "Latency artifacts: $LATENCY_CSV and $LATENCY_SVG"
 
 set -e
+
+# Booking: HTTP/2 + HTTP/3 + edge gRPC (MetalLB) — single entry from preflight via this suite unless skipped
+if [[ "${SKIP_BOOKING_IN_HOUSING_SUITE:-0}" != "1" ]]; then
+  say "Test 19: Booking service protocol suite (delegates to test-booking-http2-http3.sh)"
+  if [[ -x "$SCRIPT_DIR/test-booking-http2-http3.sh" ]]; then
+    HOST="${HOST:-off-campus-housing.local}" "$SCRIPT_DIR/test-booking-http2-http3.sh" || fail "Booking protocol suite failed"
+  else
+    warn "test-booking-http2-http3.sh missing or not executable — skipping"
+  fi
+else
+  info "Test 19 skipped (SKIP_BOOKING_IN_HOUSING_SUITE=1)"
+fi
+
 say "=== Housing HTTP/2 + HTTP/3 suite done ==="

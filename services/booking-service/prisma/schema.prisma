@@ -1,0 +1,80 @@
+generator client {
+  provider      = "prisma-client-js"
+  output        = "../prisma/generated/client"
+  binaryTargets = ["native", "debian-openssl-3.0.x", "linux-arm64-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("POSTGRES_URL_BOOKINGS")
+  schemas  = ["booking"]
+}
+
+enum BookingStatus {
+  created              @map("created")
+  pending_confirmation @map("pending_confirmation")
+  confirmed            @map("confirmed")
+  rejected             @map("rejected")
+  cancelled            @map("cancelled")
+  expired              @map("expired")
+  completed            @map("completed")
+
+  @@map("booking_status")
+  @@schema("booking")
+}
+
+model Booking {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  listingId   String   @map("listing_id") @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  landlordId  String   @map("landlord_id") @db.Uuid
+  status      BookingStatus
+  startDate   DateTime @map("start_date") @db.Date
+  endDate     DateTime @map("end_date") @db.Date
+  priceCentsSnapshot Int @map("price_cents_snapshot")
+  currencyCode String @map("currency_code") @db.VarChar(8)
+  cancellationReason String? @map("cancellation_reason") @db.Text
+  confirmedAt DateTime? @map("confirmed_at")
+  cancelledAt DateTime? @map("cancelled_at")
+  completedAt DateTime? @map("completed_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("bookings")
+  @@schema("booking")
+  @@index([tenantId], map: "idx_bookings_tenant_id")
+  @@index([listingId], map: "idx_bookings_listing_id")
+  @@index([status], map: "idx_bookings_status")
+}
+
+model SearchHistory {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  query         String?  @db.VarChar(256)
+  minPriceCents Int?     @map("min_price_cents")
+  maxPriceCents Int?     @map("max_price_cents")
+  maxDistanceKm Int?     @map("max_distance_km")
+  latitude      Float?
+  longitude     Float?
+  filters       Json?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@map("search_history")
+  @@schema("booking")
+  @@index([userId, createdAt(sort: Desc)], map: "idx_search_history_user_created")
+}
+
+model WatchlistItem {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  listingId   String   @map("listing_id") @db.Uuid
+  source      String?  @db.VarChar(40)
+  addedAt     DateTime @default(now()) @map("added_at")
+  removedAt   DateTime? @map("removed_at")
+  isActive    Boolean  @default(true) @map("is_active")
+
+  @@map("watchlist_items")
+  @@schema("booking")
+  @@unique([userId, listingId], map: "ux_watchlist_user_listing")
+  @@index([userId, isActive, addedAt(sort: Desc)], map: "idx_watchlist_user_active_added")
+}

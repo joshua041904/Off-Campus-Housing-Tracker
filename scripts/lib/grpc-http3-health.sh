@@ -30,6 +30,7 @@ run_grpc_http3_health_checks() {
 
   # Caddy HTTP/3 health (strict TLS when CA_CERT set). URL must use port when not 443 so host→NodePort works.
   local h3_url="https://${host}:${port}/_caddy/healthz"
+  [[ "$port" == "443" ]] && h3_url="https://${host}/_caddy/healthz"
   say "Health: Caddy HTTP/3 (strict TLS with explicit QUIC verification)"
   info "  Target: $h3_url (resolve: $http3_resolve)"
   info "  Using: $(type strict_http3_curl &>/dev/null && echo "strict_http3_curl (with CA)" || echo "http3_curl (insecure)")"
@@ -101,14 +102,18 @@ run_grpc_http3_health_checks() {
   fi
   ca_file="${CA_CERT:-}"
   [[ -z "$ca_file" ]] && [[ -f "$grpc_certs_dir/ca.crt" ]] && ca_file="$grpc_certs_dir/ca.crt"
+  # MetalLB: grpcurl dials IP — trust anchor must match Caddy leaf chain (cluster secret or repo dev-root.pem)
+  if [[ -z "$ca_file" ]] || [[ ! -f "$ca_file" ]] || [[ ! -s "$ca_file" ]]; then
+    [[ -f "$script_dir/../certs/dev-root.pem" ]] && ca_file="$(cd "$script_dir/.." && pwd)/certs/dev-root.pem"
+  fi
   grpc_authority="${HOST:-off-campus-housing.local}"
   if [[ -n "$ca_file" ]] && [[ -f "$ca_file" ]]; then
     # MetalLB / LB IP: primary path when TARGET_IP + PORT=443
     if [[ -n "${TARGET_IP:-}" ]] && [[ "${port:-443}" == "443" ]]; then
       if [[ $use_mtls -eq 1 ]]; then
-        out=$(grpcurl -cacert "$ca_file" -cert "$grpc_certs_dir/tls.crt" -key "$grpc_certs_dir/tls.key" -authority "$grpc_authority" -import-path "$proto_dir" -proto "$proto_dir/health.proto" -max-time 5 -d '{"service":""}' "${TARGET_IP}:443" grpc.health.v1.Health/Check 2>&1) || true
+        out=$(grpcurl -cacert "$ca_file" -cert "$grpc_certs_dir/tls.crt" -key "$grpc_certs_dir/tls.key" -authority "$grpc_authority" -servername "$grpc_authority" -import-path "$proto_dir" -proto "$proto_dir/health.proto" -max-time 5 -d '{"service":""}' "${TARGET_IP}:443" grpc.health.v1.Health/Check 2>&1) || true
       else
-        out=$(grpcurl -cacert "$ca_file" -authority "$grpc_authority" -import-path "$proto_dir" -proto "$proto_dir/health.proto" -max-time 5 -d '{"service":""}' "${TARGET_IP}:443" grpc.health.v1.Health/Check 2>&1) || true
+        out=$(grpcurl -cacert "$ca_file" -authority "$grpc_authority" -servername "$grpc_authority" -import-path "$proto_dir" -proto "$proto_dir/health.proto" -max-time 5 -d '{"service":""}' "${TARGET_IP}:443" grpc.health.v1.Health/Check 2>&1) || true
       fi
       if echo "$out" | grep -q "SERVING"; then
         [[ $use_mtls -eq 1 ]] && ok "gRPC via MetalLB IP (mTLS): OK" || ok "gRPC via MetalLB IP (strict TLS): OK"
@@ -119,7 +124,7 @@ run_grpc_http3_health_checks() {
     if [[ $metalb_only -eq 1 ]] && [[ $grpc_ok -eq 1 ]]; then
       :  # LB path succeeded; nothing more to do
     elif [[ $metalb_only -eq 1 ]] && [[ $grpc_ok -eq 0 ]]; then
-      warn "gRPC via LB IP: not OK (check CA_CERT and ${TARGET_IP}:443 reachability)"
+      warn "gRPC via LB IP: not OK (check CA matches Caddy chain, ${TARGET_IP}:443 reachability, -authority/-servername=${grpc_authority})"
       GRPC_HTTP3_HEALTH_OK=0
     else
     # Envoy NodePort (127.0.0.1:30000/30001) when LB path not used or not OK

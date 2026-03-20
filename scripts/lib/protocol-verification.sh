@@ -123,8 +123,54 @@ count_quic_sni_record_local_in_pcap() {
     return
   fi
   local count
-  count=$(tshark -r "$pcap" -Y "quic && tls.handshake.extensions_server_name contains $sni" 2>/dev/null | wc -l 2>/dev/null | tr -d '[:space:]')
+  # Quote SNI for display filter (OCH: off-campus-housing.local; not record.local / RP)
+  count=$(tshark -r "$pcap" -Y "quic && tls.handshake.extensions_server_name contains \"${sni}\"" 2>/dev/null | wc -l 2>/dev/null | tr -d '[:space:]')
   [[ "$count" =~ ^[0-9]+$ ]] && echo "$count" || echo "0"
+}
+
+# UDP/443 packets whose IPv4 dst is NOT the pod ingress IP (should be 0 for Caddy pod capture on eth0).
+count_udp443_stray_not_pod_in_pcap() {
+  local pcap="${1:?pcap file path}"
+  local pod_ip="${2:?pod IP}"
+  if [[ ! -f "$pcap" ]] || [[ ! -s "$pcap" ]]; then
+    echo "0"
+    return
+  fi
+  if ! command -v tshark >/dev/null 2>&1; then
+    echo "0"
+    return
+  fi
+  local count
+  count=$(tshark -r "$pcap" -Y "udp.port == 443 && ip && ip.dst != ${pod_ip}" 2>/dev/null | wc -l 2>/dev/null | tr -d '[:space:]')
+  [[ "$count" =~ ^[0-9]+$ ]] && echo "$count" || echo "0"
+}
+
+# Gold-standard checks for a Caddy pod pcap: no stray UDP/443 to other hosts; QUIC SNI matches OCH hostname.
+# Returns 0 on success; 1 if STRICT_QUIC_VALIDATION=1 and checks fail.
+verify_caddy_pcap_quic_enforcement() {
+  local pcap="${1:?pcap}"
+  local pod_ip="${2:?pod IP}"
+  local sni="${CAPTURE_EXPECTED_SNI:-off-campus-housing.local}"
+  [[ ! -f "$pcap" ]] || [[ ! -s "$pcap" ]] && return 0
+  command -v tshark >/dev/null 2>&1 || { echo "  [capture-verify] tshark not installed; skip QUIC/SNI enforcement"; return 0; }
+  local stray udp_all sni_count quic_any
+  stray=$(count_udp443_stray_not_pod_in_pcap "$pcap" "$pod_ip")
+  read -r _tcp udp_all <<< "$(count_tcp443_udp443_in_pcap "$pcap")"
+  sni_count=$(count_quic_sni_record_local_in_pcap "$pcap" "$sni")
+  quic_any=$(tshark -r "$pcap" -Y "quic" 2>/dev/null | wc -l | tr -d '[:space:]')
+  [[ ! "$quic_any" =~ ^[0-9]+$ ]] && quic_any=0
+  echo "  [capture-verify] $pcap: UDP/443 stray (dst != pod ${pod_ip}): ${stray:-0}; QUIC SNI '${sni}': ${sni_count:-0} lines; UDP/443 total: ${udp_all:-0}"
+  if [[ "${stray:-0}" -gt 0 ]]; then
+    echo "  [capture-verify] FAIL: stray UDP/443 to non-pod IP (background QUIC or wrong interface). Use BPF dst pod IP + -i eth0."
+    [[ "${STRICT_QUIC_VALIDATION:-0}" == "1" ]] && return 1
+  fi
+  if [[ "${udp_all:-0}" -gt 0 ]] && [[ "${sni_count:-0}" -eq 0 ]]; then
+    echo "  [capture-verify] WARN: UDP/443 present but no QUIC TLS SNI '${sni}' decoded (tshark version or encrypted Initial); curl --http3 success still counts for app layer"
+    [[ "${CAPTURE_ENFORCE_QUIC_SNI:-0}" == "1" ]] && { echo "  [capture-verify] FAIL: CAPTURE_ENFORCE_QUIC_SNI=1 requires SNI proof"; return 1; }
+  elif [[ "${sni_count:-0}" -gt 0 ]]; then
+    echo "  [capture-verify] OK: QUIC + SNI '${sni}' present (definitive OCH edge proof)"
+  fi
+  return 0
 }
 
 # Count UDP 443 to TARGET_IP (for host/VM pcaps only; in-pod pcaps have dst=pod IP so this is 0).
@@ -185,6 +231,81 @@ count_alpn_h2_in_pcap() {
   echo "0"
 }
 
+# QUIC + HTTP/3: Prefer tls.handshake.extensions_alpn_str (works with decrypted QUIC in typical tshark);
+# avoid relying on quic.tls.handshake.extensions_alpn (field/filter missing on many builds).
+# Optional args after pcap are passed to tshark (e.g. -o tls.keylog_file:/path).
+count_alpn_h3_quic_packets_in_pcap() {
+  local pcap="${1:?pcap}"
+  shift
+  [[ ! -f "$pcap" ]] || [[ ! -s "$pcap" ]] && {
+    echo "0"
+    return 0
+  }
+  command -v tshark >/dev/null 2>&1 || {
+    echo "0"
+    return 0
+  }
+
+  local c
+  for filter in \
+    'quic && tls.handshake.extensions_alpn_str contains "h3"' \
+    'quic && tls.handshake.extensions_alpn_str == "h3"' \
+    'tls.handshake.extensions_alpn_str == "h3"' \
+    'quic && tls.handshake.extensions_alpn contains "h3"' \
+    'tls.handshake.extensions_alpn_str contains "h3" && quic' \
+    'quic && quic.tls.handshake.extensions_alpn contains "h3"'; do
+    c=$(tshark "$@" -r "$pcap" -Y "$filter" 2>/dev/null | wc -l | tr -d '[:space:]')
+    [[ "$c" =~ ^[0-9]+$ ]] && [[ "$c" -gt 0 ]] && {
+      echo "$c"
+      return 0
+    }
+  done
+
+  local raw
+  for e in tls.handshake.extensions_alpn_str quic.tls.handshake.extensions_alpn_str quic.tls.handshake.extensions_alpn ssl.handshake.extensions_alpn; do
+    raw=$(tshark "$@" -r "$pcap" -Y "quic" -T fields -e "$e" 2>/dev/null || true)
+    if echo "$raw" | grep -q "h3"; then
+      c=$(echo "$raw" | grep -c "h3" 2>/dev/null || echo "0")
+      [[ "$c" =~ ^[0-9]+$ ]] && [[ "$c" -gt 0 ]] && {
+        echo "$c"
+        return 0
+      }
+      echo "1"
+      return 0
+    fi
+  done
+
+  c=$(tshark "$@" -r "$pcap" -Y "http3" 2>/dev/null | wc -l | tr -d '[:space:]')
+  [[ "$c" =~ ^[0-9]+$ ]] && [[ "$c" -gt 0 ]] && {
+    echo "$c"
+    return 0
+  }
+
+  echo "0"
+}
+
+# One line per ALPN string from QUIC frames (for transport-summary.json). First approach that yields output wins.
+quic_alpn_strings_from_pcap() {
+  local pcap="${1:?pcap}"
+  shift
+  [[ ! -f "$pcap" ]] || [[ ! -s "$pcap" ]] && return 0
+  command -v tshark >/dev/null 2>&1 || return 0
+  local e out
+  out=$(tshark "$@" -r "$pcap" -Y "quic" -T fields -e tls.handshake.extensions_alpn_str 2>/dev/null | grep -v '^[[:space:]]*$' || true)
+  if [[ -n "$out" ]]; then
+    echo "$out"
+    return 0
+  fi
+  for e in quic.tls.handshake.extensions_alpn_str quic.tls.handshake.extensions_alpn ssl.handshake.extensions_alpn; do
+    out=$(tshark "$@" -r "$pcap" -Y "quic" -T fields -e "$e" 2>/dev/null | grep -v '^[[:space:]]*$' || true)
+    if [[ -n "$out" ]]; then
+      echo "$out"
+      return 0
+    fi
+  done
+  return 0
+}
+
 # Aggregate verification for a directory of pcaps (e.g. caddy-rotation-*.pcap)
 # Prints OK/warn and returns 0 if at least HTTP/2, ALPN h2, QUIC, or (TCP443+UDP443) verified; 1 if nothing.
 # When TLS is used, http2 frames may be 0 without SSLKEYLOGFILE; ALPN h2 in Client Hello is definitive; TCP 443 is proof of HTTPS.
@@ -223,7 +344,7 @@ verify_protocol_in_dir() {
   for pcap in "$dir"/*.pcap; do
     [[ -f "$pcap" ]] || continue
     [[ -s "$pcap" ]] || continue
-    sni_total=$((sni_total + $(count_quic_sni_record_local_in_pcap "$pcap" "off-campus-housing.local")))
+    sni_total=$((sni_total + $(count_quic_sni_record_local_in_pcap "$pcap" "${CAPTURE_EXPECTED_SNI:-off-campus-housing.local}")))
   done
   [[ "$sni_total" -gt 0 ]] && echo "  OK: $label QUIC SNI off-campus-housing.local: $sni_total packets (definitive proof traffic to our domain)"
   # When TARGET_IP set: report QUIC to LB IP and stray (for host/VM pcaps; in-pod has dst=pod IP so to_lb may be 0).

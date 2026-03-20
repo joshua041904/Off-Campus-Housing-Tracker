@@ -24,7 +24,8 @@
     "reissue": "bash scripts/reissue-ca-and-leaf-load-all-services.sh",
     "kafka-ssl": "bash scripts/kafka-ssl-from-dev-root.sh",
     "verify-tls": "bash scripts/verify-caddy-strict-tls.sh",
-    "preflight-and-suites": "bash scripts/run-preflight-scale-and-all-suites.sh"
+    "preflight-and-suites": "bash scripts/run-preflight-scale-and-all-suites.sh",
+    "test:webapp:e2e": "pnpm --filter webapp test:e2e"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

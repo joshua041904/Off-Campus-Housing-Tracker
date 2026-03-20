@@ -61,6 +61,7 @@ fi
 #   APPLY_RATE_LIMIT_SLEEP=2 — seconds between kubectl apply batches (reduces API burst).
 #
 # Packet capture (step 7 suites): CAPTURE_STOP_TIMEOUT=30 and CAPTURE_MAX_STOP_SECONDS=75 are exported so baseline/enhanced capture stop phase never blocks (quick first-packet only when timeout set; full copy capped at 75s).
+#   In-pod Caddy: CAPTURE_STRICT_ENDPOINT_BPF=1 (default) → BPF (tcp|udp) dst podIP:443; post-verify stray UDP/443 (dst != pod) must be 0. CAPTURE_EXPECTED_SNI=off-campus-housing.local (OCH edge; not record.local). STRICT_QUIC_VALIDATION=1 / CAPTURE_ENFORCE_QUIC_SNI=1 tighten failures. Host/VM pcaps: dst MetalLB TARGET_IP.
 #
 # Example (k3d + MetalLB, suites only): METALLB_ENABLED=1 REQUIRE_COLIMA=0 RUN_PGBENCH=0 ./scripts/run-preflight-scale-and-all-suites.sh
 # Example (Colima + MetalLB, full preflight + k6 + all suites, no pgbench): METALLB_ENABLED=1 RUN_PGBENCH=0 ./scripts/run-preflight-scale-and-all-suites.sh
@@ -1975,6 +1976,7 @@ fi
 #  Step 2b   — k6 load           → run-k6-phases.sh (when RUN_K6=1); strict TLS only (certs/dev-root.pem)
 #  Suite 3/4 — standalone-capture → test-packet-capture-standalone.sh (gRPC + HTTP/2 + HTTP/3 wire capture only)
 #  Suite 4/4 — tls-mtls          → test-tls-mtls-comprehensive.sh (cert chain, gRPC TLS, mTLS)
+#  Booking (HTTP/2 + HTTP/3 + edge gRPC) → runs inside test-microservices-http2-http3-housing.sh (Test 19) unless SKIP_BOOKING_IN_HOUSING_SUITE=1
 #  Post-suites: verify-db-and-cache-comprehensive.sh (when SKIP_END_VERIFICATION=0)
 
 # --- Step 6e: Ensure tcpdump in Caddy + Envoy pods (so baseline/enhanced/rotation capture does not block on install) ---
@@ -1991,14 +1993,14 @@ if [[ -f "$SCRIPT_DIR/ensure-tcpdump-in-capture-pods.sh" ]]; then
 fi
 
 _phase_start "7_run_all_suites"
-say "7. Running housing + protocol test suites (auth, rotation, standalone-capture, tls-mtls)${RUN_K6:+ + k6}..."
+say "7. Running housing + protocol test suites (auth, rotation, standalone-capture, tls-mtls; booking inside housing + k6)${RUN_K6:+ + k6}..."
 export SUITE_LOG_DIR="${SUITE_LOG_DIR:-$PREFLIGHT_RUN_DIR/suite-logs}"
 mkdir -p "$SUITE_LOG_DIR"
 # Explicit timeouts and verification caps so the run progresses and never hangs (override with env when calling preflight).
 export CAPTURE_STOP_TIMEOUT="${CAPTURE_STOP_TIMEOUT:-30}"
 export CAPTURE_MAX_STOP_SECONDS="${CAPTURE_MAX_STOP_SECONDS:-75}"
 export SUITE_TIMEOUT="${SUITE_TIMEOUT:-3600}"
-# Packet capture standard (all suites): (1) BPF (tcp or udp) and port 443 and dst host TARGET_IP on VM/node; (2) in-pod Caddy use -i eth0 and port 443; (3) after capture, tshark: udp.port==443 && ip.dst==TARGET_IP, stray udp.port==443 && ip.dst!=TARGET_IP must be 0, optional SNI off-campus-housing.local; (4) STRICT_QUIC_VALIDATION=1 fails run on stray.
+# Packet capture standard: (1) Host/VM: BPF (tcp|udp) dst TARGET_IP:443 if capturing before DNAT. (2) In-pod Caddy: BPF (tcp|udp) dst podIP:443, tcpdump -i eth0 (fallback any). (3) tshark: in-pod stray = udp.port==443 && ip.dst!=podIP (must 0); TARGET_IP rollup for pcaps that still show LB dst. SNI: quic && tls... contains CAPTURE_EXPECTED_SNI (default off-campus-housing.local). (4) STRICT_QUIC_VALIDATION=1 fails on pod stray / inconsistent LB rollup.
 export STRICT_QUIC_VALIDATION="${STRICT_QUIC_VALIDATION:-1}"
 [[ -n "${TARGET_IP:-}" ]] && export CAPTURE_V2_LB_IP="$TARGET_IP"
 # Fast default: 10s DB verify cap so baseline finishes in ~2–3 min after tests (set DB_VERIFY_MAX_SECONDS=60 for full verify).
@@ -2088,6 +2090,14 @@ _run_all_suites() {
         k6 run "$REPO_ROOT/scripts/load/k6-messaging.js" || warn "k6-messaging.js reported failures (see log above)"
       K6_INSECURE_SKIP_TLS=0 DURATION="${K6_MEDIA_DURATION:-30s}" RATE="${K6_MEDIA_RATE:-20}" VUS="${K6_MEDIA_VUS:-8}" \
         k6 run "$REPO_ROOT/scripts/load/k6-media-health.js" || warn "k6-media-health.js reported failures (non-fatal)"
+      say "7a4. k6 load: booking search-history + watchlist (edge via MetalLB)..."
+      K6_INSECURE_SKIP_TLS=1 VUS="${K6_BOOKING_VUS:-3}" DURATION="${K6_BOOKING_DURATION:-20s}" \
+        k6 run -e BASE_URL="https://$_k6_lb" -e HOST="off-campus-housing.local" -e RESOLVE_IP=1 \
+        "$REPO_ROOT/scripts/load/k6-booking.js" || warn "k6-booking.js reported failures (non-fatal)"
+      say "7a5. k6 load: search-history + watchlist (expanded iteration mix)..."
+      K6_INSECURE_SKIP_TLS=1 VUS="${K6_SEARCH_VUS:-6}" DURATION="${K6_SEARCH_DURATION:-30s}" \
+        k6 run -e BASE_URL="https://$_k6_lb" -e HOST="off-campus-housing.local" -e RESOLVE_IP=1 \
+        "$REPO_ROOT/scripts/load/k6-search-watchlist.js" || warn "k6-search-watchlist.js reported failures (non-fatal)"
     else
       warn "7a3 k6 skipped: need reachable LB IP (got '${_k6_lb:-empty}') and CA at certs/dev-root.pem"
     fi

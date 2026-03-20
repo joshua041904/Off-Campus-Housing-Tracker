@@ -293,7 +293,7 @@ spec:
     - /bin/sh
     - -c
     - |
-      code=\$(curl -k -sS -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 -H "Host: off-campus-housing.local" "https://$lb_ip/_caddy/healthz" 2>/dev/null) || code="000"
+      code=\$(curl -k -sS -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 --resolve "off-campus-housing.local:443:$lb_ip" "https://off-campus-housing.local/_caddy/healthz" 2>/dev/null) || code="000"
       echo "\$code"
 PODEOF2
       _node_ok=0
@@ -510,7 +510,7 @@ if [[ "${SKIP_HOST_CURL:-0}" != "1" ]]; then
       _pod_h3_out=$(kubectl -n "$NS_ING" run "verify-h3-lb-$$" --rm -i --restart=Never --request-timeout=60s --quiet \
         --overrides='{"spec":{"hostNetwork":true}}' \
         --image="$_h3_img" -- \
-        curl -k -sS -o /dev/null -w "%{http_code}\n" --connect-timeout 8 --max-time 20 --http3 "https://${lb_ip}/_caddy/healthz" 2>/dev/null || echo "000")
+        curl -k -sS -o /dev/null -w "%{http_code}\n" --connect-timeout 8 --max-time 20 --http3 --resolve "off-campus-housing.local:443:${lb_ip}" "https://off-campus-housing.local/_caddy/healthz" 2>/dev/null || echo "000")
       _pod_h3_code=$(echo "$_pod_h3_out" | head -1 | tr -d '\r\n')
       [[ ! "$_pod_h3_code" =~ ^[0-9]{3}$ ]] && _pod_h3_code="000"
       _pod_h3_code=$(_normalize_http_code "$_pod_h3_code")
@@ -525,7 +525,7 @@ if [[ "${SKIP_HOST_CURL:-0}" != "1" ]]; then
     fi
     # Colima fallback: in-VM curl (if in-cluster pod failed or image pull issue).
     if [[ "$_http3_lb_ok" != "1" ]] && [[ "$ctx" == *"colima"* ]] && [[ -n "$lb_ip" ]] && command -v colima &>/dev/null 2>&1; then
-      _vm_h3=$(colima ssh -- curl -k -sS -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 --http3-only "https://${lb_ip}/_caddy/healthz" 2>/dev/null || echo "000")
+      _vm_h3=$(colima ssh -- curl -k -sS -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 --http3-only --resolve "off-campus-housing.local:443:${lb_ip}" "https://off-campus-housing.local/_caddy/healthz" 2>/dev/null || echo "000")
       _vm_h3=$(_normalize_http_code "$_vm_h3")
       if [[ "$_vm_h3" == "200" ]]; then
         _http3_lb_ok=1
@@ -615,7 +615,7 @@ if [[ "${SKIP_HOST_CURL:-0}" != "1" ]]; then
         _pod_out=$(kubectl -n "$NS_ING" run "verify-h3-stable-$$" --rm -i --restart=Never --request-timeout=30s --quiet \
           --overrides='{"spec":{"hostNetwork":true}}' \
           --image="$_h3_img" -- \
-          curl -k -sS -o /dev/null -w "%{http_code}\n" --connect-timeout 8 --max-time 20 --http3 "https://${lb_ip}/_caddy/healthz" 2>/dev/null || echo "000")
+          curl -k -sS -o /dev/null -w "%{http_code}\n" --connect-timeout 8 --max-time 20 --http3 --resolve "off-campus-housing.local:443:${lb_ip}" "https://off-campus-housing.local/_caddy/healthz" 2>/dev/null || echo "000")
         _pod_code=$(echo "$_pod_out" | head -1 | tr -d '\r\n')
         [[ ! "$_pod_code" =~ ^[0-9]{3}$ ]] && _pod_code="000"
         _pod_code=$(_normalize_http_code "$_pod_code")
@@ -629,7 +629,7 @@ if [[ "${SKIP_HOST_CURL:-0}" != "1" ]]; then
       if [[ "$_http3_lb_ok" != "1" ]]; then
         echo ""
         info "Diagnostic: On Colima, UDP 443 from Mac to VM network (192.168.64.x) often does not work. In-cluster QUIC to LB IP is the authoritative check."
-        info "Manual in-cluster check: kubectl -n $NS_ING run verify-h3-manual --rm -i --restart=Never --image=rmarx/curl-http3:latest --overrides='{\"spec\":{\"hostNetwork\":true}}' -- curl -k -v --http3 https://$lb_ip/_caddy/healthz"
+        info "Manual in-cluster check: kubectl -n $NS_ING run verify-h3-manual --rm -i --restart=Never --image=rmarx/curl-http3:latest --overrides='{\"spec\":{\"hostNetwork\":true}}' -- curl -k -v --http3 --resolve off-campus-housing.local:443:$lb_ip https://off-campus-housing.local/_caddy/healthz"
         fail "HTTP/3 did not pass within 15s (stable mode). QUIC must succeed from host or in-cluster; check UDP 443 and Caddy."
       fi
     fi
@@ -650,7 +650,7 @@ if [[ "${SKIP_HOST_CURL:-0}" != "1" ]]; then
       ok "On Colima, NodePort is on VM (not host). QUIC already verified via LB IP (in-VM or bridged host)."
       _http3_np_ok=1
     else
-      info "On Colima, NodePort is on VM; 127.0.0.1:$caddy_nodeport is not valid from Mac. Verify QUIC in-VM: colima ssh -- curl -k --http3-only https://$lb_ip/_caddy/healthz"
+      info "On Colima, NodePort is on VM; 127.0.0.1:$caddy_nodeport is not valid from Mac. Verify QUIC in-VM: colima ssh -- curl -k --http3-only --resolve off-campus-housing.local:443:$lb_ip https://off-campus-housing.local/_caddy/healthz"
     fi
   elif [[ -n "$host_curl_port" ]] && [[ "$host_curl_port" != "443" ]] && [[ "$_http3_lb_ok" == "1" ]]; then
     ok "HTTP/3 via NodePort (via 127.0.0.1:$host_curl_port forward to VM:$caddy_nodeport) already verified in step 6"
@@ -698,8 +698,8 @@ if [[ "${SKIP_HOST_CURL:-0}" != "1" ]]; then
   if [[ "$_http3_lb_ok" != "1" ]] && [[ "$_http3_np_ok" != "1" ]]; then
     say "Root cause: HTTP/3 (QUIC) requires UDP. Both LB IP and NodePort paths failed or N/A."
     if [[ "$ctx" == *"colima"* ]]; then
-      info "  Colima: QUIC is validated only in-VM. Run: colima ssh -- curl -k --http3-only https://$lb_ip/_caddy/healthz"
-      info "  If VM curl lacks --http3-only, install curl+ngtcp2 in the VM, or use bridged so Mac can hit LB IP directly (recommended): ./scripts/colima-start-k3s-bridged-clean.sh  then from Mac: curl -k --http3-only https://$lb_ip/_caddy/healthz"
+      info "  Colima: QUIC is validated only in-VM. Run: colima ssh -- curl -k --http3-only --resolve off-campus-housing.local:443:$lb_ip https://off-campus-housing.local/_caddy/healthz"
+      info "  If VM curl lacks --http3-only, install curl+ngtcp2 in the VM, or use bridged so Mac can hit LB IP directly (recommended): ./scripts/colima-start-k3s-bridged-clean.sh  then from Mac: curl -k --http3-only --resolve off-campus-housing.local:443:$lb_ip https://off-campus-housing.local/_caddy/healthz"
     elif [[ "$ctx" == *"k3d"* ]] && [[ -f "$SCRIPT_DIR/verify-k3d-30443-udp.sh" ]]; then
       info "Checking k3d port bindings (TCP + UDP 30443)..."
       "$SCRIPT_DIR/verify-k3d-30443-udp.sh" 2>&1 | sed 's/^/  /' || true
@@ -940,7 +940,7 @@ if [[ -n "$host_reached_lb" ]] && [[ -n "$lb_ip" ]]; then
     [[ -z "${_docker_host_ip:-}" ]] && info "Host reachability: LB IP $lb_ip — HTTP/1.1, HTTP/2, HTTP/3 verified. Suites will use LB IP."
   else
     if [[ "$ctx" == *"colima"* ]]; then
-      info "Host reachability: LB IP $lb_ip — HTTP/1.1, HTTP/2 verified. HTTP/3: colima ssh -- curl -k --http3-only https://$lb_ip/_caddy/healthz  (or use bridged: ./scripts/colima-start-k3s-bridged-clean.sh so Mac can curl LB IP directly)."
+      info "Host reachability: LB IP $lb_ip — HTTP/1.1, HTTP/2 verified. HTTP/3: colima ssh -- curl -k --http3-only --resolve off-campus-housing.local:443:$lb_ip https://off-campus-housing.local/_caddy/healthz  (or use bridged: ./scripts/colima-start-k3s-bridged-clean.sh so Mac can curl LB IP directly)."
     else
       info "Host reachability: LB IP $lb_ip — HTTP/1.1, HTTP/2 verified. HTTP/3: use 127.0.0.1:8443 when no-sudo forward is up, or in-VM curl to LB IP."
     fi

@@ -1,5 +1,69 @@
-# Webapp
+# Webapp (Next.js)
 
-Frontend for the Off-Campus Housing Tracker. This directory is part of the repo; add UI code here.
+Demo UI for **JWT auth** (via `api-gateway` → auth-service), **search history**, and **watchlist** (booking-service HTTP routes proxied under `/api/booking/*`).
 
-Do not add a `.gitignore` rule that ignores `webapp/` or this directory will stop being tracked.
+## Local development
+
+1. Start **Postgres bookings** + **api-gateway**, **auth-service**, **booking-service** (e.g. k3s/Colima stack or port-forward gateway to `127.0.0.1:4020`).
+2. From repo root:
+
+```bash
+pnpm --filter webapp dev
+```
+
+Open [http://localhost:3000](http://localhost:3000).
+
+### API base URL
+
+- **Default (recommended for local):** leave `NEXT_PUBLIC_API_BASE` unset. The app calls same-origin `/api/...`; `next.config.mjs` **rewrites** those to `API_GATEWAY_INTERNAL` (default `http://127.0.0.1:4020`), avoiding CORS during dev.
+- **Edge / TLS:** set `NEXT_PUBLIC_API_BASE=https://off-campus-housing.local` and ensure your browser trusts the cert (or use curl with `-k` only for debugging).
+
+## Build
+
+```bash
+pnpm --filter webapp build
+pnpm --filter webapp start
+```
+
+## E2E (Playwright)
+
+Install browsers once:
+
+```bash
+pnpm --filter webapp exec playwright install chromium
+```
+
+**Always runnable (no backend):** guest redirect + marketing page.
+
+**Full stack test** (`e2e/flows.spec.ts`): requires `GET {E2E_API_BASE}/api/healthz` to return **200** (default `http://127.0.0.1:4020`). If the gateway is down, that test is **skipped**.
+
+```bash
+# optional: custom gateway URL for health check + rewrites inside CI
+export E2E_API_BASE=http://127.0.0.1:4020
+export API_GATEWAY_INTERNAL=http://127.0.0.1:4020
+pnpm --filter webapp test:e2e
+```
+
+From repo root:
+
+```bash
+pnpm --filter webapp test:e2e
+```
+
+## k6 (search + watchlist load)
+
+See `../scripts/load/k6-search-watchlist.js` and `../scripts/load/k6-booking.js`.
+
+```bash
+k6 run scripts/load/k6-search-watchlist.js
+```
+
+## Features
+
+| Area            | Backend endpoints |
+|----------------|-------------------|
+| Register / login | `/api/auth/register`, `/api/auth/login` |
+| Search history | `POST /api/booking/search-history`, `GET /api/booking/search-history/list` |
+| Watchlist      | `POST /api/booking/watchlist/add`, `POST .../remove`, `GET .../list` |
+
+Do not add a `.gitignore` rule that ignores the whole `webapp/` directory or it will stop being tracked.

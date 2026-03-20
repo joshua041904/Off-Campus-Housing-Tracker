@@ -158,7 +158,11 @@ app.use(
 );
 app.use(
   cors({
-    origin: [/^http:\/\/localhost(:\d+)?$/, /^https:\/\/off-campus-housing\.local(:\d+)?$/],
+    origin: [
+      /^http:\/\/localhost(:\d+)?$/,
+      /^http:\/\/127\.0\.0\.1(:\d+)?$/,
+      /^https:\/\/off-campus-housing\.local(:\d+)?$/,
+    ],
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],

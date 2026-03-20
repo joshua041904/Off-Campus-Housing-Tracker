@@ -811,12 +811,21 @@ if [[ "$WIRE_VERIFY" == "true" ]] && [[ "${CAPTURE_DURING_K6:-1}" != "0" ]]; the
     kctl -n "$NS_ING" exec "$p" -- sh -c \
       "apk add --no-cache tcpdump 2>/dev/null || apt-get update -qq && apt-get install -y -qq tcpdump 2>/dev/null || true" >/dev/null 2>&1 || true
     if kctl -n "$NS_ING" exec "$p" -- which tcpdump >/dev/null 2>&1; then
-      # -i any: CNI/NAT may deliver traffic on lo/cni0; eth0-only can miss. In-pod traffic is DNAT'd (dst=pod IP), so we use port 443 only; for host/VM capture would use "(tcp or udp) and port 443 and dst host $TARGET_IP".
-      ROTATION_BPF="(tcp or udp) and port 443"
+      # Strict BPF: only 443 to this pod's IP (MetalLB/L2 delivers to pod IP on eth0 — not iCloud/Chrome background QUIC).
+      _rot_pod_ip=$(kctl -n "$NS_ING" get pod "$p" -o jsonpath='{.status.podIP}' 2>/dev/null || echo "")
+      if [[ -n "$_rot_pod_ip" ]] && [[ "$_rot_pod_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        ROTATION_BPF="(tcp and dst host ${_rot_pod_ip} and dst port 443) or (udp and dst host ${_rot_pod_ip} and dst port 443)"
+      else
+        ROTATION_BPF="(tcp or udp) and port 443"
+        log_info "  $p: pod IP missing; fallback BPF port 443 only"
+      fi
+      _rot_iface=eth0
+      kctl -n "$NS_ING" exec "$p" -- sh -c "ip link show eth0 >/dev/null 2>&1" 2>/dev/null || _rot_iface=any
+      log_info "  $p: tcpdump -i ${_rot_iface} BPF=$ROTATION_BPF"
       log_info "  $p: ip addr (interfaces for capture)"
       kctl -n "$NS_ING" exec "$p" -- sh -c "echo \"=== $NS_ING/$p interfaces ===\"; ip addr 2>/dev/null || ifconfig 2>/dev/null || true" >> "$WIRE_CAPTURE_DIR/caddy-capture.log" 2>&1 || true
       kctl -n "$NS_ING" exec "$p" -- sh -c \
-        "tcpdump -i any -nn -s 0 -B 8192 -U -w /tmp/rotation-caddy-$p.pcap $ROTATION_BPF 2>&1" \
+        "tcpdump -i ${_rot_iface} -nn -s 0 -B 8192 -U -w /tmp/rotation-caddy-$p.pcap ${ROTATION_BPF} 2>&1" \
         >> "$WIRE_CAPTURE_DIR/caddy-capture.log" 2>&1 &
       CADDY_CAPTURE_PIDS+=($!)
     else
@@ -985,6 +994,36 @@ if [[ "$WIRE_VERIFY" == "true" ]] && [[ "${CAPTURE_DURING_K6:-1}" != "0" ]]; the
         ok "caddy-rotation: HTTP/3 (QUIC) verified ($CADDY_QUIC_TOTAL packets across ${CADDY_NPODS} pod(s); encrypted, packet count = proof)"
       else
         warn "caddy-rotation: No QUIC packets detected (HTTP/3 may not be in use or traffic hit other paths)"
+      fi
+      # Gold standard: per-pod pcap — UDP/443 dst must be pod IP only; optional QUIC SNI (OCH hostname, not RP record.local)
+      if type verify_caddy_pcap_quic_enforcement &>/dev/null; then
+        _sni_enf="${CAPTURE_EXPECTED_SNI:-off-campus-housing.local}"
+        say "Caddy capture enforcement (stray UDP/443 vs pod IP + SNI ${_sni_enf})…"
+        for _rp in "${CADDY_PODS[@]:-}"; do
+          [[ -z "$_rp" ]] && continue
+          _rpcap="$WIRE_CAPTURE_DIR/caddy-rotation-${_rp}.pcap"
+          [[ -f "$_rpcap" ]] && [[ -s "$_rpcap" ]] || continue
+          _rpip=$(kctl -n "$NS_ING" get pod "$_rp" -o jsonpath='{.status.podIP}' 2>/dev/null || echo "")
+          [[ -n "$_rpip" ]] || continue
+          if ! verify_caddy_pcap_quic_enforcement "$_rpcap" "$_rpip"; then
+            [[ "${STRICT_QUIC_VALIDATION:-0}" == "1" ]] && fail "Rotation capture verification failed (STRICT_QUIC_VALIDATION=1)"
+          fi
+        done
+      fi
+      # tshark: UDP/443 to MetalLB TARGET_IP (host-side pcaps only; in-pod pcaps usually show dst=pod IP)
+      if [[ -n "${TARGET_IP:-}" ]] && command -v tshark >/dev/null 2>&1; then
+        _to_lb_all=0
+        _stray_lb_all=0
+        for _rpcap in "$WIRE_CAPTURE_DIR"/caddy-rotation-*.pcap; do
+          [[ -f "$_rpcap" ]] || continue
+          _to_lb_all=$((_to_lb_all + $(count_udp443_to_target_in_pcap "$_rpcap" "$TARGET_IP" 2>/dev/null || echo 0)))
+          _stray_lb_all=$((_stray_lb_all + $(count_udp443_stray_in_pcap "$_rpcap" "$TARGET_IP" 2>/dev/null || echo 0)))
+        done
+        echo "  [capture-verify] UDP/443 to MetalLB ${TARGET_IP}: ${_to_lb_all} (in-pod pcaps often 0); stray dst!=LB: ${_stray_lb_all}"
+        if [[ "${_stray_lb_all:-0}" -gt 0 ]] && [[ "${_to_lb_all:-0}" -gt 0 ]]; then
+          warn "  [capture-verify] Stray UDP/443 with dst != LB seen on a pcap that also has LB dst (unexpected for pure in-pod capture)"
+          [[ "${STRICT_QUIC_VALIDATION:-0}" == "1" ]] && fail "Stray UDP/443 vs TARGET_IP (STRICT_QUIC_VALIDATION=1)"
+        fi
       fi
       # Packet capture summary: HTTP/2 ALPN=frames (keylog), QUIC=packet count (encrypted; qlog would give frame-level)
       echo "  Packet capture summary: HTTP/2(ALPN)=$CADDY_ALPN_H2, HTTP/2(frames)=$CADDY_HTTP2_TOTAL, QUIC=$CADDY_QUIC_TOTAL, TCP443=$CADDY_TCP443 (Caddy pods)"

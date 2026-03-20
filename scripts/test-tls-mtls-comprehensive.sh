@@ -142,10 +142,10 @@ if [[ -n "$PROTO_DIR" ]] && command -v grpcurl >/dev/null 2>&1; then
   # LB IP primary: when TARGET_IP:443, gRPC via Caddy → Envoy (real production path)
   if [[ -n "${TARGET_IP:-}" ]] && [[ "${PORT:-}" == "443" ]] && [[ -n "$CA_CERT" ]] && [[ -f "$CA_CERT" ]]; then
     if [[ -n "$MTLS_CERT" ]] && [[ -n "$MTLS_KEY" ]] && [[ -f "$MTLS_CERT" ]] && [[ -f "$MTLS_KEY" ]]; then
-      GRPC_TEST=$(grpcurl -cacert "$CA_CERT" -cert "$MTLS_CERT" -key "$MTLS_KEY" -authority "$grpc_authority" -max-time 5 \
+      GRPC_TEST=$(grpcurl -cacert "$CA_CERT" -cert "$MTLS_CERT" -key "$MTLS_KEY" -authority "$grpc_authority" -servername "$grpc_authority" -max-time 5 \
         -import-path "$PROTO_DIR" -proto "$PROTO_DIR/health.proto" -d '{"service":""}' "${TARGET_IP}:443" grpc.health.v1.Health/Check 2>&1) || GRPC_RC=$?
     else
-      GRPC_TEST=$(grpcurl -cacert "$CA_CERT" -authority "$grpc_authority" -max-time 5 \
+      GRPC_TEST=$(grpcurl -cacert "$CA_CERT" -authority "$grpc_authority" -servername "$grpc_authority" -max-time 5 \
         -import-path "$PROTO_DIR" -proto "$PROTO_DIR/health.proto" -d '{"service":""}' "${TARGET_IP}:443" grpc.health.v1.Health/Check 2>&1) || GRPC_RC=$?
     fi
     GRPC_RC=${GRPC_RC:-0}

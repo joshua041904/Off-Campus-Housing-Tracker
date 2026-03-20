@@ -54,8 +54,14 @@ if [[ -n "$alpn_tls_raw" ]]; then
 fi
 
 alpn_quic_json="{}"
-alpn_quic_raw=$(tshark -r "$NODE_PCAP" -Y "quic.tls.handshake.extensions_alpn" -T fields -e quic.tls.handshake.extensions_alpn 2>/dev/null | sort | uniq -c || true)
-[[ -z "$alpn_quic_raw" ]] && alpn_quic_raw=$(tshark -r "$NODE_PCAP" -Y "quic" -T fields -e quic.tls.handshake.extensions_alpn_str 2>/dev/null | sort | uniq -c || true)
+[[ -f "$SCRIPT_DIR/protocol-verification.sh" ]] && source "$SCRIPT_DIR/protocol-verification.sh"
+alpn_quic_raw=""
+if type quic_alpn_strings_from_pcap >/dev/null 2>&1; then
+  alpn_quic_raw=$(quic_alpn_strings_from_pcap "$NODE_PCAP" | sort | uniq -c || true)
+fi
+[[ -z "$alpn_quic_raw" ]] && alpn_quic_raw=$(tshark -r "$NODE_PCAP" -Y 'quic && tls.handshake.extensions_alpn_str contains "h3"' -T fields -e tls.handshake.extensions_alpn_str 2>/dev/null | sort | uniq -c || true)
+[[ -z "$alpn_quic_raw" ]] && alpn_quic_raw=$(tshark -r "$NODE_PCAP" -Y 'quic' -T fields -e tls.handshake.extensions_alpn_str 2>/dev/null | sort | uniq -c || true)
+[[ -z "$alpn_quic_raw" ]] && alpn_quic_raw=$(tshark -r "$NODE_PCAP" -Y 'tls.handshake.extensions_alpn_str == "h3"' -T fields -e tls.handshake.extensions_alpn_str 2>/dev/null | sort | uniq -c || true)
 if [[ -n "$alpn_quic_raw" ]]; then
   alpn_quic_pairs=""
   while read -r count alpn; do

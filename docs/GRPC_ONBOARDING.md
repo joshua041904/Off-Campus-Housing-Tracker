@@ -107,6 +107,23 @@ Use this before marking a task complete or before requesting merge:
 
 ---
 
+## Packet capture v2 + HTTP/3 (STRICT / tshark)
+
+- **`STRICT_QUIC_VALIDATION=1`** (see `scripts/lib/packet-capture-v2.sh`) does **not** fail when tshark omits QUIC **h3** ALPN—many builds cannot decode it without TLS secrets. Proof is **QUIC in pcap + SNI / pod stray checks + `GRPC_HTTP3_HEALTH_OK`** (curl HTTP/3).
+- **Optional ALPN in Wireshark:** export **`SSLKEYLOGFILE=/tmp/sslkeys.log`**, run HTTP/3 with a curl built with **OpenSSL + ngtcp2/quiche** (not SecureTransport-only), then set **`CAPTURE_V2_TLS_KEYLOG`** (or rely on **`SSLKEYLOGFILE`**) so tshark uses **`-o tls.keylog_file:...`** when checking ALPN. **`grpcurl` does not write NSS key logs.**
+- **tshark field names vary by version:** if **`-e quic.tls.handshake.extensions_alpn`** errors, run **`tshark -G fields | grep -i alpn`** and prefer **`tls.handshake.extensions_alpn_str`** with **`-Y "quic && tls.handshake.extensions_alpn_str"`** (helpers in **`scripts/lib/protocol-verification.sh`**: **`count_alpn_h3_quic_packets_in_pcap`**, **`quic_alpn_strings_from_pcap`**).
+- **Which curl actually does HTTP/3 on your Mac:** default `/usr/bin/curl` is often **SecureTransport** (no HTTP/3 / key log), while **`http3_curl`** in `scripts/lib/http3.sh` may use **Homebrew curl** or **Docker**. **`./scripts/verify-curl-http3.sh`** and **Runbook.md item 91**.
+
+---
+
+## Edge routing (Caddy → Envoy)
+
+- gRPC to **`off-campus-housing.local:443`** is routed by **path prefix** (e.g. `/auth.`, `/listings.`, **`/booking.`** → `booking.BookingService/...`) in **`infra/k8s/base/envoy-test/envoy.yaml`** and **`infra/k8s/ingress-nginx-envoy.yaml`**.
+- After changing Envoy ConfigMaps, **roll the Envoy pod(s)** so listeners pick up the new clusters/routes.
+- **Smoke:** `scripts/test-booking-http2-http3.sh` calls **grpcurl** to **`${METALLB_IP}:443`** with edge CA + **service client cert** (mTLS) and `booking.BookingService/GetBooking` (dummy id → **NotFound** is OK).
+
+---
+
 ## References
 
 - **PR paste template (tracked):** [docs/PR_REVIEW_GRPC_HANDLER_PASTE.example.txt](PR_REVIEW_GRPC_HANDLER_PASTE.example.txt) — local `PR_REVIEW_GRPC_HANDLER_PASTE.txt` is gitignored

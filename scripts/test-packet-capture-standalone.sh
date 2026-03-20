@@ -45,6 +45,10 @@ if [[ -n "$K8S_CA_ING" ]]; then
 fi
 [[ -z "$CA_CERT" ]] && K8S_CA=$(_kb -n "$NS" get secret dev-root-ca -o jsonpath='{.data.dev-root\.pem}' 2>/dev/null | base64 -d 2>/dev/null)
 [[ -z "$CA_CERT" ]] && [[ -n "$K8S_CA" ]] && CA_CERT="/tmp/test-ca-standalone-$$.pem" && echo "$K8S_CA" > "$CA_CERT"
+# Repo dev-root.pem must match cluster signing chain for TLS + grpcurl -cacert to succeed with MetalLB IP + SNI hostname
+if [[ -z "${CA_CERT:-}" ]] || [[ ! -f "$CA_CERT" ]] || [[ ! -s "$CA_CERT" ]]; then
+  [[ -f "$SCRIPT_DIR/../certs/dev-root.pem" ]] && CA_CERT="$(cd "$SCRIPT_DIR/.." && pwd)/certs/dev-root.pem"
+fi
 [[ -z "$CA_CERT" ]] && command -v mkcert >/dev/null 2>&1 && [[ -f "$(mkcert -CAROOT)/rootCA.pem" ]] && CA_CERT="$(mkcert -CAROOT)/rootCA.pem"
 strict_curl() {
   if [[ -n "$CA_CERT" ]] && [[ -f "$CA_CERT" ]]; then
@@ -60,8 +64,8 @@ strict_http3_curl() {
     http3_curl -k "$@"
   fi
 }
-HTTP3_SVC_IP=$(_kb -n ingress-nginx get svc caddy-h3 -o jsonpath='{.spec.clusterIP}' 2>/dev/null || echo "")
-[[ -n "$HTTP3_SVC_IP" ]] && HTTP3_RESOLVE="${HOST}:443:${HTTP3_SVC_IP}" || HTTP3_RESOLVE="${HOST}:443:127.0.0.1"
+# HTTP3_RESOLVE: same IP as curl MetalLB/--resolve (CURL_RESOLVE_IP), not ClusterIP — matches strict capture + grpc-http3-health
+HTTP3_RESOLVE="${HOST}:${PORT:-443}:${CURL_RESOLVE_IP}"
 GRPC_CERTS_DIR="${GRPC_CERTS_DIR:-/tmp/grpc-certs}"
 export HTTP3_RESOLVE CA_CERT NS HOST PORT SCRIPT_DIR GRPC_CERTS_DIR
 
@@ -79,9 +83,10 @@ if ! _kb get ns ingress-nginx >/dev/null 2>&1; then
   exit 0
 fi
 
-# Colima: get ClusterIP first so we can generate traffic from VM (NodePort not on host)
+# Colima: ClusterIP for optional VM→ClusterIP traffic (skipped in STRICT_QUIC_VALIDATION=1 so QUIC goes only via MetalLB path)
 CADDY_IP=""
-[[ "$ctx" == *"colima"* ]] && command -v colima >/dev/null 2>&1 && CADDY_IP=$(_kb -n ingress-nginx get svc caddy-h3 -o jsonpath='{.spec.clusterIP}' 2>/dev/null || echo "")
+[[ "${STRICT_QUIC_VALIDATION:-0}" != "1" ]] && [[ "$ctx" == *"colima"* ]] && command -v colima >/dev/null 2>&1 && \
+  CADDY_IP=$(_kb -n ingress-nginx get svc caddy-h3 -o jsonpath='{.spec.clusterIP}' 2>/dev/null || echo "")
 
 # When MetalLB + Colima: use packet-capture-v2 so BPF dst host TARGET_IP:443 and tshark validation prove QUIC to MetalLB only (no background QUIC).
 USE_CAPTURE_V2=0
@@ -94,6 +99,16 @@ if [[ -n "${TARGET_IP:-}" ]] && [[ "${PORT:-}" == "443" ]] && [[ "$ctx" == *"col
 fi
 
 if [[ "${USE_CAPTURE_V2}" == "1" ]]; then
+  # Decode-aware tshark: pick up key log for -o tls.keylog_file (ALPN block uses CAPTURE_V2_TLS_KEYLOG / SSLKEYLOGFILE)
+  if [[ -n "${SSLKEYLOGFILE:-}" ]] && [[ -f "${SSLKEYLOGFILE}" ]] && [[ -s "${SSLKEYLOGFILE}" ]]; then
+    export CAPTURE_V2_TLS_KEYLOG="${CAPTURE_V2_TLS_KEYLOG:-$SSLKEYLOGFILE}"
+  elif [[ -z "${CAPTURE_V2_TLS_KEYLOG:-}" ]] && [[ -f /tmp/sslkeys.log ]] && [[ -s /tmp/sslkeys.log ]]; then
+    export CAPTURE_V2_TLS_KEYLOG="/tmp/sslkeys.log"
+  fi
+  if [[ -n "${CAPTURE_V2_TLS_KEYLOG:-}" ]]; then
+    export SSLKEYLOGFILE="${SSLKEYLOGFILE:-$CAPTURE_V2_TLS_KEYLOG}"
+    info "Decode-aware capture: CAPTURE_V2_TLS_KEYLOG=${CAPTURE_V2_TLS_KEYLOG} (HTTP/3 curl and tshark ALPN block use this file)"
+  fi
   . "$SCRIPT_DIR/lib/packet-capture-v2.sh"
   init_capture_session_v2
   start_capture_v2
@@ -108,22 +123,30 @@ else
   [[ -z "$envoy_pod" ]] && envoy_pod=$(_kb -n ingress-nginx get pods -l app=envoy-test -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) && envoy_ns="ingress-nginx"
   for p in $caddy_pods; do
     ok "Capture Caddy $p (HTTP/2 + HTTP/3/QUIC)"
-    start_capture "ingress-nginx" "$p" "port ${PORT} or port 443 or port 30443 or udp port 443"
+    # Empty filter → packet-capture.sh applies strict BPF: (tcp|udp) dst podIP:443 (+ eth0). Broad filter only for NodePort paths.
+    if [[ "${PORT:-30443}" == "443" ]] && [[ "${CAPTURE_STRICT_ENDPOINT_BPF:-1}" != "0" ]]; then
+      start_capture "ingress-nginx" "$p" ""
+    else
+      start_capture "ingress-nginx" "$p" "port ${PORT} or port 443 or port 30443 or udp port 443"
+    fi
   done
   [[ -n "$envoy_pod" ]] && ok "Capture Envoy $envoy_pod (gRPC)" && start_capture "$envoy_ns" "$envoy_pod" "port 10000 or port 30000 or portrange 50051-50060"
 fi
-# Allow tcpdump to start and capture (Colima needs traffic from VM to ClusterIP)
+# Allow tcpdump to start and capture
 sleep 4
 
-# On Colima, generate traffic from VM to ClusterIP first (so Caddy pods see it); then from host if NodePort works
-if [[ "$ctx" == *"colima"* ]] && command -v colima >/dev/null 2>&1 && [[ -n "$CADDY_IP" ]]; then
+# Colima VM → ClusterIP: useful when not strict (pods see VM path). In STRICT_QUIC_VALIDATION=1, skip — capture/L1 prove MetalLB IP only; ClusterIP QUIC does not traverse LB.
+if [[ "${STRICT_QUIC_VALIDATION:-0}" != "1" ]] && [[ "$ctx" == *"colima"* ]] && command -v colima >/dev/null 2>&1 && [[ -n "$CADDY_IP" ]]; then
   ok "Generating HTTP/2 + HTTP/3 traffic from Colima VM (ClusterIP)…"
+  # Always hostname + --resolve (never https://IP) so TLS SNI matches cert SAN (QUIC needs clean TLS 1.3)
   for i in 1 2 3 4 5 6 7 8; do
-    colima ssh -- curl -sk --http2-prior-knowledge --max-time 5 -H "Host: $HOST" "https://${CADDY_IP}:443/_caddy/healthz" >/dev/null 2>&1 || true
-    colima ssh -- curl -sk --http2-prior-knowledge --max-time 5 -H "Host: $HOST" "https://${CADDY_IP}:443/api/records/health" >/dev/null 2>&1 || true
-    colima ssh -- curl -sk --http3 --connect-timeout 5 -H "Host: $HOST" "https://${CADDY_IP}:443/_caddy/healthz" >/dev/null 2>&1 || true
-    colima ssh -- curl -sk --http3 --connect-timeout 5 -H "Host: $HOST" "https://${CADDY_IP}:443/api/records/health" >/dev/null 2>&1 || true
+    colima ssh -- curl -sk --http2-prior-knowledge --max-time 5 --resolve "${HOST}:443:${CADDY_IP}" "https://${HOST}/_caddy/healthz" >/dev/null 2>&1 || true
+    colima ssh -- curl -sk --http2-prior-knowledge --max-time 5 --resolve "${HOST}:443:${CADDY_IP}" "https://${HOST}/api/records/health" >/dev/null 2>&1 || true
+    colima ssh -- curl -sk --http3 --connect-timeout 5 --resolve "${HOST}:443:${CADDY_IP}" "https://${HOST}/_caddy/healthz" >/dev/null 2>&1 || true
+    colima ssh -- curl -sk --http3 --connect-timeout 5 --resolve "${HOST}:443:${CADDY_IP}" "https://${HOST}/api/records/health" >/dev/null 2>&1 || true
   done
+elif [[ "${STRICT_QUIC_VALIDATION:-0}" == "1" ]] && [[ "$ctx" == *"colima"* ]]; then
+  info "STRICT_QUIC_VALIDATION=1: skipping Colima VM→ClusterIP curls (QUIC must traverse MetalLB ${TARGET_IP:-LB IP} only for capture alignment)"
 fi
 ok "Generating HTTP/2 traffic (strict TLS)…"
 for i in 1 2 3 4 5; do
@@ -145,7 +168,8 @@ if command -v grpcurl >/dev/null 2>&1; then
   # Primary: gRPC via Caddy (TARGET_IP:443) — the real production path; generates traffic Caddy→Envoy
   if [[ -n "${TARGET_IP:-}" ]] && [[ "${PORT:-}" == "443" ]] && [[ -n "${CA_CERT:-}" ]] && [[ -f "${CA_CERT:-}" ]]; then
     for _ in 1 2 3 4 5; do
-      grpcurl -cacert "$CA_CERT" -authority "$HOST" -max-time 5 "${TARGET_IP}:443" grpc.health.v1.Health/Check 2>/dev/null || true
+      # Dial LB IP but TLS SNI + cert verify name = HOST (grpcurl: -authority; -servername same value is allowed)
+      grpcurl -cacert "$CA_CERT" -authority "$HOST" -servername "$HOST" -max-time 5 "${TARGET_IP}:443" grpc.health.v1.Health/Check 2>/dev/null || true
     done
   fi
   # Fallback: direct to NodePort (127.0.0.1:30000) — works on k3d when NodePort exposed

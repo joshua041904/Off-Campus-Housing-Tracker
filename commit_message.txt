@@ -1,29 +1,100 @@
-chore(gitignore): ignore PR paste local copy + preflight telemetry artifacts
+feat: edge gRPC booking routes, webapp, e2e, k6 search/watchlist, suite wiring
 
-Why
----
-- PR review snippets are dev convenience; keep a tracked **template** in-repo but do not
-  force every clone to commit local wordings.
-- Preflight writes telemetry/metrics snapshots to the repo root by default; those files are
-  local noise and should not appear in `git status`.
-
-Changes
+Summary
 -------
-- .gitignore:
-  - docs/PR_REVIEW_GRPC_HANDLER_PASTE.txt (optional local copy; edit without tracking)
-  - telemetry-during-*.log, telemetry-after-*.txt, raw-metrics-*.txt, live-telemetry.csv,
-    perf-*.data, htop-after-*.txt (run-preflight-scale-and-all-suites.sh outputs)
-- docs/PR_REVIEW_GRPC_HANDLER_PASTE.example.txt: tracked template (same content as before)
-- Removed docs/PR_REVIEW_GRPC_HANDLER_PASTE.txt from the tree (use example + local copy)
-- README.md, docs/GRPC_ONBOARDING.md, services/listings-service/README.md: link to
-  **.example.txt**; document gitignored PASTE.txt
+This change set delivers end-to-end housing UX and transport verification: Envoy
+routes gRPC to booking-service at the edge; the webapp exercises auth + search
+history + watchlist against the gateway; Playwright and k6 cover UI and load;
+preflight centralizes booking tests and adds an expanded k6 phase.
 
-Follow-up (if these were already committed)
--------------------------------------------
-  git rm --cached telemetry-after-*.txt telemetry-during-*.log raw-metrics-*.txt 2>/dev/null || true
-  git rm --cached docs/PR_REVIEW_GRPC_HANDLER_PASTE.txt 2>/dev/null || true
+---------------------------------------------------------------------------
+1. Envoy / ingress — gRPC routing for booking (Caddy → Envoy → booking)
+---------------------------------------------------------------------------
+- infra/k8s/base/envoy-test/envoy.yaml
+  - Fix route matching: use prefix: for /auth., /records., /messaging.,
+    /listings., /analytics., /shopping. (was path:, which did not match full
+    gRPC paths like /auth.AuthService/Register).
+  - Add prefix: "/booking." → cluster booking_service.
+  - Add booking_service cluster →
+    booking-service.off-campus-housing-tracker.svc.cluster.local:50063 with
+    upstream TLS + CA (same pattern as other services).
+- infra/k8s/ingress-nginx-envoy.yaml
+  - Same /booking. route + booking_service cluster for ingress-nginx Envoy parity.
 
-Local workflow
---------------
-  cp docs/PR_REVIEW_GRPC_HANDLER_PASTE.example.txt docs/PR_REVIEW_GRPC_HANDLER_PASTE.txt
-  # edit PASTE.txt — stays untracked
+Roll Envoy / apply ConfigMaps after deploy so listeners pick up new clusters.
+
+---------------------------------------------------------------------------
+2. Scripts — booking protocol tests & suite centralization
+---------------------------------------------------------------------------
+- scripts/test-booking-http2-http3.sh
+  - Edge smoke: grpcurl to ${LB_IP}:443 with CA + service client certs,
+    booking.BookingService/GetBooking (dummy id → NotFound is OK); proves
+    Caddy → Envoy → booking, not only in-pod grpc-health-probe.
+- scripts/test-microservices-http2-http3-housing.sh
+  - Test 19: delegates to test-booking-http2-http3.sh unless
+    SKIP_BOOKING_IN_HOUSING_SUITE=1.
+- scripts/run-preflight-scale-and-all-suites.sh
+  - Remove duplicate standalone test-booking call (booking runs inside housing).
+  - Step 7a5: k6-search-watchlist.js after k6-booking.js (tune K6_SEARCH_VUS,
+    K6_SEARCH_DURATION).
+
+---------------------------------------------------------------------------
+3. Database — booking domain alignment
+---------------------------------------------------------------------------
+- services/booking-service/prisma/migrations/
+  20260320180000_align_booking_with_domain_schema/migration.sql
+  (apply with psql against bookings DB when promoting schema.)
+- Booking HTTP + gRPC already aligned with booking.booking_status and
+  confirm/cancel flows; Kafka producer remains bounded / non-fatal on failure.
+
+---------------------------------------------------------------------------
+4. Docs
+---------------------------------------------------------------------------
+- docs/GRPC_ONBOARDING.md: new "Edge routing (Caddy → Envoy)" section (/booking.
+  prefix, smoke via test-booking-http2-http3.sh).
+
+---------------------------------------------------------------------------
+5. Webapp (Next.js) — demo-ready UI
+---------------------------------------------------------------------------
+- webapp/: App Router, Tailwind, stone/amber theme.
+  - / — landing; /login, /register — JWT via /api/auth/*.
+  - /dashboard — search form (POST /api/booking/search-history), history table
+    (GET .../search-history/list), watchlist add/remove/list.
+- webapp/next.config.mjs: optional rewrites of /api/* → API_GATEWAY_INTERNAL
+  (default http://127.0.0.1:4020) when NEXT_PUBLIC_API_BASE is unset (avoids
+  CORS in local dev).
+- webapp/Dockerfile: optional image from repo root (docker build -f webapp/Dockerfile .).
+- webapp/README.md: env, E2E, k6 pointers.
+
+---------------------------------------------------------------------------
+6. Playwright (webapp/e2e)
+---------------------------------------------------------------------------
+- guest.spec.ts: unauthenticated redirect + home CTA (no backend required).
+- flows.spec.ts: full register → search history → watchlist (skipped unless
+  GET {E2E_API_BASE}/api/healthz succeeds; default E2E_API_BASE :4020).
+- playwright.config.ts: next dev on WEBAPP_E2E_PORT (default 3100), forwards
+  API_GATEWAY_INTERNAL to the dev server for rewrites.
+- Root package.json: script test:webapp:e2e.
+
+---------------------------------------------------------------------------
+7. k6 load scripts
+---------------------------------------------------------------------------
+- scripts/load/k6-search-watchlist.js — expanded search-history + watchlist
+  iteration mix (register in setup; VUS/DURATION env).
+- Preflight 7a4 still runs k6-booking.js; 7a5 runs k6-search-watchlist.js.
+
+---------------------------------------------------------------------------
+8. API gateway
+---------------------------------------------------------------------------
+- services/api-gateway/src/server.ts: CORS allow http://127.0.0.1:<port> for
+  webapp dev when not using localhost hostname.
+
+---------------------------------------------------------------------------
+Operational notes
+---------------------------------------------------------------------------
+- Apply Envoy YAML changes in-cluster; verify grpcurl to :443 for
+  booking.BookingService/* after rollout.
+- Full Playwright flows: start api-gateway + auth + booking (+ Postgres
+  bookings) so /api/healthz and booking routes succeed.
+- k6 against edge: same pattern as existing scripts (BASE_URL, HOST, RESOLVE_IP,
+  certs/strict TLS as documented in runbook).

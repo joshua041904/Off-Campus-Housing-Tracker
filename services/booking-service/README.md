@@ -13,3 +13,20 @@ Owns: reservation state machine, booking lifecycle, cancellation, landlord appro
 **If you're new to gRPC:** See [auth-service README](../auth-service/README.md#implementing-this-service-grpc) for the same 4 steps (proto = contract, generate code, implement handlers, register server).
 
 **This service:** Implements `booking.BookingService` from [proto/booking.proto](../../proto/booking.proto) (`CreateBooking`, `ConfirmBooking`, `CancelBooking`, `GetBooking`). Emit Kafka events on state changes. Implement [proto/health.proto](../../proto/health.proto) for probes.
+
+## Implemented HTTP surface (v1)
+
+The gateway strips `/api/booking`, so these are booking-service local paths:
+
+- `POST /create` - create booking (`status=CREATED`)
+- `POST /confirm` - confirm booking (`status=CONFIRMED`)
+- `POST /cancel` - cancel booking (`status=CANCELLED`)
+- `GET /:bookingId` - fetch booking for current tenant
+- `POST /search-history` - persist per-user search history
+- `GET /search-history/list` - list recent per-user search history
+- `POST /watchlist/add` - add/reactivate watchlist item
+- `POST /watchlist/remove` - soft-remove watchlist item
+- `GET /watchlist/list` - list active watchlist
+- `GET /healthz`, `GET /metrics`
+
+Auth identity is taken from `x-user-id` (set by `api-gateway` after JWT validation).
