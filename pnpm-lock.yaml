@@ -242,6 +242,31 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@20.19.19)
 
+  services/listings-service:
+    dependencies:
+      '@grpc/grpc-js':
+        specifier: ^1.9.0
+        version: 1.14.1
+      '@grpc/proto-loader':
+        specifier: ^0.7.9
+        version: 0.7.15
+      dotenv:
+        specifier: ^16.3.0
+        version: 16.6.1
+      pg:
+        specifier: ^8.11.0
+        version: 8.16.3
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.19
+      tsx:
+        specifier: ^4.19.0
+        version: 4.20.6
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
   services/media-service:
     dependencies:
       '@aws-sdk/client-s3':
