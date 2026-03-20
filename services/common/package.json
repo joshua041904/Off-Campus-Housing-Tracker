@@ -33,6 +33,10 @@
       "types": "./dist/grpc-clients.d.ts",
       "default": "./dist/grpc-clients.js"
     },
+    "./grpc-health": {
+      "types": "./dist/grpc-health.d.ts",
+      "default": "./dist/grpc-health.js"
+    },
     "./grpc-reflection": {
       "types": "./dist/grpc-reflection.d.ts",
       "default": "./dist/grpc-reflection.js"
@@ -64,6 +68,9 @@
       ],
       "./grpc-clients": [
         "./dist/grpc-clients.d.ts"
+      ],
+      "./grpc-health": [
+        "./dist/grpc-health.d.ts"
       ],
       "./grpc-reflection": [
         "./dist/grpc-reflection.d.ts"

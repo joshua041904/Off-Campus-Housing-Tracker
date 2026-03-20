@@ -6,7 +6,7 @@ set -euo pipefail
 # Do not combine ROTATION_H2_KEYLOG=1 with perf; use forensic for decrypted frame proof.
 
 ### CONFIG
-# Rotation only affects application TLS (Caddy record-local-tls, service-tls, dev-root-ca in namespaces).
+# Rotation only affects application TLS (Caddy off-campus-housing-local-tls, service-tls, dev-root-ca in namespaces).
 # It does NOT modify kubeconfig or the cluster API server certs; kubectl continues to use cluster CA (e.g. k3d/k3s).
 # ROTATION_SKIP_KEYCHAIN_TRUST=1: skip adding CA to macOS keychain (no security prompt); k6/ConfigMap use certs/dev-root.pem. Set by run-all-test-suites.sh so suite 5/9 never requires manual verify.
 # Defaults: ROTATION_H2_KEYLOG=0 (in-cluster k6, no SSH/keylog) so rotation passes reliably; ROTATE_CA=1 (full cert chain test).
@@ -16,7 +16,7 @@ HOST="${HOST:-off-campus-housing.local}"
 NS_ING="ingress-nginx"
 NS_APP="off-campus-housing-tracker"
 SERVICE="caddy-h3"
-LEAF_SECRET="record-local-tls"
+LEAF_SECRET="${LEAF_TLS_SECRET:-off-campus-housing-local-tls}"
 CA_SECRET="dev-root-ca"
 ROTATION_H2_KEYLOG="${ROTATION_H2_KEYLOG:-0}"
 ROTATE_CA="${ROTATE_CA:-1}"
@@ -553,9 +553,9 @@ fi
 
 # Verify record-local-tls exists (use kctl so Colima shim works when host kubectl would fail)
 if ! kctl -n "$NS_ING" get secret "$LEAF_SECRET" >/dev/null 2>&1; then
-  fail "record-local-tls missing in $NS_ING - Caddy pods will fail to mount; fix secret updates above"
+  fail "$LEAF_SECRET missing in $NS_ING - Caddy pods will fail to mount; fix secret updates above"
 fi
-ok "record-local-tls present in $NS_ING (Caddy can mount)"
+ok "$LEAF_SECRET present in $NS_ING (Caddy can mount)"
 
 ### Trigger Caddy reload (OPTIMIZED: Try hot reload first, fallback to rolling restart)
 say "Triggering Caddy reload (hot reload preferred)…"
@@ -620,7 +620,7 @@ if [[ -n "$CADDY_POD" ]]; then
 fi
 
 # Rolling restart: required when we rotated the leaf so Caddy re-mounts the new cert and serves it.
-# Hot reload (POST /load) may not re-read mounted TLS from updated secrets; k6 strict TLS then sees "x509: certificate signed by unknown authority" because Caddy still serves the old cert. Force rollout so new pods mount record-local-tls and serve the new leaf (k3d and all clusters).
+# Hot reload (POST /load) may not re-read mounted TLS from updated secrets; k6 strict TLS then sees "x509: certificate signed by unknown authority" because Caddy still serves the old cert. Force rollout so new pods mount $LEAF_SECRET and serve the new leaf (k3d and all clusters).
 # Zero-downtime: Caddy deploy has 2 replicas and RollingUpdate maxUnavailable=0 — new pod becomes Ready before old is terminated (CA and leaf rotation with no downtime).
 if [[ $RELOAD_DONE -eq 0 ]] || [[ "$ROTATE_LEAF" == "true" ]]; then
   TS=$(date +%Y-%m-%dT%H:%M:%S%z)
@@ -1648,7 +1648,7 @@ fi
 # Strict TLS/mTLS proof (CA + leaf rotation; k6 and gRPC use strict verification)
 say "=== Strict TLS / mTLS proof (CA + leaf rotation) ==="
 ok "k6: insecureSkipTLSVerify=false; CA from ConfigMap (dev-root-ca); TLS 1.3 only for H2; H3 strict TLS."
-ok "Caddy: serves leaf from record-local-tls (rotated); clients validate with dev-root-ca."
+ok "Caddy: serves leaf from $LEAF_SECRET (rotated); clients validate with dev-root-ca."
 ok "gRPC: services use service-tls (leaf + CA); mTLS with client cert (tls.crt/tls.key) and CA verification."
 log_info "Certificate verified above: issuer = dev CA (CN=dev-root-ca, O=off-campus-housing-tracker); subject = CN=off-campus-housing.local."
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Install MetalLB (native manifests) and apply L2 pool for Colima + k3s.
 # Usage: ./scripts/install-metallb-colima.sh
-#   METALLB_POOL=192.168.5.240-192.168.5.250   pool on VM L2 (default)
+#   METALLB_POOL=192.168.64.240-192.168.64.250   pool on VM L2 (default)
 #   METALLB_L2_ONLY=1                          single-node stable: L2 only, skip BGP (stable QUIC; default for new installs)
 #   METALLB_L2_ONLY=0                          install BGP too (for multi-node or chaos/stress testing)
 # See docs/COLIMA-K3S-METALLB-PRIMARY.md and docs/METALLB_SINGLE_NODE_VS_BGP.md.
@@ -10,10 +10,28 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 METALLB_VERSION="${METALLB_VERSION:-v0.14.5}"
-# Pool must be on the Colima VM's L2 (same subnet as eth0). VM has eth0=192.168.5.x, col0=192.168.64.x.
-# Using 192.168.1.x (home LAN) breaks: host can't reach LB IP, script falls back to socat, HTTP/3 (QUIC) fails.
-# Find VM subnet: colima ssh ip addr
-METALLB_POOL="${METALLB_POOL:-192.168.5.240-192.168.5.250}"
+# Pool must be on the node's L2 subnet (same subnet as InternalIP / Colima eth0).
+# Using wrong subnet (e.g. 192.168.1.x home LAN) → EXTERNAL-IP stays <pending>, "bad hostname", HTTP/3 fails.
+# Auto-detect node subnet when METALLB_POOL not set so pool always matches current cluster network.
+if [[ -z "${METALLB_POOL:-}" ]]; then
+  NODE_IP_RAW="$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || true)"
+  NODE_IP="$(printf '%s\n' "$NODE_IP_RAW" | awk '{for(i=1;i<=NF;i++) if ($i ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) {print $i; exit}}')"
+  if [[ -n "$NODE_IP" ]]; then
+    NODE_SUBNET="$(echo "$NODE_IP" | awk -F. '{print $1"."$2"."$3}')"
+    METALLB_POOL="${NODE_SUBNET}.240-${NODE_SUBNET}.250"
+    echo "Auto-detected node InternalIP subnet ${NODE_SUBNET}.x (node ${NODE_IP}); using METALLB_POOL=${METALLB_POOL}"
+  fi
+fi
+# Fallback to Colima eth0 if node lookup is unavailable.
+if [[ -z "${METALLB_POOL:-}" ]] && command -v colima &>/dev/null 2>&1; then
+  VM_INET="$(colima ssh -- ip -4 addr show eth0 2>/dev/null | awk '/inet / {print $2; exit}' | cut -d/ -f1 || true)"
+  if [[ -n "$VM_INET" ]]; then
+    VM_SUBNET="$(echo "$VM_INET" | cut -d. -f1-3)"
+    METALLB_POOL="${VM_SUBNET}.240-${VM_SUBNET}.250"
+    echo "Fallback auto-detected Colima subnet ${VM_SUBNET}.x (eth0 ${VM_INET}); using METALLB_POOL=${METALLB_POOL}"
+  fi
+fi
+METALLB_POOL="${METALLB_POOL:-192.168.64.240-192.168.64.250}"
 # Single-node stable: L2 only (no BGP). BGP + L2 on one node = dual advertisement = QUIC unstable after speaker churn.
 METALLB_L2_ONLY="${METALLB_L2_ONLY:-1}"
 
@@ -58,9 +76,9 @@ echo "Waiting for MetalLB controller and webhook to be ready..."
 if ! kubectl -n metallb-system rollout status deploy/controller --timeout=90s 2>/dev/null; then
   echo "  (controller rollout wait timed out or API slow; continuing to apply pool/L2)"
 fi
-# Default 48 polls (4 min) so webhook has time to register; preflight can set PREFLIGHT_METALLB_WEBHOOK_WAIT.
-_webhook_polls="${PREFLIGHT_METALLB_WEBHOOK_WAIT:-48}"
-[[ "$_webhook_polls" -lt 24 ]] && _webhook_polls=24
+# Max 30s wait (6 x 5s). Override with PREFLIGHT_METALLB_WEBHOOK_WAIT if needed.
+_webhook_polls="${PREFLIGHT_METALLB_WEBHOOK_WAIT:-6}"
+[[ "$_webhook_polls" -lt 1 ]] && _webhook_polls=1
 webhook_ready=""
 for ((i=1;i<=_webhook_polls;i++)); do
   if kubectl -n metallb-system get ep webhook-service -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null | grep -q .; then
@@ -70,9 +88,9 @@ for ((i=1;i<=_webhook_polls;i++)); do
   echo "  waiting for webhook endpoint... ($i/$_webhook_polls)"
   sleep 5
 done
-_webhook_min=$(( _webhook_polls * 5 / 60 ))
+_webhook_sec=$(( _webhook_polls * 5 ))
 if [[ -z "$webhook_ready" ]]; then
-  echo "  (webhook endpoint not ready after ${_webhook_min} min; see below)"
+  echo "  (webhook endpoint not ready after ${_webhook_sec}s; see below)"
   echo ""
   echo "  → First check k3s: colima ssh -- sudo systemctl status k3s"
   echo "  → If restart counter is high (200+), k3s is crash-looping — root cause. See docs/COLIMA_K3S_CRASH_LOOP.md"

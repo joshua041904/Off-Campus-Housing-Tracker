@@ -3,7 +3,7 @@
 # 1) See what's going on (cross-layer diagnostic)
 # 2) Ensure curl with HTTP/3 (optional)
 # 3) Ensure Kubernetes API (k3d or Colima)
-# 4) Ensure Redis + all 7 Postgres DBs (5441–5447)
+# 4) Ensure Redis + all 8 Postgres DBs (5441–5448)
 # 5) Ensure Kafka (Docker :29094 for housing)
 # 6) k3d only: Ensure required app images (:dev) exist locally and in registry (so pods don't ImagePullBackOff). ENSURE_IMAGES=0 to skip.
 #

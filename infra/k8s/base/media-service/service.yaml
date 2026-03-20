@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: media-service
+  namespace: off-campus-housing-tracker
+  labels: { app: media-service }
+spec:
+  selector: { app: media-service }
+  ports:
+    - name: http
+      port: 4018
+      targetPort: http
+    - name: grpc
+      port: 50068
+      targetPort: grpc

@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: media-service
+  namespace: off-campus-housing-tracker
+  labels: { app: media-service }
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector: { matchLabels: { app: media-service } }
+  template:
+    metadata:
+      labels: { app: media-service }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "50068"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: app
+          image: media-service:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 4018
+            - name: grpc
+              containerPort: 50068
+          envFrom:
+            - configMapRef: { name: app-config }
+            - secretRef: { name: app-secrets }
+          env:
+            - name: NODE_ENV
+              value: "development"
+            - name: GRPC_PORT
+              value: "50068"
+            - name: HTTP_PORT
+              value: "4018"
+            - name: MEDIA_DB_PORT
+              value: "5448"
+            - name: MEDIA_DB_NAME
+              value: "media"
+            - name: KAFKA_CA_CERT
+              value: "/etc/kafka/secrets/ca-cert.pem"
+            - name: KAFKA_CLIENT_CERT
+              value: "/etc/kafka/secrets/tls.crt"
+            - name: KAFKA_CLIENT_KEY
+              value: "/etc/kafka/secrets/tls.key"
+          volumeMounts:
+            - name: proto-files
+              mountPath: /app/proto
+              readOnly: true
+            - name: kafka-ssl
+              mountPath: /etc/kafka/secrets
+              readOnly: true
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"
+          livenessProbe:
+            tcpSocket: { port: grpc }
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            tcpSocket: { port: grpc }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 2
+      volumes:
+        - name: proto-files
+          configMap:
+            name: proto-files
+        - name: kafka-ssl
+          secret:
+            secretName: och-kafka-ssl-secret
+            optional: true
+            items:
+              - key: ca-cert.pem
+                path: ca-cert.pem
+              - key: client.crt
+                path: tls.crt
+              - key: client.key
+                path: tls.key

@@ -1,10 +1,30 @@
 **Cluster-only focus:** This copy is for Kubernetes cluster operations, TLS/mTLS, Caddy/Envoy, MetalLB, and runbook issues. Application/product specifics are in README.md.
 
+## OCH edge & gateway debugging (items 83–90)
+
+**MetalLB subnet (83):** If `kubectl get nodes` shows InternalIP **192.168.64.x** but `IPAddressPool` advertises **192.168.5.x**, the Mac cannot ARP/L2 to the LoadBalancer IP — curl shows **HTTP 000** or timeouts while in-cluster checks look “fine”. Fix: `./scripts/apply-metallb-pool-colima.sh` or set `METALLB_POOL` to a small range on the **node** subnet; `kubectl delete svc -n ingress-nginx caddy-h3` + re-apply LoadBalancer manifest if MetalLB keeps a stale IP.
+
+**HTTP 000 vs 503 (84):** **000** → no completed HTTP response (TLS alert, handshake failure, wrong SNI, unroutable LB, DNS). **503** → Caddy/nginx reached an upstream that refused, timed out, or returned 503; common: **readiness probe failing**, wrong **Service targetPort**, or **api-gateway** cannot reach auth/messaging HTTP ports.
+
+**Gateway auth port (85):** Caddy sends `/auth/*` to **api-gateway**, not directly to auth-service. If the gateway env still references **4001** (RP) instead of **4011** (OCH), gateway gets connection refused → **503**. Verify gateway upstream URLs and `auth-service` Service port/targetPort.
+
+**Forum/messages routes (86):** Legacy `pathRewrite` that stripped `/api/forum` to `/` caused 404/000-style failures; gateway must forward to messaging service paths **`/forum`** and **`/messages`** (with identity headers).
+
+**Secret names (87):** Deployments must mount the TLS secret name present in the namespace (`och-service-tls` vs `service-tls`). Create an alias secret rather than changing global trust roots ad hoc.
+
+**Vitest Redis (88):** Cluster DNS name `redis` is invalid on the host. Use `REDIS_URL` / `REDIS_HOST`=`127.0.0.1`, `REDIS_PORT`=`6380` for tests; cluster uses `redis-external....svc.cluster.local` or explicit URL from ConfigMap.
+
+**Kafka (89):** Delete in-cluster Kafka if policy is external-only; ensure `kafka-external` Endpoints/Service and `kafka-ssl-secret` (or `och-kafka-ssl-secret`) match broker TLS.
+
+**Schema inspection (90):** OCH auth schema may omit RP-only tables; keep `scripts/inspect-external-db-schemas.sh` expectations in sync with `bench_logs/schema-report-*.md` for this repo.
+
+**Readable checklist for humans:** `docs/CERTS_AND_TESTING_FOR_MORTALS.md`.
+
 # Runbook: Kubernetes Cluster Stabilization Issues & Solutions
 
 **Author**: Tom  
 **Date**: December 17, 2025  
-**Last Updated**: February 28, 2026  
+**Last Updated**: March 17, 2026  
 **Cluster**: Colima + k3s. **Primary path:** Colima + k3s with bridged networking and MetalLB; one-time host route to LB pool for HTTP/3 (see item 68). k3d remains supported with REQUIRE_COLIMA=0. Pipeline and connection-reset runbook are Colima-first; no Kind. Use your app namespace (e.g. `housing-platform`) in place of `off-campus-housing-tracker` in commands where applicable.
 
 ## Overview
@@ -79,6 +99,14 @@ This document catalogs cluster and infrastructure bugs, issues, and solutions fo
 | 80 | Colima bring-back | Start or reset Colima with same setup (--network-address, 127.0.0.1:6443); scripts and env vars | Colima bring-back (below) |
 | 81 | Validation & SLO | Stateful preflight, rotation-stable, CI platform check, SLO evaluator; diagnose-502 live-only summary | Validation and SLO (below) |
 | 82 | Disaster recovery | Full protocol: new Colima cluster + external infra (Docker/Postgres) + restore from backup + schema report | Disaster recovery protocol (below) |
+| 83 | MetalLB / edge | MetalLB pool subnet ≠ Colima node subnet → host **HTTP 000** to LB IP; pool must be on same L2 as node (e.g. 192.168.64.x) | OCH edge & gateway debugging (below) |
+| 84 | HTTP semantics | **HTTP 000** = TLS/TCP/DNS/LB never completed; **HTTP 503** = proxy reached something but upstream unhealthy or wrong route | OCH edge & gateway debugging (below) |
+| 85 | API Gateway | RP migration: gateway still pointed at auth **4001** while OCH auth listens on **4011** → **503** on register/login via edge | OCH edge & gateway debugging (below) |
+| 86 | API Gateway | `/api/messages` and `/api/forum` path rewrite stripped prefix and broke upstream paths; fix: proxy to `/messages` and `/forum` bases | OCH edge & gateway debugging (below) |
+| 87 | K8s TLS secret | `api-gateway` (and others) mounted **service-tls** while overlay expected **och-service-tls** → TLS trust mismatch / mount failures | OCH edge & gateway debugging (below) |
+| 88 | Vitest / Redis | Default Redis host **`redis`** does not resolve on laptop → `ENOTFOUND`, `RATE_LIMIT_UNAVAILABLE`; tests use **127.0.0.1:6380** | OCH edge & gateway debugging (below) |
+| 89 | Kafka topology | In-cluster **kafka** Deployment violates “external only” policy; remove in-cluster broker; point apps at **kafka-external** + mTLS secrets | OCH edge & gateway debugging (below) |
+| 90 | DB inspection | `inspect-external-db-schemas.sh` expected Record Platform tables (e.g. `auth.outbox_events`) on OCH auth DB → false mismatch; expectations aligned to OCH | OCH edge & gateway debugging (below) |
 
 **PostgreSQL restore and recover (item 79)**  
 **When:** Restoring from backup after failure or to a known state. **Preconditions:** All external Postgres containers (per-service DBs) healthy. **Client version:** `pg_restore`/`psql` must match dump version (e.g. 16.x); `brew install postgresql@16` if needed. **Procedure:** (1) Per-DB: drop DB, create DB, `pg_restore -h localhost -p <PORT> -U postgres -d <DB> --clean --if-exists -v backups/<timestamp>/<PORT>-<DB>.dump`. (2) Verify: `\dn`, `\dt *.*`, row counts. **Checklist:** All schemas present, row counts as expected, sequences OK, app pods connect, no crash loops. **Full runbook:** **docs/RUNBOOK_EXTERNAL_POSTGRES_RECOVERY.md** when present. **Scripts:** use project-specific restore scripts for your DB set. **Lessons:** pg_restore version match; `\dt *.*` for all schemas.

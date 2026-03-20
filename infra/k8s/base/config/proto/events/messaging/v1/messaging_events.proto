@@ -1,0 +1,118 @@
+syntax = "proto3";
+
+package events.messaging.v1;
+
+option go_package = "github.com/yourorg/off-campus-housing/proto/events/messaging/v1";
+
+// ===== Envelope (for Kafka) =====
+
+message EventMetadata {
+  string event_id = 1;
+  string event_type = 2;
+  string aggregate_id = 3;
+  string aggregate_type = 4;
+  string occurred_at = 5;
+  string correlation_id = 6;
+  string causation_id = 7;
+  string producer = 8;
+  string version = 9;
+}
+
+// ===== Messaging Events =====
+
+message MessageSent {
+  EventMetadata metadata = 1;
+
+  string message_id = 2;
+  string sender_id = 3;
+  string recipient_id = 4;
+  string thread_id = 5;
+  string message_type = 6;
+  string subject = 7;
+  string content = 8;
+  string created_at = 9;
+}
+
+message MessageReplied {
+  EventMetadata metadata = 1;
+
+  string message_id = 2;
+  string parent_message_id = 3;
+  string sender_id = 4;
+  string recipient_id = 5;
+  string thread_id = 6;
+  string content = 7;
+  string created_at = 8;
+}
+
+message MessageUpdated {
+  EventMetadata metadata = 1;
+
+  string message_id = 2;
+  string subject = 3;
+  string content = 4;
+  string updated_at = 5;
+}
+
+message MessageDeleted {
+  EventMetadata metadata = 1;
+
+  string message_id = 2;
+  string deleted_at = 3;
+}
+
+message MessageMarkedRead {
+  EventMetadata metadata = 1;
+
+  string message_id = 2;
+  string user_id = 3;
+  string read_at = 4;
+}
+
+// ===== Forum Events =====
+
+message PostCreated {
+  EventMetadata metadata = 1;
+
+  string post_id = 2;
+  string user_id = 3;
+  string title = 4;
+  string content = 5;
+  string flair = 6;
+  string created_at = 7;
+}
+
+message PostUpdated {
+  EventMetadata metadata = 1;
+
+  string post_id = 2;
+  string title = 3;
+  string content = 4;
+  string flair = 5;
+  string updated_at = 6;
+}
+
+message PostDeleted {
+  EventMetadata metadata = 1;
+
+  string post_id = 2;
+  string deleted_at = 3;
+}
+
+message CommentCreated {
+  EventMetadata metadata = 1;
+
+  string comment_id = 2;
+  string post_id = 3;
+  string user_id = 4;
+  string parent_id = 5;
+  string content = 6;
+  string created_at = 7;
+}
+
+message CommentDeleted {
+  EventMetadata metadata = 1;
+
+  string comment_id = 2;
+  string deleted_at = 3;
+}

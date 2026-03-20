@@ -21,7 +21,7 @@ spec:
   tls:
   - hosts:
     - off-campus-housing.local
-    secretName: record-local-tls
+    secretName: off-campus-housing-local-tls
   rules:
   - host: off-campus-housing.local
     http:
@@ -40,13 +40,13 @@ spec:
             name: auth-service
             port:
               number: 50051
-      - path: /social.SocialService
+      - path: /messaging.v1.MessagingService
         pathType: Prefix
         backend:
           service:
-            name: social-service
+            name: messaging-service
             port:
-              number: 50056
+              number: 50064
       - path: /listings.ListingsService
         pathType: Prefix
         backend:

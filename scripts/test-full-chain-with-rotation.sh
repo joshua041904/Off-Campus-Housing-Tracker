@@ -42,6 +42,7 @@ if [[ -z "${PORT:-}" ]] || [[ "${PORT:-}" == "443" ]]; then
 fi
 NS_ING="ingress-nginx"
 NS_APP="off-campus-housing-tracker"
+LEAF_TLS_SECRET="${LEAF_TLS_SECRET:-off-campus-housing-local-tls}"
 
 say() { printf "\n\033[1m%s\033[0m\n" "$*"; }
 ok() { echo "✅ $*"; }
@@ -312,11 +313,11 @@ EXT
           # Verify the certificate includes FQDN
           if echo "$(cat "$TMP_CERT_DIR/tls.crt")" | openssl x509 -noout -text 2>/dev/null | grep -q "$CLUSTERIP_FQDN"; then
             # Update secrets
-            kubectl -n "$NS_ING" delete secret record-local-tls >/dev/null 2>&1 || true
-            kubectl -n "$NS_ING" create secret tls record-local-tls \
+            kubectl -n "$NS_ING" delete secret $LEAF_TLS_SECRET >/dev/null 2>&1 || true
+            kubectl -n "$NS_ING" create secret tls $LEAF_TLS_SECRET \
               --cert="$TMP_CERT_DIR/tls.crt" --key="$TMP_CERT_DIR/tls.key" >/dev/null 2>&1 || warn "Failed to update ingress-nginx secret"
-            kubectl -n "$NS_APP" delete secret record-local-tls >/dev/null 2>&1 || true
-            kubectl -n "$NS_APP" create secret tls record-local-tls \
+            kubectl -n "$NS_APP" delete secret $LEAF_TLS_SECRET >/dev/null 2>&1 || true
+            kubectl -n "$NS_APP" create secret tls $LEAF_TLS_SECRET \
               --cert="$TMP_CERT_DIR/tls.crt" --key="$TMP_CERT_DIR/tls.key" >/dev/null 2>&1 || warn "Failed to update off-campus-housing-tracker secret"
             
             # Check if Caddy is already ready (might not need restart if secret is already mounted)
@@ -595,11 +596,11 @@ EXT
         if [[ -f "$TMP_CERT_DIR/tls.crt" ]]; then
           # Verify FQDN is in certificate
           if echo "$(cat "$TMP_CERT_DIR/tls.crt")" | openssl x509 -noout -text 2>/dev/null | grep -q "$CLUSTERIP_FQDN"; then
-            kubectl -n "$NS_ING" delete secret record-local-tls >/dev/null 2>&1 || true
-            kubectl -n "$NS_ING" create secret tls record-local-tls \
+            kubectl -n "$NS_ING" delete secret $LEAF_TLS_SECRET >/dev/null 2>&1 || true
+            kubectl -n "$NS_ING" create secret tls $LEAF_TLS_SECRET \
               --cert="$TMP_CERT_DIR/tls.crt" --key="$TMP_CERT_DIR/tls.key" >/dev/null 2>&1
-            kubectl -n "$NS_APP" delete secret record-local-tls >/dev/null 2>&1 || true
-            kubectl -n "$NS_APP" create secret tls record-local-tls \
+            kubectl -n "$NS_APP" delete secret $LEAF_TLS_SECRET >/dev/null 2>&1 || true
+            kubectl -n "$NS_APP" create secret tls $LEAF_TLS_SECRET \
               --cert="$TMP_CERT_DIR/tls.crt" --key="$TMP_CERT_DIR/tls.key" >/dev/null 2>&1
             
             # Trigger Caddy restart to pick up new certificate

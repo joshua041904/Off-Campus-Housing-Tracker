@@ -1,0 +1,284 @@
+generator client {
+  provider      = "prisma-client-js"
+  output        = "../generated/client"
+  binaryTargets = ["native", "debian-openssl-3.0.x", "linux-arm64-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("POSTGRES_URL_MESSAGING")
+  schemas  = ["auth", "forum", "messages"]
+}
+
+// ============================================================
+// FORUM SCHEMA
+// ============================================================
+
+model Post {
+  @@schema("forum")
+  @@map("posts")
+
+  id           String    @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  user_id      String    @db.Uuid
+  title        String    @db.VarChar(512)
+  content      String    @db.Text
+  flair        String    @db.VarChar(64) @default("Discussion")
+  upload_type  String    @db.VarChar(32) @default("text") @map("upload_type")
+  upvotes      Int       @default(0)
+  downvotes    Int       @default(0)
+  comment_count Int      @default(0) @map("comment_count")
+  is_pinned    Boolean   @default(false) @map("is_pinned")
+  is_locked    Boolean   @default(false) @map("is_locked")
+  created_at   DateTime  @default(now()) @map("created_at")
+  updated_at   DateTime  @updatedAt @map("updated_at")
+
+  comments     Comment[]
+  votes        PostVote[]
+  attachments  PostAttachment[]
+
+  @@index([user_id])
+  @@index([flair])
+  @@index([upload_type])
+  @@index([created_at(sort: Desc)])
+  @@index([is_pinned(sort: Desc), created_at(sort: Desc)])
+  @@index([upvotes(sort: Desc), created_at(sort: Desc)])
+}
+
+model PostAttachment {
+  @@schema("forum")
+  @@map("post_attachments")
+
+  id            String    @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  post_id       String    @db.Uuid @map("post_id")
+  file_url      String    @db.Text @map("file_url")
+  file_path     String?   @db.Text @map("file_path")
+  thumbnail_url String?   @db.Text @map("thumbnail_url")
+  file_name     String?   @db.VarChar(512) @map("file_name")
+  file_size     BigInt?   @map("file_size")
+  mime_type     String?   @db.VarChar(128) @map("mime_type")
+  file_type     String    @db.VarChar(32) @map("file_type")
+  width         Int?
+  height        Int?
+  duration      Int?
+  display_order Int       @default(0) @map("display_order")
+  created_at    DateTime  @default(now()) @map("created_at")
+
+  post          Post      @relation(fields: [post_id], references: [id], onDelete: Cascade)
+
+  @@index([post_id])
+  @@index([file_type])
+  @@index([post_id, display_order])
+}
+
+model Comment {
+  @@schema("forum")
+  @@map("comments")
+
+  id           String    @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  post_id      String    @db.Uuid @map("post_id")
+  user_id      String    @db.Uuid @map("user_id")
+  parent_id    String?   @db.Uuid @map("parent_id")
+  content      String    @db.Text
+  upvotes      Int       @default(0)
+  downvotes    Int       @default(0)
+  created_at   DateTime  @default(now()) @map("created_at")
+  updated_at   DateTime  @updatedAt @map("updated_at")
+
+  post         Post      @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  parent       Comment?  @relation("CommentReplies", fields: [parent_id], references: [id], onDelete: Cascade)
+  replies      Comment[] @relation("CommentReplies")
+  votes        CommentVote[]
+  attachments  CommentAttachment[]
+
+  @@index([post_id])
+  @@index([user_id])
+  @@index([parent_id])
+  @@index([created_at(sort: Desc)])
+}
+
+model CommentAttachment {
+  @@schema("forum")
+  @@map("comment_attachments")
+
+  id            String    @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  comment_id    String    @db.Uuid @map("comment_id")
+  file_url      String    @db.Text @map("file_url")
+  file_path     String?   @db.Text @map("file_path")
+  thumbnail_url String?   @db.Text @map("thumbnail_url")
+  file_name     String?   @db.VarChar(512) @map("file_name")
+  file_size     BigInt?   @map("file_size")
+  mime_type     String?   @db.VarChar(128) @map("mime_type")
+  file_type     String    @db.VarChar(32) @map("file_type")
+  width         Int?
+  height        Int?
+  duration      Int?
+  display_order Int       @default(0) @map("display_order")
+  created_at    DateTime  @default(now()) @map("created_at")
+
+  comment       Comment   @relation(fields: [comment_id], references: [id], onDelete: Cascade)
+
+  @@index([comment_id])
+  @@index([file_type])
+  @@index([comment_id, display_order])
+}
+
+model PostVote {
+  @@schema("forum")
+  @@map("post_votes")
+
+  id           String    @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  post_id      String    @db.Uuid @map("post_id")
+  user_id      String    @db.Uuid @map("user_id")
+  vote_type    String    @db.VarChar(8)
+  created_at   DateTime  @default(now()) @map("created_at")
+
+  post         Post      @relation(fields: [post_id], references: [id], onDelete: Cascade)
+
+  @@unique([post_id, user_id])
+  @@index([post_id])
+  @@index([user_id])
+}
+
+model CommentVote {
+  @@schema("forum")
+  @@map("comment_votes")
+
+  id           String    @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  comment_id   String    @db.Uuid @map("comment_id")
+  user_id      String    @db.Uuid @map("user_id")
+  vote_type    String    @db.VarChar(8)
+  created_at   DateTime  @default(now()) @map("created_at")
+
+  comment      Comment   @relation(fields: [comment_id], references: [id], onDelete: Cascade)
+
+  @@unique([comment_id, user_id])
+  @@index([comment_id])
+  @@index([user_id])
+}
+
+// ============================================================
+// MESSAGES SCHEMA
+// ============================================================
+
+model Group {
+  @@schema("messages")
+  @@map("groups")
+
+  id          String        @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  name        String        @db.VarChar(256)
+  description String?       @db.Text
+  created_by  String        @db.Uuid @map("created_by")
+  created_at  DateTime      @default(now()) @map("created_at")
+  updated_at  DateTime      @updatedAt @map("updated_at")
+
+  members     GroupMember[]
+  messages    Message[]
+
+  @@index([created_by])
+  @@index([created_at(sort: Desc)])
+}
+
+model GroupMember {
+  @@schema("messages")
+  @@map("group_members")
+
+  id        String   @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  group_id  String   @db.Uuid @map("group_id")
+  user_id   String   @db.Uuid @map("user_id")
+  role      String   @db.VarChar(16) @default("member")
+  joined_at DateTime @default(now()) @map("joined_at")
+
+  group     Group    @relation(fields: [group_id], references: [id], onDelete: Cascade)
+
+  @@unique([group_id, user_id])
+  @@index([group_id])
+  @@index([user_id])
+}
+
+model Message {
+  @@schema("messages")
+  @@map("messages")
+
+  id               String    @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  sender_id        String    @db.Uuid @map("sender_id")
+  recipient_id     String?   @db.Uuid @map("recipient_id")
+  group_id         String?   @db.Uuid @map("group_id")
+  parent_message_id String?  @db.Uuid @map("parent_message_id")
+  thread_id        String?   @db.Uuid @map("thread_id")
+  message_type     String    @db.VarChar(32) @default("General") @map("message_type")
+  subject          String    @db.VarChar(512)
+  content          String    @db.Text
+  is_read          Boolean   @default(false) @map("is_read")
+  created_at       DateTime  @default(now()) @map("created_at")
+  updated_at       DateTime  @updatedAt @map("updated_at")
+
+  group            Group?    @relation(fields: [group_id], references: [id], onDelete: Cascade)
+  parent           Message?  @relation("MessageReplies", fields: [parent_message_id], references: [id], onDelete: SetNull)
+  replies          Message[] @relation("MessageReplies")
+  reads            MessageRead[]
+  attachments      MessageAttachment[]
+
+  @@index([sender_id])
+  @@index([recipient_id])
+  @@index([group_id])
+  @@index([thread_id])
+  @@index([parent_message_id])
+  @@index([created_at(sort: Desc)])
+  @@index([is_read, recipient_id])
+}
+
+model MessageAttachment {
+  @@schema("messages")
+  @@map("message_attachments")
+
+  id            String    @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  message_id    String    @db.Uuid @map("message_id")
+  file_url      String    @db.Text @map("file_url")
+  file_path     String?   @db.Text @map("file_path")
+  thumbnail_url String?   @db.Text @map("thumbnail_url")
+  file_name     String?   @db.VarChar(512) @map("file_name")
+  file_size     BigInt?   @map("file_size")
+  mime_type     String?   @db.VarChar(128) @map("mime_type")
+  file_type     String    @db.VarChar(32) @map("file_type")
+  width         Int?
+  height        Int?
+  duration      Int?
+  display_order Int       @default(0) @map("display_order")
+  created_at    DateTime  @default(now()) @map("created_at")
+
+  message       Message   @relation(fields: [message_id], references: [id], onDelete: Cascade)
+
+  @@index([message_id])
+  @@index([file_type])
+  @@index([message_id, display_order])
+}
+
+model MessageRead {
+  @@schema("messages")
+  @@map("message_reads")
+
+  id              String    @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  message_id      String    @db.Uuid @map("message_id")
+  user_id         String    @db.Uuid @map("user_id")
+  read_at         DateTime  @default(now()) @map("read_at")
+  read_by_sender  Boolean   @default(false) @map("read_by_sender")
+
+  message         Message   @relation(fields: [message_id], references: [id], onDelete: Cascade)
+
+  @@unique([message_id, user_id])
+  @@index([message_id])
+  @@index([user_id])
+  @@index([read_at(sort: Desc)])
+  @@index([read_by_sender])
+}
+
+// ============================================================
+// REFERENCE MODELS (from auth schema)
+// ============================================================
+
+model User {
+  @@schema("auth")
+  @@map("users")
+  @@ignore
+  id String @id @db.Uuid
+}

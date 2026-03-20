@@ -1,6 +1,6 @@
 /**
  * Integration test B: create upload URL → (mock S3 PUT) → complete upload → assert DB status = uploaded.
- * Mocks S3 so objectExists returns true; no real MinIO required. Requires media DB (CI: same Postgres, port 5441).
+ * Mocks S3 so objectExists returns true; no real MinIO required. Requires media Postgres (default 127.0.0.1:5448, DB media).
  */
 import { describe, it, expect, beforeAll, vi } from 'vitest'
 import { createUploadUrl } from '../../src/handlers/createUploadUrl'

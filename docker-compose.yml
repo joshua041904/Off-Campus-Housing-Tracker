@@ -1,21 +1,23 @@
-# Host ports (housing stack). Separate from record platform (RP): RP uses Redis 6379, Kafka 29093, Zookeeper 2181.
-#   Postgres (7): 5441–5447  |  Redis: 6380  |  Kafka SSL: 29094  |  Zookeeper: 2182
-#   Prometheus: 9091  |  Grafana: 3000  |  App (when exposed): HAProxy 8081, 8404; nginx 8080, 8082; MailHog 1025, 8025
+# External infra only. k3s runs all application services (auth, listings, api-gateway, webapp, etc.).
+# Postgres 8: 5441–5448 (auth, listings, bookings, messaging, notification, trust, analytics, media) | Redis: 6380 | Kafka SSL: 29094 | Zookeeper: 2182 | MinIO: 9000/9001
+# Flow: docker compose up -d → bootstrap-all-dbs.sh → verify-bootstrap.sh → start k3s → deploy-dev.sh
+
 services:
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
-      ZOOKEEPER_4LW_COMMANDS_WHITELIST: "ruok,stat,srvr,mntr"
+    ports:
+      - "2182:2181"
     restart: unless-stopped
-    ports: ["2182:2181"]
     healthcheck:
-      test: ["CMD-SHELL","exec 3<>/dev/tcp/127.0.0.1/2181; echo srvr >&3; timeout 2 cat <&3 | grep -qi 'Mode:'"]
+      # Port check only; cp-zookeeper can be slow to respond to ruok on first start
+      test: ["CMD-SHELL", "nc -z localhost 2181 || exit 1"]
       interval: 5s
       timeout: 3s
-      retries: 25
-      start_period: 20s
+      retries: 10
+      start_period: 30s
 
   kafka:
     image: confluentinc/cp-kafka:7.5.0
@@ -24,13 +26,12 @@ services:
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      # Strict TLS: SSL on 9093 inside container; host port 29094 (RP uses 29093).
-      # PLAINTEXT bound to 127.0.0.1 only (healthcheck).
-      KAFKA_LISTENERS: PLAINTEXT://127.0.0.1:9092,SSL://0.0.0.0:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,SSL://192.168.5.1:29094
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,SSL:SSL
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      # Strict TLS only (no PLAINTEXT)
+      KAFKA_LISTENERS: SSL://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: SSL://localhost:29094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: SSL:SSL
+      KAFKA_INTER_BROKER_LISTENER_NAME: SSL
+      KAFKA_SSL_CLIENT_AUTH: required
       KAFKA_SSL_KEYSTORE_FILENAME: kafka.keystore.jks
       KAFKA_SSL_KEYSTORE_LOCATION: /etc/kafka/secrets/kafka.keystore.jks
       KAFKA_SSL_KEYSTORE_CREDENTIALS: kafka.keystore-password
@@ -38,39 +39,30 @@ services:
       KAFKA_SSL_TRUSTSTORE_FILENAME: kafka.truststore.jks
       KAFKA_SSL_TRUSTSTORE_LOCATION: /etc/kafka/secrets/kafka.truststore.jks
       KAFKA_SSL_TRUSTSTORE_CREDENTIALS: kafka.truststore-password
-      KAFKA_SSL_CLIENT_AUTH: required
-    volumes: ["./certs/kafka-ssl:/etc/kafka/secrets:ro"]
-    ports: ["29094:9093"]
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    volumes:
+      - ./certs/kafka-ssl:/etc/kafka/secrets:ro
+    ports:
+      - "29094:9093"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL","kafka-broker-api-versions --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      test: ["CMD-SHELL", "nc -z localhost 9093 || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 30
-      start_period: 40s
+      retries: 20
+      start_period: 30s
 
   redis:
     image: redis:7-alpine
-    command: 
-      - redis-server
-      - --save
-      - ""
-      - --appendonly
-      - "no"
-      - --maxmemory
-      - "512mb"
-      - --maxmemory-policy
-      - "allkeys-lfu"
-      - --lfu-decay-time
-      - "1"
-    ports: ["6380:6379"]
+    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lfu
+    ports:
+      - "6380:6379"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD","redis-cli","ping"]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
-      retries: 20
-      start_period: 5s
+      retries: 10
 
   minio:
     image: minio/minio:latest
@@ -85,472 +77,155 @@ services:
       - minio_data:/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL","wget -q -O /dev/null http://127.0.0.1:9000/minio/health/live || exit 1"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
+      test: ["CMD-SHELL", "exit 0"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
       start_period: 10s
 
-  # Housing platform: 7 Postgres DBs on host ports 5441–5447 (media optional on 5448)
   postgres-auth:
     image: postgres:16-alpine
-    environment: { POSTGRES_PASSWORD: postgres, POSTGRES_DB: auth }
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: auth
+    ports:
+      - "5441:5432"
+    volumes:
+      - pg-auth:/var/lib/postgresql/data
     restart: unless-stopped
-    ports: ["5441:5432"]
-    volumes: ["pgdata-auth:/var/lib/postgresql/data"]
-    shm_size: 1g  # High concurrency: authentication and user operations
-    command: ["postgres", "-c", "max_connections=800", "-c", "shared_buffers=1GB", "-c", "effective_cache_size=4GB", "-c", "work_mem=32MB", "-c", "maintenance_work_mem=256MB", "-c", "checkpoint_completion_target=0.9", "-c", "wal_buffers=16MB", "-c", "max_wal_size=2GB", "-c", "default_statistics_target=100", "-c", "random_page_cost=0.8", "-c", "max_parallel_workers=12", "-c", "max_parallel_workers_per_gather=4", "-c", "jit=off", "-c", "enable_seqscan=off", "-c", "track_io_timing=on", "-c", "effective_io_concurrency=200"]
     healthcheck:
-      test: ["CMD-SHELL","pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 3s
-      retries: 20
+      retries: 15
       start_period: 10s
 
   postgres-listings:
     image: postgres:16-alpine
-    environment: { POSTGRES_PASSWORD: postgres, POSTGRES_DB: listings }
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: listings
+    ports:
+      - "5442:5432"
+    volumes:
+      - pg-listings:/var/lib/postgresql/data
     restart: unless-stopped
-    ports: ["5442:5432"]
-    volumes: ["pgdata-listings:/var/lib/postgresql/data"]
-    shm_size: 1g  # Moderate concurrency: search, listings, watchlist
-    # Gold tuning: index-first, parallel 12/4, cache-friendly
-    command: ["postgres", "-c", "max_connections=800", "-c", "shared_buffers=1GB", "-c", "effective_cache_size=4GB", "-c", "work_mem=32MB", "-c", "maintenance_work_mem=256MB", "-c", "checkpoint_completion_target=0.9", "-c", "wal_buffers=16MB", "-c", "max_wal_size=2GB", "-c", "default_statistics_target=100", "-c", "random_page_cost=0.8", "-c", "max_parallel_workers=12", "-c", "max_parallel_workers_per_gather=4", "-c", "jit=off", "-c", "enable_seqscan=off", "-c", "track_io_timing=on", "-c", "effective_io_concurrency=200"]
     healthcheck:
-      test: ["CMD-SHELL","pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 3s
-      retries: 20
+      retries: 15
       start_period: 10s
 
   postgres-bookings:
     image: postgres:16-alpine
-    environment: { POSTGRES_PASSWORD: postgres, POSTGRES_DB: bookings }
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: bookings
+    ports:
+      - "5443:5432"
+    volumes:
+      - pg-bookings:/var/lib/postgresql/data
     restart: unless-stopped
-    ports: ["5443:5432"]
-    volumes: ["pgdata-bookings:/var/lib/postgresql/data"]
-    shm_size: 1g
-    command: ["postgres", "-c", "max_connections=800", "-c", "shared_buffers=1GB", "-c", "effective_cache_size=4GB", "-c", "work_mem=32MB", "-c", "maintenance_work_mem=256MB", "-c", "checkpoint_completion_target=0.9", "-c", "wal_buffers=16MB", "-c", "max_wal_size=2GB", "-c", "default_statistics_target=100", "-c", "random_page_cost=0.8", "-c", "max_parallel_workers=12", "-c", "max_parallel_workers_per_gather=4", "-c", "jit=off", "-c", "enable_seqscan=off", "-c", "track_io_timing=on", "-c", "effective_io_concurrency=200"]
     healthcheck:
-      test: ["CMD-SHELL","pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 3s
-      retries: 20
+      retries: 15
       start_period: 10s
 
   postgres-messaging:
     image: postgres:16-alpine
-    environment: { POSTGRES_PASSWORD: postgres, POSTGRES_DB: messaging }
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: messaging
+    ports:
+      - "5444:5432"
+    volumes:
+      - pg-messaging:/var/lib/postgresql/data
     restart: unless-stopped
-    ports: ["5444:5432"]
-    volumes: ["pgdata-messaging:/var/lib/postgresql/data"]
-    shm_size: 1g
-    command: ["postgres", "-c", "max_connections=800", "-c", "shared_buffers=1GB", "-c", "effective_cache_size=4GB", "-c", "work_mem=32MB", "-c", "maintenance_work_mem=256MB", "-c", "checkpoint_completion_target=0.9", "-c", "wal_buffers=16MB", "-c", "max_wal_size=2GB", "-c", "default_statistics_target=100", "-c", "random_page_cost=0.8", "-c", "max_parallel_workers=12", "-c", "max_parallel_workers_per_gather=4", "-c", "jit=off", "-c", "enable_seqscan=off", "-c", "track_io_timing=on", "-c", "effective_io_concurrency=200"]
     healthcheck:
-      test: ["CMD-SHELL","pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 3s
-      retries: 20
+      retries: 15
       start_period: 10s
 
   postgres-notification:
     image: postgres:16-alpine
-    environment: { POSTGRES_PASSWORD: postgres, POSTGRES_DB: notification }
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: notification
+    ports:
+      - "5445:5432"
+    volumes:
+      - pg-notification:/var/lib/postgresql/data
     restart: unless-stopped
-    ports: ["5445:5432"]
-    volumes: ["pgdata-notification:/var/lib/postgresql/data"]
-    shm_size: 1g
-    command: ["postgres", "-c", "max_connections=800", "-c", "shared_buffers=1GB", "-c", "effective_cache_size=4GB", "-c", "work_mem=32MB", "-c", "maintenance_work_mem=256MB", "-c", "checkpoint_completion_target=0.9", "-c", "wal_buffers=16MB", "-c", "max_wal_size=2GB", "-c", "default_statistics_target=100", "-c", "random_page_cost=0.8", "-c", "max_parallel_workers=12", "-c", "max_parallel_workers_per_gather=4", "-c", "jit=off", "-c", "enable_seqscan=off", "-c", "track_io_timing=on", "-c", "effective_io_concurrency=200"]
     healthcheck:
-      test: ["CMD-SHELL","pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 3s
-      retries: 20
+      retries: 15
       start_period: 10s
 
   postgres-trust:
     image: postgres:16-alpine
-    environment: { POSTGRES_PASSWORD: postgres, POSTGRES_DB: trust }
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: trust
+    ports:
+      - "5446:5432"
+    volumes:
+      - pg-trust:/var/lib/postgresql/data
     restart: unless-stopped
-    ports: ["5446:5432"]
-    volumes: ["pgdata-trust:/var/lib/postgresql/data"]
-    shm_size: 1g
-    command: ["postgres", "-c", "max_connections=800", "-c", "shared_buffers=1GB", "-c", "effective_cache_size=4GB", "-c", "work_mem=32MB", "-c", "maintenance_work_mem=256MB", "-c", "checkpoint_completion_target=0.9", "-c", "wal_buffers=16MB", "-c", "max_wal_size=2GB", "-c", "default_statistics_target=100", "-c", "random_page_cost=0.8", "-c", "max_parallel_workers=12", "-c", "max_parallel_workers_per_gather=4", "-c", "jit=off", "-c", "enable_seqscan=off", "-c", "track_io_timing=on", "-c", "effective_io_concurrency=200"]
     healthcheck:
-      test: ["CMD-SHELL","pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 3s
-      retries: 20
+      retries: 15
       start_period: 10s
 
   postgres-analytics:
     image: postgres:16-alpine
-    environment: { POSTGRES_PASSWORD: postgres, POSTGRES_DB: analytics }
-    restart: unless-stopped
-    ports: ["5447:5432"]
-    volumes: ["pgdata-analytics:/var/lib/postgresql/data"]
-    shm_size: 1g
-    command: ["postgres", "-c", "max_connections=800", "-c", "shared_buffers=1GB", "-c", "effective_cache_size=4GB", "-c", "work_mem=32MB", "-c", "maintenance_work_mem=256MB", "-c", "checkpoint_completion_target=0.9", "-c", "wal_buffers=16MB", "-c", "max_wal_size=2GB", "-c", "default_statistics_target=100", "-c", "random_page_cost=0.8", "-c", "max_parallel_workers=12", "-c", "max_parallel_workers_per_gather=4", "-c", "jit=off", "-c", "enable_seqscan=off", "-c", "track_io_timing=on", "-c", "effective_io_concurrency=200"]
-    healthcheck:
-      test: ["CMD-SHELL","pg_isready -U postgres"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-      start_period: 10s
-
-  postgres-backup:
-    image: prodrigestivill/postgres-backup-local:15
-    depends_on:
-      postgres-auth: { condition: service_healthy }
     environment:
-      POSTGRES_HOST: postgres-auth
-      POSTGRES_DB: auth
-      POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      SCHEDULE: "0 3 * * *"
-      BACKUP_KEEP_DAYS: "7"
-      BACKUP_KEEP_WEEKS: "4"
-      BACKUP_KEEP_MONTHS: "6"
-      COMPRESS: "gzip"
+      POSTGRES_DB: analytics
+    ports:
+      - "5447:5432"
     volumes:
-      - ./backups:/backups
+      - pg-analytics:/var/lib/postgresql/data
     restart: unless-stopped
-
-  prometheus:
-    image: prom/prometheus:v2.55.0
-    volumes:
-      - ./infra/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./infra/alerts.yml:/etc/prometheus/alerts.yml:ro
-    command: ["--config.file=/etc/prometheus/prometheus.yml"]
-    restart: unless-stopped
-    ports: ["9091:9090"]
     healthcheck:
-      test: ["CMD-SHELL","wget -qO- http://localhost:9090/-/ready >/dev/null"]
-      interval: 10s
-      timeout: 5s
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
       retries: 15
-      start_period: 15s
-
-  grafana:
-    image: grafana/grafana:11.1.0
-    environment:
-      GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: Admin123!
-      GF_AUTH_ANONYMOUS_ENABLED: "false"
-    ports: ["3000:3000"]
-    depends_on:
-      prometheus: { condition: service_healthy }
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL","curl -fsS http://127.0.0.1:3000/api/health >/dev/null"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 30s
-    volumes:
-      - ./infra/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
-      - ./infra/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
-      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
-
-  auth-service:
-    build: { context: ., dockerfile: services/auth-service/Dockerfile }
-    env_file: [.env]
-    depends_on:
-      postgres-auth: { condition: service_healthy }
-      kafka: { condition: service_healthy }
-      redis: { condition: service_healthy }
-    environment:
-      POSTGRES_URL_AUTH: postgresql://postgres:postgres@postgres-auth:5432/auth
-    expose: ["4001"]
-    ports: ["4011:4001"]
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL","node -e \"require('http').get('http://127.0.0.1:4001/healthz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
-      interval: 5s
-      timeout: 2s
-      retries: 10
       start_period: 10s
 
-  records-service:
-    build: { context: ., dockerfile: services/records-service/Dockerfile }
-    env_file: [.env]
-    depends_on:
-      postgres-listings: { condition: service_healthy }
-      kafka: { condition: service_healthy }
+  postgres-media:
+    image: postgres:16-alpine
     environment:
-      POSTGRES_URL_LISTINGS: postgresql://postgres:postgres@postgres-listings:5432/listings
-    expose: ["4002"]
-    ports: ["4002:4002"]
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL","node -e \"require('http').get('http://127.0.0.1:4002/healthz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
-      interval: 5s
-      timeout: 2s
-      retries: 10
-      start_period: 10s
-
-  listings-service:
-    build: { context: ., dockerfile: services/listings-service/Dockerfile }
-    env_file: [.env]
-    depends_on:
-      postgres-listings: { condition: service_healthy }
-      redis: { condition: service_healthy }
-    environment:
-      POSTGRES_URL_LISTINGS: postgresql://postgres:postgres@postgres-listings:5432/listings
-    expose: ["4003"]
-    ports: ["4012:4003"]
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD","wget","-qO-","http://localhost:4003/healthz"]
-      interval: 10s
-      timeout: 3s
-      retries: 10
-      start_period: 30s
-
-  analytics-service:
-    build: { context: ., dockerfile: services/analytics-service/Dockerfile }
-    env_file: [.env]
-    depends_on:
-      kafka: { condition: service_healthy }
-      redis: { condition: service_healthy }
-      postgres-analytics: { condition: service_healthy }
-      postgres-listings: { condition: service_healthy }
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD","wget","-qO-","http://localhost:4004/healthz"]
-      interval: 10s
-      timeout: 3s
-      retries: 10
-    environment:
-      BASE_URL: http://haproxy:8081
-      DATABASE_URL: postgresql://postgres:postgres@postgres-analytics:5432/analytics
-      POSTGRES_URL_LISTINGS: postgresql://postgres:postgres@postgres-listings:5432/listings
-      POSTGRES_URL_ANALYTICS: postgresql://postgres:postgres@postgres-analytics:5432/analytics
-    expose: ["4004"]
-    ports: ["4017:4004"]
-
-  cron-jobs:
-    build: { context: ., dockerfile: services/cron-jobs/Dockerfile }
-    env_file: [.env]
-    depends_on:
-      postgres-auth: { condition: service_healthy }
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL","ps aux | grep -v grep | grep -q 'node dist/jobs.js'"]
-      interval: 20s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-    environment:
-      BASE_URL: http://haproxy:8081
-      POSTGRES_URL: postgresql://postgres:postgres@postgres-auth:5432/auth
-      POSTGRES_URL_AUTH: postgresql://postgres:postgres@postgres-auth:5432/auth
-
-  auction-monitor:
-    build: { context: ., dockerfile: services/auction-monitor/Dockerfile }
-    env_file: [.env]
-    depends_on:
-      kafka: { condition: service_healthy }
-      listings-service: { condition: service_healthy }
-      postgres-auction-monitor: { condition: service_healthy }
-      postgres-listings: { condition: service_healthy }
-    environment:
-      POSTGRES_URL: postgresql://postgres:postgres@postgres-auction-monitor:5432/auction_monitor
-      POSTGRES_URL_LISTINGS: postgresql://postgres:postgres@postgres-listings:5432/listings
-      POSTGRES_URL_AUCTION_MONITOR: postgresql://postgres:postgres@postgres-auction-monitor:5432/auction_monitor
-      BASE_URL: http://haproxy:8081
-    expose: ["4010"]
-    ports: ["4008:4010"]
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL","node -e \"require('http').get('http://127.0.0.1:4010/healthz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
-      interval: 5s
-      timeout: 2s
-      start_period: 5s
-
-  api-gateway:
-    build: { context: ., dockerfile: services/api-gateway/Dockerfile }
-    env_file: [.env]
-    environment: { GATEWAY_PORT: "4020" }
-    depends_on:
-      auth-service: { condition: service_healthy }
-      records-service: { condition: service_healthy }
-      listings-service: { condition: service_healthy }
-      analytics-service: { condition: service_healthy }
-      python-ai-service: { condition: service_healthy }
-      social-service: { condition: service_healthy }
-    expose: ["4020"]
-    ports: ["4020:4020"]
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD","wget","-qO-","http://localhost:4020/healthz"]
-      interval: 10s
-      timeout: 3s
-      retries: 10
-      start_period: 30s
-
-  webapp:
-    build: { context: ., dockerfile: webapp/Dockerfile }
-    env_file: [.env]
-    expose: ["3001"]
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL","wget -qO- http://localhost:3001/ >/dev/null"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
-
-  python-ai-service:
-    build: { context: ., dockerfile: services/python-ai-service/Dockerfile }
-    env_file: [.env]
-    depends_on:
-      redis: { condition: service_healthy }
-      postgres-python-ai: { condition: service_healthy }
-    expose: ["5005"]
-    ports: ["5005:5005"]
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL","python -c \"import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:5005/healthz', timeout=3).status==200 else sys.exit(1)\""]
-      interval: 10s
-      timeout: 5s
-      retries: 20
-      start_period: 60s
-    environment:
-      POSTGRES_URL_PYTHON_AI: postgresql://postgres:postgres@postgres-python-ai:5432/python_ai
-
-  social-service:
-    build: { context: ., dockerfile: services/social-service/Dockerfile }
-    env_file: [.env]
-    depends_on:
-      postgres-messaging: { condition: service_healthy }
-      kafka: { condition: service_healthy }
-      redis: { condition: service_healthy }
-    environment:
-      POSTGRES_URL_MESSAGING: postgresql://postgres:postgres@postgres-messaging:5432/messaging
-    expose: ["4006", "50056"]
-    ports: ["4006:4006", "50056:50056"]
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL","node -e \"require('http').get('http://127.0.0.1:4006/healthz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
-      interval: 5s
-      timeout: 2s
-      retries: 10
-      start_period: 10s
-
-  shopping-service:
-    build: { context: ., dockerfile: services/shopping-service/Dockerfile }
-    env_file: [.env]
-    depends_on:
-      postgres-shopping: { condition: service_healthy }
-      kafka: { condition: service_healthy }
-      redis: { condition: service_healthy }
-    expose: ["4007", "50058"]
-    ports: ["4007:4007", "50058:50058"]
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL","node -e \"require('http').get('http://127.0.0.1:4007/healthz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
-      interval: 5s
-      timeout: 2s
-      retries: 10
-      start_period: 10s
-
-  haproxy:
-    image: haproxy:2.9
-    volumes:
-      - ./infra/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: media
     ports:
-      - "8081:8081"
-      - "8404:8404"
-    depends_on:
-      api-gateway: { condition: service_healthy }
-    healthcheck:
-      test: ["CMD","haproxy","-c","-f","/usr/local/etc/haproxy/haproxy.cfg"]
-      interval: 5s
-      timeout: 3s
-      retries: 30
-      start_period: 5s
-    restart: unless-stopped
-    ulimits:
-      nofile:
-        soft: 65536
-        hard: 65536
-
-  haproxy-exporter:
-    image: prom/haproxy-exporter:v0.14.0
-    command: ["--haproxy.scrape-uri=http://haproxy:8404/;csv"]
-    depends_on:
-      haproxy: { condition: service_healthy }
-    expose: ["9101"]
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL","wget -qO- http://localhost:9101/metrics >/dev/null"]
-      interval: 10s
-      timeout: 3s
-      retries: 10
-      start_period: 10s
-
-  nginx:
-    image: nginx:1.27-alpine
-    command: ["sh","-c","nginx -t && exec nginx -g 'daemon off;'"]
+      - "5448:5432"
     volumes:
-      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - nginx_cache:/var/cache/nginx
-    ports:
-      - "8080:8080"
-      - "8082:8082"
-    depends_on:
-      haproxy: { condition: service_healthy }
-      webapp:  { condition: service_healthy }
+      - pg-media:/var/lib/postgresql/data
     restart: unless-stopped
     healthcheck:
-      # IPv4 loopback + quick fail
-      test: ["CMD-SHELL","wget -q --spider --tries=1 --timeout=2 http://127.0.0.1:8080/healthz || exit 1"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 3s
-      retries: 20
-      start_period: 15s
-    ulimits:
-      nofile:
-        soft: 65536
-        hard: 65536
-
-  nginx-exporter:
-    image: nginx/nginx-prometheus-exporter:0.11.0
-    command: ["-nginx.scrape-uri=http://nginx:8080/nginx_status"]
-    depends_on:
-      nginx: { condition: service_healthy }
-    expose:
-      - "9113"
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL","wget -q --spider --tries=1 --timeout=2 http://127.0.0.1:9113/metrics || exit 1"]
-      interval: 10s
-      timeout: 3s
-      retries: 10
+      retries: 15
       start_period: 10s
-
-  mailhog:
-    image: mailhog/mailhog:v1.0.1
-    ports:
-      - "1025:1025"  # SMTP server
-      - "8025:8025"  # Web UI
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL","wget -qO- http://127.0.0.1:8025/api/v2/messages >/dev/null"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-      start_period: 5s
 
 volumes:
-  pgdata:
-  pgdata-social:
-  pgdata-listings:
-  pgdata-shopping:
-  pgdata-auth:
-  pgdata-auction-monitor:
-  pgdata-analytics:
-  pgdata-python-ai:
-  nginx_cache:
   minio_data:
+  pg-auth:
+  pg-listings:
+  pg-bookings:
+  pg-messaging:
+  pg-notification:
+  pg-trust:
+  pg-analytics:
+  pg-media:

@@ -1,6 +1,10 @@
 /**
  * Event-layer intentional break tests (docs/EVENT_LAYER_STABILITY.md).
  *
+ * Guarantees:
+ * - No message loss
+ * - At-least-once delivery
+ * - Idempotent consumption ensures exactly-once effect
  * Test 1 — Kill after produce: crash before UPDATE published = true → row stays false, republish, consumer dedupes.
  * Test 2 — Kill after UPDATE but before commit: rollback → row stays false, retry works.
  * Test 3 — Kafka down: publish fails, published stays false, health NOT_SERVING; when Kafka back, retries succeed.

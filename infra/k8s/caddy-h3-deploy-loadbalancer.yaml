@@ -1,6 +1,9 @@
 # FILE: k8s/caddy-h3-deploy-loadbalancer.yaml
 # Colima + MetalLB: no hostPort, soft anti-affinity — 2 replicas on 1 node, zero downtime.
 # Use: CADDY_USE_LOADBALANCER=1 ./scripts/rollout-caddy.sh
+#
+# HTTP/3 (QUIC): Image caddy-with-tcpdump:dev is built with xcaddy (docker/caddy-with-tcpdump/Dockerfile);
+# Caddyfile has servers { protocols h1 h2 h3 }. Service must expose UDP 443 (see loadbalancer.yaml).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -34,7 +37,7 @@ spec:
               topologyKey: kubernetes.io/hostname
       containers:
       - name: caddy
-        # Same as caddy-h3-deploy: includes HTTP/3 + tcpdump for capture. Build: docker build -t caddy-with-tcpdump:dev docker/caddy-with-tcpdump . k3d: k3d image import caddy-with-tcpdump:dev -c off-campus-housing-tracker
+        # xcaddy-built Caddy (HTTP/3) + tcpdump. Build: docker build -t caddy-with-tcpdump:dev -f docker/caddy-with-tcpdump/Dockerfile .  Use with LoadBalancer (infra/k8s/loadbalancer.yaml) to avoid anti-affinity.
         image: caddy-with-tcpdump:dev
         imagePullPolicy: IfNotPresent
         # QUIC is CPU-heavy; 1000m requests for H3 under load (Session open refused = stream exhaustion / CPU throttle).
@@ -82,7 +85,7 @@ spec:
           items: [{ key: Caddyfile, path: Caddyfile }]
       - name: caddy-certs
         secret:
-          secretName: record-local-tls
+          secretName: off-campus-housing-local-tls
           items:
             - { key: tls.crt, path: tls.crt }
             - { key: tls.key, path: tls.key }

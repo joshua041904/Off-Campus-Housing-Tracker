@@ -27,7 +27,7 @@ docker build -t ghcr.io/yourorg/api-gateway:dev       -f services/api-gateway/Do
 docker build -t ghcr.io/yourorg/auth-service:dev      -f services/auth-service/Dockerfile      .
 docker build -t ghcr.io/yourorg/records-service:dev   -f services/records-service/Dockerfile   .
 docker build -t ghcr.io/yourorg/listings-service:dev  -f services/listings-service/Dockerfile  .
-docker build -t ghcr.io/yourorg/social-service:dev    -f services/social-service/Dockerfile    .
+docker build -t ghcr.io/yourorg/messaging-service:dev  -f services/messaging-service/Dockerfile  .
 docker build -t ghcr.io/yourorg/shopping-service:dev   -f services/shopping-service/Dockerfile   .
 docker build -t ghcr.io/yourorg/analytics-service:dev -f services/analytics-service/Dockerfile .
 docker build -t ghcr.io/yourorg/auction-monitor:dev   -f services/auction-monitor/Dockerfile    .
@@ -47,7 +47,7 @@ for i in \
   ghcr.io/yourorg/auth-service:dev \
   ghcr.io/yourorg/records-service:dev \
   ghcr.io/yourorg/listings-service:dev \
-  ghcr.io/yourorg/social-service:dev \
+  ghcr.io/yourorg/messaging-service:dev \
   ghcr.io/yourorg/shopping-service:dev \
   ghcr.io/yourorg/analytics-service:dev \
   ghcr.io/yourorg/auction-monitor:dev \
@@ -67,7 +67,7 @@ kubectl apply -k infra/k8s/overlays/dev
 
 # 4b) rollout (don’t fail whole script if something needs debugging)
 step "Waiting for Deployments to roll out (up to 90s each)…"
-for d in api-gateway records-service auth-service listings-service social-service shopping-service analytics-service auction-monitor python-ai-service haproxy nginx nginx-exporter haproxy-exporter; do
+for d in api-gateway records-service auth-service listings-service messaging-service shopping-service analytics-service auction-monitor python-ai-service haproxy nginx nginx-exporter haproxy-exporter; do
   kubectl -n "$NAMESPACE" rollout status "deploy/$d" --timeout=90s || true
 done
 

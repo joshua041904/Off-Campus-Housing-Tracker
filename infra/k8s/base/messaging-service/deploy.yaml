@@ -1,0 +1,175 @@
+# Messaging service (ex-social): HTTP 4014, gRPC 50064, DB 5444. OCH TLS + Kafka mTLS only.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: messaging-service
+  namespace: off-campus-housing-tracker
+  labels:
+    app: messaging-service
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: messaging-service
+  template:
+    metadata:
+      labels:
+        app: messaging-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "4014"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: app
+          image: messaging-service:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 4014
+            - name: grpc
+              containerPort: 50064
+
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+
+          env:
+            - name: NODE_ENV
+              value: "development"
+            - name: HTTP_PORT
+              value: "4014"
+            - name: GRPC_PORT
+              value: "50064"
+            - name: ENABLE_GRPC
+              value: "true"
+            - name: POSTGRES_URL_MESSAGING
+              value: "postgresql://postgres:postgres@host.docker.internal:5444/messaging"
+            - name: GRPC_REQUIRE_CLIENT_CERT
+              value: "true"
+            - name: TLS_CA_PATH
+              value: "/etc/certs/ca.crt"
+            - name: TLS_CERT_PATH
+              value: "/etc/certs/tls.crt"
+            - name: TLS_KEY_PATH
+              value: "/etc/certs/tls.key"
+            - name: NODE_TLS_REJECT_UNAUTHORIZED
+              value: "1"
+            - name: NODE_EXTRA_CA_CERTS
+              value: "/certs/dev-root.pem"
+            - name: KAFKA_USE_SSL
+              value: "true"
+            - name: KAFKA_SSL_ENABLED
+              value: "true"
+            - name: KAFKA_CA_CERT
+              value: "/etc/kafka/secrets/ca-cert.pem"
+            - name: KAFKA_CLIENT_CERT
+              value: "/etc/kafka/secrets/tls.crt"
+            - name: KAFKA_CLIENT_KEY
+              value: "/etc/kafka/secrets/tls.key"
+
+          volumeMounts:
+            - name: dev-root-ca
+              mountPath: /certs
+              readOnly: true
+            - name: service-tls
+              mountPath: /etc/certs
+              readOnly: true
+            - name: kafka-ssl
+              mountPath: /etc/kafka/secrets
+              readOnly: true
+
+          startupProbe:
+            exec:
+              command:
+                - /usr/local/bin/grpc-health-probe
+                - -addr=localhost:50064
+                - -service=messaging.v1.MessagingService
+                - -tls
+                - -tls-ca-cert=/etc/certs/ca.crt
+                - -tls-client-cert=/etc/certs/tls.crt
+                - -tls-client-key=/etc/certs/tls.key
+                - -tls-server-name=off-campus-housing.local
+                - -connect-timeout=10s
+                - -rpc-timeout=5s
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 18
+
+          readinessProbe:
+            exec:
+              command:
+                - /usr/local/bin/grpc-health-probe
+                - -addr=localhost:50064
+                - -service=messaging.v1.MessagingService
+                - -tls
+                - -tls-ca-cert=/etc/certs/ca.crt
+                - -tls-client-cert=/etc/certs/tls.crt
+                - -tls-client-key=/etc/certs/tls.key
+                - -tls-server-name=off-campus-housing.local
+                - -connect-timeout=10s
+                - -rpc-timeout=5s
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+
+          livenessProbe:
+            exec:
+              command:
+                - /usr/local/bin/grpc-health-probe
+                - -addr=localhost:50064
+                - -service=messaging.v1.MessagingService
+                - -tls
+                - -tls-ca-cert=/etc/certs/ca.crt
+                - -tls-client-cert=/etc/certs/tls.crt
+                - -tls-client-key=/etc/certs/tls.key
+                - -tls-server-name=off-campus-housing.local
+                - -connect-timeout=10s
+                - -rpc-timeout=5s
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"
+
+      volumes:
+        - name: dev-root-ca
+          secret:
+            secretName: dev-root-ca
+            items:
+              - key: dev-root.pem
+                path: dev-root.pem
+
+        - name: service-tls
+          secret:
+            secretName: och-service-tls
+            items:
+              - key: tls.key
+                path: tls.key
+              - key: tls.crt
+                path: tls.crt
+              - key: ca.crt
+                path: ca.crt
+
+        - name: kafka-ssl
+          secret:
+            secretName: och-kafka-ssl-secret
+            optional: true
+            items:
+              - key: ca-cert.pem
+                path: ca-cert.pem
+              - key: client.crt
+                path: tls.crt
+              - key: client.key
+                path: tls.key

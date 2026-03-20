@@ -5,8 +5,15 @@ let client: Redis | null = null
 /** Singleton Redis client. Why: avoid multiple TCP connections per worker. */
 export function getRedis(): Redis {
   if (!client) {
-    // Support both REDIS_URL (with password) and REDIS_PASSWORD env var
-    let url = process.env.REDIS_URL || 'redis://redis:6379/0'
+    // Support both REDIS_URL and REDIS_HOST/REDIS_PORT across local tests and cluster runtime.
+    const isTest = process.env.NODE_ENV === 'test' || !!process.env.VITEST
+    const defaultHost = isTest
+      ? '127.0.0.1'
+      : 'redis-external.off-campus-housing-tracker.svc.cluster.local'
+    const host = process.env.REDIS_HOST || defaultHost
+    const port = process.env.REDIS_PORT || '6380'
+    const db = process.env.REDIS_DB || '0'
+    let url = process.env.REDIS_URL || `redis://${host}:${port}/${db}`
     const rawPassword = process.env.REDIS_PASSWORD
     // Treat empty string as no password (externalized Redis often has no requirepass)
     const password = rawPassword && String(rawPassword).trim() ? rawPassword : undefined
@@ -16,7 +23,9 @@ export function getRedis(): Redis {
       url = url.replace('redis://', `redis://:${password}@`)
     }
     client = new Redis(url, {
-      lazyConnect: true,
+      // In tests we execute commands immediately; eager connect avoids
+      // "Stream isn't writeable" when offline queue is disabled.
+      lazyConnect: false,
       connectTimeout: 10_000, // host.docker.internal/Colima may need a moment on first packet
       maxRetriesPerRequest: 5,
       password: password,

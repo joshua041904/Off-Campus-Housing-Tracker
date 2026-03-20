@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package media;
+
+option go_package = "github.com/yourorg/off-campus-housing-tracker/proto/media";
+
+// Media service — signed URLs only. No file streaming via gRPC.
+service MediaService {
+  rpc CreateUploadUrl(CreateUploadUrlRequest) returns (CreateUploadUrlResponse);
+  rpc CompleteUpload(CompleteUploadRequest) returns (CompleteUploadResponse);
+  rpc GetDownloadUrl(GetDownloadUrlRequest) returns (GetDownloadUrlResponse);
+}
+
+message CreateUploadUrlRequest {
+  string user_id = 1;
+  string filename = 2;
+  string content_type = 3;
+  int64 size_bytes = 4;
+}
+
+message CreateUploadUrlResponse {
+  string media_id = 1;
+  string upload_url = 2;
+  string object_key = 3;
+  int64 expires_at = 4;
+}
+
+message CompleteUploadRequest {
+  string media_id = 1;
+}
+
+message CompleteUploadResponse {
+  bool success = 1;
+}
+
+message GetDownloadUrlRequest {
+  string media_id = 1;
+}
+
+message GetDownloadUrlResponse {
+  string download_url = 1;
+  int64 expires_at = 2;
+}

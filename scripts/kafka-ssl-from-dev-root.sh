@@ -87,10 +87,22 @@ echo -n "$PASS" > "$OUT/kafka.keystore-password"
 echo -n "$PASS" > "$OUT/kafka.truststore-password"
 echo -n "$PASS" > "$OUT/kafka.key-password"  # KAFKA_SSL_KEY_CREDENTIALS (in-cluster Kafka deploy)
 cp "$CA_PEM" "$OUT/ca-cert.pem"
-ok "Keystore/truststore and ca-cert.pem in $OUT"
+
+say "3b. Generating Kafka client cert (mTLS: ssl.client.auth=required)..."
+openssl genrsa -out "$TMP/client.key" 2048 2>/dev/null
+openssl req -new -key "$TMP/client.key" -out "$TMP/client.csr" \
+  -subj "/CN=kafka-client/O=off-campus-housing-tracker" 2>/dev/null
+openssl x509 -req -in "$TMP/client.csr" -CA "$CA_PEM" -CAkey "$CA_KEY" \
+  -CAcreateserial -out "$TMP/client.crt" -days 365 -sha256 2>/dev/null
+cp "$TMP/client.crt" "$OUT/client.crt"
+cp "$TMP/client.key" "$OUT/client.key"
+ok "Kafka client cert (client.crt, client.key) for Node/KafkaJS mTLS"
+
+ok "Keystore/truststore, ca-cert.pem, and client cert in $OUT"
 
 say "4. Creating kafka-ssl-secret in $NS..."
-kctl create namespace "$NS" 2>/dev/null || true
+# Idempotent: avoid "Error from server (AlreadyExists)" when namespace exists
+kubectl create namespace "$NS" --dry-run=client -o yaml 2>/dev/null | kubectl apply -f - 2>/dev/null || true
 # Use a temp file so apply works with host kubectl (pipe to colima ssh often yields "no objects passed to apply")
 _kafka_secret_yaml="${TMP}/kafka-ssl-secret.yaml"
 kubectl create secret generic kafka-ssl-secret -n "$NS" \
@@ -101,6 +113,8 @@ kubectl create secret generic kafka-ssl-secret -n "$NS" \
   --from-file=kafka.key-password="$OUT/kafka.key-password" \
   --from-file=ca-cert.pem="$OUT/ca-cert.pem" \
   --from-file=ca.crt="$OUT/ca-cert.pem" \
+  --from-file=client.crt="$OUT/client.crt" \
+  --from-file=client.key="$OUT/client.key" \
   --dry-run=client -o yaml >"$_kafka_secret_yaml"
 if ! kubectl apply -f "$_kafka_secret_yaml" --request-timeout=20s 2>/dev/null; then
   # After reissue the host tunnel is often down; try in-VM apply (repo path usually same in Colima)
@@ -121,4 +135,4 @@ fi
 
 say "=== Kafka SSL (dev-root-ca) done ==="
 echo "  Keystore/truststore: $OUT. Docker Kafka: mount $OUT, use SSL listener 9093."
-echo "  Clients: KAFKA_CA_CERT=/etc/kafka/secrets/ca-cert.pem, KAFKA_USE_SSL=true."
+echo "  Clients (Node/KafkaJS): KAFKA_CA_CERT, KAFKA_CLIENT_CERT, KAFKA_CLIENT_KEY from kafka-ssl-secret (ca-cert.pem, client.crt, client.key)."

@@ -10,7 +10,7 @@ Owns: listings, geolocation, pricing, availability, search index, filtering, ima
 
 **Contract (source of truth):** [proto/listings.proto](../../proto/listings.proto) defines the RPCs and messages. It imports [proto/common.proto](../../proto/common.proto) for pagination and shared types.
 
-**If you're new to gRPC:** See [auth-service README](../auth-service/README.md#implementing-this-service-grpc) for the same 4 steps (proto = contract, generate code, implement handlers, register server).
+**If you're new to gRPC:** Read **[docs/GRPC_ONBOARDING.md](../../docs/GRPC_ONBOARDING.md)** (workflow, status codes, testing bar). For auth-specific patterns, see [auth-service README](../auth-service/README.md#implementing-this-service-grpc) (proto = contract, implement handlers, register server).
 
 **This service:** Implements `listings.ListingsService` from [proto/listings.proto](../../proto/listings.proto) (`CreateListing`, `GetListing`, `SearchListings`). Implement [proto/health.proto](../../proto/health.proto) for probes.
 
@@ -105,3 +105,4 @@ FROM listings.listings
 ORDER BY created_at DESC
 LIMIT 5;
 ```
+**Before opening a PR:** Use **[docs/PR_REVIEW_GRPC_HANDLER_PASTE.example.txt](../../docs/PR_REVIEW_GRPC_HANDLER_PASTE.example.txt)** (copy blocks into GitHub). Optional gitignored local file: `docs/PR_REVIEW_GRPC_HANDLER_PASTE.txt`.
