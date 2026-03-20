@@ -76,6 +76,23 @@ grpcurl -plaintext \
  localhost:50052 listings.ListingsService/CreateListing
 ```
 
+Expected Response:
+{
+"listingId": "ff66a6ec-39a1-4ab4-b773-a0685a492264",
+"userId": "11111111-1111-1111-1111-111111111111",
+"title": "Test Apartment",
+"description": "Nice place near campus",
+"priceCents": 120000,
+"amenities": [
+"parking",
+"laundry"
+],
+"smokeFree": true,
+"furnished": true,
+"status": "active",
+"createdAt": "2026-03-20T15:56:19.080Z"
+}
+
 ### 5. Verify insertion
 
 ```bash

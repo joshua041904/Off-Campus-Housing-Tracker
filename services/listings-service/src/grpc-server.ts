@@ -25,6 +25,14 @@ const listingsService = {
   // return a real ListingResponse
   CreateListing(call: any, callback: any) {
     const req = call.request;
+
+    console.log("[CreateListing] received", {
+      user_id: req.user_id,
+      title: req.title,
+      price_cents: req.price_cents,
+      effective_from: req.effective_from,
+    });
+
     // Basic validation: check required fields and price > 0
     if (
       !req.user_id ||
@@ -32,6 +40,14 @@ const listingsService = {
       !req.effective_from ||
       req.price_cents <= 0
     ) {
+      console.warn("[CreateListing] invalid argument", {
+        code: grpc.status.INVALID_ARGUMENT,
+        user_id: req.user_id,
+        title: req.title,
+        price_cents: req.price_cents,
+        effective_from: req.effective_from,
+      });
+
       callback({
         code: grpc.status.INVALID_ARGUMENT,
         message:
@@ -40,49 +56,47 @@ const listingsService = {
       return;
     }
 
-    // Insert the new listing into the database
     const query = `
-        INSERT INTO listings.listings (
-        user_id,
-        title,
-        description,
-        price_cents,
-        amenities,
-        smoke_free,
-        pet_friendly,
-        furnished,
-        effective_from,
-        effective_until,
-        listed_at
-        )
-        VALUES (
-        $1,
-        $2,
-        $3,
-        $4,
-        $5::jsonb,
-        $6,
-        $7,
-        $8,
-        $9::date,
-        NULLIF($10, '')::date,
-        CURRENT_DATE
-        )
-        RETURNING
-        id,
-        user_id,
-        title,
-        description,
-        price_cents,
-        amenities,
-        smoke_free,
-        pet_friendly,
-        furnished,
-        status,
-        created_at
-    `;
+    INSERT INTO listings.listings (
+      user_id,
+      title,
+      description,
+      price_cents,
+      amenities,
+      smoke_free,
+      pet_friendly,
+      furnished,
+      effective_from,
+      effective_until,
+      listed_at
+    )
+    VALUES (
+      $1,
+      $2,
+      $3,
+      $4,
+      $5::jsonb,
+      $6,
+      $7,
+      $8,
+      $9::date,
+      NULLIF($10, '')::date,
+      CURRENT_DATE
+    )
+    RETURNING
+      id,
+      user_id,
+      title,
+      description,
+      price_cents,
+      amenities,
+      smoke_free,
+      pet_friendly,
+      furnished,
+      status,
+      created_at
+  `;
 
-    // Convert amenities array to JSON string for storage
     const values = [
       req.user_id,
       req.title,
@@ -96,13 +110,17 @@ const listingsService = {
       req.effective_until || "",
     ];
 
-    // Execute the query and handle the result
     pool
       .query(query, values)
       .then((result) => {
         const row = result.rows[0];
 
-        // Return the created listing in the response
+        console.log("[CreateListing] success", {
+          listing_id: row.id,
+          user_id: row.user_id,
+          status: row.status,
+        });
+
         callback(null, {
           listing_id: row.id,
           user_id: row.user_id,
@@ -118,7 +136,11 @@ const listingsService = {
         });
       })
       .catch((error) => {
-        console.error("CreateListing DB error:", error);
+        console.error("[CreateListing] internal error", {
+          code: grpc.status.INTERNAL,
+          message: error instanceof Error ? error.message : String(error),
+        });
+
         callback({
           code: grpc.status.INTERNAL,
           message: "failed to create listing",
