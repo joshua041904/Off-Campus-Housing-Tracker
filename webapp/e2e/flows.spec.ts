@@ -42,4 +42,15 @@ test("register → search history → watchlist add/remove (needs full stack)", 
 
   await page.getByTestId(`watchlist-remove-${listingId}`).click();
   await expect(page.getByText(/removed from watchlist/i)).toBeVisible({ timeout: 15_000 });
+
+  await page.goto("/listings");
+  await expect(page.getByRole("heading", { name: /Browse listings/i })).toBeVisible();
+  await page.getByTestId("listings-search-q").fill("e2e");
+  await page.getByTestId("listings-search-submit").click();
+  await expect(page.getByTestId("listings-results")).toBeVisible({ timeout: 15_000 });
+
+  await page.goto("/trust");
+  await page.getByTestId("trust-reputation-user-id").fill("00000000-0000-4000-8000-000000000001");
+  await page.getByTestId("trust-reputation-submit").click();
+  await expect(page.getByTestId("trust-reputation-score")).toBeVisible({ timeout: 15_000 });
 });

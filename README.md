@@ -416,6 +416,24 @@ Start DBs with:
 docker compose up -d postgres-auth postgres-listings postgres-bookings postgres-messaging postgres-notification postgres-trust postgres-analytics postgres-media
 ```
 
+### Kafka domain topics (aligned with `proto/events`)
+
+After Kafka is healthy (`docker compose up -d` — broker **29094** TLS), create partitions/topics and verify they match `proto/events/*`:
+
+```bash
+ENV_PREFIX=dev ./scripts/create-kafka-event-topics.sh
+./scripts/verify-proto-events-topics.sh
+pnpm run test:housing-wiring   # DB port defaults + builds (listings/trust/gateway)
+```
+
+**Listings** publishes to **`${ENV_PREFIX}.listing.events`** (same name the script creates). Wrap any protocol suite with capture: `./scripts/run-suite-with-packet-capture.sh ./scripts/test-listings-http2-http3.sh`.
+
+**k3s images:** `./scripts/build-housing-images-k3s.sh` (build `:dev` + `colima ssh docker load`).
+
+**Full ordering (Colima → infra → topics → images → deploy → tests):** [docs/RUN_PIPELINE_ORDER.md](docs/RUN_PIPELINE_ORDER.md).
+
+**Makefile:** `make help` — one-shot **`make demo`** (stack + MetalLB preflight + suites) and **`make demo-network`** (adds SSL key log + standalone packet capture). Details: [docs/MAKE_DEMO.md](docs/MAKE_DEMO.md).
+
 ---
 
 ## No-conflict setup (same host as record platform)
@@ -548,7 +566,7 @@ After cluster + infra are up, you can run the full preflight (images, TLS, Caddy
 - **`RUN_MESSAGING_LOAD=0`** — skip the short **k6** messaging + media health phase after Vitest + shell suites (default `1` when `k6` is on `PATH` and `certs/dev-root.pem` + LB IP exist).
 - Set `RUN_K6=1` inside **`run-all-test-suites.sh`** flows for heavier rotation/k6 (this preflight wrapper exits after housing suites; see script header).
 
-Preflight step **7a** runs, in order: **`pnpm -C services/messaging-service test`** and **`pnpm -C services/media-service test`** (Vitest, under each service’s `tests/`), **`scripts/test-microservices-http2-http3-housing.sh`** (auth + messaging + media health, gRPC, latency SVG), **`scripts/test-social-service-comprehensive.sh`** (messaging/forum via edge), then optional **k6** `scripts/load/k6-messaging.js` + `scripts/load/k6-media-health.js`.
+Preflight step **7a** runs, in order: **`pnpm -C services/messaging-service test`** and **`pnpm -C services/media-service test`** (Vitest, under each service’s `tests/`), **`scripts/test-microservices-http2-http3-housing.sh`** (auth + messaging + media health, gRPC, latency SVG), **`scripts/test-messaging-service-comprehensive.sh`** (messaging/forum via edge; `test-social-service-comprehensive.sh` is a deprecated wrapper), then optional **k6** `scripts/load/k6-messaging.js` + `scripts/load/k6-media-health.js` + **`scripts/load/k6-event-layer-adversarial.js`** (event-layer companion / adversarial edge load when using `run-k6-all-services.sh`).
 
 For a **housing-only** HTTP/2 + HTTP/3 smoke (auth register/login, messaging, media checks), run **`./scripts/test-microservices-http2-http3-housing.sh`**. For more detail see **Runbook.md**, **`docs/CERTS_AND_TESTING_FOR_MORTALS.md`**, and the comments in `scripts/run-preflight-scale-and-all-suites.sh`.
 

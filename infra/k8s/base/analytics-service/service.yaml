@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: analytics-service
+  namespace: off-campus-housing-tracker
+  labels:
+    app: analytics-service
+spec:
+  selector:
+    app: analytics-service
+  ports:
+    - name: http
+      port: 4017
+      targetPort: 4017
+    - name: grpc
+      port: 50067
+      targetPort: 50067

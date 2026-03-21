@@ -33,7 +33,8 @@ export function getRedis(): Redis {
         if (times > 5) return null
         return Math.min(times * 200, 3000)
       },
-      enableOfflineQueue: false,
+      // Vitest/integration bursts (e.g. 30× rate-limit Lua) can hit a brief reconnect; queue avoids false UNAVAILABLE.
+      enableOfflineQueue: isTest,
     })
     // Handle errors gracefully - don't crash the app
     client.on('error', (err) => {

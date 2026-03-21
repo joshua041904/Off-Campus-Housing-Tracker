@@ -11,6 +11,10 @@ option go_package = "github.com/yourorg/off-campus-housing-tracker/proto/analyti
 service AnalyticsService {
   rpc GetDailyMetrics(GetDailyMetricsRequest) returns (DailyMetricsResponse);
   rpc GetRecommendations(GetRecommendationsRequest) returns (GetRecommendationsResponse);
+  // Watchlist funnel + engagement (projected from booking/listing events; see proto/events/analytics.proto)
+  rpc GetWatchlistInsights(GetWatchlistInsightsRequest) returns (GetWatchlistInsightsResponse);
+  // Optional LLM helper for landlords vs renters (Ollama when OLLAMA_BASE_URL is set)
+  rpc AnalyzeListingFeel(AnalyzeListingFeelRequest) returns (AnalyzeListingFeelResponse);
 }
 
 // Admin / internal control plane for recommendation models and experiments.
@@ -28,6 +32,31 @@ message DailyMetricsResponse {
   int32 new_listings = 2;
   int32 new_bookings = 3;
   int32 completed_bookings = 4;
+  int32 messages_sent = 5;
+  int32 listings_flagged = 6;
+}
+
+message GetWatchlistInsightsRequest {
+  string user_id = 1;
+}
+
+message GetWatchlistInsightsResponse {
+  int32 watchlist_adds_30d = 1;
+  int32 watchlist_removes_30d = 2;
+  string notes = 3;
+}
+
+// audience: "landlord" | "renter" — steers tone of the assistant
+message AnalyzeListingFeelRequest {
+  string title = 1;
+  string description = 2;
+  int64 price_cents = 3;
+  string audience = 4;
+}
+
+message AnalyzeListingFeelResponse {
+  string analysis_text = 1;
+  string model_used = 2;
 }
 
 // Recommendation API

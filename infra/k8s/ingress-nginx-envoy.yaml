@@ -43,6 +43,8 @@ data:
                     route: { cluster: shopping_service }
                   - match: { prefix: "/booking." }
                     route: { cluster: booking_service }
+                  - match: { prefix: "/trust." }
+                    route: { cluster: trust_service }
                   - match: { prefix: "/auction_monitor." }
                     route: { cluster: auction_monitor_service }
                   - match: { prefix: "/auction-monitor." }
@@ -137,7 +139,7 @@ data:
                 address:
                   socket_address:
                     address: listings-service.off-campus-housing-tracker.svc.cluster.local
-                    port_value: 50057
+                    port_value: 50062
         transport_socket:
           name: envoy.transport_sockets.tls
           typed_config:
@@ -159,7 +161,7 @@ data:
                 address:
                   socket_address:
                     address: analytics-service.off-campus-housing-tracker.svc.cluster.local
-                    port_value: 50054
+                    port_value: 50067
         transport_socket:
           name: envoy.transport_sockets.tls
           typed_config:
@@ -204,6 +206,28 @@ data:
                   socket_address:
                     address: booking-service.off-campus-housing-tracker.svc.cluster.local
                     port_value: 50063
+        transport_socket:
+          name: envoy.transport_sockets.tls
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+            sni: off-campus-housing.local
+            common_tls_context:
+              validation_context:
+                trusted_ca: { filename: /etc/certs/ca/dev-root.pem }
+      - name: trust_service
+        connect_timeout: 5s
+        type: LOGICAL_DNS
+        lb_policy: ROUND_ROBIN
+        http2_protocol_options: {}
+        load_assignment:
+          cluster_name: trust_service
+          endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: trust-service.off-campus-housing-tracker.svc.cluster.local
+                    port_value: 50066
         transport_socket:
           name: envoy.transport_sockets.tls
           typed_config:

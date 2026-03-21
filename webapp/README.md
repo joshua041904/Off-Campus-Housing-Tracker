@@ -50,6 +50,16 @@ From repo root:
 pnpm --filter webapp test:e2e
 ```
 
+**With cluster (integrated E2E):** port-forward `api-gateway` to `127.0.0.1:4020`, wait until `/api/healthz` is 200, then run Playwright (so `flows.spec.ts` and `auth-cycle.spec.ts` are **not** skipped):
+
+```bash
+pnpm run test:e2e:integrated
+# same as: pnpm run test:e2e:preflight
+# or: HOUSING_NS=off-campus-housing-tracker ./scripts/run-playwright-e2e-preflight.sh
+```
+
+New specs: `e2e/webapp-pages.spec.ts` (mission, analytics shell, nav), `e2e/auth-cycle.spec.ts` (register → sign out → login → analytics; needs gateway).
+
 ## k6 (search + watchlist load)
 
 See `../scripts/load/k6-search-watchlist.js` and `../scripts/load/k6-booking.js`.

@@ -51,4 +51,17 @@ if [[ "$code" == "200" ]]; then ok "Gateway health 200"; else fail "Gateway heal
 code=$(curl "${CURL_OPTS[@]}" --resolve "${HOST}:${PORT}:${TARGET_IP}" "https://${HOST}:${PORT}/api/messaging/healthz" 2>/dev/null || echo "000")
 if [[ "$code" == "200" ]]; then ok "Messaging health 200"; else warn "Messaging health $code (service may not be deployed)"; fi
 
+# Listings + trust (housing)
+code=$(curl "${CURL_OPTS[@]}" --resolve "${HOST}:${PORT}:${TARGET_IP}" "https://${HOST}:${PORT}/api/listings/healthz" 2>/dev/null || echo "000")
+if [[ "$code" == "200" ]]; then ok "Listings health 200"; else warn "Listings health $code (service may not be deployed)"; fi
+
+code=$(curl "${CURL_OPTS[@]}" --resolve "${HOST}:${PORT}:${TARGET_IP}" "https://${HOST}:${PORT}/api/trust/healthz" 2>/dev/null || echo "000")
+if [[ "$code" == "200" ]]; then ok "Trust health 200"; else warn "Trust health $code (service may not be deployed)"; fi
+
+code=$(curl "${CURL_OPTS[@]}" --resolve "${HOST}:${PORT}:${TARGET_IP}" "https://${HOST}:${PORT}/api/media/healthz" 2>/dev/null || echo "000")
+if [[ "$code" == "200" ]]; then ok "Media health 200"; else warn "Media health $code (service may not be deployed)"; fi
+
+code=$(curl "${CURL_OPTS[@]}" --resolve "${HOST}:${PORT}:${TARGET_IP}" "https://${HOST}:${PORT}/api/notification/healthz" 2>/dev/null || echo "000")
+if [[ "$code" == "200" ]]; then ok "Notification health 200"; else warn "Notification health $code (service may not be deployed)"; fi
+
 echo "Smoke test done."

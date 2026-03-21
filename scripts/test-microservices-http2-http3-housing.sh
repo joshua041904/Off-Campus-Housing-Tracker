@@ -8,6 +8,7 @@
 #
 # Protocol: HTTP/2 with --http2 (ALPN); HTTP/3 with --http3-only (QUIC). Strict TLS (CA from cluster or certs/dev-root.pem).
 # Run from repo root. Requires: kubectl, curl (with --http3 for H3 tests), cluster with api-gateway + auth-service + messaging-service.
+# Optional packet capture: ./scripts/run-suite-with-packet-capture.sh "$0" "$@"
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

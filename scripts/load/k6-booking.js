@@ -6,7 +6,7 @@ export const options = {
   duration: __ENV.DURATION || "20s",
   thresholds: {
     http_req_failed: ["rate<0.05"],
-    http_req_duration: ["p(95)<1200"],
+    http_req_duration: ["p(50)<200", "p(95)<1200", "p(99)<3000", "p(100)<10000"],
   },
 };
 

@@ -1,15 +1,29 @@
 # analytics-service
 
-Consumes Kafka only. Event aggregation, platform metrics, revenue tracking, usage insights. Never in request path.
+**Ports:** HTTP **4017**, gRPC **50067** (Envoy `analytics_service` cluster uses **50067**).  
+**DB:** `analytics` on **5447** (`POSTGRES_URL_ANALYTICS` / `ANALYTICS_DB_PORT`).
 
-**Architecture (v1):** Domain-isolated; cross-domain only via Kafka. Never block request path. See root [README.md](../../README.md) for full vision, service list, and non-negotiables.
+## What it does
 
-**Build:** Use `services/common` (Kafka mTLS, Redis, gRPC, logger, metrics). Add package.json, tsconfig.json, Dockerfile (multi-stage; build common first), `/health`, `/metrics`. See docs/ARCHITECTURE.md.
+- **Read-only** projections: `GetDailyMetrics`, `GetWatchlistInsights`, `GetRecommendations` (model metadata), `RecommendationAdmin` stubs.
+- **Ollama** (optional): `AnalyzeListingFeel` + HTTP `POST /insights/listing-feel` — set **`OLLAMA_BASE_URL`** (e.g. `http://host.docker.internal:11434`) and **`OLLAMA_MODEL`**.
+- **Redis Lua locks** (`@common/utils`: `acquireLockWithToken` / `releaseLockWithToken`) + **`listing_feel_cache`** table reduce duplicate LLM work (thundering herd).
 
-## Implementing this service (gRPC)
+## Schema
 
-**Contract (source of truth):** [proto/analytics.proto](../../proto/analytics.proto) defines the RPCs and messages. It imports [proto/common.proto](../../proto/common.proto). Two services: `AnalyticsService` (metrics, recommendations) and `RecommendationAdminService` (internal control plane).
+Apply in order:
 
-**If you're new to gRPC:** See [auth-service README](../auth-service/README.md#implementing-this-service-grpc) for the same 4 steps (proto = contract, generate code, implement handlers, register server).
+1. `infra/db/01-analytics-schema.sql` … `03-analytics-recommendation.sql`
+2. `infra/db/04-analytics-watchlist-engagement.sql` (watchlist + engagement + feel cache)
 
-**This service:** Implements `analytics.AnalyticsService` and optionally `analytics.RecommendationAdminService` from [proto/analytics.proto](../../proto/analytics.proto). Consumes Kafka for event ingestion; never in the critical request path. Implement [proto/health.proto](../../proto/health.proto) for probes.
+## Kafka
+
+Topic **`${ENV_PREFIX}.analytics.events`** — see `proto/events/analytics.proto` + `scripts/create-kafka-event-topics.sh`.
+
+## Build
+
+```bash
+pnpm --filter @common/utils build
+pnpm --filter analytics-service build
+docker build -t analytics-service:dev -f services/analytics-service/Dockerfile .
+```

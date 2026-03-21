@@ -13,3 +13,9 @@ Consumes Kafka only. Email/push, rent reminders, price drop alerts. Stateless pr
 **If you're new to gRPC:** See [auth-service README](../auth-service/README.md#implementing-this-service-grpc) for the same 4 steps (proto = contract, generate code, implement handlers, register server).
 
 **This service:** Implements `notification.NotificationService` from [proto/notification.proto](../../proto/notification.proto) (`GetUserPreferences`). Implement [proto/health.proto](../../proto/health.proto) for probes.
+
+## Planned wiring (digest & housing updates)
+
+- **In:** domain topics (e.g. `dev.booking.events`, `dev.listings.events`, `dev.analytics.events`) — consumer groups with idempotent `event_id` handling (see `services/event-layer-verification` and `docs/EVENT_LAYER_STABILITY.md`).
+- **Out:** email (SMTP / provider), optional push — templates keyed by user prefs from `GetUserPreferences`.
+- **Analytics tie-in:** `analytics-service` exposes HTTP hints for “past searches” (`POSTGRES_URL_BOOKINGS`); long-term, project watchlist/search aggregates into analytics and emit events notification-service can turn into **weekly digests** or **price / listing alerts**.

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Enhanced Microservices Test: packet capture and explicit HTTP/2 + HTTP/3 (QUIC) verification.
 # Run after baseline (run-all sets TARGET_IP, PORT, CA_CERT, HTTP3_RESOLVE). Uses same packet-capture lib as baseline.
+# Namespace: HOUSING_NS (default off-campus-housing-tracker). Generic NS= from the shell is not used.
 # CAPTURE_SKIP_PER_TEST=1 (Colima default): suite-level capture — start once, run all tests, stop once (avoids kubectl exec churn).
 # Else: per-test capture — start/stop for each test (thorough but heavier on Colima).
 set -euo pipefail
@@ -14,7 +15,9 @@ ok() { echo "✅ $*"; }
 warn() { echo "⚠️  $*"; }
 info() { echo "ℹ️  $*"; }
 
-NS="${NS:-off-campus-housing-tracker}"
+# Housing namespace only — do not inherit stray NS= from other repos.
+HOUSING_NS="${HOUSING_NS:-off-campus-housing-tracker}"
+NS="$HOUSING_NS"
 HOST="${HOST:-off-campus-housing.local}"
 ctx=$(kubectl config current-context 2>/dev/null || echo "")
 _kb() {

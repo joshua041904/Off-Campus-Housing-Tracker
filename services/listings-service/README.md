@@ -24,6 +24,13 @@ Prerequisites
 
 - grpcurl installed
 
+## Configuration
+
+- **`POSTGRES_URL_LISTINGS`** — full URL (used in k8s from `app-config`).
+- **`LISTINGS_DB_PORT`** — default **5442** when building URL from `DB_HOST` + `DB_USER` / `DB_PASSWORD` / `DB_NAME` (generic **`DB_PORT` is ignored** so another service’s port cannot override listings).
+
+Kafka listing topic must match `scripts/create-kafka-event-topics.sh`: **`${ENV_PREFIX}.listing.events`** (set `LISTING_EVENTS_TOPIC` / `ENV_PREFIX` in deploy).
+
 ### 1. Start Postgres (listings DB)
 
 ```bash

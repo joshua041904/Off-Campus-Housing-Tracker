@@ -1,100 +1,111 @@
-feat: edge gRPC booking routes, webapp, e2e, k6 search/watchlist, suite wiring
+feat: Makefile demo targets, demo-network preflight + sslkeylog, housing-only cron-jobs
 
 Summary
 -------
-This change set delivers end-to-end housing UX and transport verification: Envoy
-routes gRPC to booking-service at the edge; the webapp exercises auth + search
-history + watchlist against the gateway; Playwright and k6 cover UI and load;
-preflight centralizes booking tests and adds an expanded k6 phase.
+- **Makefile** (`make help`): **`make demo`** — `setup-full-off-campus-housing-stack.sh` with **`METALLB_ENABLED=1`**, **`K6_USE_METALLB=1`**, **`RUN_PREFLIGHT=1`**, **`RUN_PGBENCH=0`**, **`RUN_FULL_LOAD=0`**. **`make demo-full`** / **`make demo-k3d`** / **`make stack`** / **`make images`** / **`make kustomize-apply`** / **`make deploy-dev`** / **`make preflight-metallb`** / **`make test-e2e-integrated`** / **`make packet-capture-standalone`**.
+- **`scripts/run-demo-network-preflight.sh`**: sets **`SSLKEYLOGFILE`** + **`CAPTURE_V2_TLS_KEYLOG`**, **`STRICT_QUIC_VALIDATION`**, sources **`lib/resolve-lb-ip.sh`**, runs **`run-preflight-scale-and-all-suites.sh`**, then **`test-packet-capture-standalone.sh`** when **`TARGET_IP`** exists (**`RUN_STANDALONE_PACKET_TEST=0`** to skip).
+- **`docs/MAKE_DEMO.md`**: how to run **`make demo`** / **`make demo-network`**, env tuning, pointer to **`scripts/lib/COHERENT_ANALYSIS.md`** for pcap analytics.
+- **`scripts/lib/COHERENT_ANALYSIS.md`**: links **`make demo-network`** / **`make demo`** into the lib pipeline story.
+- **`README.md`**: Makefile + **MAKE_DEMO** link.
+- **`services/cron-jobs`**: **housing-only** — **`NOTIFICATION_HEARTBEAT_URL`** heartbeat every 5m; removed **pg** / **S3** / legacy auction crons from this package.
+- **Root `package.json`**: **`pnpm run demo`**, **`demo:network`**, **`make:help`**.
 
----------------------------------------------------------------------------
-1. Envoy / ingress — gRPC routing for booking (Caddy → Envoy → booking)
----------------------------------------------------------------------------
-- infra/k8s/base/envoy-test/envoy.yaml
-  - Fix route matching: use prefix: for /auth., /records., /messaging.,
-    /listings., /analytics., /shopping. (was path:, which did not match full
-    gRPC paths like /auth.AuthService/Register).
-  - Add prefix: "/booking." → cluster booking_service.
-  - Add booking_service cluster →
-    booking-service.off-campus-housing-tracker.svc.cluster.local:50063 with
-    upstream TLS + CA (same pattern as other services).
-- infra/k8s/ingress-nginx-envoy.yaml
-  - Same /booking. route + booking_service cluster for ingress-nginx Envoy parity.
+Verification
+------------
+- `pnpm install` / `pnpm -C services/cron-jobs build`
+- `make help`
 
-Roll Envoy / apply ConfigMaps after deploy so listeners pick up new clusters.
+---
 
----------------------------------------------------------------------------
-2. Scripts — booking protocol tests & suite centralization
----------------------------------------------------------------------------
-- scripts/test-booking-http2-http3.sh
-  - Edge smoke: grpcurl to ${LB_IP}:443 with CA + service client certs,
-    booking.BookingService/GetBooking (dummy id → NotFound is OK); proves
-    Caddy → Envoy → booking, not only in-pod grpc-health-probe.
-- scripts/test-microservices-http2-http3-housing.sh
-  - Test 19: delegates to test-booking-http2-http3.sh unless
-    SKIP_BOOKING_IN_HOUSING_SUITE=1.
-- scripts/run-preflight-scale-and-all-suites.sh
-  - Remove duplicate standalone test-booking call (booking runs inside housing).
-  - Step 7a5: k6-search-watchlist.js after k6-booking.js (tune K6_SEARCH_VUS,
-    K6_SEARCH_DURATION).
+fix: gRPC probe timeouts; och TLS/Kafka secrets; preflight 3a0 auto-bundle; Kafka och secret
 
----------------------------------------------------------------------------
-3. Database — booking domain alignment
----------------------------------------------------------------------------
-- services/booking-service/prisma/migrations/
-  20260320180000_align_booking_with_domain_schema/migration.sql
-  (apply with psql against bookings DB when promoting schema.)
-- Booking HTTP + gRPC already aligned with booking.booking_status and
-  confirm/cancel flows; Kafka producer remains bounded / non-fatal on failure.
+Summary
+-------
+- **analytics-service restarts**: kubelet killed **grpc-health-probe** at **timeoutSeconds: 3** while mTLS
+  handshakes need longer. **Startup/readiness/liveness** `timeoutSeconds` raised **3 → 10** for
+  **analytics, trust, booking, listings** (messaging already 5s).
+- **`scripts/ensure-housing-cluster-secrets.sh`**: if **service-tls** / **dev-root-ca** missing, runs
+  **ensure-strict-tls-mtls-preflight.sh**; always ensures **och-service-tls** (copy of **service-tls**) and
+  **och-kafka-ssl-secret** (from **kafka-ssl-secret** or **kafka-ssl-from-dev-root.sh** when CA key exists).
+- **`run-preflight-scale-and-all-suites.sh`**: new **3a0** after Phase 1A — runs the above by default
+  (`PREFLIGHT_AUTO_ENSURE_CLUSTER_SECRETS=1`). Disable with **`PREFLIGHT_AUTO_ENSURE_CLUSTER_SECRETS=0`**
+  or **`SKIP_AUTO_CLUSTER_SECRETS=1`**.
+- **`ensure-strict-tls-mtls-preflight.sh`**: after rollouts, applies **och-service-tls** alias so reissue
+  and strict preflight stay aligned with Deployment secret names.
+- **`kafka-ssl-from-dev-root.sh`**: also creates/updates **och-kafka-ssl-secret** (client PEMs) for pod mounts.
 
----------------------------------------------------------------------------
-4. Docs
----------------------------------------------------------------------------
-- docs/GRPC_ONBOARDING.md: new "Edge routing (Caddy → Envoy)" section (/booking.
-  prefix, smoke via test-booking-http2-http3.sh).
+---
 
----------------------------------------------------------------------------
-5. Webapp (Next.js) — demo-ready UI
----------------------------------------------------------------------------
-- webapp/: App Router, Tailwind, stone/amber theme.
-  - / — landing; /login, /register — JWT via /api/auth/*.
-  - /dashboard — search form (POST /api/booking/search-history), history table
-    (GET .../search-history/list), watchlist add/remove/list.
-- webapp/next.config.mjs: optional rewrites of /api/* → API_GATEWAY_INTERNAL
-  (default http://127.0.0.1:4020) when NEXT_PUBLIC_API_BASE is unset (avoids
-  CORS in local dev).
-- webapp/Dockerfile: optional image from repo root (docker build -f webapp/Dockerfile .).
-- webapp/README.md: env, E2E, k6 pointers.
+fix: housing verify uses HOUSING_NS (not NS); Prometheus pod SD; k6 all-services + Grafana uptime
 
----------------------------------------------------------------------------
-6. Playwright (webapp/e2e)
----------------------------------------------------------------------------
-- guest.spec.ts: unauthenticated redirect + home CTA (no backend required).
-- flows.spec.ts: full register → search history → watchlist (skipped unless
-  GET {E2E_API_BASE}/api/healthz succeeds; default E2E_API_BASE :4020).
-- playwright.config.ts: next dev on WEBAPP_E2E_PORT (default 3100), forwards
-  API_GATEWAY_INTERNAL to the dev server for rewrites.
-- Root package.json: script test:webapp:e2e.
+Summary
+-------
+- **verify-required-housing-pods.sh**: Namespace is **`HOUSING_NS`** (default `off-campus-housing-tracker`).
+  Generic **`NS=` is ignored** so shells exported from other repos (e.g. `record-platform`) no longer
+  break checks. Preflight passes **`HOUSING_NS`** explicitly when invoking the script.
+- **Prometheus** (`infra/k8s/base/observability/prometheus-deploy.yaml`): Replace per-job stubs with one
+  **`housing-pods`** scrape config: Kubernetes SD in `off-campus-housing-tracker`, keep pods with
+  `prometheus.io/scrape=true`, honor **path/port annotations**, label **`service`** from pod `app` label.
+- **auth-service** deploy: **`prometheus.io/port`** corrected **4011** (was 4001) to match HTTP `/metrics`.
+- **k6 (all services)**: **`scripts/load/run-k6-all-services.sh`** runs gateway, trust, analytics, messaging,
+  media, listings, booking; each **`--summary-export`** JSON; **`aggregate-k6-summaries.py`** writes
+  **`latency-report.md`** (p50/p95/p99/**max as p100**) and **`latency-graph.html`** (Chart.js).
+  New scripts: **`k6-gateway-health.js`**, **`k6-trust-public.js`**, **`k6-analytics-public.js`**.
+  Extended **p(100)** (or max) thresholds on **listings, booking, messaging, media** scripts.
+- **Grafana** (`grafana-dashboards.yaml`): **`housing-uptime.json`** — smoothed **`avg_over_time(up[5m])`**,
+  strict **`min_over_time(up[1h])`**, raw **`up`**, with **textbox `svc`** regex filter on **`service`** label
+  (job=`housing-pods`).
+- **trust-service** + **analytics-service** deploys: mount **`och-kafka-ssl-secret`** at `/etc/kafka/secrets` and set
+  **`KAFKA_CA_CERT` / `KAFKA_CLIENT_CERT` / `KAFKA_CLIENT_KEY`** (same pattern as **booking-service**) so
+  `KAFKA_SSL_ENABLED=true` from **app-config** no longer crashes the process at startup.
 
----------------------------------------------------------------------------
-7. k6 load scripts
----------------------------------------------------------------------------
-- scripts/load/k6-search-watchlist.js — expanded search-history + watchlist
-  iteration mix (register in setup; VUS/DURATION env).
-- Preflight 7a4 still runs k6-booking.js; 7a5 runs k6-search-watchlist.js.
+Deploy / ops
+------------
+- Re-apply observability + housing: `kustomize build infra/k8s/overlays/dev | kubectl apply -f -` (or your overlay).
+- Roll **listings-service** if missing: `kubectl rollout status deploy/listings-service -n off-campus-housing-tracker --timeout=300s`
+- k6: `K6_CA_ABSOLUTE=$PWD/certs/dev-root.pem ./scripts/load/run-k6-all-services.sh`
+- Verify: `./scripts/verify-required-housing-pods.sh` (optional `HOUSING_NS=...` for non-default namespaces).
 
----------------------------------------------------------------------------
-8. API gateway
----------------------------------------------------------------------------
-- services/api-gateway/src/server.ts: CORS allow http://127.0.0.1:<port> for
-  webapp dev when not using localhost hostname.
+---
 
----------------------------------------------------------------------------
-Operational notes
----------------------------------------------------------------------------
-- Apply Envoy YAML changes in-cluster; verify grpcurl to :443 for
-  booking.BookingService/* after rollout.
-- Full Playwright flows: start api-gateway + auth + booking (+ Postgres
-  bookings) so /api/healthz and booking routes succeed.
-- k6 against edge: same pattern as existing scripts (BASE_URL, HOST, RESOLVE_IP,
-  certs/strict TLS as documented in runbook).
+feat: one-shot stack setup, event-layer k6 + partition verify, Redis Lua benchmark
+
+Summary
+-------
+- **`scripts/setup-full-off-campus-housing-stack.sh`**: Single orchestrator — Colima (optional) → `bring-up-external-infra` → auto `dev-generate-certs` when needed → `strict-tls-bootstrap` → `bootstrap-all-dbs` → Kafka topics + **`verify-proto-events-topics`** + **`verify-kafka-event-topic-partitions`** → `build-housing-images-k3s` → **`deploy-dev`** (`NAMESPACE=HOUSING_NS`) → **`ensure-housing-cluster-secrets`** → **`run-event-layer-verification`** → optional **`RUN_PREFLIGHT=1`**. Unsets stray **`NS=`**; uses **`HOUSING_NS`** only.
+- **`scripts/ensure-housing-cluster-secrets.sh`**: Creates **`HOUSING_NS`** if missing (instead of exit 0); invokes strict TLS preflight with **`HOUSING_NS=`** only.
+- **`scripts/verify-kafka-event-topic-partitions.sh`**: Docker **kafka** service, SSL client props — asserts **PartitionCount: 6** for all domain topics (aligned with **`create-kafka-event-topics.sh`**).
+- **`scripts/run-event-layer-verification.sh`**: Vitest + proto contract + partition verify + optional **`RUN_K6_ADVERSARIAL=1`**.
+- **`scripts/load/k6-event-layer-adversarial.js`**: Companion/adversarial edge load; wired into **`run-k6-all-services.sh`**.
+- **`scripts/benchmark-redis-lua-vs-plain.sh`** + **`redis-benchmark-lua-vs-plain.cjs`**: Lua **EVAL** vs plain **GET+INCRBY+PEXPIRE** (same semantics as **`services/common/src/redis-lua.ts`**); **CSV + HTML** chart under **`bench_logs/redis-lua-bench-*`**.
+- **`services/event-layer-verification`**: **`kafka-partition-contract.test.ts`**; **`verify-proto-events-topics.sh`** asserts **`PARTITIONS:-6`**.
+- **`test-microservices-http2-http3-enhanced.sh`**: **`HOUSING_NS`** / no inherited **`NS=`**.
+- **`run-preflight-scale-and-all-suites.sh`** (3a0): invoke **`ensure-housing-cluster-secrets`** with **`HOUSING_NS=`** (not **`NS=`**).
+- **`run-suite-with-packet-capture.sh`**: **`HOUSING_NS`** for capture namespace.
+- **Docs / package.json**: **`pnpm run setup:full-stack`**, **`test:event-layer`**, **`bench:redis-lua`**; **README**, **RUN_PIPELINE_ORDER**, **FIRST_TIME_TEAM_SETUP**, **ENGINEERING**, **Runbook**, **CERTS** — messaging suite naming + one-shot docs.
+
+Teammate quick path
+------------------
+```bash
+./scripts/setup-full-off-campus-housing-stack.sh
+RUN_PREFLIGHT=1 ./scripts/setup-full-off-campus-housing-stack.sh   # optional heavy preflight
+```
+
+---
+
+feat: messaging Redis Lua rate limit; k6 health grid + Playwright in preflight
+
+Summary
+-------
+- **`services/common/src/redis-lua.ts`**: **`checkMessagingSendRateLimit`** — single **`EVAL`** for minute + day caps with rollback; fixed try/catch so limit errors are not swallowed as **`RATE_LIMIT_UNAVAILABLE`**.
+- **`services/messaging-service/src/rateLimit.ts`**: Uses **`checkMessagingSendRateLimit`** (Lua) instead of **`MULTI`/`EXEC`**.
+- **`services/common/src/redis.ts`**: **`enableOfflineQueue: true`** under Vitest / **`NODE_ENV=test`** to avoid flaky **`Stream isn't writeable`** on integration bursts; production unchanged (**`false`**).
+- **k6**: **`k6-auth-service-health.js`**, **`k6-listings-health.js`**, **`k6-booking-health.js`**; **`run-housing-k6-edge-smoke.sh`** runs full grid + booking/search JWT; **`run-k6-all-services.sh`** includes the new health scripts.
+- **`run-preflight-scale-and-all-suites.sh`**: Step **7a0b–c** uses **`pnpm run test`** (common + event-layer + messaging + media); **7a3–7a7** calls **`run-housing-k6-edge-smoke.sh`**; **7a8** **`run-playwright-e2e-preflight.sh`** (gateway port-forward + Playwright). Env: **`RUN_K6_SERVICE_GRID=0`**, **`RUN_PREFLIGHT_PLAYWRIGHT=0`** to skip.
+- **Playwright**: **`e2e/webapp-pages.spec.ts`**, **`e2e/auth-cycle.spec.ts`**; **`guest.spec.ts`** aligned with current home copy + storage clear; **`Nav`** **`data-testid="nav-sign-out"`**; analytics/mission headings have test ids.
+- **Root**: **`pnpm run test:e2e:preflight`**.
+
+Verification
+------------
+- `pnpm run test` (Vitest: common, event-layer, messaging, media) — pass.
+- `pnpm --filter webapp test:e2e` — guest + shell tests pass; flows needing gateway skipped when **`4020`** down.

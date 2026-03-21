@@ -1136,7 +1136,7 @@ The full test run is executed by `scripts/run-all-test-suites.sh`. Pre-flight (u
 | 4 | rotation | `rotation-suite.sh` | CA/leaf cert rotation, Caddy reload (admin API or rolling restart), wire-level packet capture on all Caddy pods, adaptive k6 chaos with protocol verification |
 | 5 | standalone-capture | `test-packet-capture-standalone.sh` | Standalone gRPC + HTTP/2 + HTTP/3 traffic, capture on Caddy/Envoy, protocol count verification (summed across pods) |
 | 6 | tls-mtls | `test-tls-mtls-comprehensive.sh` | HTTP/3 cert chain, gRPC via Envoy NodePort/port-forward, Authenticate method, cert chain completeness, mTLS config |
-| 7 | social | `test-social-service-comprehensive.sh` | All social-service routes: healthz, forum (posts CRUD/vote, comments CRUD/vote), messages (list/send/get/reply/thread/read), groups (create/list/get/add member/group message/leave) |
+| 7 | messaging | `test-messaging-service-comprehensive.sh` | Messaging/forum via edge (healthz, forum, messages, groups). `test-social-service-comprehensive.sh` is a deprecated wrapper that execs this script. |
 
 **Run full suite (with preflight and API server ready check):**
 ```bash
@@ -1161,7 +1161,7 @@ cd /path/to/off-campus-housing-tracker
 ./scripts/rotation-suite.sh                              # rotation
 ./scripts/test-packet-capture-standalone.sh              # standalone-capture
 ./scripts/test-tls-mtls-comprehensive.sh                 # tls-mtls
-./scripts/test-social-service-comprehensive.sh           # social
+./scripts/test-messaging-service-comprehensive.sh       # messaging (social name deprecated)
 ```
 
 Suite logs and per-suite verification logs go to `SUITE_LOG_DIR` (default: `/tmp/suite-logs-<timestamp>`).
@@ -3993,7 +3993,7 @@ Use these for protocol verification, packet capture, and profiling. CI/workflows
 - **Colima: k6 CA ConfigMap creation failed**: Piping CA cert via stdin to `kubectl create configmap --from-file=ca.crt=-` was unreliable when kubectl runs via `colima ssh`. **Fix**: On Colima, rotation-suite copies the CA into a temp file inside the VM, creates the ConfigMap with `--from-file=ca.crt=/path/in/vm`, then removes the temp file.
 - **tls-mtls Test 3 (gRPC direct port-forward)**: On Colima, port-forward is often flaky; suite failed when port-forward was not ready. **Fix**: In `scripts/test-tls-mtls-comprehensive.sh`, if Test 2 (gRPC via Envoy strict TLS) passed, Test 3 is **skipped** on Colima when port-forward is not ready, with message "gRPC port-forward: SKIPPED (Envoy strict TLS passed; port-forward not available on host)" so the suite does not fail unnecessarily.
 - **Redis "pod not found" message in tls-mtls**: When Redis is externalized, the suite printed a misleading "Redis pod not found" failure. **Fix**: Script now outputs "Redis: Externalized (not in cluster) - cache check skipped" when no Redis pod is found.
-- **Social service comprehensive test**: New suite `scripts/test-social-service-comprehensive.sh` exercises all social-service routes (healthz, forum posts CRUD/vote, comments CRUD/vote, messages list/send/get/reply/thread/read, groups create/list/get/members/group message/leave). Wired as suite 7 in `run-all-test-suites.sh`. Run standalone: `./scripts/test-social-service-comprehensive.sh`.
+- **Messaging service comprehensive test**: Suite `scripts/test-messaging-service-comprehensive.sh` exercises messaging/forum routes via the gateway. `scripts/test-social-service-comprehensive.sh` remains as a deprecated wrapper (`exec` to the messaging script). Run standalone: `./scripts/test-messaging-service-comprehensive.sh`.
 - **Logging and noise reduction (item 33)**: (1) **Shared test logging**: `scripts/lib/test-log.sh` provides `log_error` / `log_warn` / `log_info` / `log_ok` (and aliases `say` / `ok` / `warn` / `fail` / `info`) so output can be grepped for `ERROR:`, `WARN:`, `INFO:`, `OK:` and real failures are easier to spot. Optional env: `TEST_LOG_JSON=1` for one-line JSON. (2) **apk/apt noise in pod exec**: All `kubectl exec` that install tcpdump in pods (rotation-suite, packet-capture, start-wire-capture-for-k6, run-complete-wire-verification-suite, test-e2e-wire-verification) now redirect stdout and use `-qq` for apt so "fetch/Hit/Reading package lists" no longer floods the log. (3) **k6 job name**: `run-k6-chaos.sh` start now sends `kubectl apply` stdout to `/dev/null` so only the job name is printed; rotation-suite parses the job name with `grep -oE 'k6-chaos-[0-9]+'` so trailing newlines or "job.batch/... created" no longer break wait/collect.
 
 ### Run-all-test-suites: Progress and Known Failures (January 29)

@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: listings-service
+  namespace: off-campus-housing-tracker
+  labels:
+    app: listings-service
+spec:
+  selector:
+    app: listings-service
+  ports:
+    - name: http
+      port: 4012
+      targetPort: 4012
+    - name: grpc
+      port: 50062
+      targetPort: 50062

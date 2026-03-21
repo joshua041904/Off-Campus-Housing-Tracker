@@ -182,7 +182,7 @@ Writes CSV/SVG under `bench_logs/` when latency section runs (see script).
 ### C. Messaging / forum via edge (comprehensive shell suite)
 
 ```bash
-./scripts/test-social-service-comprehensive.sh
+./scripts/test-messaging-service-comprehensive.sh
 ```
 
 Uses `TARGET_IP` / LB detection for `--resolve`.

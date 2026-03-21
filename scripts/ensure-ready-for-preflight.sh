@@ -148,7 +148,7 @@ fi
 
 # --- 6. Ensure required app images (k3d: must be in registry so pods don't ImagePullBackOff) ---
 # Set ENSURE_IMAGES=0 to skip. When k3d: check local :dev images and optionally registry catalog.
-REQUIRED_APP_IMAGES=( api-gateway auth-service listings-service booking-service messaging-service trust-service analytics-service )
+REQUIRED_APP_IMAGES=( api-gateway auth-service listings-service booking-service messaging-service trust-service analytics-service media-service )
 ENSURE_IMAGES="${ENSURE_IMAGES:-1}"
 if [[ "$ENSURE_IMAGES" == "1" ]] && [[ "$ctx" == *"k3d"* ]] && command -v docker >/dev/null 2>&1; then
   say "6. Ensuring required app images (local :dev and k3d registry)..."

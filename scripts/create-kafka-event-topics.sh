@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# Create the six domain event topics (${ENV_PREFIX}.{domain}.events) for the housing platform.
+# Create domain event topics for the housing platform (must stay aligned with proto/events/* and producers).
 # Partition key = entity_id. Run when Kafka is up (e.g. after bring-up-external-infra.sh).
 # Requires kafka-topics.sh on PATH or Kafka container. Uses KAFKA_SSL_PORT / host 29094 by default.
+#
+# Contract checks: ./scripts/verify-proto-events-topics.sh
+# listings-service publishes to ${ENV_PREFIX}.listing.events (see LISTING_EVENTS_TOPIC / ENV_PREFIX in deploy).
 #
 # Usage: ./scripts/create-kafka-event-topics.sh
 #   ENV_PREFIX=dev             — topic prefix (default dev); use staging/prod for other envs
@@ -18,7 +21,7 @@ PARTITIONS="${PARTITIONS:-6}"
 
 # One topic per domain; no hardcoded env in topic names
 # messaging is locked to an immutable v1 topic name (no ENV_PREFIX) for strict production-grade wiring.
-EVENT_TOPICS="${ENV_PREFIX}.booking.events ${ENV_PREFIX}.listing.events ${ENV_PREFIX}.trust.events ${ENV_PREFIX}.auth.events messaging.events.v1 ${ENV_PREFIX}.notification.events ${ENV_PREFIX}.media.events"
+EVENT_TOPICS="${ENV_PREFIX}.booking.events ${ENV_PREFIX}.listing.events ${ENV_PREFIX}.trust.events ${ENV_PREFIX}.auth.events ${ENV_PREFIX}.analytics.events messaging.events.v1 ${ENV_PREFIX}.notification.events ${ENV_PREFIX}.media.events"
 # DLQ topics for failed consumer processing (optional; create when consumers are wired)
 DLQ_TOPICS="${ENV_PREFIX}.messaging.dlq"
 TOPICS="$EVENT_TOPICS $DLQ_TOPICS"

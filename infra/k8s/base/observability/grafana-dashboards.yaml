@@ -97,4 +97,76 @@ data:
         ]
       }
     }
+  housing-uptime.json: |
+    {
+      "dashboard": {
+        "title": "Housing uptime (Prometheus scrape SLI)",
+        "tags": ["uptime", "housing", "sli", "prometheus"],
+        "timezone": "browser",
+        "templating": {
+          "list": [
+            {
+              "name": "svc",
+              "type": "textbox",
+              "label": "Service filter (regex)",
+              "query": "",
+              "current": { "value": ".*", "text": ".*" },
+              "options": [{ "value": ".*", "text": ".*" }]
+            }
+          ]
+        },
+        "panels": [
+          {
+            "id": 20,
+            "title": "Smoothed availability — avg_over_time(up[5m]) on matching services (reduces single-scrape blips)",
+            "type": "graph",
+            "lines": true,
+            "linewidth": 2,
+            "fill": 1,
+            "targets": [
+              {
+                "expr": "avg_over_time(up{job=\"housing-pods\",service=~\"$svc\"}[5m])",
+                "legendFormat": "{{service}} ({{kubernetes_pod_name}})",
+                "refId": "A"
+              }
+            ],
+            "yaxes": [{ "min": 0, "max": 1.05, "format": "short" }],
+            "gridPos": { "h": 9, "w": 24, "x": 0, "y": 0 }
+          },
+          {
+            "id": 21,
+            "title": "Strict 1h window — min_over_time(up[1h]); 0 means at least one failed scrape in the hour",
+            "type": "graph",
+            "lines": true,
+            "linewidth": 2,
+            "targets": [
+              {
+                "expr": "min_over_time(up{job=\"housing-pods\",service=~\"$svc\"}[1h])",
+                "legendFormat": "{{service}}",
+                "refId": "A"
+              }
+            ],
+            "yaxes": [{ "min": 0, "max": 1.05 }],
+            "gridPos": { "h": 9, "w": 24, "x": 0, "y": 9 }
+          },
+          {
+            "id": 22,
+            "title": "Raw up{job=\"housing-pods\"} (per scrape)",
+            "type": "graph",
+            "bars": false,
+            "lines": true,
+            "linewidth": 1,
+            "targets": [
+              {
+                "expr": "up{job=\"housing-pods\",service=~\"$svc\"}",
+                "legendFormat": "{{service}} @ {{kubernetes_pod_name}}",
+                "refId": "A"
+              }
+            ],
+            "yaxes": [{ "min": 0, "max": 1.1 }],
+            "gridPos": { "h": 8, "w": 24, "x": 0, "y": 18 }
+          }
+        ]
+      }
+    }
 

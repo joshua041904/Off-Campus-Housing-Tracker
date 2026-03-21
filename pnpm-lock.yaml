@@ -55,6 +55,40 @@ importers:
         specifier: ^12.0.1
         version: 12.0.1
 
+  services/analytics-service:
+    dependencies:
+      '@common/utils':
+        specifier: workspace:*
+        version: link:../common
+      '@grpc/grpc-js':
+        specifier: ^1.9.0
+        version: 1.14.1
+      '@grpc/proto-loader':
+        specifier: ^0.7.10
+        version: 0.7.15
+      dotenv:
+        specifier: ^16.3.0
+        version: 16.6.1
+      express:
+        specifier: ^4.19.2
+        version: 4.21.2
+      pg:
+        specifier: ^8.11.0
+        version: 8.16.3
+    devDependencies:
+      '@types/express':
+        specifier: ^4.17.21
+        version: 4.17.21
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.19
+      tsx:
+        specifier: ^4.19.0
+        version: 4.20.6
+      typescript:
+        specifier: ^5.5.4
+        version: 5.9.3
+
   services/api-gateway:
     dependencies:
       '@common/utils':
@@ -256,15 +290,9 @@ importers:
 
   services/cron-jobs:
     dependencies:
-      '@aws-sdk/client-s3':
-        specifier: ^3.637.0
-        version: 3.901.0
       node-cron:
         specifier: ^3.0.3
         version: 3.0.3
-      pg:
-        specifier: ^8.12.0
-        version: 8.16.3
     devDependencies:
       tsx:
         specifier: ^4.16.2
@@ -284,19 +312,28 @@ importers:
 
   services/listings-service:
     dependencies:
+      '@common/utils':
+        specifier: workspace:*
+        version: link:../common
       '@grpc/grpc-js':
         specifier: ^1.9.0
         version: 1.14.1
       '@grpc/proto-loader':
-        specifier: ^0.7.9
+        specifier: ^0.7.10
         version: 0.7.15
       dotenv:
         specifier: ^16.3.0
         version: 16.6.1
+      express:
+        specifier: ^4.19.2
+        version: 4.21.2
       pg:
         specifier: ^8.11.0
         version: 8.16.3
     devDependencies:
+      '@types/express':
+        specifier: ^4.17.21
+        version: 4.17.21
       '@types/node':
         specifier: ^20.11.0
         version: 20.19.19
@@ -304,7 +341,7 @@ importers:
         specifier: ^4.19.0
         version: 4.20.6
       typescript:
-        specifier: ^5.3.3
+        specifier: ^5.5.4
         version: 5.9.3
 
   services/media-service:
@@ -398,6 +435,83 @@ importers:
       vitest:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@20.19.19)
+
+  services/notification-service:
+    dependencies:
+      '@common/utils':
+        specifier: workspace:*
+        version: link:../common
+      '@grpc/grpc-js':
+        specifier: ^1.9.0
+        version: 1.14.1
+      '@grpc/proto-loader':
+        specifier: ^0.7.10
+        version: 0.7.15
+      dotenv:
+        specifier: ^16.3.0
+        version: 16.6.1
+      express:
+        specifier: ^4.19.2
+        version: 4.21.2
+      kafkajs:
+        specifier: ^2.2.4
+        version: 2.2.4
+      pg:
+        specifier: ^8.11.0
+        version: 8.16.3
+      uuid:
+        specifier: ^10.0.0
+        version: 10.0.0
+    devDependencies:
+      '@types/express':
+        specifier: ^4.17.21
+        version: 4.17.21
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.19
+      '@types/uuid':
+        specifier: ^10.0.0
+        version: 10.0.0
+      tsx:
+        specifier: ^4.19.0
+        version: 4.20.6
+      typescript:
+        specifier: ^5.5.4
+        version: 5.9.3
+
+  services/trust-service:
+    dependencies:
+      '@common/utils':
+        specifier: workspace:*
+        version: link:../common
+      '@grpc/grpc-js':
+        specifier: ^1.9.0
+        version: 1.14.1
+      '@grpc/proto-loader':
+        specifier: ^0.7.10
+        version: 0.7.15
+      dotenv:
+        specifier: ^16.3.0
+        version: 16.6.1
+      express:
+        specifier: ^4.19.2
+        version: 4.21.2
+      pg:
+        specifier: ^8.11.0
+        version: 8.16.3
+    devDependencies:
+      '@types/express':
+        specifier: ^4.17.21
+        version: 4.17.21
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.19
+      tsx:
+        specifier: ^4.19.0
+        version: 4.20.6
+      typescript:
+        specifier: ^5.5.4
+        version: 5.9.3
 
   webapp:
     dependencies:

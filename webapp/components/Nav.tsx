@@ -12,7 +12,19 @@ export function Nav({ email }: { email?: string | null }) {
         <Link href="/" className="font-semibold tracking-tight text-amber-100">
           OCH Housing
         </Link>
-        <nav className="flex items-center gap-3 text-sm text-stone-300">
+        <nav className="flex flex-wrap items-center gap-3 text-sm text-stone-300">
+          <Link href="/listings" className="hover:text-amber-200">
+            Listings
+          </Link>
+          <Link href="/mission" className="hover:text-amber-200">
+            Mission
+          </Link>
+          <Link href="/trust" className="hover:text-amber-200">
+            Trust
+          </Link>
+          <Link href="/analytics" className="hover:text-amber-200">
+            Analytics
+          </Link>
           {email ? (
             <>
               <span className="hidden sm:inline truncate max-w-[200px]" title={email ?? ""}>
@@ -23,6 +35,7 @@ export function Nav({ email }: { email?: string | null }) {
               </Link>
               <button
                 type="button"
+                data-testid="nav-sign-out"
                 className="rounded-md border border-stone-600 px-2 py-1 hover:bg-stone-800"
                 onClick={() => {
                   clearStoredToken();

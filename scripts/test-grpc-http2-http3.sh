@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # HTTP/2 tests use $CURL_BIN with --http2; HTTP/3 tests use http3_curl with --http3-only (no fallback). Same across all suites.
+# Optional packet capture: ./scripts/run-suite-with-packet-capture.sh "$0" "$@"
 set -euo pipefail
 
 HOST="${HOST:-off-campus-housing.local}"

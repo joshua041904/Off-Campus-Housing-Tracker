@@ -11,11 +11,11 @@ The gateway routes to these services. Each contract is defined in the repo root 
 | Service           | Proto (contract)           | Notes                          |
 |-------------------|----------------------------|--------------------------------|
 | auth-service      | [proto/auth.proto](../../proto/auth.proto)       | Register, Login, ValidateToken |
-| listings-service  | [proto/listings.proto](../../proto/listings.proto)   | CreateListing, GetListing, SearchListings |
+| listings-service  | [proto/listings.proto](../../proto/listings.proto)   | CreateListing, GetListing, SearchListings (HTTP: public `GET /listings/search`, `GET /listings/listings/:id`) |
 | booking-service   | [proto/booking.proto](../../proto/booking.proto)   | CreateBooking, Confirm, Cancel, GetBooking |
 | messaging-service | [proto/messaging.proto](../../proto/messaging.proto) | SendMessage, GetConversation   |
 | notification-service | [proto/notification.proto](../../proto/notification.proto) | GetUserPreferences (consumer mostly via Kafka) |
-| trust-service     | [proto/trust.proto](../../proto/trust.proto)     | FlagListing, SubmitReview, GetReputation |
+| trust-service     | [proto/trust.proto](../../proto/trust.proto)     | FlagListing, SubmitReview, GetReputation (HTTP: public `GET /trust/reputation/:userId`) |
 | analytics-service | [proto/analytics.proto](../../proto/analytics.proto) | GetDailyMetrics, GetRecommendations; admin RPCs internal-only |
 
 Shared types: [proto/common.proto](../../proto/common.proto). Health: [proto/health.proto](../../proto/health.proto).

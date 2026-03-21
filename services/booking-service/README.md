@@ -30,3 +30,8 @@ The gateway strips `/api/booking`, so these are booking-service local paths:
 - `GET /healthz`, `GET /metrics`
 
 Auth identity is taken from `x-user-id` (set by `api-gateway` after JWT validation).
+
+## Maps / location
+
+- **Webapp:** set `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` (Google Maps **Embed API**) for map previews on listings and dashboard; optional `latitude` / `longitude` on `POST /search-history` are stored for “search near here”.
+- **Server (optional):** a future geocode step can use `GOOGLE_MAPS_API_KEY` (Geocoding API) — keep keys restricted by API product and referrer / IP in Google Cloud Console.

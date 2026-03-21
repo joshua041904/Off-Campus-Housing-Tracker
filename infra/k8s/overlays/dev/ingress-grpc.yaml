@@ -67,4 +67,11 @@ spec:
           service:
             name: analytics-service
             port:
-              number: 50054
+              number: 50067
+      - path: /notification.NotificationService
+        pathType: Prefix
+        backend:
+          service:
+            name: notification-service
+            port:
+              number: 50065

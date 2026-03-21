@@ -1,7 +1,7 @@
 /**
  * API Gateway — housing only. Uses proto: auth, listings, booking, messaging, notification, trust, analytics, media.
  * Ports per README: gateway 4020; auth 4011/50061, listings 4012/50062, booking 4013/50063, messaging 4014/50064,
- * trust 4016/50066, analytics 4017/50067, media 4018/50068.
+ * notification 4015/50065, trust 4016/50066, analytics 4017/50067, media 4018/50068.
  */
 import express, { type Request, type Response, type NextFunction } from "express";
 import * as grpc from "@grpc/grpc-js";
@@ -40,6 +40,8 @@ const MESSAGING_HTTP = process.env.MESSAGING_HTTP || "http://messaging-service.o
 const TRUST_HTTP = process.env.TRUST_HTTP || "http://trust-service.off-campus-housing-tracker.svc.cluster.local:4016";
 const ANALYTICS_HTTP = process.env.ANALYTICS_HTTP || "http://analytics-service.off-campus-housing-tracker.svc.cluster.local:4017";
 const MEDIA_HTTP = process.env.MEDIA_HTTP || "http://media-service.off-campus-housing-tracker.svc.cluster.local:4018";
+const NOTIFICATION_HTTP =
+  process.env.NOTIFICATION_HTTP || "http://notification-service.off-campus-housing-tracker.svc.cluster.local:4015";
 
 type AuthedRequest = Request & { user?: { sub?: string; email?: string; jti?: string } };
 
@@ -109,11 +111,18 @@ const OPEN_ROUTES = [
   { method: "GET", pattern: /^\/auth\/healthz\/?$/ },
   { method: "GET", pattern: /^\/auth\/metrics\/?$/ },
   { method: "GET", pattern: /^\/(?:api\/)?listings\/healthz\/?$/ },
+  // Public browse: search + single listing (no JWT). Create listing stays protected via proxy + x-user-id.
+  { method: "GET", pattern: /^\/(?:api\/)?listings\/search\/?$/ },
+  { method: "GET", pattern: /^\/(?:api\/)?listings\/listings\/[^/]+\/?$/ },
+  // Public reputation lookup (trust HTTP).
+  { method: "GET", pattern: /^\/(?:api\/)?trust\/reputation\/[^/]+\/?$/ },
   { method: "GET", pattern: /^\/(?:api\/)?booking\/healthz\/?$/ },
   { method: "GET", pattern: /^\/(?:api\/)?messaging\/healthz\/?$/ },
   { method: "GET", pattern: /^\/(?:api\/)?trust\/healthz\/?$/ },
   { method: "GET", pattern: /^\/(?:api\/)?analytics\/healthz\/?$/ },
+  { method: "GET", pattern: /^\/(?:api\/)?analytics\/daily-metrics\/?$/ },
   { method: "GET", pattern: /^\/(?:api\/)?media\/healthz\/?$/ },
+  { method: "GET", pattern: /^\/(?:api\/)?notification\/healthz\/?$/ },
 ];
 
 function isOpenRoute(req: Request): boolean {
@@ -207,6 +216,7 @@ app.get(["/messaging/healthz", "/api/messaging/healthz"], createProxyMiddleware(
 app.get(["/trust/healthz", "/api/trust/healthz"], createProxyMiddleware({ target: TRUST_HTTP, changeOrigin: true, pathRewrite: () => "/healthz", proxyTimeout: 5000, agent: keepAliveAgent }));
 app.get(["/analytics/healthz", "/api/analytics/healthz"], createProxyMiddleware({ target: ANALYTICS_HTTP, changeOrigin: true, pathRewrite: () => "/healthz", proxyTimeout: 5000, agent: keepAliveAgent }));
 app.get(["/media/healthz", "/api/media/healthz"], createProxyMiddleware({ target: MEDIA_HTTP, changeOrigin: true, pathRewrite: () => "/healthz", proxyTimeout: 5000, agent: keepAliveAgent }));
+app.get(["/notification/healthz", "/api/notification/healthz"], createProxyMiddleware({ target: NOTIFICATION_HTTP, changeOrigin: true, pathRewrite: () => "/healthz", proxyTimeout: 5000, agent: keepAliveAgent }));
 
 // ----- gRPC auth (register, login, validate, refresh) -----
 app.post("/auth/register", jsonParser, async (req: Request, res: Response) => {
@@ -356,6 +366,9 @@ app.use("/api/analytics", injectIdentityHeadersIfAny, createProxyMiddleware(prox
 
 app.use("/media", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(MEDIA_HTTP, { "^/media": "" }) as any));
 app.use("/api/media", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(MEDIA_HTTP, { "^/api/media": "" }) as any));
+
+app.use("/notification", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(NOTIFICATION_HTTP, { "^/notification": "" }) as any));
+app.use("/api/notification", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(NOTIFICATION_HTTP, { "^/api/notification": "" }) as any));
 
 app.use((_req, res) => res.status(404).json({ error: "not found" }));
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {

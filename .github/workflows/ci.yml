@@ -113,7 +113,7 @@ jobs:
       - name: Wait for Kafka and create event topics
         run: |
           for i in $(seq 1 30); do nc -z 127.0.0.1 9092 && break; sleep 2; done
-          for t in dev.booking.events dev.listing.events dev.trust.events dev.auth.events messaging.events.v1 dev.notification.events dev.media.events dev.messaging.dlq; do
+          for t in dev.booking.events dev.listing.events dev.trust.events dev.auth.events dev.analytics.events messaging.events.v1 dev.notification.events dev.media.events dev.messaging.dlq; do
             docker run --rm --network host bitnami/kafka:latest kafka-topics.sh \
               --bootstrap-server 127.0.0.1:9092 \
               --create --topic "$t" --partitions 6 --replication-factor 1 2>/dev/null || true

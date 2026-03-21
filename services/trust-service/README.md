@@ -13,3 +13,10 @@ Owns: reviews, ratings aggregation, report abuse, moderation, listing flag state
 **If you're new to gRPC:** See [auth-service README](../auth-service/README.md#implementing-this-service-grpc) for the same 4 steps (proto = contract, generate code, implement handlers, register server).
 
 **This service:** Implements `trust.TrustService` from [proto/trust.proto](../../proto/trust.proto) (`FlagListing`, `SubmitReview`, `GetReputation`). Emit Kafka on flag/review/reputation changes. Implement [proto/health.proto](../../proto/health.proto) for probes.
+
+## Configuration
+
+- **`POSTGRES_URL_TRUST`** — full URL (k8s: `app-config` → port **5446**, database `trust`).
+- **`TRUST_DB_PORT`** — default **5446** when composing URL from `DB_HOST` (**`DB_PORT` is ignored**).
+
+Apply schema: `PGPASSWORD=postgres ./scripts/ensure-trust-schema.sh` or `psql -h 127.0.0.1 -p 5446 -U postgres -d trust -f infra/db/01-trust-schema.sql`.

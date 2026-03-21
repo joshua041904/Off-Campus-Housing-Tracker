@@ -130,7 +130,7 @@ else
       start_capture "ingress-nginx" "$p" "port ${PORT} or port 443 or port 30443 or udp port 443"
     fi
   done
-  [[ -n "$envoy_pod" ]] && ok "Capture Envoy $envoy_pod (gRPC)" && start_capture "$envoy_ns" "$envoy_pod" "port 10000 or port 30000 or portrange 50051-50060"
+  [[ -n "$envoy_pod" ]] && ok "Capture Envoy $envoy_pod (gRPC)" && start_capture "$envoy_ns" "$envoy_pod" "port 10000 or port 30000 or portrange 50051-50068"
 fi
 # Allow tcpdump to start and capture
 sleep 4
@@ -142,8 +142,12 @@ if [[ "${STRICT_QUIC_VALIDATION:-0}" != "1" ]] && [[ "$ctx" == *"colima"* ]] && 
   for i in 1 2 3 4 5 6 7 8; do
     colima ssh -- curl -sk --http2-prior-knowledge --max-time 5 --resolve "${HOST}:443:${CADDY_IP}" "https://${HOST}/_caddy/healthz" >/dev/null 2>&1 || true
     colima ssh -- curl -sk --http2-prior-knowledge --max-time 5 --resolve "${HOST}:443:${CADDY_IP}" "https://${HOST}/api/records/health" >/dev/null 2>&1 || true
+    colima ssh -- curl -sk --http2-prior-knowledge --max-time 5 --resolve "${HOST}:443:${CADDY_IP}" "https://${HOST}/api/listings/healthz" >/dev/null 2>&1 || true
+    colima ssh -- curl -sk --http2-prior-knowledge --max-time 5 --resolve "${HOST}:443:${CADDY_IP}" "https://${HOST}/api/trust/healthz" >/dev/null 2>&1 || true
     colima ssh -- curl -sk --http3 --connect-timeout 5 --resolve "${HOST}:443:${CADDY_IP}" "https://${HOST}/_caddy/healthz" >/dev/null 2>&1 || true
     colima ssh -- curl -sk --http3 --connect-timeout 5 --resolve "${HOST}:443:${CADDY_IP}" "https://${HOST}/api/records/health" >/dev/null 2>&1 || true
+    colima ssh -- curl -sk --http3 --connect-timeout 5 --resolve "${HOST}:443:${CADDY_IP}" "https://${HOST}/api/listings/healthz" >/dev/null 2>&1 || true
+    colima ssh -- curl -sk --http3 --connect-timeout 5 --resolve "${HOST}:443:${CADDY_IP}" "https://${HOST}/api/trust/healthz" >/dev/null 2>&1 || true
   done
 elif [[ "${STRICT_QUIC_VALIDATION:-0}" == "1" ]] && [[ "$ctx" == *"colima"* ]]; then
   info "STRICT_QUIC_VALIDATION=1: skipping Colima VM→ClusterIP curls (QUIC must traverse MetalLB ${TARGET_IP:-LB IP} only for capture alignment)"
@@ -152,6 +156,8 @@ ok "Generating HTTP/2 traffic (strict TLS)…"
 for i in 1 2 3 4 5; do
   strict_curl -s --http2-prior-knowledge --max-time 5 --resolve "${HOST}:${PORT}:${CURL_RESOLVE_IP}" -H "Host: $HOST" "https://${HOST}:${PORT}/_caddy/healthz" >/dev/null 2>&1 || true
   strict_curl -s --http2-prior-knowledge --max-time 5 --resolve "${HOST}:${PORT}:${CURL_RESOLVE_IP}" -H "Host: $HOST" "https://${HOST}:${PORT}/api/records/health" >/dev/null 2>&1 || true
+  strict_curl -s --http2-prior-knowledge --max-time 5 --resolve "${HOST}:${PORT}:${CURL_RESOLVE_IP}" -H "Host: $HOST" "https://${HOST}:${PORT}/api/listings/healthz" >/dev/null 2>&1 || true
+  strict_curl -s --http2-prior-knowledge --max-time 5 --resolve "${HOST}:${PORT}:${CURL_RESOLVE_IP}" -H "Host: $HOST" "https://${HOST}:${PORT}/api/trust/healthz" >/dev/null 2>&1 || true
 done
 
 ok "Generating HTTP/3/QUIC traffic (strict TLS)…"
@@ -161,15 +167,29 @@ _h3_url="https://${HOST}:${_h3_port}"
 for i in 1 2 3 4 5 6; do
   strict_http3_curl -s --connect-timeout 5 --resolve "${HOST}:${_h3_port}:${CURL_RESOLVE_IP}" -H "Host: $HOST" "${_h3_url}/_caddy/healthz" >/dev/null 2>&1 || true
   strict_http3_curl -s --connect-timeout 5 --resolve "${HOST}:${_h3_port}:${CURL_RESOLVE_IP}" -H "Host: $HOST" "${_h3_url}/api/records/health" >/dev/null 2>&1 || true
+  strict_http3_curl -s --connect-timeout 5 --resolve "${HOST}:${_h3_port}:${CURL_RESOLVE_IP}" -H "Host: $HOST" "${_h3_url}/api/listings/healthz" >/dev/null 2>&1 || true
+  strict_http3_curl -s --connect-timeout 5 --resolve "${HOST}:${_h3_port}:${CURL_RESOLVE_IP}" -H "Host: $HOST" "${_h3_url}/api/trust/healthz" >/dev/null 2>&1 || true
 done
 
 ok "Generating gRPC traffic (grpcurl)…"
 if command -v grpcurl >/dev/null 2>&1; then
   # Primary: gRPC via Caddy (TARGET_IP:443) — the real production path; generates traffic Caddy→Envoy
   if [[ -n "${TARGET_IP:-}" ]] && [[ "${PORT:-}" == "443" ]] && [[ -n "${CA_CERT:-}" ]] && [[ -f "${CA_CERT:-}" ]]; then
+    REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+    PROTO_DIR="${PROTO_DIR:-$REPO_ROOT/proto}"
     for _ in 1 2 3 4 5; do
       # Dial LB IP but TLS SNI + cert verify name = HOST (grpcurl: -authority; -servername same value is allowed)
       grpcurl -cacert "$CA_CERT" -authority "$HOST" -servername "$HOST" -max-time 5 "${TARGET_IP}:443" grpc.health.v1.Health/Check 2>/dev/null || true
+      if [[ -f "$PROTO_DIR/listings.proto" ]]; then
+        grpcurl -cacert "$CA_CERT" -authority "$HOST" -servername "$HOST" -import-path "$PROTO_DIR" -proto "$PROTO_DIR/listings.proto" \
+          -max-time 5 -d '{"query":"capture","min_price":0,"max_price":999999999,"smoke_free":false,"pet_friendly":false}' \
+          "${TARGET_IP}:443" listings.ListingsService/SearchListings 2>/dev/null || true
+      fi
+      if [[ -f "$PROTO_DIR/trust.proto" ]]; then
+        grpcurl -cacert "$CA_CERT" -authority "$HOST" -servername "$HOST" -import-path "$PROTO_DIR" -proto "$PROTO_DIR/trust.proto" \
+          -max-time 5 -d '{"user_id":"00000000-0000-0000-0000-000000000001"}' \
+          "${TARGET_IP}:443" trust.TrustService/GetReputation 2>/dev/null || true
+      fi
     done
   fi
   # Fallback: direct to NodePort (127.0.0.1:30000) — works on k3d when NodePort exposed

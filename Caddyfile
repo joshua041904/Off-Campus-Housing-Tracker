@@ -90,7 +90,7 @@ https://off-campus-housing.local {
 
 	# REST API: explicit path list (no regex). Exclude gRPC by Content-Type.
 	@api {
-		path /api/* /auth/* /listings/* /booking/* /messaging/* /analytics/* /trust/*
+		path /api/* /auth/* /listings/* /booking/* /messaging/* /analytics/* /trust/* /media/* /notification/*
 		not header Content-Type application/grpc*
 	}
 	handle @api {
@@ -100,8 +100,9 @@ https://off-campus-housing.local {
 			header_up X-Request-Id {http.request.id}
 			header_up Traceparent {http.request.header.Traceparent}
 			header_up Tracestate {http.request.header.Tracestate}
+			# h1 + h2 to gateway: clients still use HTTP/2 and HTTP/3 to Caddy; upstream can speak ALPN h2 where supported.
 			transport http {
-				versions h1
+				versions h1 h2
 				dial_timeout 10s
 				response_header_timeout 30s
 				expect_continue_timeout 5s
@@ -125,7 +126,7 @@ https://off-campus-housing.local {
 			header_up Traceparent {http.request.header.Traceparent}
 			header_up Tracestate {http.request.header.Tracestate}
 			transport http {
-				versions h1
+				versions h1 h2
 				dial_timeout 10s
 				response_header_timeout 30s
 			}

@@ -454,7 +454,7 @@ The full test pipeline is structured as **preflight** followed by **eight suites
 - **Rationale**: Running suites without preflight leads to misleading failures (e.g. "rotation failed" when the real cause was API server timeout). Preflight is skipped when `SKIP_PREFLIGHT=1` (e.g. when called from `run-preflight-scale-and-all-suites.sh` after preflight has already run).
 
 ### Suite Order and Completion
-- **Order**: 1) auth (test-auth-service.sh), 2) baseline (test-microservices-http2-http3.sh), 3) enhanced (test-microservices-http2-http3-enhanced.sh), 4) adversarial (enhanced-adversarial-tests.sh), 5) rotation (rotation-suite.sh), 6) standalone-capture (test-packet-capture-standalone.sh), 7) tls-mtls (test-tls-mtls-comprehensive.sh), 8) social (test-social-service-comprehensive.sh). Each suite is tee'd to `$SUITE_LOG_DIR/<suite>.log`; verification to `$SUITE_LOG_DIR/<suite>-verification.log`.
+- **Order**: 1) auth (test-auth-service.sh), 2) baseline (test-microservices-http2-http3.sh), 3) enhanced (test-microservices-http2-http3-enhanced.sh), 4) adversarial (enhanced-adversarial-tests.sh), 5) rotation (rotation-suite.sh), 6) standalone-capture (test-packet-capture-standalone.sh), 7) tls-mtls (test-tls-mtls-comprehensive.sh), 8) messaging (test-messaging-service-comprehensive.sh; `test-social-service-comprehensive.sh` is a deprecated wrapper). Each suite is tee'd to `$SUITE_LOG_DIR/<suite>.log`; verification to `$SUITE_LOG_DIR/<suite>-verification.log`.
 - **Completion**: The runner prints "=== All Test Suites Complete ===" after all eight suites finish. Only suites that exited non-zero are reported in the error summary. There is no artificial timeout; run with `2>&1 | tee /tmp/full-run-$(date +%s).log` for live output and saved log. If a suite appears to hang, see docs/Runbook.md for packet-capture and gRPC/Envoy NodePort issues.
 
 ### How to run (command center)
@@ -515,7 +515,7 @@ We run **eight** suites because the platform has **multiple protocols**, **stric
 | 5 | **Rotation** | rotation-suite.sh | CA/leaf rotation under k6 load; zero-downtime and wire-level capture. Proves rotation and Caddy reload. |
 | 6 | **Standalone capture** | test-packet-capture-standalone.sh | Packet capture in isolation (drain → stop → copy → tshark); same pattern as rotation for QUIC verification. |
 | 7 | **TLS/mTLS** | test-tls-mtls-comprehensive.sh | Full chain validation, mTLS, gRPC strict TLS; proves cert chain and client cert handling. |
-| 8 | **Social** | test-social-service-comprehensive.sh | Forum, messages, archive/recall/kick/ban, groups; requires social DB migrations. |
+| 8 | **Messaging** | test-messaging-service-comprehensive.sh | Forum, messages, archive/recall/kick/ban, groups; `test-social-service-comprehensive.sh` execs this script. |
 
 **Why so many tests:** One “e2e” cannot (1) prove HTTP/2 vs HTTP/3 at the wire, (2) prove zero-downtime rotation under load, (3) validate strict TLS/mTLS and cert chain, (4) stress auth and social and DBs in isolation, (5) run pgbench across 8 housing DBs. Splitting into eight suites gives clear failure scope (e.g. “rotation failed” vs “social 501”) and allows optional k6/pgbench without re-running auth/baseline every time. DB and cache verification (8 DBs, 5441–5448) after each suite keeps the platform honest.
 

@@ -11,6 +11,7 @@ import {
 } from "@/lib/api";
 import { getStoredEmail, getStoredToken } from "@/lib/auth-storage";
 import { Nav } from "@/components/Nav";
+import { GoogleMapEmbed } from "@/components/GoogleMapEmbed";
 
 type SearchRow = {
   id?: string;
@@ -18,6 +19,8 @@ type SearchRow = {
   minPriceCents?: number | null;
   maxPriceCents?: number | null;
   maxDistanceKm?: number | null;
+  latitude?: number | null;
+  longitude?: number | null;
   createdAt?: string;
 };
 
@@ -149,8 +152,21 @@ export default function DashboardPage() {
         <h1 className="font-serif text-3xl text-amber-50">Housing search</h1>
         <p className="mt-2 max-w-2xl text-sm text-stone-400">
           Search preferences are stored as <strong>search history</strong> (booking-service). Listings you care about go to
-          your <strong>watchlist</strong> (UUIDs). Full listing search UI can plug into listings-service when available.
+          your <strong>watchlist</strong> (UUIDs). Browse and post listings on the{" "}
+          <a href="/listings" className="text-amber-400 hover:underline">
+            listings
+          </a>{" "}
+          page; trust tools on{" "}
+          <a href="/trust" className="text-amber-400 hover:underline">
+            trust &amp; safety
+          </a>
+          . Map preview uses Google Maps Embed when{" "}
+          <code className="rounded bg-stone-800 px-1">NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> is set (same as listings).
         </p>
+
+        <div className="mt-6 max-w-xl">
+          <GoogleMapEmbed placeQuery="University of Massachusetts Amherst" height={180} />
+        </div>
 
         <div className="mt-10 grid gap-10 lg:grid-cols-2">
           <section className="rounded-xl border border-stone-800 bg-stone-900/40 p-6">
@@ -301,6 +317,18 @@ export default function DashboardPage() {
               </tbody>
             </table>
           </div>
+          {(() => {
+            const withGeo = history.find(
+              (r) => r.latitude != null && r.longitude != null && Number.isFinite(r.latitude) && Number.isFinite(r.longitude)
+            );
+            if (!withGeo) return null;
+            return (
+              <div className="mt-6 max-w-lg">
+                <p className="mb-2 text-xs uppercase tracking-wide text-stone-500">Latest search with location</p>
+                <GoogleMapEmbed latitude={withGeo.latitude} longitude={withGeo.longitude} height={200} zoom={13} />
+              </div>
+            );
+          })()}
         </section>
 
         {msg && <p className="mt-6 text-sm text-emerald-400">{msg}</p>}

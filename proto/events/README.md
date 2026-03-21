@@ -14,6 +14,7 @@
 | booking.proto | events.booking | BookingCreatedV1, BookingConfirmedV1, BookingCancelledV1, BookingCompletedV1 |
 | listing.proto | events.listing | ListingCreatedV1, ListingUpdatedV1, ListingDeletedV1, ListingPriceUpdatedV1 |
 | trust.proto | events.trust | ListingFlaggedV1, ListingUnflaggedV1, ReviewCreatedV1, UserReputationUpdatedV1 |
+| analytics.proto | events.analytics | WatchlistActivityV1, DailyMetricsSnapshotV1, ListingInsightRequestedV1 |
 | messaging.proto | events.messaging | ConversationCreatedV1, MessageSentV1, MessageReadV1 |
 | notification.proto | events.notification | NotificationSentV1 (optional emit) |
 
@@ -21,14 +22,19 @@ Backward compatible only; breaking changes = new version (e.g. BookingCreatedV2)
 
 ## Topics (domain + envelope)
 
+Created by `scripts/create-kafka-event-topics.sh` (keep in sync with this table):
+
 - `${ENV_PREFIX}.booking.events` (default ENV_PREFIX=dev)
-- `${ENV_PREFIX}.listing.events`
+- `${ENV_PREFIX}.listing.events` — **listings-service** `LISTING_EVENTS_TOPIC` / Kafka producer (same name; not `*.v1`)
 - `${ENV_PREFIX}.trust.events`
 - `${ENV_PREFIX}.auth.events`
-- `${ENV_PREFIX}.messaging.events`
+- **`messaging.events.v1`** — immutable topic name (no `ENV_PREFIX`); partition key = `conversation_id`
+- `${ENV_PREFIX}.analytics.events` — watchlist funnel / insight signals (`proto/events/analytics.proto`)
 - `${ENV_PREFIX}.notification.events`
+- `${ENV_PREFIX}.media.events`
+- `${ENV_PREFIX}.messaging.dlq` — DLQ for failed envelopes
 
-Partition key = **entity_id** (never event_id or random). Envelope required. Create: `ENV_PREFIX=dev ./scripts/create-kafka-event-topics.sh`. See docs/KAFKA_STRATEGY.md and docs/OUTBOX_PUBLISHER_AND_CONSUMER_CONTRACT.md.
+Partition key = **entity_id** (never event_id or random), except messaging uses **conversation_id**. Envelope required. Create: `ENV_PREFIX=dev ./scripts/create-kafka-event-topics.sh`. Verify: `./scripts/verify-proto-events-topics.sh`. See docs/KAFKA_STRATEGY.md and docs/OUTBOX_PUBLISHER_AND_CONSUMER_CONTRACT.md.
 
 ## Transactional outbox
 

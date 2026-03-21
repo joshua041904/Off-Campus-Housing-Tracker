@@ -10,7 +10,9 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 export PATH="$SCRIPT_DIR/shims:/opt/homebrew/bin:/usr/local/bin:${PATH:-}"
 cd "$REPO_ROOT"
 
-NS="${NS:-off-campus-housing-tracker}"
+# Housing namespace only — ignore stray NS= from other projects.
+HOUSING_NS="${HOUSING_NS:-off-campus-housing-tracker}"
+NS="$HOUSING_NS"
 NS_ING="${NS_ING:-ingress-nginx}"
 CERTS_DIR="${REPO_ROOT}/certs"
 SECRET_UPDATED=0
@@ -236,5 +238,26 @@ if [[ "${FORCE_TLS_RESTART:-0}" == "1" ]] || [[ $SECRET_UPDATED -eq 1 ]]; then
   done
   kubectl -n "$NS_ING" rollout restart deploy/caddy-h3 --request-timeout=15s 2>/dev/null && ok "Restarted caddy-h3" || warn "Restart caddy-h3 failed"
 fi
+
+# Deployments mount och-service-tls; reissue updates service-tls — always refresh alias so mounts never go stale.
+_ensure_och_service_tls_alias() {
+  if ! kubectl -n "$NS" get secret service-tls -o name &>/dev/null; then
+    warn "och-service-tls skipped: service-tls missing"
+    return 0
+  fi
+  local d
+  d=$(mktemp -d 2>/dev/null || echo "/tmp/och-tls-$$")
+  kubectl -n "$NS" get secret service-tls -o jsonpath='{.data.ca\.crt}' | base64 -d >"$d/ca.crt"
+  kubectl -n "$NS" get secret service-tls -o jsonpath='{.data.tls\.crt}' | base64 -d >"$d/tls.crt"
+  kubectl -n "$NS" get secret service-tls -o jsonpath='{.data.tls\.key}' | base64 -d >"$d/tls.key"
+  kubectl -n "$NS" create secret generic och-service-tls \
+    --from-file=ca.crt="$d/ca.crt" \
+    --from-file=tls.crt="$d/tls.crt" \
+    --from-file=tls.key="$d/tls.key" \
+    --dry-run=client -o yaml | kubectl apply -f - --request-timeout=20s
+  rm -rf "$d"
+  ok "och-service-tls synced from service-tls"
+}
+_ensure_och_service_tls_alias
 
 say "Strict TLS/mTLS preflight complete"

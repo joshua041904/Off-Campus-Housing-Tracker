@@ -114,3 +114,190 @@ export async function watchlistList(token: string) {
   if (!res.ok) throw new Error((data as ApiError)?.error || `watchlist list ${res.status}`);
   return data.items ?? [];
 }
+
+export type ListingJson = {
+  id: string;
+  user_id: string;
+  title: string;
+  description?: string | null;
+  price_cents: number;
+  amenities?: string[];
+  smoke_free?: boolean | null;
+  pet_friendly?: boolean | null;
+  furnished?: boolean | null;
+  status?: string;
+  created_at?: string;
+  /** When listings-service stores geo (optional). */
+  latitude?: number | null;
+  longitude?: number | null;
+};
+
+export async function searchListings(params: {
+  q?: string;
+  min_price?: number;
+  max_price?: number;
+  smoke_free?: boolean;
+  pet_friendly?: boolean;
+}) {
+  const sp = new URLSearchParams();
+  if (params.q) sp.set("q", params.q);
+  if (params.min_price != null && !Number.isNaN(params.min_price)) sp.set("min_price", String(params.min_price));
+  if (params.max_price != null && !Number.isNaN(params.max_price)) sp.set("max_price", String(params.max_price));
+  if (params.smoke_free) sp.set("smoke_free", "1");
+  if (params.pet_friendly) sp.set("pet_friendly", "1");
+  const q = sp.toString();
+  const res = await apiFetch(`/api/listings/search${q ? `?${q}` : ""}`);
+  const data = (await parseJson(res)) as { items?: ListingJson[]; error?: string };
+  if (!res.ok) throw new Error(data?.error || `listings search ${res.status}`);
+  return data.items ?? [];
+}
+
+export async function getListing(id: string) {
+  const res = await apiFetch(`/api/listings/listings/${encodeURIComponent(id)}`);
+  const data = (await parseJson(res)) as ListingJson & ApiError;
+  if (!res.ok) throw new Error(data?.error || `get listing ${res.status}`);
+  return data as ListingJson;
+}
+
+export async function createListing(
+  token: string,
+  body: {
+    title: string;
+    description?: string;
+    price_cents: number;
+    effective_from: string;
+    effective_until?: string;
+    amenities?: string[];
+    smoke_free?: boolean;
+    pet_friendly?: boolean;
+    furnished?: boolean;
+  }
+) {
+  const res = await apiFetch("/api/listings/create", {
+    method: "POST",
+    token,
+    body: JSON.stringify(body),
+  });
+  const data = (await parseJson(res)) as ListingJson & ApiError;
+  if (!res.ok) throw new Error(data?.error || `create listing ${res.status}`);
+  return data as ListingJson;
+}
+
+export async function reportAbuse(
+  token: string,
+  body: {
+    abuse_target_type: "listing" | "user";
+    target_id: string;
+    category?: string;
+    details?: string;
+  }
+) {
+  const res = await apiFetch("/api/trust/report-abuse", {
+    method: "POST",
+    token,
+    body: JSON.stringify(body),
+  });
+  const data = (await parseJson(res)) as { flag_id?: string; status?: string; error?: string };
+  if (!res.ok) throw new Error(data?.error || `report abuse ${res.status}`);
+  return data;
+}
+
+export async function submitPeerReview(
+  token: string,
+  body: {
+    booking_id: string;
+    reviewee_id: string;
+    side?: string;
+    rating: number;
+    comment?: string;
+  }
+) {
+  const res = await apiFetch("/api/trust/peer-review", {
+    method: "POST",
+    token,
+    body: JSON.stringify(body),
+  });
+  const data = (await parseJson(res)) as { review_id?: string; error?: string };
+  if (!res.ok) throw new Error(data?.error || `peer review ${res.status}`);
+  return data;
+}
+
+export async function getReputation(userId: string) {
+  const res = await apiFetch(`/api/trust/reputation/${encodeURIComponent(userId)}`);
+  const data = (await parseJson(res)) as { user_id?: string; score?: number; error?: string };
+  if (!res.ok) throw new Error(data?.error || `reputation ${res.status}`);
+  return { user_id: data.user_id ?? userId, score: data.score ?? 0 };
+}
+
+export type DailyMetricsJson = {
+  date?: string;
+  new_users?: number;
+  new_listings?: number;
+  new_bookings?: number;
+  completed_bookings?: number;
+  messages_sent?: number;
+  listings_flagged?: number;
+};
+
+export async function getDailyMetrics(date: string) {
+  const res = await apiFetch(`/api/analytics/daily-metrics?date=${encodeURIComponent(date)}`);
+  const data = (await parseJson(res)) as DailyMetricsJson & ApiError;
+  if (!res.ok) throw new Error(data?.error || `daily metrics ${res.status}`);
+  return data;
+}
+
+export async function getWatchlistInsights(token: string, userId: string) {
+  const res = await apiFetch(`/api/analytics/insights/watchlist/${encodeURIComponent(userId)}`, {
+    method: "GET",
+    token,
+  });
+  const data = (await parseJson(res)) as {
+    watchlist_adds_30d?: number;
+    watchlist_removes_30d?: number;
+    notes?: string;
+    error?: string;
+  };
+  if (!res.ok) throw new Error(data?.error || `watchlist insights ${res.status}`);
+  return data;
+}
+
+export type SearchSummaryItem = {
+  query?: string | null;
+  min_price_cents?: number | null;
+  max_price_cents?: number | null;
+  max_distance_km?: number | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  created_at?: string;
+};
+
+/** Past searches from analytics (read-only booking DB on cluster when POSTGRES_URL_BOOKINGS is set). Requires JWT + matching user. */
+export async function getSearchSummaryInsights(token: string, userId: string) {
+  const res = await apiFetch(`/api/analytics/insights/search-summary/${encodeURIComponent(userId)}`, {
+    method: "GET",
+    token,
+  });
+  const data = (await parseJson(res)) as {
+    user_id?: string;
+    items?: SearchSummaryItem[];
+    hint?: string;
+    notification_hook?: string;
+    error?: string;
+  };
+  if (!res.ok) throw new Error(data?.error || `search summary ${res.status}`);
+  return data;
+}
+
+export async function analyzeListingFeel(
+  token: string | null,
+  body: { title: string; description?: string; price_cents: number; audience?: "landlord" | "renter" }
+) {
+  const res = await apiFetch("/api/analytics/insights/listing-feel", {
+    method: "POST",
+    token: token ?? undefined,
+    body: JSON.stringify(body),
+  });
+  const data = (await parseJson(res)) as { analysis_text?: string; model_used?: string; error?: string };
+  if (!res.ok) throw new Error(data?.error || `listing feel ${res.status}`);
+  return data;
+}

@@ -68,7 +68,7 @@ kubectl rollout status deployment/envoy-test -n envoy-test --timeout=120s 2>/dev
 
 # 7) Wait for deployments in app namespace
 say "Waiting for deployments (readiness)..."
-for dep in api-gateway auth-service; do
+for dep in api-gateway auth-service listings-service booking-service messaging-service trust-service analytics-service media-service notification-service; do
   if kubectl get deployment -n "$NS" "$dep" &>/dev/null 2>&1; then
     kubectl rollout status deployment/"$dep" -n "$NS" --timeout=300s 2>/dev/null || true
     ok "$dep ready"

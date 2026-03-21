@@ -36,6 +36,13 @@ ok()  { echo "✅ $*"; }
 warn(){ echo "⚠️  $*"; }
 info(){ echo "ℹ️  $*"; }
 
+TOTAL_STEPS="${TOTAL_STEPS:-9}"
+_step_n=0
+step() {
+  _step_n=$((_step_n + 1))
+  say "Step ${_step_n}/${TOTAL_STEPS}: $*"
+}
+
 # Docker available? When Colima is running, point CLI at it so docker info succeeds.
 # Prefer socket when Colima VM is up (colima list shows Running); colima status can fail with "empty value".
 if ! command -v docker >/dev/null 2>&1; then
@@ -82,13 +89,14 @@ if [[ "$SKIP_KAFKA" != "1" ]]; then
   fi
 fi
 
-say "=== Bringing up external infra (Zookeeper, Kafka, Redis, 8 Postgres) ==="
+step "Bringing up external infra (Zookeeper, Kafka, Redis, MinIO, 8 Postgres)"
 info "Volumes: pg-auth, pg-listings, pg-bookings, pg-messaging, pg-notification, pg-trust, pg-analytics, pg-media, minio_data"
 
 # Single line for all postgres service names so the command cannot be broken by line wrap
 POSTGRES_SERVICES="postgres-auth postgres-listings postgres-bookings postgres-messaging postgres-notification postgres-trust postgres-analytics postgres-media"
 
 if [[ "$SKIP_COMPOSE_UP" != "1" ]]; then
+  step "Starting Zookeeper, then Kafka (if certs OK), Redis, MinIO, Postgres (docker compose)"
   # Start in dependency order: zookeeper first, then kafka (depends_on zookeeper), redis, then all postgres
   docker compose up -d zookeeper 2>&1 || true
   sleep 3
@@ -109,6 +117,7 @@ fi
 REDIS_PORT="${REDIS_PORT:-6380}"
 KAFKA_SSL_PORT="${KAFKA_SSL_PORT:-29094}"
 
+step "Waiting for Redis (${REDIS_PORT})"
 # Wait for Redis (port 6380 for housing; RP uses 6379)
 elapsed=0
 while [[ $elapsed -lt $MAX_WAIT ]]; do
@@ -123,6 +132,7 @@ if ! nc -z 127.0.0.1 "$REDIS_PORT" 2>/dev/null; then
   warn "Redis ($REDIS_PORT) not reachable after ${MAX_WAIT}s."
 fi
 
+step "Waiting for Kafka SSL (${KAFKA_SSL_PORT}) (if started)"
 # Wait for Kafka SSL port 29094 (if we started it; RP uses 29093)
 if [[ "$SKIP_KAFKA" != "1" ]]; then
   elapsed=0
@@ -164,16 +174,18 @@ fi
 # Optional: enforce DB tuning/schemas (script may not exist)
 if [[ "$ENFORCE_DB_TUNING" == "1" ]]; then
   if [[ -x "$SCRIPT_DIR/enforce-external-db-schemas-and-tuning.sh" ]]; then
-    say "Enforcing DB schemas and tuning (ENFORCE_DB_TUNING=1)..."
+    step "Enforcing DB schemas and tuning (ENFORCE_DB_TUNING=1)"
     "$SCRIPT_DIR/enforce-external-db-schemas-and-tuning.sh" || warn "enforce-external-db-schemas-and-tuning.sh failed (non-fatal)."
   else
     info "ENFORCE_DB_TUNING=1 but enforce-external-db-schemas-and-tuning.sh not found; skip."
   fi
 fi
 
+step "Summary — container status"
 say "=== External infra status ==="
 docker compose ps zookeeper kafka redis minio $POSTGRES_SERVICES 2>/dev/null || true
 info "Next: ./scripts/ensure-external-databases-created.sh  then  ./scripts/setup-metallb-and-namespaces.sh  then deploy k8s (or run preflight)."
+say "✅ bring-up-external-infra finished (see steps above). Full order: docs/RUN_PIPELINE_ORDER.md"
 
 # ------------------------------------------------------------
 # Optional: auto-restore from backup directory (after infra healthy).

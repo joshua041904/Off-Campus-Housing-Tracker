@@ -1,11 +1,30 @@
 # Cron Jobs Service
 
-This Node.js service runs scheduled jobs for analytics snapshots and S3 backups. It does **not** run the platform test suite (preflight + 6 suites); that runs on the host or in CI.
+Housing **notification heartbeat** worker only: every **5 minutes** (UTC) it `POST`s to **`NOTIFICATION_HEARTBEAT_URL`** when that env var is set. If unset, the process stays up and logs a no-op message.
 
-## What this service does
+## Configuration
 
-- **Snapshot trends** (daily 03:15 UTC): Writes `analytics.price_snapshots` from recent auction data.
-- **Backup to S3** (daily 03:30 UTC): Uploads auctions payload to `s3://<bucket>/backups/auctions-<date>.json` when `S3_BUCKET` is set.
+| Variable | Required | Example |
+|----------|----------|---------|
+| **`NOTIFICATION_HEARTBEAT_URL`** | No (no-op if empty) | `http://notification-service.off-campus-housing-tracker.svc.cluster.local:4015/internal/cron/heartbeat` |
+
+## Run locally
+
+```bash
+pnpm install
+NOTIFICATION_HEARTBEAT_URL=http://127.0.0.1:4015/internal/cron/heartbeat pnpm start
+```
+
+## Legacy record-platform jobs
+
+Daily auction snapshot / S3 backup crons were **removed** from this package. Run those from a separate job or an older branch if you still need `listings.auctions` analytics.
+
+## Other docs
+
+- **Makefile / demo**: `docs/MAKE_DEMO.md`
+- **Daily pgbench / host cron**: sections below (unchanged host workflows)
+
+---
 
 ## Daily pgbench (all 8 DBs, standalone)
 

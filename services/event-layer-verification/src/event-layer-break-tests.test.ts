@@ -166,4 +166,36 @@ describe('Event-layer break tests (EVENT_LAYER_STABILITY.md)', () => {
       expect(producer.getProducedCount()).toBe(1)
     })
   })
+
+  describe('Idempotency — out-of-order delivery & duplicate event_id', () => {
+    const baseEnv = (): EventEnvelope => ({
+      event_id: '',
+      type: 'booking.created',
+      version: 1,
+      source: SOURCE,
+      entity_id: 'agg-same',
+      timestamp: new Date().toISOString(),
+      payload: Buffer.from('x'),
+    })
+
+    it('two distinct event_ids delivered in reverse order: both handled exactly once', () => {
+      const processedEvents = new MockProcessedEvents()
+      let handled = 0
+      const envLater = { ...baseEnv(), event_id: 'evt-b', timestamp: '2026-03-17T12:00:01Z' }
+      const envEarlier = { ...baseEnv(), event_id: 'evt-a', timestamp: '2026-03-17T12:00:00Z' }
+      consumeIdempotent(processedEvents, envLater, () => handled++)
+      consumeIdempotent(processedEvents, envEarlier, () => handled++)
+      expect(handled).toBe(2)
+      expect(processedEvents.getProcessedCount()).toBe(2)
+    })
+
+    it('duplicate deliveries (same event_id, any order): handler runs once', () => {
+      const processedEvents = new MockProcessedEvents()
+      let handled = 0
+      const env = { ...baseEnv(), event_id: 'evt-dup' }
+      expect(consumeIdempotent(processedEvents, env, () => handled++)).toBe(true)
+      expect(consumeIdempotent(processedEvents, env, () => handled++)).toBe(false)
+      expect(handled).toBe(1)
+    })
+  })
 })

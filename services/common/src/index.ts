@@ -3,6 +3,7 @@ export * from "./logger.js";
 export * from "./auth.js";
 export * from "./kafka.js";
 export * from "./redis.js";
+export * from "./redis-lua.js";
 export * from "./grpc-reflection.js";
 export * from "./grpc-clients.js";
 export * from "./proto.js";

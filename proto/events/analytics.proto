@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package events.analytics;
+
+option go_package = "github.com/yourorg/off-campus-housing-tracker/proto/events/analytics";
+
+// Payload types for topic ${ENV_PREFIX}.analytics.events (EventEnvelope.payload).
+// Use EventEnvelope from envelope.proto; partition key = entity_id (e.g. user_id or listing_id).
+
+message WatchlistActivityV1 {
+  string user_id = 1;
+  string listing_id = 2;
+  string action = 3;  // add | remove
+  string occurred_at = 4;
+}
+
+message DailyMetricsSnapshotV1 {
+  string date = 1;
+  int32 new_users = 2;
+  int32 new_listings = 3;
+  int32 new_bookings = 4;
+  int32 completed_bookings = 5;
+}
+
+message ListingInsightRequestedV1 {
+  string listing_id = 1;
+  string requested_by_user_id = 2;
+  string audience = 3;  // landlord | renter
+}

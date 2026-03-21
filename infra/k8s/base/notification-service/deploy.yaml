@@ -1,0 +1,152 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+  namespace: off-campus-housing-tracker
+  labels:
+    app: notification-service
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: notification-service
+  template:
+    metadata:
+      labels:
+        app: notification-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "4015"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: app
+          image: notification-service:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 4015
+            - name: grpc
+              containerPort: 50065
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+          env:
+            - name: NODE_ENV
+              value: "development"
+            - name: HTTP_PORT
+              value: "4015"
+            - name: GRPC_PORT
+              value: "50065"
+            - name: POSTGRES_URL_NOTIFICATION
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: POSTGRES_URL_NOTIFICATION
+            - name: GRPC_REQUIRE_CLIENT_CERT
+              value: "true"
+            - name: TLS_CA_PATH
+              value: "/etc/certs/ca.crt"
+            - name: TLS_CERT_PATH
+              value: "/etc/certs/tls.crt"
+            - name: TLS_KEY_PATH
+              value: "/etc/certs/tls.key"
+            - name: KAFKA_USE_SSL
+              value: "true"
+            - name: KAFKA_SSL_ENABLED
+              value: "true"
+            - name: KAFKA_CA_CERT
+              value: "/etc/kafka/secrets/ca-cert.pem"
+            - name: KAFKA_CLIENT_CERT
+              value: "/etc/kafka/secrets/tls.crt"
+            - name: KAFKA_CLIENT_KEY
+              value: "/etc/kafka/secrets/tls.key"
+          volumeMounts:
+            - name: service-tls
+              mountPath: /etc/certs
+              readOnly: true
+            - name: kafka-ssl
+              mountPath: /etc/kafka/secrets
+              readOnly: true
+          startupProbe:
+            exec:
+              command:
+                - /usr/local/bin/grpc-health-probe
+                - -addr=localhost:50065
+                - -service=notification.NotificationService
+                - -tls
+                - -tls-ca-cert=/etc/certs/ca.crt
+                - -tls-client-cert=/etc/certs/tls.crt
+                - -tls-client-key=/etc/certs/tls.key
+                - -tls-server-name=off-campus-housing.local
+                - -connect-timeout=10s
+                - -rpc-timeout=5s
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 18
+          readinessProbe:
+            exec:
+              command:
+                - /usr/local/bin/grpc-health-probe
+                - -addr=localhost:50065
+                - -service=notification.NotificationService
+                - -tls
+                - -tls-ca-cert=/etc/certs/ca.crt
+                - -tls-client-cert=/etc/certs/tls.crt
+                - -tls-client-key=/etc/certs/tls.key
+                - -tls-server-name=off-campus-housing.local
+                - -connect-timeout=10s
+                - -rpc-timeout=5s
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 10
+          livenessProbe:
+            exec:
+              command:
+                - /usr/local/bin/grpc-health-probe
+                - -addr=localhost:50065
+                - -service=notification.NotificationService
+                - -tls
+                - -tls-ca-cert=/etc/certs/ca.crt
+                - -tls-client-cert=/etc/certs/tls.crt
+                - -tls-client-key=/etc/certs/tls.key
+                - -tls-server-name=off-campus-housing.local
+                - -connect-timeout=10s
+                - -rpc-timeout=5s
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 10
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "384Mi"
+      volumes:
+        - name: service-tls
+          secret:
+            secretName: och-service-tls
+            items:
+              - key: tls.key
+                path: tls.key
+              - key: tls.crt
+                path: tls.crt
+              - key: ca.crt
+                path: ca.crt
+        - name: kafka-ssl
+          secret:
+            secretName: och-kafka-ssl-secret
+            optional: true
+            items:
+              - key: ca-cert.pem
+                path: ca-cert.pem
+              - key: client.crt
+                path: tls.crt
+              - key: client.key
+                path: tls.key

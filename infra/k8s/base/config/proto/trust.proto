@@ -4,11 +4,12 @@ package trust;
 
 option go_package = "github.com/yourorg/off-campus-housing-tracker/proto/trust";
 
-// Trust service – flags, reviews, reputation. No DB internals or scoring algorithm exposed.
-// Emits: listing.flagged, user.warned, user.suspended, review.created, reputation.updated.
+// Trust service – flags, reviews, reputation, abuse reports, peer reviews (both sides).
 service TrustService {
   rpc FlagListing(FlagListingRequest) returns (FlagResponse);
+  rpc ReportAbuse(ReportAbuseRequest) returns (FlagResponse);
   rpc SubmitReview(SubmitReviewRequest) returns (ReviewResponse);
+  rpc SubmitPeerReview(SubmitPeerReviewRequest) returns (ReviewResponse);
   rpc GetReputation(GetReputationRequest) returns (ReputationResponse);
 }
 
@@ -16,6 +17,15 @@ message FlagListingRequest {
   string listing_id = 1;
   string reporter_id = 2;
   string reason = 3;
+}
+
+// Unified abuse report: target is a listing or a user (profile, messages handled upstream by target_id).
+message ReportAbuseRequest {
+  string abuse_target_type = 1; // "listing" | "user"
+  string target_id = 2;
+  string reporter_id = 3;
+  string category = 4;
+  string details = 5;
 }
 
 message FlagResponse {
@@ -28,6 +38,18 @@ message SubmitReviewRequest {
   string reviewer_id = 2;
   int32 rating = 3;
   string comment = 4;
+  // When set, review targets this user (landlord↔tenant peer review).
+  string reviewee_id = 5;
+}
+
+// Explicit two-sided review after a booking (tenant rates landlord or landlord rates tenant).
+message SubmitPeerReviewRequest {
+  string booking_id = 1;
+  string reviewer_id = 2;
+  string reviewee_id = 3;
+  string side = 4; // "tenant_rates_landlord" | "landlord_rates_tenant" (audit / UX)
+  int32 rating = 5;
+  string comment = 6;
 }
 
 message ReviewResponse {

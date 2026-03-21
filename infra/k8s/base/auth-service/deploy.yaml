@@ -14,7 +14,7 @@ spec:
       labels: { app: auth-service }
       annotations:
         prometheus.io/scrape: "true"
-        prometheus.io/port: "4001"
+        prometheus.io/port: "4011"
         prometheus.io/path: "/metrics"
         linkerd.io/inject: disabled  # Disable sidecar: strict local gRPC health probes must reach app directly
     spec:

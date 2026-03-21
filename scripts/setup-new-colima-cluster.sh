@@ -29,7 +29,14 @@ say() { printf "\n\033[1m%s\033[0m\n" "$*"; }
 ok() { echo "✅ $*"; }
 warn() { echo "⚠️  $*"; }
 
-say "Step 1: Start Colima (${CPU} CPU, ${MEMORY} GiB RAM, ${DISK} GiB disk) with k3s and --network-address (bridged)"
+TOTAL_STEPS="${TOTAL_STEPS:-6}"
+step() {
+  local n="$1"
+  shift
+  say "Step ${n}/${TOTAL_STEPS}: $*"
+}
+
+step 1 "Start Colima (${CPU} CPU, ${MEMORY} GiB RAM, ${DISK} GiB disk) with k3s and --network-address (bridged)"
 if colima status 2>/dev/null | grep -q "Running"; then
   ok "Colima already running"
 else
@@ -56,7 +63,7 @@ if [[ -f "$HOME/.kube/config" ]]; then
   fi
 fi
 
-say "Step 3: Create namespaces (ingress-nginx, envoy-test, off-campus-housing-tracker)"
+step 3 "Create namespaces (ingress-nginx, envoy-test, off-campus-housing-tracker)"
 for ns in ingress-nginx envoy-test off-campus-housing-tracker; do
   if kubectl get namespace "$ns" --request-timeout=5s >/dev/null 2>&1; then
     ok "Namespace $ns already exists"
@@ -69,7 +76,7 @@ done
 if [[ "${SKIP_METALLB:-0}" == "1" ]]; then
   say "Skipping MetalLB (SKIP_METALLB=1). To install later: METALLB_POOL=$METALLB_POOL ./scripts/install-metallb-colima.sh"
 else
-  say "Step 4: Install MetalLB (pool $METALLB_POOL)"
+  step 4 "Install MetalLB (auto pool or METALLB_POOL=$METALLB_POOL)"
   if [[ -x "$SCRIPT_DIR/install-metallb-colima.sh" ]]; then
     "$SCRIPT_DIR/install-metallb-colima.sh"
     ok "MetalLB installed (pool $METALLB_POOL)"
@@ -77,7 +84,7 @@ else
     warn "install-metallb-colima.sh not found; run: METALLB_POOL=$METALLB_POOL ./scripts/install-metallb-colima.sh"
   fi
 
-  say "Step 5: Verify MetalLB (pods + optional full verify)"
+  step 5 "Verify MetalLB (pods + optional full verify)"
   if kubectl get ns metallb-system --request-timeout=5s &>/dev/null; then
     kubectl -n metallb-system get pods --request-timeout=10s 2>/dev/null || true
     if [[ -x "$SCRIPT_DIR/verify-metallb-and-traffic-policy.sh" ]] && [[ "${SKIP_METALLB_VERIFY:-0}" != "1" ]]; then
@@ -90,4 +97,7 @@ else
   fi
 fi
 
-say "Done. Next: bring up DBs (./scripts/bring-up-external-infra.sh), build and load auth-service (./scripts/build-and-load-auth-service.sh), then deploy."
+step 6 "Cluster bootstrap complete"
+say "✅ Done (steps 1–${TOTAL_STEPS}/${TOTAL_STEPS}). MetalLB pool: see install-metallb-colima output or: kubectl -n metallb-system get ipaddresspool -o wide"
+say "Next (manual pieces): ./scripts/bring-up-external-infra.sh → ./scripts/build-housing-images-k3s.sh → ./scripts/deploy-dev.sh"
+say "One-shot (idiot-proof): ./scripts/setup-full-off-campus-housing-stack.sh — see docs/RUN_PIPELINE_ORDER.md"

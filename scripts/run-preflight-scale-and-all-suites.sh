@@ -32,7 +32,9 @@ fi
 #   PREFLIGHT_APP_SCOPE=full|core — which Deployments to scale and wait for (default full).
 #     core = auth-service api-gateway messaging-service media-service (finishes without listings/booking/trust/analytics).
 #     Override exact list: PREFLIGHT_APP_DEPLOYS="auth-service api-gateway messaging-service"
-#   RUN_MESSAGING_LOAD=1 (default) — after Vitest + housing + comprehensive scripts, run short k6 on messaging (+ media health) if k6 is installed.
+#   RUN_MESSAGING_LOAD=1 (default) — after Vitest + housing scripts, run k6 edge smoke grid (run-housing-k6-edge-smoke.sh) if k6 is installed.
+#   RUN_K6_SERVICE_GRID=0 — skip the full k6 per-service smoke (gateway, auth, listings, booking health, trust, analytics, messaging, media, event-layer + booking/search JWT).
+#   RUN_PREFLIGHT_PLAYWRIGHT=0 — skip Playwright E2E (webapp) with api-gateway port-forward.
 #     Set RUN_MESSAGING_LOAD=0 to skip. Tune: K6_MESSAGING_DURATION, K6_MESSAGING_RATE, K6_MESSAGING_VUS, K6_MEDIA_*.
 #   Preflight does not apply DB migrations or infra/db/*.sql; run scripts/setup-*-db.sh or scripts/ensure-*.sh manually when schema changes.
 #   CAPTURE_STOP_TIMEOUT=30 (default when running suites) — bounds packet capture stop phase so it never blocks; set higher for full pcap copy/analyze.
@@ -81,6 +83,8 @@ fi
 #   1     Context: Colima or k3d; merge kubeconfig, guardrail no Kind. Then trim completed pods (1), preflight kubeconfig (2).
 #   2     2a–2d: Kubeconfig fix, ensure single cluster, API reachability check.
 #   3     Ensure API server ready (ensure-api-server-ready.sh; k3d ENSURE_CAP=180, Colima 480). Phase 0/1A/1B/D gates.
+#   3a0   Auto housing secrets: ensure-housing-cluster-secrets.sh (service-tls/dev-root-ca, och-service-tls alias,
+#         och-kafka-ssl-secret). On by default; PREFLIGHT_AUTO_ENSURE_CLUSTER_SECRETS=0 or SKIP_AUTO_CLUSTER_SECRETS=1 to skip.
 #   3a    Reissue CA + leaf (secrets), Kafka SSL, remove in-cluster DB/Kafka. Phase 1B write lock.
 #   3b    3b1–3b4: Re-ensure API, Caddy strict TLS verify, scale to baseline, pod/DB/Redis/TLS checks. 3b4: no SQL applied (run ensure-* or setup-* manually).
 #   3c    Colima+MetalLB: 3c1-early installs MetalLB before 3a (reissue) so webhook is ready while API is calm. 3c0: k3d node restart (optional). 3c0b: API stabilize. 3c1: MetalLB install (skipped on Colima if 3c1-early succeeded). 3c1a: FRR BGP. 3c2: Caddy deploy + service. 3c1b: MetalLB verify (VERIFY_MODE=stable). 3c1c: optional Colima-only L2/BGP (METALLB_VERIFY_COLIMA_L2=1). Colima pool default: METALLB_POOL=192.168.64.240-192.168.64.250 so host can reach LB IP.
@@ -143,7 +147,7 @@ METALLB_ENABLED="${METALLB_ENABLED:-0}"
 APPLY_RATE_LIMIT_SLEEP="${APPLY_RATE_LIMIT_SLEEP:-2}"
 # App deployment scope for scale + wait-for-ready + image checks (see header).
 PREFLIGHT_APP_SCOPE="${PREFLIGHT_APP_SCOPE:-full}"
-APP_DEPLOYS_FULL="auth-service api-gateway listings-service booking-service messaging-service trust-service analytics-service media-service"
+APP_DEPLOYS_FULL="auth-service api-gateway listings-service booking-service messaging-service trust-service analytics-service media-service notification-service"
 APP_DEPLOYS_CORE="auth-service api-gateway messaging-service media-service"
 if [[ -n "${PREFLIGHT_APP_DEPLOYS:-}" ]]; then
   :
@@ -751,6 +755,20 @@ if [[ $_phase1a_ok -eq 0 ]]; then
 fi
 echo "[PHASE 1A] READ OK"
 ok "Phase 1A read-only OK"
+
+# 3a0. TLS + Kafka secrets expected by manifests (service-tls → och-service-tls, kafka-ssl → och-kafka-ssl-secret).
+# Runs before reissue so fresh clusters get a bundle from repo/mkcert + aliases without manual kubectl.
+PREFLIGHT_AUTO_ENSURE_CLUSTER_SECRETS="${PREFLIGHT_AUTO_ENSURE_CLUSTER_SECRETS:-1}"
+if [[ "${PREFLIGHT_AUTO_ENSURE_CLUSTER_SECRETS}" == "1" ]] && [[ "${SKIP_AUTO_CLUSTER_SECRETS:-0}" != "1" ]] && [[ -f "$SCRIPT_DIR/ensure-housing-cluster-secrets.sh" ]]; then
+  _phase_start "3a0_ensure_cluster_secrets"
+  say "3a0. Ensuring housing TLS + Kafka client secrets (if missing)…"
+  chmod +x "$SCRIPT_DIR/ensure-housing-cluster-secrets.sh" 2>/dev/null || true
+  if HOUSING_NS="${HOUSING_NS:-off-campus-housing-tracker}" FORCE_TLS_RESTART=0 "$SCRIPT_DIR/ensure-housing-cluster-secrets.sh"; then
+    ok "3a0 cluster secrets pass"
+  else
+    warn "3a0 had issues — continue (reissue / 3b Kafka may still fix)"
+  fi
+fi
 
 # 3b0. k3d only: wait for all expected nodes to be Ready (2-node cluster). Ensures cluster is fully ready before reissue/MetalLB/applies.
 # PREFLIGHT_K3D_EXPECTED_NODES=2 (default), PREFLIGHT_K3D_NODES_READY_WAIT=120 (max seconds). Set NODES_READY_WAIT=0 to skip.
@@ -2070,39 +2088,44 @@ _run_all_suites() {
     _lb=$(kubectl -n ingress-nginx get svc caddy-h3 -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
     [[ -n "$_lb" ]] && export TARGET_IP="$_lb" && export REACHABLE_LB_IP="$_lb" && export USE_LB_FOR_TESTS=1 && export CAPTURE_V2_LB_IP="$_lb"
   fi
+  say "7a0. Verifying required Deployments (housing + envoy + caddy; listings/trust/analytics must exist for full stack)…"
+  chmod +x "$SCRIPT_DIR/verify-required-housing-pods.sh" 2>/dev/null || true
+  HOUSING_NS="${HOUSING_NS:-off-campus-housing-tracker}" PREFLIGHT_APP_DEPLOYS="${PREFLIGHT_APP_DEPLOYS:-}" \
+    "$SCRIPT_DIR/verify-required-housing-pods.sh" || return 1
+  say "7a0b. Event-layer verification (outbox / idempotency contract)…"
+  pnpm -C "$REPO_ROOT/services/event-layer-verification" test || return 1
   say "7a. Running service Vitest suites (messaging-service + media-service tests/)..."
   pnpm -C "$REPO_ROOT/services/messaging-service" test || return 1
   pnpm -C "$REPO_ROOT/services/media-service" test || return 1
   "$SCRIPT_DIR/test-microservices-http2-http3-housing.sh" || return 1
-  "$SCRIPT_DIR/test-social-service-comprehensive.sh" || return 1
-  # Short k6 smoke on messaging + media health (strict TLS) when k6 is available.
-  if [[ "${RUN_MESSAGING_LOAD:-1}" != "0" ]] && command -v k6 >/dev/null 2>&1; then
+  "$SCRIPT_DIR/test-messaging-service-comprehensive.sh" || return 1
+  # k6: full per-service edge grid (health + public + messaging + media + event-layer + booking/search JWT flows).
+  if [[ "${RUN_MESSAGING_LOAD:-1}" != "0" ]] && [[ "${RUN_K6_SERVICE_GRID:-1}" != "0" ]] && command -v k6 >/dev/null 2>&1; then
     _k6_lb="$(kubectl -n ingress-nginx get svc caddy-h3 -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
     [[ -z "$_k6_lb" ]] && _k6_lb="${TARGET_IP:-${REACHABLE_LB_IP:-}}"
     _k6_ca="$REPO_ROOT/certs/dev-root.pem"
     [[ ! -f "$_k6_ca" ]] && _k6_ca="${K6_CA_CERT:-}"
     if [[ -n "$_k6_lb" ]] && [[ -f "$_k6_ca" ]]; then
-      say "7a3. k6 load: messaging + media health (edge, strict TLS)..."
+      say "7a3–7a7. k6 per-service edge smoke (run-housing-k6-edge-smoke.sh)…"
       export SSL_CERT_FILE="$_k6_ca"
       export BASE_URL="${BASE_URL:-https://off-campus-housing.local}"
       export K6_RESOLVE="${K6_RESOLVE:-off-campus-housing.local:443:$_k6_lb}"
-      K6_INSECURE_SKIP_TLS=0 DURATION="${K6_MESSAGING_DURATION:-45s}" RATE="${K6_MESSAGING_RATE:-35}" VUS="${K6_MESSAGING_VUS:-12}" \
-        k6 run "$REPO_ROOT/scripts/load/k6-messaging.js" || warn "k6-messaging.js reported failures (see log above)"
-      K6_INSECURE_SKIP_TLS=0 DURATION="${K6_MEDIA_DURATION:-30s}" RATE="${K6_MEDIA_RATE:-20}" VUS="${K6_MEDIA_VUS:-8}" \
-        k6 run "$REPO_ROOT/scripts/load/k6-media-health.js" || warn "k6-media-health.js reported failures (non-fatal)"
-      say "7a4. k6 load: booking search-history + watchlist (edge via MetalLB)..."
-      K6_INSECURE_SKIP_TLS=1 VUS="${K6_BOOKING_VUS:-3}" DURATION="${K6_BOOKING_DURATION:-20s}" \
-        k6 run -e BASE_URL="https://$_k6_lb" -e HOST="off-campus-housing.local" -e RESOLVE_IP=1 \
-        "$REPO_ROOT/scripts/load/k6-booking.js" || warn "k6-booking.js reported failures (non-fatal)"
-      say "7a5. k6 load: search-history + watchlist (expanded iteration mix)..."
-      K6_INSECURE_SKIP_TLS=1 VUS="${K6_SEARCH_VUS:-6}" DURATION="${K6_SEARCH_DURATION:-30s}" \
-        k6 run -e BASE_URL="https://$_k6_lb" -e HOST="off-campus-housing.local" -e RESOLVE_IP=1 \
-        "$REPO_ROOT/scripts/load/k6-search-watchlist.js" || warn "k6-search-watchlist.js reported failures (non-fatal)"
+      export K6_LB_IP="$_k6_lb"
+      chmod +x "$SCRIPT_DIR/run-housing-k6-edge-smoke.sh" 2>/dev/null || true
+      K6_SMOKE_DURATION="${K6_SMOKE_DURATION:-${K6_MESSAGING_DURATION:-28s}}" K6_SMOKE_VUS="${K6_SMOKE_VUS:-${K6_MESSAGING_VUS:-6}}" \
+        K6_BOOKING_DURATION="${K6_BOOKING_DURATION:-25s}" K6_BOOKING_VUS="${K6_BOOKING_VUS:-3}" \
+        K6_SEARCH_DURATION="${K6_SEARCH_DURATION:-28s}" K6_SEARCH_VUS="${K6_SEARCH_VUS:-6}" \
+        "$SCRIPT_DIR/run-housing-k6-edge-smoke.sh" || warn "k6 edge smoke had failures (non-fatal unless K6_GRID_STRICT=1)"
     else
-      warn "7a3 k6 skipped: need reachable LB IP (got '${_k6_lb:-empty}') and CA at certs/dev-root.pem"
+      warn "7a3 k6 grid skipped: need reachable LB IP (got '${_k6_lb:-empty}') and CA at certs/dev-root.pem"
     fi
-  elif [[ "${RUN_MESSAGING_LOAD:-1}" != "0" ]]; then
-    info "7a3 k6 skipped: k6 not on PATH (install: brew install k6 or ./scripts/build-k6-http3.sh; or RUN_MESSAGING_LOAD=0)"
+  elif [[ "${RUN_MESSAGING_LOAD:-1}" != "0" ]] && [[ "${RUN_K6_SERVICE_GRID:-1}" != "0" ]]; then
+    info "7a3 k6 skipped: k6 not on PATH (install: brew install k6; or RUN_MESSAGING_LOAD=0 / RUN_K6_SERVICE_GRID=0)"
+  fi
+  if [[ "${RUN_PREFLIGHT_PLAYWRIGHT:-1}" != "0" ]]; then
+    say "7a8. Playwright E2E (webapp + api-gateway port-forward)…"
+    chmod +x "$SCRIPT_DIR/run-playwright-e2e-preflight.sh" 2>/dev/null || true
+    HOUSING_NS="${HOUSING_NS:-off-campus-housing-tracker}" "$SCRIPT_DIR/run-playwright-e2e-preflight.sh" || warn "Playwright E2E had failures (see log; set RUN_PREFLIGHT_PLAYWRIGHT=0 to skip)"
   fi
 }
 if ! _run_all_suites; then

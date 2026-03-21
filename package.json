@@ -25,7 +25,16 @@
     "kafka-ssl": "bash scripts/kafka-ssl-from-dev-root.sh",
     "verify-tls": "bash scripts/verify-caddy-strict-tls.sh",
     "preflight-and-suites": "bash scripts/run-preflight-scale-and-all-suites.sh",
-    "test:webapp:e2e": "pnpm --filter webapp test:e2e"
+    "setup:full-stack": "bash scripts/setup-full-off-campus-housing-stack.sh",
+    "make:help": "make help",
+    "demo": "make demo",
+    "demo:network": "make demo-network",
+    "test:event-layer": "bash scripts/run-event-layer-verification.sh",
+    "test:e2e:preflight": "bash scripts/run-playwright-e2e-preflight.sh",
+    "test:e2e:integrated": "bash scripts/run-playwright-e2e-preflight.sh",
+    "bench:redis-lua": "bash scripts/benchmark-redis-lua-vs-plain.sh",
+    "test:webapp:e2e": "pnpm --filter webapp test:e2e",
+    "test:housing-wiring": "bash scripts/test-housing-stack-wiring.sh"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

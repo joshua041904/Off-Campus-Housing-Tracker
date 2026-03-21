@@ -133,6 +133,21 @@ else
   ok "kafka-ssl-secret created/updated"
 fi
 
+say "4b. Creating och-kafka-ssl-secret (same client material; Deployments mount och-kafka-ssl-secret)…"
+_och_kafka_yaml="${TMP}/och-kafka-ssl-secret.yaml"
+kubectl create secret generic och-kafka-ssl-secret -n "$NS" \
+  --from-file=ca-cert.pem="$OUT/ca-cert.pem" \
+  --from-file=client.crt="$OUT/client.crt" \
+  --from-file=client.key="$OUT/client.key" \
+  --dry-run=client -o yaml >"$_och_kafka_yaml"
+if kubectl apply -f "$_och_kafka_yaml" --request-timeout=20s 2>/dev/null; then
+  ok "och-kafka-ssl-secret created/updated"
+elif [[ "$ctx" == *"colima"* ]] && command -v colima >/dev/null 2>&1 && [[ -f "$_och_kafka_yaml" ]]; then
+  colima ssh -- env KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f "$_och_kafka_yaml" --request-timeout=20s 2>/dev/null && ok "och-kafka-ssl-secret (via colima ssh)" || warn "och-kafka-ssl-secret apply failed"
+else
+  warn "och-kafka-ssl-secret apply failed"
+fi
+
 say "=== Kafka SSL (dev-root-ca) done ==="
 echo "  Keystore/truststore: $OUT. Docker Kafka: mount $OUT, use SSL listener 9093."
 echo "  Clients (Node/KafkaJS): KAFKA_CA_CERT, KAFKA_CLIENT_CERT, KAFKA_CLIENT_KEY from kafka-ssl-secret (ca-cert.pem, client.crt, client.key)."

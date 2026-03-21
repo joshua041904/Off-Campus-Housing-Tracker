@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Optional packet capture: ./scripts/run-suite-with-packet-capture.sh "$0" "$@"
 set -euo pipefail
 
 NS="off-campus-housing-tracker"
