@@ -4,7 +4,7 @@ The repo root **`Makefile`** wraps the same bash scripts used in CI and docs. Ru
 
 ## Prerequisites
 
-- **kubectl** context pointing at your cluster (Colima k3s or k3d).
+- **kubectl** context pointing at **Colima + k3s** for `make demo` / `make demo-network` / `make demo-full` (these set **`REQUIRE_COLIMA=1`** and **`METALLB_USE_K3D=0`**). Use **`make demo-k3d`** only if you intentionally use k3d.
 - **Docker** / **Colima** for image builds (`make images`).
 - **kustomize**, **pnpm**, **bash**.
 
@@ -12,8 +12,8 @@ The repo root **`Makefile`** wraps the same bash scripts used in CI and docs. Ru
 
 | Target | What it does |
 |--------|----------------|
-| **`make demo`** | Runs **`scripts/setup-full-off-campus-housing-stack.sh`** with **`RUN_PREFLIGHT=1`**, **`METALLB_ENABLED=1`**, **`K6_USE_METALLB=1`**, **`RUN_PGBENCH=0`**, **`RUN_FULL_LOAD=0`**. Brings up Colima (unless skipped), external infra, certs, DBs, Kafka topics, builds/loads images, deploys, ensures secrets, runs event-layer checks, then **full preflight + all test suites** with traffic aimed at the **MetalLB** IP when Caddy is `LoadBalancer`. |
-| **`make demo-full`** | Same stack path but **`RUN_FULL_LOAD=1`** (and pgbench on) — long run; use when you need the full control-plane grid. |
+| **`make demo`** | **Colima + k3s** (`REQUIRE_COLIMA=1`, no k3d). Stack + preflight with **`METALLB_ENABLED=1`**, **`K6_USE_METALLB=1`**, **`RUN_PGBENCH=0`**, **`RUN_FULL_LOAD=0`**, **`PREFLIGHT_EXIT_AFTER_HOUSING_SUITES=1`**: stops after step **7a** (housing **`test-microservices-http2-http3-housing.sh`**, k6 edge grid, **Playwright** via **`run-playwright-e2e-preflight.sh`**). Does **not** run transport study / extended pgbench unless you unset that flag. |
+| **`make demo-full`** | Same Colima path but **`PREFLIGHT_EXIT_AFTER_HOUSING_SUITES=0`** and **`RUN_FULL_LOAD=1`** — continues preflight after 7a (transport study, in-cluster k6 when enabled, pgbench when **`RUN_PGBENCH=1`**). |
 | **`make demo-network`** | Runs **`scripts/run-demo-network-preflight.sh`**: sets **`SSLKEYLOGFILE`** + **`CAPTURE_V2_TLS_KEYLOG`**, **`STRICT_QUIC_VALIDATION=1`**, MetalLB + k6 LB defaults, runs **`run-preflight-scale-and-all-suites.sh`**, then (by default) **`test-packet-capture-standalone.sh`** when **`TARGET_IP`** is available. See **`scripts/lib/COHERENT_ANALYSIS.md`** for pcap → summary pipelines. |
 | **`make stack`** | Full setup **without** preflight (faster iteration after the first demo). |
 | **`make demo-k3d`** | Like **`make demo`** but **`SKIP_COLIMA=1`**, **`METALLB_USE_K3D=1`**, **`REQUIRE_COLIMA=0`** — use when your context is **k3d**, not Colima. |

@@ -29,6 +29,7 @@
     "make:help": "make help",
     "demo": "make demo",
     "demo:network": "make demo-network",
+    "demo:full": "make demo-full",
     "test:event-layer": "bash scripts/run-event-layer-verification.sh",
     "test:e2e:preflight": "bash scripts/run-playwright-e2e-preflight.sh",
     "test:e2e:integrated": "bash scripts/run-playwright-e2e-preflight.sh",

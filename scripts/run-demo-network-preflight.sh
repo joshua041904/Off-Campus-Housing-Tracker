@@ -34,6 +34,9 @@ export SSLKEYLOGFILE="${SSLKEYLOGFILE:-$REPO_ROOT/bench_logs/sslkeylog-$(date +%
 chmod 600 "$SSLKEYLOGFILE" 2>/dev/null || true
 export CAPTURE_V2_TLS_KEYLOG="${CAPTURE_V2_TLS_KEYLOG:-$SSLKEYLOGFILE}"
 
+# Colima + k3s is the supported local path for this demo (not k3d).
+export REQUIRE_COLIMA="${REQUIRE_COLIMA:-1}"
+export METALLB_USE_K3D="${METALLB_USE_K3D:-0}"
 export METALLB_ENABLED="${METALLB_ENABLED:-1}"
 export K6_USE_METALLB="${K6_USE_METALLB:-1}"
 export HOST="${HOST:-off-campus-housing.local}"

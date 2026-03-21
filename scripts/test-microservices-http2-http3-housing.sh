@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Housing-only: HTTP/2 + HTTP/3 smoke for auth (two users) and messaging.
 # Replaces RP-specific test-microservices-http2-http3.sh for off-campus-housing-tracker.
-# Booking: at end (Test 19), runs test-booking-http2-http3.sh (MetalLB HTTP/2+HTTP/3 + edge grpcurl) unless SKIP_BOOKING_IN_HOUSING_SUITE=1.
+# Test 17: listings edge suite (test-listings-http2-http3.sh) when TARGET_IP/MetalLB set; SKIP_LISTINGS_PROTOCOL_SUITE=1 to skip.
+# Test 18: booking (test-booking-http2-http3.sh) unless SKIP_BOOKING_IN_HOUSING_SUITE=1.
+# Tests 10–16: auth logout/delete, all-service HTTP/3 health (incl. notification), gRPC health (incl. notification :50065), latency CSV/SVG.
 # - Auth: register + login (User 1 and User 2) via HTTP/2 and HTTP/3.
 # - Health: Caddy, api-gateway (HTTP/2 and HTTP/3 where supported).
 # - Messaging: run messaging-service integration tests (DB + rate limit + spam).
@@ -1216,9 +1218,9 @@ else
   warn "Skipping get post attachments - Forum post ID not available"
 fi
 
-# Test 14: Auth Service - Logout (HTTP/3 first, then HTTP/2)
+# Test 10–11: Auth logout (HTTP/3 then HTTP/2)
 if [[ -n "${TOKEN:-}" ]] && type strict_http3_curl &>/dev/null && [[ -n "${HTTP3_RESOLVE:-}" ]]; then
-  say "Test 14b: Auth Service - Logout via HTTP/3"
+  say "Test 10: Auth Service - Logout via HTTP/3"
   LOGOUT_H3_RC=0
   LOGOUT_H3_RESPONSE=$(strict_http3_curl -sS -w "\n%{http_code}" --http3-only --max-time 30 \
     -H "Host: $HOST" \
@@ -1236,7 +1238,7 @@ if [[ -n "${TOKEN:-}" ]] && type strict_http3_curl &>/dev/null && [[ -n "${HTTP3
 fi
 
 if [[ -n "${TOKEN:-}" ]]; then
-  say "Test 14: Auth Service - Logout via HTTP/2"
+  say "Test 11: Auth Service - Logout via HTTP/2"
   LOGOUT_RC=0
   LOGOUT_RESPONSE=$(strict_curl -sS -w "\n%{http_code}" --http2 --max-time 30 \
     --resolve "$HOST:${PORT}:${CURL_RESOLVE_IP}" \
@@ -1255,8 +1257,8 @@ else
   warn "Skipping logout test - no auth token available"
 fi
 
-# Test 15: Auth Service - Delete Account via HTTP/2
-say "Test 15: Auth Service - Delete Account via HTTP/2"
+# Test 12: Auth Service - Delete Account via HTTP/2
+say "Test 12: Auth Service - Delete Account via HTTP/2"
 DELETE_TEST_EMAIL="delete-test-$(date +%s)@example.com"
 DELETE_TEST_PASSWORD="test123"
 DELETE_REGISTER_RESPONSE=$(strict_curl -sS -w "\n%{http_code}" --http2 --max-time 30 \
@@ -1342,20 +1344,21 @@ if type strict_http3_curl &>/dev/null && [[ -n "${HTTP3_RESOLVE:-}" ]]; then
       fi
     fi
   else
-    info "Test 15b skipped (HTTP/3 register got ${DEL_H3_REG_CODE:-000})"
+    info "Test 13 skipped (HTTP/3 register got ${DEL_H3_REG_CODE:-000})"
   fi
 else
-  info "Test 15b skipped (HTTP/3 not available)"
+  info "Test 13 skipped (HTTP/3 not available)"
 fi
 
-# Test 16: HTTP/3 health checks for all OCH services
+# Test 14: HTTP/3 health checks for all OCH services (incl. notification)
 if type strict_http3_curl &>/dev/null && [[ -n "${HTTP3_RESOLVE:-}" ]]; then
-  say "Test 16: Service Health Checks via HTTP/3"
+  say "Test 14: Service Health Checks via HTTP/3"
   for route in \
     "/auth/healthz:Auth Service" \
     "/api/listings/healthz:Listings Service" \
     "/api/booking/healthz:Booking Service" \
     "/api/messaging/healthz:Messaging Service" \
+    "/api/notification/healthz:Notification Service" \
     "/api/trust/healthz:Trust Service" \
     "/api/analytics/healthz:Analytics Service" \
     "/api/media/healthz:Media Service" \
@@ -1375,13 +1378,14 @@ if type strict_http3_curl &>/dev/null && [[ -n "${HTTP3_RESOLVE:-}" ]]; then
   done
 fi
 
-# Test 17: gRPC health checks for OCH services
-say "Test 17: gRPC Health Checks"
+# Test 15: gRPC health checks for OCH services (incl. notification :50065)
+say "Test 15: gRPC Health Checks"
 if command -v grpcurl >/dev/null 2>&1; then
   grpc_test "auth-service" "auth-service" "50061"
   grpc_test "listings-service" "listings-service" "50062"
   grpc_test "booking-service" "booking-service" "50063"
   grpc_test "messaging-service" "messaging-service" "50064"
+  grpc_test "notification-service" "notification-service" "50065"
   grpc_test "trust-service" "trust-service" "50066"
   grpc_test "analytics-service" "analytics-service" "50067"
   grpc_test "media-service" "media-service" "50068"
@@ -1389,13 +1393,14 @@ else
   warn "grpcurl not installed - skipping gRPC health checks"
 fi
 
-# Test 18: Per-service latency probe (HTTP/2 and HTTP/3 health endpoints)
-say "Test 18: Per-service latency probe (HTTP/2 + HTTP/3)"
+# Test 16: Per-service latency probe (HTTP/2 and HTTP/3 health endpoints)
+say "Test 16: Per-service latency probe (HTTP/2 + HTTP/3)"
 for route in \
   "/auth/healthz:auth" \
   "/api/listings/healthz:listings" \
   "/api/booking/healthz:booking" \
   "/api/messaging/healthz:messaging" \
+  "/api/notification/healthz:notification" \
   "/api/trust/healthz:trust" \
   "/api/analytics/healthz:analytics" \
   "/api/media/healthz:media" \
@@ -1420,16 +1425,25 @@ ok "Latency artifacts: $LATENCY_CSV and $LATENCY_SVG"
 
 set -e
 
-# Booking: HTTP/2 + HTTP/3 + edge gRPC (MetalLB) — single entry from preflight via this suite unless skipped
+# Listings: dedicated H2/H3 + gRPC health (requires MetalLB IP — same as edge tests)
+if [[ "${SKIP_LISTINGS_PROTOCOL_SUITE:-0}" != "1" ]] && [[ -n "${TARGET_IP:-}" ]] && [[ -x "$SCRIPT_DIR/test-listings-http2-http3.sh" ]]; then
+  say "Test 17: Listings protocol suite (test-listings-http2-http3.sh)"
+  export TARGET_IP CA_CERT HOST
+  "$SCRIPT_DIR/test-listings-http2-http3.sh" || warn "Listings protocol suite failed (non-fatal for housing aggregate)"
+elif [[ "${SKIP_LISTINGS_PROTOCOL_SUITE:-0}" != "1" ]] && [[ -z "${TARGET_IP:-}" ]]; then
+  info "Test 17 skipped: test-listings-http2-http3.sh needs MetalLB TARGET_IP"
+fi
+
+# Booking: HTTP/2 + HTTP/3 + edge gRPC (MetalLB) — preflight runs this suite unless skipped
 if [[ "${SKIP_BOOKING_IN_HOUSING_SUITE:-0}" != "1" ]]; then
-  say "Test 19: Booking service protocol suite (delegates to test-booking-http2-http3.sh)"
+  say "Test 18: Booking service protocol suite (delegates to test-booking-http2-http3.sh)"
   if [[ -x "$SCRIPT_DIR/test-booking-http2-http3.sh" ]]; then
     HOST="${HOST:-off-campus-housing.local}" "$SCRIPT_DIR/test-booking-http2-http3.sh" || fail "Booking protocol suite failed"
   else
     warn "test-booking-http2-http3.sh missing or not executable — skipping"
   fi
 else
-  info "Test 19 skipped (SKIP_BOOKING_IN_HOUSING_SUITE=1)"
+  info "Test 18 skipped (SKIP_BOOKING_IN_HOUSING_SUITE=1)"
 fi
 
 say "=== Housing HTTP/2 + HTTP/3 suite done ==="

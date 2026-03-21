@@ -1,6 +1,7 @@
 # Off-Campus-Housing-Tracker — bring-up, deploy, preflight, demo.
 # Requires: bash, kubectl, kustomize, docker, pnpm (paths vary by OS).
-# Colima + k3s is the primary local stack; k3d supported with METALLB_USE_K3D=1.
+# Primary path: Colima + k3s (NOT k3d). make demo / demo-network enforce REQUIRE_COLIMA=1.
+# Optional: make demo-k3d for k3d + METALLB_USE_K3D=1.
 
 REPO_ROOT := $(abspath .)
 SCRIPTS := $(REPO_ROOT)/scripts
@@ -32,23 +33,25 @@ rollouts: deploy-dev ## Alias: same as deploy-dev
 stack: ## Full idempotent stack setup WITHOUT preflight (Colima, infra, certs, DBs, Kafka, build, deploy, secrets, event-layer)
 	bash $(SCRIPTS)/setup-full-off-campus-housing-stack.sh
 
-demo: ## stack + RUN_PREFLIGHT=1 with MetalLB + k6 LB IP; skips pgbench + full-load grid (faster “whole demo”)
-	METALLB_ENABLED=1 K6_USE_METALLB=1 RUN_PGBENCH=0 RUN_FULL_LOAD=0 RUN_PREFLIGHT=1 \
+demo: ## Colima+k3s stack + preflight (MetalLB + k6 LB IP); stops after housing suites+Playwright; no k3d
+	REQUIRE_COLIMA=1 METALLB_USE_K3D=0 METALLB_ENABLED=1 K6_USE_METALLB=1 RUN_PGBENCH=0 RUN_FULL_LOAD=0 RUN_PREFLIGHT=1 \
+	  PREFLIGHT_EXIT_AFTER_HOUSING_SUITES=1 \
 	  bash $(SCRIPTS)/setup-full-off-campus-housing-stack.sh
 
-demo-full: ## Like demo but RUN_FULL_LOAD=1 RUN_PGBENCH=1 (long control-plane run)
-	METALLB_ENABLED=1 K6_USE_METALLB=1 RUN_FULL_LOAD=1 RUN_PREFLIGHT=1 \
+demo-full: ## Colima+k3s + full preflight continuation (transport/pgbench when enabled); no early exit
+	REQUIRE_COLIMA=1 METALLB_USE_K3D=0 METALLB_ENABLED=1 K6_USE_METALLB=1 RUN_FULL_LOAD=1 RUN_PREFLIGHT=1 \
+	  PREFLIGHT_EXIT_AFTER_HOUSING_SUITES=0 \
 	  bash $(SCRIPTS)/setup-full-off-campus-housing-stack.sh
 
-demo-network: ## Preflight + suites + SSL key log + optional standalone packet capture (./scripts/run-demo-network-preflight.sh)
-	bash $(SCRIPTS)/run-demo-network-preflight.sh
+demo-network: ## Colima path: preflight + sslkeylog + packet capture (./scripts/run-demo-network-preflight.sh)
+	REQUIRE_COLIMA=1 METALLB_USE_K3D=0 bash $(SCRIPTS)/run-demo-network-preflight.sh
 
 demo-k3d: ## stack + preflight for k3d (no Colima): set kubectl context to k3d first
 	METALLB_ENABLED=1 METALLB_USE_K3D=1 REQUIRE_COLIMA=0 K6_USE_METALLB=1 RUN_PGBENCH=0 RUN_FULL_LOAD=0 RUN_PREFLIGHT=1 \
 	  SKIP_COLIMA=1 bash $(SCRIPTS)/setup-full-off-campus-housing-stack.sh
 
 preflight-metallb: ## Run preflight only (MetalLB + k6 LB IP). Example: RUN_PGBENCH=0 RUN_FULL_LOAD=0 make preflight-metallb
-	METALLB_ENABLED=1 K6_USE_METALLB=1 bash $(SCRIPTS)/run-preflight-scale-and-all-suites.sh
+	REQUIRE_COLIMA=1 METALLB_USE_K3D=0 METALLB_ENABLED=1 K6_USE_METALLB=1 bash $(SCRIPTS)/run-preflight-scale-and-all-suites.sh
 
 test-e2e-integrated: ## Port-forward api-gateway + Playwright (needs running cluster)
 	cd $(REPO_ROOT) && pnpm run test:e2e:integrated

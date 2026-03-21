@@ -35,6 +35,7 @@ fi
 #   RUN_MESSAGING_LOAD=1 (default) — after Vitest + housing scripts, run k6 edge smoke grid (run-housing-k6-edge-smoke.sh) if k6 is installed.
 #   RUN_K6_SERVICE_GRID=0 — skip the full k6 per-service smoke (gateway, auth, listings, booking health, trust, analytics, messaging, media, event-layer + booking/search JWT).
 #   RUN_PREFLIGHT_PLAYWRIGHT=0 — skip Playwright E2E (webapp) with api-gateway port-forward.
+#   PREFLIGHT_EXIT_AFTER_HOUSING_SUITES=1 — exit after step 7a (Vitest + housing HTTP suite + k6 grid + Playwright); skip transport study / in-cluster k6 / step 8 pgbench. make demo sets this to 1; make demo-full sets 0.
 #     Set RUN_MESSAGING_LOAD=0 to skip. Tune: K6_MESSAGING_DURATION, K6_MESSAGING_RATE, K6_MESSAGING_VUS, K6_MEDIA_*.
 #   Preflight does not apply DB migrations or infra/db/*.sql; run scripts/setup-*-db.sh or scripts/ensure-*.sh manually when schema changes.
 #   CAPTURE_STOP_TIMEOUT=30 (default when running suites) — bounds packet capture stop phase so it never blocks; set higher for full pcap copy/analyze.
@@ -1994,7 +1995,7 @@ fi
 #  Step 2b   — k6 load           → run-k6-phases.sh (when RUN_K6=1); strict TLS only (certs/dev-root.pem)
 #  Suite 3/4 — standalone-capture → test-packet-capture-standalone.sh (gRPC + HTTP/2 + HTTP/3 wire capture only)
 #  Suite 4/4 — tls-mtls          → test-tls-mtls-comprehensive.sh (cert chain, gRPC TLS, mTLS)
-#  Booking (HTTP/2 + HTTP/3 + edge gRPC) → runs inside test-microservices-http2-http3-housing.sh (Test 19) unless SKIP_BOOKING_IN_HOUSING_SUITE=1
+#  Listings + booking (HTTP/2 + HTTP/3 + edge gRPC) → test-microservices-http2-http3-housing.sh Tests 17–18 unless SKIP_* set
 #  Post-suites: verify-db-and-cache-comprehensive.sh (when SKIP_END_VERIFICATION=0)
 
 # --- Step 6e: Ensure tcpdump in Caddy + Envoy pods (so baseline/enhanced/rotation capture does not block on install) ---
@@ -2132,8 +2133,12 @@ if ! _run_all_suites; then
   warn "One or more suites failed (continuing to step 8 if RUN_PGBENCH=1)"
 fi
 
-# For now: preflight+scale should end with the housing HTTP/2+HTTP/3 suite only.
-exit 0
+# Default: continue to transport study / in-cluster k6 / pgbench when enabled.
+# make demo sets PREFLIGHT_EXIT_AFTER_HOUSING_SUITES=1 for a faster stop after Vitest + housing HTTP suites + Playwright.
+if [[ "${PREFLIGHT_EXIT_AFTER_HOUSING_SUITES:-0}" == "1" ]]; then
+  say "PREFLIGHT_EXIT_AFTER_HOUSING_SUITES=1 — stopping after step 7a (housing suites + Playwright)"
+  exit 0
+fi
 
 # Transport study: always run experiments after suites (required for diagnostics). No skip option.
 export TRANSPORT_STUDY=1
