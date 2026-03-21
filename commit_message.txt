@@ -1,3 +1,21 @@
+fix: make demo = Colima+k3s only; preflight no longer hard-exits; housing suite 10–18 + notification + listings
+
+Summary
+-------
+- **Makefile**: **`REQUIRE_COLIMA=1`**, **`METALLB_USE_K3D=0`** on **demo** / **demo-full** / **demo-network** / **preflight-metallb**. **`PREFLIGHT_EXIT_AFTER_HOUSING_SUITES=1`** on **make demo** (stops after 7a: housing HTTP suite + k6 grid + Playwright). **demo-full** sets **`PREFLIGHT_EXIT_AFTER_HOUSING_SUITES=0`** so transport study / pgbench / later steps can run.
+- **run-preflight-scale-and-all-suites.sh**: Removed unconditional **`exit 0`** after `_run_all_suites`; gated by **`PREFLIGHT_EXIT_AFTER_HOUSING_SUITES`** (documented in script header).
+- **test-microservices-http2-http3-housing.sh**: Renumbered tail tests **14–19 → 10–16** (logout/delete/health/grpc/latency); added **notification** to HTTP/3 health, gRPC **:50065**, latency loop; **Test 17** **`test-listings-http2-http3.sh`** when **`TARGET_IP`** set; **Test 18** booking delegate.
+- **run-demo-network-preflight.sh**: Exports **REQUIRE_COLIMA** / **METALLB_USE_K3D** defaults.
+- **docs/MAKE_DEMO.md**, **package.json** **`pnpm run demo:full`**.
+
+Verification
+------------
+- `bash -n` on modified shell scripts
+- `pnpm run test` (Vitest)
+- `pnpm exec playwright test e2e/guest.spec.ts` (guest-only; integrated E2E needs cluster + `make test-e2e-integrated`)
+
+---
+
 feat: Makefile demo targets, demo-network preflight + sslkeylog, housing-only cron-jobs
 
 Summary
