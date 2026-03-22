@@ -9,7 +9,7 @@ This doc is for teams new to the project. It explains **what certs you need** an
 | Purpose | Certs | Kubernetes secret(s) | Used by |
 |--------|--------|----------------------|--------|
 | **CA (root)** | `dev-root.pem`, `dev-root.key` | `dev-root-ca` (CA only) | All verification; must sign every other cert |
-| **Edge / leaf** | `off-campus-housing.local.crt`, `.key` | `off-campus-housing-local-tls`, `service-tls` | Caddy, api-gateway → auth (gRPC client), backends (gRPC server) |
+| **Edge / leaf** | `off-campus-housing.test.crt`, `.key` | `off-campus-housing-local-tls`, `service-tls` | Caddy, api-gateway → auth (gRPC client), backends (gRPC server) |
 | **Envoy client** | `envoy-client.crt`, `.key` | `envoy-client-tls` | Envoy → gRPC backends (mTLS client) |
 | **Kafka broker + client** | CA + broker JKS + `client.crt`/`client.key` | `kafka-ssl-secret` | Kafka broker (SSL listener), messaging-service (Kafka mTLS client) |
 
@@ -32,7 +32,7 @@ Run from **repo root**. Prerequisites: **openssl**, **kubectl** (cluster reachab
 Creates under `certs/`:
 
 - `dev-root.pem`, `dev-root.key` — dev CA
-- `off-campus-housing.local.crt`, `off-campus-housing.local.key` — edge leaf for Caddy
+- `off-campus-housing.test.crt`, `off-campus-housing.test.key` — edge leaf for Caddy
 - Optional: `messaging-service.*`, `media-service.*`, `kafka-dev/` (Kafka client for local dev)
 
 **Option B — Re-issue CA + leaf and load into cluster (keeps CA key for later steps):**
@@ -57,7 +57,7 @@ This creates/updates:
 - `dev-root-ca` in `ingress-nginx`, `off-campus-housing-tracker`, `envoy-test`
 - `service-tls` in `off-campus-housing-tracker` (leaf + key + `ca.crt` for gRPC server and client)
 
-Requires: `certs/off-campus-housing.local.crt`, `certs/off-campus-housing.local.key`, `certs/dev-root.pem`.
+Requires: `certs/off-campus-housing.test.crt`, `certs/off-campus-housing.test.key`, `certs/dev-root.pem`.
 
 ### 3. Envoy client cert (gRPC mTLS: Envoy → backends)
 

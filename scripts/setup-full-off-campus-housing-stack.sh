@@ -42,7 +42,7 @@ ok() { echo "✅ $*"; }
 warn() { echo "⚠️  $*"; }
 die() { echo "❌ $*" >&2; exit 1; }
 
-LEAF="$REPO_ROOT/certs/off-campus-housing.local.crt"
+LEAF="$REPO_ROOT/certs/off-campus-housing.test.crt"
 CA="$REPO_ROOT/certs/dev-root.pem"
 
 say "╔══════════════════════════════════════════════════════════════╗"

@@ -36,6 +36,7 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Rate, Trend } from 'k6/metrics';
+import { mergeEdgeTls, strictEdgeTlsOptions } from './k6-strict-edge-tls.js';
 
 // Try to import HTTP/3 extension (only available if custom k6-http3 binary is used)
 // k6 extensions use ES6 import syntax
@@ -54,10 +55,12 @@ const h3Latency = new Trend('http3_latency_ms', true);
 const h3Errors = new Rate('http3_errors');
 
 // Configuration
-const BASE_URL = __ENV.BASE_URL || 'https://off-campus-housing.local:30443';
-const HOST = __ENV.HOST || 'off-campus-housing.local';
+const BASE_URL = (__ENV.BASE_URL || 'https://off-campus-housing.test:30443').replace(/\/$/, '');
+const RAW_BASE = BASE_URL;
+const HOST = __ENV.HOST || 'off-campus-housing.test';
 
 export const options = {
+  ...strictEdgeTlsOptions(RAW_BASE),
   stages: [
     { duration: '30s', target: 5 },
     { duration: '2m', target: 10 },
@@ -92,13 +95,13 @@ function makeHttp3Request(method, url, body, headers) {
     }
     
     // Try to use k6's HTTP/3 support (experimental)
-    const params = {
+    const params = mergeEdgeTls(RAW_BASE, {
       headers: requestHeaders,
       timeout: '30s',
       // Explicitly request HTTP/3 (QUIC)
       // Note: This may not work in all k6 builds and may fall back to HTTP/2
       httpVersion: 'HTTP/3',
-    };
+    });
     
     let res;
     switch (method.toUpperCase()) {
@@ -165,18 +168,23 @@ function makeHttp3RequestWithExtension(method, url, body, headers) {
     let result;
     switch (method.toUpperCase()) {
       case 'GET':
-        result = http3.get(url, {
-          headers: requestHeaders,
-          timeout: '60s', // Increased for QUIC handshake
-          insecureSkipTLSVerify: true, // Allow self-signed certs for dev
-        });
+        result = http3.get(
+          url,
+          mergeEdgeTls(RAW_BASE, {
+            headers: requestHeaders,
+            timeout: '60s',
+          }),
+        );
         break;
       case 'POST':
-        result = http3.post(url, JSON.stringify(body || {}), {
-          headers: requestHeaders,
-          timeout: '60s', // Increased for QUIC handshake
-          insecureSkipTLSVerify: true, // Allow self-signed certs for dev
-        });
+        result = http3.post(
+          url,
+          JSON.stringify(body || {}),
+          mergeEdgeTls(RAW_BASE, {
+            headers: requestHeaders,
+            timeout: '60s',
+          }),
+        );
         break;
       default:
         throw new Error(`Method ${method} not yet implemented in extension`);

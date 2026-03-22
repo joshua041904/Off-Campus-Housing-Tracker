@@ -76,6 +76,7 @@ spec:
             - name: kafka-ssl
               mountPath: /etc/kafka/secrets
               readOnly: true
+          # Hardened mTLS gRPC probes: startup absorbs Kafka/DB warmup; liveness is a safety net (see docs/CA_ROTATION_AND_CLIENT_TRUST.md).
           startupProbe:
             exec:
               command:
@@ -86,13 +87,12 @@ spec:
                 - -tls-ca-cert=/etc/certs/ca.crt
                 - -tls-client-cert=/etc/certs/tls.crt
                 - -tls-client-key=/etc/certs/tls.key
-                - -tls-server-name=off-campus-housing.local
-                - -connect-timeout=10s
+                - -tls-server-name=localhost
+                - -connect-timeout=5s
                 - -rpc-timeout=5s
-            initialDelaySeconds: 15
-            periodSeconds: 10
+            periodSeconds: 5
             timeoutSeconds: 10
-            failureThreshold: 18
+            failureThreshold: 30
           readinessProbe:
             exec:
               command:
@@ -103,12 +103,12 @@ spec:
                 - -tls-ca-cert=/etc/certs/ca.crt
                 - -tls-client-cert=/etc/certs/tls.crt
                 - -tls-client-key=/etc/certs/tls.key
-                - -tls-server-name=off-campus-housing.local
-                - -connect-timeout=10s
+                - -tls-server-name=localhost
+                - -connect-timeout=5s
                 - -rpc-timeout=5s
-            initialDelaySeconds: 20
             periodSeconds: 10
             timeoutSeconds: 10
+            failureThreshold: 6
           livenessProbe:
             exec:
               command:
@@ -119,12 +119,13 @@ spec:
                 - -tls-ca-cert=/etc/certs/ca.crt
                 - -tls-client-cert=/etc/certs/tls.crt
                 - -tls-client-key=/etc/certs/tls.key
-                - -tls-server-name=off-campus-housing.local
-                - -connect-timeout=10s
+                - -tls-server-name=localhost
+                - -connect-timeout=5s
                 - -rpc-timeout=5s
-            initialDelaySeconds: 30
-            periodSeconds: 20
+            initialDelaySeconds: 90
+            periodSeconds: 15
             timeoutSeconds: 10
+            failureThreshold: 5
           resources:
             requests:
               cpu: "100m"

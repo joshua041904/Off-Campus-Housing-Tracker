@@ -2,18 +2,22 @@
  * k6: search-history + watchlist flows (booking-service via api-gateway).
  * Run against MetalLB edge or local gateway:
  *   k6 run scripts/load/k6-search-watchlist.js
- *   BASE_URL=https://off-campus-housing.local HOST=off-campus-housing.local RESOLVE_IP=1 k6 run -e TARGET_IP=<lb> ...
+ *   BASE_URL=https://off-campus-housing.test HOST=off-campus-housing.test RESOLVE_IP=1 k6 run -e TARGET_IP=<lb> ...
  *
  * Env: VUS, DURATION, BASE_URL, HOST, RESOLVE_IP (set to 1 with TARGET_IP for Host header + IP dial)
  */
 import http from "k6/http";
 import { check, sleep } from "k6";
+import { mergeEdgeTls, strictEdgeTlsOptions } from "./k6-strict-edge-tls.js";
 
 function randomSuffix() {
   return Math.random().toString(36).slice(2, 10);
 }
 
+const rawBase = (__ENV.BASE_URL || "https://off-campus-housing.test").replace(/\/$/, "");
+
 export const options = {
+  ...strictEdgeTlsOptions(rawBase),
   vus: Number(__ENV.VUS || 8),
   duration: __ENV.DURATION || "45s",
   thresholds: {
@@ -22,8 +26,8 @@ export const options = {
   },
 };
 
-const base = __ENV.BASE_URL || "https://off-campus-housing.local";
-const host = __ENV.HOST || "off-campus-housing.local";
+const base = rawBase;
+const host = __ENV.HOST || "off-campus-housing.test";
 const resolveIp = __ENV.RESOLVE_IP || "";
 
 function hostHeaders() {
@@ -33,9 +37,9 @@ function hostHeaders() {
 export function setup() {
   const email = `k6-sw-${randomSuffix()}-${Date.now()}@example.com`;
   const password = "TestPass123!";
-  const params = {
+  const params = mergeEdgeTls(rawBase, {
     headers: { "Content-Type": "application/json", ...hostHeaders() },
-  };
+  });
   const registerRes = http.post(`${base}/api/auth/register`, JSON.stringify({ email, password }), params);
   check(registerRes, { "register 201": (r) => r.status === 201 });
   const token = registerRes.json("token");
@@ -59,11 +63,14 @@ export default function (data) {
       maxPriceCents: 250000,
       maxDistanceKm: 3 + (__ITER % 5),
     }),
-    { headers }
+    mergeEdgeTls(rawBase, { headers }),
   );
   check(histRes, { "search-history 201": (r) => r.status === 201 });
 
-  const listHist = http.get(`${base}/api/booking/search-history/list?limit=10`, { headers });
+  const listHist = http.get(
+    `${base}/api/booking/search-history/list?limit=10`,
+    mergeEdgeTls(rawBase, { headers }),
+  );
   check(listHist, { "search-history list 200": (r) => r.status === 200 });
 
   // 2) Watchlist: synthetic listing UUIDs (add → list → remove)
@@ -71,17 +78,17 @@ export default function (data) {
   const addRes = http.post(
     `${base}/api/booking/watchlist/add`,
     JSON.stringify({ listingId: lid, source: "k6-search-watchlist" }),
-    { headers }
+    mergeEdgeTls(rawBase, { headers }),
   );
   check(addRes, { "watchlist add ok": (r) => r.status === 201 || r.status === 200 });
 
-  const listW = http.get(`${base}/api/booking/watchlist/list`, { headers });
+  const listW = http.get(`${base}/api/booking/watchlist/list`, mergeEdgeTls(rawBase, { headers }));
   check(listW, { "watchlist list 200": (r) => r.status === 200 });
 
   const remRes = http.post(
     `${base}/api/booking/watchlist/remove`,
     JSON.stringify({ listingId: lid }),
-    { headers }
+    mergeEdgeTls(rawBase, { headers }),
   );
   check(remRes, { "watchlist remove 200": (r) => r.status === 200 });
 

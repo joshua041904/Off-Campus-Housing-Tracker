@@ -58,13 +58,13 @@ export const kafka = new Kafka({
   clientId: process.env.KAFKA_CLIENT_ID || 'off-campus-housing-tracker',
   brokers: [broker],
   ssl: sslConfig,
-  // Strict connection settings
-  connectionTimeout: 3000,
+  // Keep broker connect bounded so a bad Endpoint does not stall the Node event loop (gRPC health still responds).
+  connectionTimeout: Number(process.env.KAFKAJS_CONNECTION_TIMEOUT_MS || '4000'),
   requestTimeout: 25000,
   retry: {
-    retries: 8,
+    retries: Number(process.env.KAFKAJS_METADATA_RETRIES || '4'),
     initialRetryTime: 100,
-    maxRetryTime: 30000,
+    maxRetryTime: 15000,
   }
 })
 

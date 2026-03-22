@@ -1,8 +1,12 @@
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
-import * as fs from "node:fs";
 import { randomUUID } from "node:crypto";
-import { registerHealthService, resolveProtoPath, kafka } from "@common/utils";
+import {
+  registerHealthService,
+  resolveProtoPath,
+  kafka,
+  createOchStrictMtlsServerCredentials,
+} from "@common/utils";
 import { pool } from "./db.js";
 
 const LISTINGS_PROTO = resolveProtoPath("listings.proto");
@@ -269,21 +273,13 @@ export function startGrpcServer(port: number): grpc.Server {
     }
   });
 
-  const keyPath = process.env.TLS_KEY_PATH || "/etc/certs/tls.key";
-  const certPath = process.env.TLS_CERT_PATH || "/etc/certs/tls.crt";
-  const caPath = process.env.TLS_CA_PATH || "/etc/certs/ca.crt";
-  const requireClientCert = process.env.GRPC_REQUIRE_CLIENT_CERT === "true";
-
   let credentials: grpc.ServerCredentials;
-  if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
-    const key = fs.readFileSync(keyPath);
-    const cert = fs.readFileSync(certPath);
-    const rootCerts = fs.existsSync(caPath) ? fs.readFileSync(caPath) : null;
-    credentials = grpc.ServerCredentials.createSsl(rootCerts, [{ private_key: key, cert_chain: cert }], requireClientCert as any);
-    console.log("[listings gRPC] TLS enabled; client cert required:", requireClientCert);
-  } else {
-    console.warn("[listings gRPC] TLS certs not found, starting insecure (dev only)");
-    credentials = grpc.ServerCredentials.createInsecure();
+  try {
+    credentials = createOchStrictMtlsServerCredentials("listings gRPC");
+    console.log("[listings gRPC] strict mTLS (client cert required)");
+  } catch (e) {
+    console.error(e);
+    process.exit(1);
   }
 
   server.bindAsync(`0.0.0.0:${port}`, credentials, (err: Error | null, boundPort: number) => {

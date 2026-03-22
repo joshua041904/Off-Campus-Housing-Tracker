@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Shared gRPC + HTTP/3 health checks: Envoy (plaintext), Envoy (strict TLS / mTLS), port-forward (strict TLS / mTLS), Caddy HTTP/3.
+# Shared gRPC + HTTP/3 health checks: Envoy (strict TLS / mTLS), port-forward (strict TLS / mTLS), Caddy HTTP/3. No plaintext gRPC.
 # Source this and call run_grpc_http3_health_checks. Expects: CA_CERT, NS, HOST, PORT, HTTP3_RESOLVE (or set HOST/PORT).
 # When TARGET_IP is set (e.g. MetalLB IP from run-all-test-suites.sh): HTTP/3 and gRPC health use LB IP:PORT (primary path).
 # Optional: GRPC_CERTS_DIR (or /tmp/grpc-certs) with tls.crt + tls.key for mTLS; strict_http3_curl, _kb (fallback: kubectl). say/ok/warn/info must be defined by caller (info fallback below).
-# On Colima: gRPC Envoy (plaintext) often not OK (NodePort not exposed to host). Port-forward: use host kubectl
+# On Colima: NodePort 30000/30001 often not reachable from host; strict TLS checks use port-forward / MetalLB IP. Port-forward: use host kubectl
 # so 127.0.0.1:50051 is on host — set KUBECTL_PORT_FORWARD="kubectl --request-timeout=15s" when using _kb=colima ssh.
 
 run_grpc_http3_health_checks() {
@@ -14,7 +14,7 @@ run_grpc_http3_health_checks() {
   local script_dir="${SCRIPT_DIR:-$lib_dir/..}"
   [[ -d "$script_dir" ]] || script_dir="$(cd "$lib_dir/.." && pwd)"
   local ns="${NS:-off-campus-housing-tracker}"
-  local host="${HOST:-off-campus-housing.local}"
+  local host="${HOST:-off-campus-housing.test}"
   local port="${PORT:-30443}"
   # Prefer MetalLB IP when TARGET_IP is set (run-all-test-suites.sh exports it with PORT=443)
   local http3_resolve
@@ -62,7 +62,7 @@ run_grpc_http3_health_checks() {
     elif [[ $h3_rc -eq 7 ]]; then
       warn "  curl exit 7 = connection refused (UDP/port may not be reachable)"
     elif [[ $h3_rc -eq 6 ]]; then
-      warn "  curl exit 6 = couldn't resolve host (use PORT in URL and HTTP3_RESOLVE, e.g. off-campus-housing.local:30443:127.0.0.1)"
+      warn "  curl exit 6 = couldn't resolve host (use PORT in URL and HTTP3_RESOLVE, e.g. off-campus-housing.test:30443:127.0.0.1)"
     fi
     echo "$h3_out" | head -5
     GRPC_HTTP3_HEALTH_OK=0
@@ -78,24 +78,16 @@ run_grpc_http3_health_checks() {
   [[ -n "${TARGET_IP:-}" ]] && [[ "${port:-443}" == "443" ]] && metalb_only=1
   [[ "${FORCE_METALLB_ONLY:-0}" == "1" ]] && metalb_only=1
 
-  if [[ $metalb_only -eq 0 ]]; then
-    say "Health: gRPC via Envoy (plaintext)"
-    local grpc_ok=0
-    for p in 30000 30001; do
-      local out
-      out=$(grpcurl -plaintext -import-path "$proto_dir" -proto "$proto_dir/health.proto" -max-time 3 -d '{"service":""}' "127.0.0.1:$p" grpc.health.v1.Health/Check 2>&1) || true
-      if echo "$out" | grep -q "SERVING"; then
-        ok "gRPC Envoy (plaintext) port $p: OK"
-        grpc_ok=1
-        break
-      fi
-    done
-    [[ $grpc_ok -eq 0 ]] && warn "gRPC Envoy (plaintext): not OK (expected on Colima - NodePort not exposed to host; strict TLS/mTLS is the primary path)"
-  fi
-
   say "Health: gRPC via Envoy (strict TLS / mTLS)"
   local grpc_ok=0
   grpc_certs_dir="${GRPC_CERTS_DIR:-/tmp/grpc-certs}"
+  if [[ ! -f "${grpc_certs_dir}/tls.crt" ]] || [[ ! -s "${grpc_certs_dir}/tls.crt" ]]; then
+    if [[ -f "$lib_dir/ensure-och-grpc-certs.sh" ]]; then
+      # shellcheck source=scripts/lib/ensure-och-grpc-certs.sh
+      source "$lib_dir/ensure-och-grpc-certs.sh"
+      och_sync_grpc_certs_to_dir "$grpc_certs_dir" "$ns" || true
+    fi
+  fi
   use_mtls=0
   if [[ -f "${grpc_certs_dir}/tls.crt" ]] && [[ -f "${grpc_certs_dir}/tls.key" ]]; then
     use_mtls=1
@@ -106,7 +98,7 @@ run_grpc_http3_health_checks() {
   if [[ -z "$ca_file" ]] || [[ ! -f "$ca_file" ]] || [[ ! -s "$ca_file" ]]; then
     [[ -f "$script_dir/../certs/dev-root.pem" ]] && ca_file="$(cd "$script_dir/.." && pwd)/certs/dev-root.pem"
   fi
-  grpc_authority="${HOST:-off-campus-housing.local}"
+  grpc_authority="${HOST:-off-campus-housing.test}"
   if [[ -n "$ca_file" ]] && [[ -f "$ca_file" ]]; then
     # MetalLB / LB IP: primary path when TARGET_IP + PORT=443
     if [[ -n "${TARGET_IP:-}" ]] && [[ "${port:-443}" == "443" ]]; then

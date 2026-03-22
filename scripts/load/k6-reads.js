@@ -1,6 +1,7 @@
 import http from 'k6/http';
 import { sleep, check } from 'k6';
 import { Rate } from 'k6/metrics';
+import { mergeEdgeTls, strictEdgeTlsOptions } from './k6-strict-edge-tls.js';
 
 // -------- env --------
 const RAW_BASE = (__ENV.BASE_URL || 'http://nginx:8080').replace(/\/$/, '');
@@ -14,11 +15,6 @@ const DUR      = __ENV.DURATION || '30s';
 const ACCEPT_429 = (__ENV.ACCEPT_429 || '1') === '1';
 const SYNTH_IP   = (__ENV.SYNTH_IP   || '1') === '1';
 const MAX_VUS    = Number(__ENV.MAX_VUS || 200);
-// When BASE_URL is MetalLB IP (e.g. https://192.168.64.240:443), server cert is for off-campus-housing.local; skip TLS name verify for load tests.
-const SKIP_TLS_VERIFY = (__ENV.K6_INSECURE_SKIP_TLS || '0') === '1' || /^https:\/\/[\d.]+(:\d+)?(\/|$)/.test(RAW_BASE);
-
-// K6_RESOLVE: "host:port:ip" (e.g. off-campus-housing.local:443:192.168.64.240) — pin hostname to IP so k6 connects to MetalLB
-const K6_RESOLVE = __ENV.K6_RESOLVE || '';
 // optional sweep env: STAGES="100,200,300,400" or RATE_START/RATE_STEP/STEPS/STEP_DUR
 const STAGES_CSV = __ENV.STAGES || '';          // e.g. "100,200,300,400"
 const RATE_START = Number(__ENV.RATE_START || 100);
@@ -55,23 +51,10 @@ const thresholds = RELAXED
       ],
     };
 
-// -------- options builder --------
-// Parse K6_RESOLVE (host:port:ip) into options.hosts so k6 connects to MetalLB IP
-function parseHostsFromResolve() {
-  if (!K6_RESOLVE || typeof K6_RESOLVE !== 'string') return {};
-  const parts = K6_RESOLVE.split(':');
-  if (parts.length < 3) return {};
-  const host = parts[0];
-  const ip = parts[parts.length - 1];
-  if (!host || !ip) return {};
-  return { [host]: ip };
-}
-
+// -------- options builder (hosts + CA preload via strictEdgeTlsOptions) --------
 function buildOptions() {
   const systemTags = ['status','method','name','scenario','expected_response'];
-  const hosts = parseHostsFromResolve();
-
-  const mergeHosts = (opts) => (Object.keys(hosts).length ? { ...opts, hosts } : opts);
+  const withEdge = (opts) => ({ ...strictEdgeTlsOptions(RAW_BASE), ...opts });
 
   if (MODE === 'sweep') {
     let stages = [];
@@ -83,7 +66,7 @@ function buildOptions() {
         stages.push({ target: RATE_START + i * RATE_STEP, duration: STEP_DUR });
       }
     }
-    return mergeHosts({
+    return withEdge({
       scenarios: {
         sweep: {
           executor: 'ramping-arrival-rate',
@@ -100,7 +83,7 @@ function buildOptions() {
   }
 
   if (MODE === 'rate' || RATE > 0) {
-    return mergeHosts({
+    return withEdge({
       scenarios: {
         rate: {
           executor: 'constant-arrival-rate',
@@ -117,7 +100,7 @@ function buildOptions() {
   }
 
   // default "simple" or soak style (no rate provided -> VU/duration)
-  return mergeHosts({ vus: VUS, duration: DUR, thresholds, systemTags });
+  return withEdge({ vus: VUS, duration: DUR, thresholds, systemTags });
 }
 export const options = buildOptions();
 
@@ -136,9 +119,7 @@ function makeHeaders() {
 // -------- test loop --------
 export default function () {
   const headers = makeHeaders();
-  const opts = { headers, tags: { name: 'GET /records' } };
-  if (SKIP_TLS_VERIFY) opts.insecureSkipTLSVerify = true;
-  const res = http.get(api('/records'), opts);
+  const res = http.get(api('/records'), mergeEdgeTls(RAW_BASE, { headers, tags: { name: 'GET /records' } }));
   const ok = res.status === 200 || (ACCEPT_429 && res.status === 429);
   errors.add(!ok);
   check(res, { 'ok(200|429)': () => ok });

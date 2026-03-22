@@ -26,7 +26,7 @@
 
 ## One coherent “analysis” mindset
 
-1. Prove **TLS + SNI** (`off-campus-housing.local`) and **HTTP/2** to Caddy.  
+1. Prove **TLS + SNI** (`off-campus-housing.test`) and **HTTP/2** to Caddy.  
 2. Prove **HTTP/3/QUIC** to the same host (or document Colima limitations).  
 3. Prove **gRPC** to Envoy or edge (grpcurl / health checks).  
 4. Optionally correlate **pcaps** with **tshark** filters from `protocol-verification.sh`.

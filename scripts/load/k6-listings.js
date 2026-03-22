@@ -4,8 +4,12 @@
  */
 import http from "k6/http";
 import { check, sleep } from "k6";
+import { mergeEdgeTls, strictEdgeTlsOptions } from "./k6-strict-edge-tls.js";
+
+const rawBase = (__ENV.BASE_URL || "https://off-campus-housing.test").replace(/\/$/, "");
 
 export const options = {
+  ...strictEdgeTlsOptions(rawBase),
   vus: Number(__ENV.VUS || 5),
   duration: __ENV.DURATION || "30s",
   thresholds: {
@@ -14,8 +18,8 @@ export const options = {
   },
 };
 
-const base = __ENV.BASE_URL || "https://off-campus-housing.local";
-const host = __ENV.HOST || "off-campus-housing.local";
+const base = rawBase;
+const host = __ENV.HOST || "off-campus-housing.test";
 const resolveIp = __ENV.RESOLVE_IP || "";
 
 function hostHdr() {
@@ -39,7 +43,10 @@ export default function (data) {
   };
 
   const q = `k6-${__VU}-${__ITER}`;
-  const s = http.get(`${base}/api/listings/search?q=${encodeURIComponent(q)}&smoke_free=0`, { headers });
+  const s = http.get(
+    `${base}/api/listings/search?q=${encodeURIComponent(q)}&smoke_free=0`,
+    mergeEdgeTls(rawBase, { headers }),
+  );
   check(s, { "search 200": (r) => r.status === 200 });
 
   const from = new Date();
@@ -59,7 +66,7 @@ export default function (data) {
       effective_until: until.toISOString().slice(0, 10),
       amenities: ["wifi"],
     }),
-    { headers }
+    mergeEdgeTls(rawBase, { headers }),
   );
   check(create, { "create 201": (r) => r.status === 201 });
 

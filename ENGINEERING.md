@@ -2,7 +2,7 @@
 
 # Off-Campus-Housing-Tracker — Engineering Documentation
 
-This document provides in-depth technical documentation for the Off-Campus-Housing-Tracker architecture, design decisions, and implementation details. For a high-level overview, see [`README.md`](README.md). *Last updated to reflect Colima k3s primary, 8-DB housing (5441–5448) deterministic restore and schema inspection, preflight step 7c (in-cluster k6), and Runbook 79–80.*
+This document provides in-depth technical documentation for the Off-Campus-Housing-Tracker architecture, design decisions, and implementation details. For a high-level overview, see [`README.md`](README.md). *Last updated: housing API Gateway `MEDIA_HTTP` / dual HTTP+gRPC for media-service, `proto/` vs `proto/events/` event-driven contracts, and [`docs/MEDIA_GATEWAY_K6_DIAGNOSTICS_REPORT.md`](docs/MEDIA_GATEWAY_K6_DIAGNOSTICS_REPORT.md).*
 
 ## Table of Contents
 
@@ -10,7 +10,7 @@ This document provides in-depth technical documentation for the Off-Campus-Housi
 2. [Design Decisions](#design-decisions)
 3. [Technology Stack](#technology-stack)
 4. [Data Flow Diagrams](#data-flow-diagrams)
-5. [Service Communication Patterns](#service-communication-patterns)
+5. [Service Communication Patterns](#service-communication-patterns) — includes **MEDIA_HTTP**, **proto vs proto/events**
 6. [Infrastructure as Code](#infrastructure-as-code)
 7. [Observability & Monitoring](#observability--monitoring)
 8. [Performance Optimizations](#performance-optimizations)
@@ -60,7 +60,7 @@ This document provides in-depth technical documentation for the Off-Campus-Housi
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                    Kubernetes Ingress Layer                                 │
 │                    ingress-nginx (Kubernetes Cluster)                        │
-│                         host: off-campus-housing.local                                  │
+│                         host: off-campus-housing.test                                  │
 │                                                                              │
 │  Routing Rules:                                                              │
 │  - / → Nginx Edge (static assets + micro-cache)                            │
@@ -316,7 +316,7 @@ Preflight and all suites run on **Colima + k3s** by default. Colima is started w
 3. **Preflight before suites**: `run-preflight-scale-and-all-suites.sh` runs the strict TLS preflight in step 5 and fails fast if the chain cannot be established; `run-all-test-suites.sh` runs the same script unless `SKIP_TLS_PREFLIGHT=1` (set when invoked from the preflight pipeline).
 
 **Implementation**:
-- **Script**: `scripts/ensure-strict-tls-mtls-preflight.sh` — validates full chain (CA + leaf + key), provisions from repo or OpenSSL, restarts api-gateway, auth-service, social-service, listings-service, shopping-service, auction-monitor, python-ai-service, analytics-service when `service-tls` is updated.
+- **Script**: `scripts/ensure-strict-tls-mtls-preflight.sh` — validates **secret material** (`tls.crt` = leaf only, `ca.crt` = CA, `tls.key` = key; no bundled chain in `tls.crt`), provisions from repo or OpenSSL, restarts api-gateway, auth-service, social-service, listings-service, shopping-service, auction-monitor, python-ai-service, analytics-service, media-service, notification-service, and other TLS/mTLS workloads when `service-tls` is updated.
 - **Preflight pipeline**: Step 5 runs the script then `ensure-all-services-tls.sh` (deploy manifest check). Step 7 runs `run-all-test-suites.sh` with `SKIP_TLS_PREFLIGHT=1`.
 - **Standalone**: `./scripts/run-all-test-suites.sh` runs the script as cert preflight so standalone runs also get valid certs.
 
@@ -465,7 +465,7 @@ The full test pipeline is structured as **preflight** followed by **eight suites
 
 **Why 8+ suites and a command center:** We run 8 core suites plus optional k6 and pgbench (15+ scripts when counting limit-finding, service-specific k6, and DB verification). The platform spans multiple protocols (HTTP/1.1, HTTP/2, HTTP/3, gRPC), strict TLS/mTLS, zero-downtime rotation, and 8 databases. A single entry point (`run-all-test-suites.sh` or `run-preflight-scale-and-all-suites.sh`) orchestrates order, preflight, and DB/cache verification. See `scripts/load/LOAD_TESTS_CATALOG.md` for the full catalog.
 
-**Strict TLS for k6:** All k6 runs use strict TLS (no `-k`). The runner sets `SSL_CERT_FILE` to the dev-root CA (from K8s secret or `certs/dev-root.pem`) so `off-campus-housing.local` x509 verification succeeds. If you see `x509: certificate is not trusted`, set `K6_CA_CERT=/path/to/dev-root.pem` or run after preflight.
+**Strict TLS for k6:** All k6 runs use strict TLS (no `-k`). The runner sets `SSL_CERT_FILE` to the dev-root CA (from K8s secret or `certs/dev-root.pem`) so `off-campus-housing.test` x509 verification succeeds. If you see `x509: certificate is not trusted`, set `K6_CA_CERT=/path/to/dev-root.pem` or run after preflight.
 
 **HTTP/1.1, HTTP/2, and HTTP/3 (xk6-http3 and HOLB):**
 - **HTTP/2:** Standard k6 uses HTTP/2 by default over TLS; we use it for baseline and limit tests.
@@ -491,7 +491,7 @@ The **single entry point** for “cluster ready → certs valid → all suites (
 | **1** | Require Colima + k3s context (127.0.0.1:6443); trim completed pods | Ensures we target the correct cluster; trimming reduces API server load and etcd bloat. |
 | **2** | Preflight kubeconfig (`preflight-fix-kubeconfig.sh`) | Kubeconfig may point at wrong host/port or stale API server; fixes `KUBECONFIG` so `kubectl` works from host. |
 | **3** | Ensure API server ready (`ensure-api-server-ready.sh`) | Under load or after restarts, the API server can be unreachable; retries until it responds so suites don’t fail with “cluster unreachable”. |
-| **3a** | Reissue CA + leaf (dev-root-ca, record-local-tls); `KAFKA_SSL=1` | Aligns CA and Caddy certs so strict TLS works (no curl 60); Kafka SSL uses same CA. |
+| **3a** | Reissue CA + leaf (dev-root-ca, off-campus-housing-local-tls); `KAFKA_SSL=1` | Aligns CA and Caddy certs so strict TLS works (no curl 60); Kafka SSL uses same CA. |
 | **3b–3f** | Kafka SSL secret, Docker Kafka/Postgres up, migrations, app-config/kafka-external apply, remove in-cluster Kafka/ZK/Postgres, patch kafka-external, restart Kafka-consuming services | All 8 Postgres (5441–5448) and Kafka (strict TLS :29093) must be up and externalized. |
 | **4** | Scale to baseline (service 1, exporters 1, Envoy 1, Caddy 2) | Consistent baseline so suites don’t hit scaled-down or missing deployments. |
 | **4c–4d** | Re-ensure API server; verify Caddy strict TLS (no curl 60) | Confirms cluster and edge are usable after reissue and scale. |
@@ -692,32 +692,61 @@ Auction Monitor Service (4008)
 
 ### gRPC Communication
 
-All inter-service communication uses gRPC with protocol buffers:
+**Housing `api-gateway` (port 4020) is hybrid:** it uses **gRPC** for some paths (e.g. auth register/login/validate/refresh via `@grpc/grpc-js` + `proto/auth.proto`) and **HTTP reverse proxy** for others (listings, booking, messaging, **media**, trust, analytics, notification) via `http-proxy-middleware` to each service’s **HTTP** port (`AUTH_HTTP`, `LISTINGS_HTTP`, … `MEDIA_HTTP`). Do not assume “gateway always translates HTTP → gRPC” for every service.
 
-1. **API Gateway → Backend Services**: HTTP request converted to gRPC call
-2. **Service-to-Service**: Direct gRPC calls using service discovery
-3. **Envoy gRPC Routing**: Envoy handles all gRPC traffic with first-class gRPC support (port 10000)
+More broadly:
+
+1. **API Gateway → Backend Services (housing)**: **Either** gRPC client calls **or** HTTP proxy to `http://<service>:<http-port>` depending on route implementation in `services/api-gateway/src/server.ts`.
+2. **Service-to-Service**: Often direct gRPC (strict mTLS) on `5xxxx` ports; some flows also use Kafka (see **Event contracts** below).
+3. **Envoy gRPC Routing**: Where deployed, Envoy handles gRPC with first-class support (e.g. port 10000)
    - **Never routes through HTTP handlers**: Envoy has native gRPC awareness
    - **Trailer preservation**: Correctly handles gRPC trailers
    - **Error handling**: Forbids HTTP error pages on gRPC streams
    - **Proven functionality**: Same Node.js server works with Envoy, fails with Caddy
 
-**Protocol Buffer Definitions**:
+**RPC protocol buffer definitions (repo root `proto/`)** — synchronous / unary-style service APIs:
+
 - `proto/auth.proto`: Authentication and user management
-- `proto/records.proto`: Record collection CRUD operations
-- `proto/listings.proto`: Marketplace and auction data
-- `proto/social.proto`: Forum posts, comments, messaging
-- `proto/analytics.proto`: Price snapshots and analytics
-- `proto/shopping.proto`: Shopping cart and orders
-- `proto/auction-monitor.proto`: Auction monitoring and price tracking
-- `proto/python-ai.proto`: AI predictions and recommendations
+- `proto/media.proto`: Media gRPC (upload/download URL flows) — **server listens on gRPC** (e.g. 50068); not the same path as gateway `/api/media/*` HTTP proxy
+- `proto/listings.proto`, `proto/booking.proto`, `proto/messaging.proto`, `proto/trust.proto`, `proto/analytics.proto`, `proto/notification.proto`, etc.
+- Legacy / extended platform protos may also include: `proto/records.proto`, `proto/social.proto`, `proto/shopping.proto`, `proto/auction-monitor.proto`, `proto/python-ai.proto`
+
+### Why `MEDIA_HTTP` exists (gateway → media over **HTTP**)
+
+**`MEDIA_HTTP` is required** because the housing API gateway implements **`/media/*` and `/api/media/*` as HTTP reverse proxy** targets (`createProxyMiddleware` → `MEDIA_HTTP`), including **`GET /api/media/healthz`**. Clients (webapp, k6 edge scripts, curl) speak **HTTP/JSON** to the gateway; the gateway forwards **plain HTTP** to `media-service` on its **HTTP port** (default **4018** in README/K8s).
+
+- **Not optional for that route shape:** there is no automatic “HTTP request → gRPC `MediaService`” bridge for these paths in the gateway today.
+- **gRPC is still first-class on media-service:** `proto/media.proto` on **50068** with **strict mTLS** for service-to-service and tooling; health probes can use gRPC + mTLS in-cluster.
+- **Operational implication:** `media-service` must **listen on both** HTTP (4018) for gateway/k6 health and REST-shaped proxy traffic **and** gRPC (50068) for mTLS APIs. If HTTP is omitted, the gateway sees **ECONNREFUSED** on 4018 while gRPC remains healthy — see [`docs/MEDIA_GATEWAY_K6_DIAGNOSTICS_REPORT.md`](docs/MEDIA_GATEWAY_K6_DIAGNOSTICS_REPORT.md).
+
+| Approach | Pros | Trade-offs |
+|----------|------|------------|
+| **HTTP proxy** (`MEDIA_HTTP`) | Same pattern as other housing backends; JWT + familiar REST at edge; easy k6/http checks | Extra port and process surface; must keep HTTP server in sync with routes the gateway exposes |
+| **gRPC only from gateway** | Single binary protocol to media | Would require gateway to implement HTTP→gRPC mapping for every media REST route (or drop REST at edge); higher implementation cost |
+
+### Event-driven contracts: `proto/events/` vs `proto/` RPC
+
+The repo separates **two** protobuf worlds on purpose:
+
+| Location | Role |
+|----------|------|
+| **`proto/*.proto`** | **RPC contracts**: request/response between clients/services (gRPC). Versioned services; gateway and backends load these for synchronous calls. |
+| **`proto/events/`** | **Async event contracts**: Kafka payloads wrapped in **`EventEnvelope`** (`proto/events/envelope.proto`). Domain events (e.g. `events.booking`, `events.media`) are **not** the same messages as RPC methods — they are **facts** emitted after commits, often via **transactional outbox** → publisher → topic. |
+
+**Why we do this:**
+
+- **Decoupling:** Edge REST and RPC can evolve without forcing every Kafka consumer to track HTTP/gRPC API churn; event schemas are versioned independently (e.g. `BookingCreatedV1` → `V2`).
+- **Reliability:** Outbox guarantees **at-least-once** publish aligned with DB state; consumers use **idempotency** (`processed_events` by `event_id`) — see [`proto/events/README.md`](proto/events/README.md), `docs/OUTBOX_PUBLISHER_AND_CONSUMER_CONTRACT.md`, `docs/KAFKA_STRATEGY.md`.
+- **Clarity:** `proto/events/README.md` states the rule: **no raw domain blobs on topics** — always `EventEnvelope`; RPC protos stay focused on synchronous APIs.
+
+**media-service** participates in both worlds: **gRPC** (`proto/media.proto`) for synchronous media operations, and **events** (`proto/events/media.proto`, topic `${ENV_PREFIX}.media.events` per events README) for async integration. That does **not** remove the need for **`MEDIA_HTTP`** at the gateway for `/api/media/*` HTTP traffic.
 
 ### HTTP Endpoints
 
 Services expose HTTP endpoints for:
-- Health checks: `GET /healthz`
+- Health checks: `GET /healthz` (gateway proxies service-specific paths such as `/api/media/healthz` → upstream `/healthz`)
 - Metrics: `GET /metrics` (Prometheus format)
-- gRPC reflection: For tooling support (grpcurl)
+- gRPC reflection: For tooling support (grpcurl) where enabled
 
 ### Caching Strategy
 
@@ -1857,7 +1886,7 @@ wireshark test-results/YYYYMMDD-HHMMSS-http3-verification/quic-capture.pcap
 1. Restart service: `kubectl -n off-campus-housing-tracker rollout restart deployment/<service>`
 2. Verify rollout: `kubectl -n off-campus-housing-tracker rollout status deployment/<service>`
 3. Check logs: Monitor logs for errors after restart
-4. Test endpoint: `curl -k https://off-campus-housing.local:8443/api/<service>/healthz`
+4. Test endpoint: `curl -k https://off-campus-housing.test:8443/api/<service>/healthz`
 
 ### Database Recovery
 
@@ -1885,7 +1914,7 @@ wireshark test-results/YYYYMMDD-HHMMSS-http3-verification/quic-capture.pcap
 1. Check gateway logs: `kubectl -n off-campus-housing-tracker logs -l app=api-gateway -c app --tail=500`
 2. Check proxy errors: Filter logs for "proxy error", "502", "upstream error"
 3. Check Redis connection: Filter logs for "redis", "Redis"
-4. Test gateway health: `curl -k https://off-campus-housing.local:8443/api/healthz`
+4. Test gateway health: `curl -k https://off-campus-housing.test:8443/api/healthz`
 
 **Common Issues**:
 - **502 Bad Gateway**: Downstream service unavailable
@@ -1928,7 +1957,7 @@ wireshark test-results/YYYYMMDD-HHMMSS-http3-verification/quic-capture.pcap
 **Diagnosis**:
 1. Check probe status: `kubectl -n off-campus-housing-tracker describe pod <pod> | grep -A 10 "Liveness\|Readiness"`
 2. Check probe failures: `kubectl -n off-campus-housing-tracker get events | grep -E "Unhealthy|Failed"`
-3. Test health endpoint: `curl -k https://off-campus-housing.local:8443/api/<service>/healthz`
+3. Test health endpoint: `curl -k https://off-campus-housing.test:8443/api/<service>/healthz`
 4. Check service logs: Look for health check related errors
 
 **Common Issues**:

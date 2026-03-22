@@ -20,6 +20,7 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Trend, Rate, Counter, Gauge } from 'k6/metrics';
+import { mergeEdgeTls, strictEdgeTlsOptions } from './k6-strict-edge-tls.js';
 
 // Comprehensive metrics
 const h2_latency = new Trend('h2_latency_ms', true);
@@ -34,22 +35,11 @@ const queue_length = new Gauge('queue_length', true);
 const throughput = new Counter('throughput', true);
 
 // Configuration
-const HOST = __ENV.HOST || 'off-campus-housing.local';
-const BASE_URL = __ENV.BASE_URL || 'https://off-campus-housing.local:30443';
+const HOST = __ENV.HOST || 'off-campus-housing.test';
+const BASE_URL = __ENV.BASE_URL || 'https://off-campus-housing.test:30443';
+const RAW_BASE = BASE_URL.replace(/\/$/, '');
 const ENDPOINT = __ENV.ENDPOINT || '/_caddy/healthz';
 
-// K6_RESOLVE: "host:port:ip" (e.g. off-campus-housing.local:443:192.168.64.240) — pin hostname to MetalLB IP (avoids 127.0.0.1 NodePort split-brain)
-const K6_RESOLVE = __ENV.K6_RESOLVE || '';
-function parseHostsFromResolve() {
-  if (!K6_RESOLVE || typeof K6_RESOLVE !== 'string') return {};
-  const parts = K6_RESOLVE.split(':');
-  if (parts.length < 3) return {};
-  const host = parts[0];
-  const ip = parts[parts.length - 1];
-  if (!host || !ip) return {};
-  return { [host]: ip };
-}
-const hosts = parseHostsFromResolve();
 const MODE = __ENV.MODE || 'limit'; // 'persistence', 'limit', or 'both'
 
 // Persistence test configuration
@@ -80,10 +70,8 @@ if (MODE === 'persistence') {
   current_duration = LIMIT_DURATION;
 }
 
-// Respect K6_INSECURE_SKIP_TLS: 0 = strict TLS (rotation suite); 1 = dev skip
-const INSECURE_SKIP = (__ENV.K6_INSECURE_SKIP_TLS || '0') === '1' || (__ENV.K6_INSECURE_SKIP_TLS || '0') === 'true';
 const opts = {
-  insecureSkipTLSVerify: INSECURE_SKIP,
+  ...strictEdgeTlsOptions(RAW_BASE),
   scenarios: {
     h2: {
       executor: 'constant-arrival-rate',
@@ -145,11 +133,14 @@ export default function () {
 // HTTP/2 request
 export function h2_request() {
   const start = Date.now();
-  const res = http.get(`${BASE_URL}${ENDPOINT}`, {
-    headers: { Host: HOST },
-    timeout: '30s',
-    httpVersion: 'HTTP/2',
-  });
+  const res = http.get(
+    `${BASE_URL}${ENDPOINT}`,
+    mergeEdgeTls(RAW_BASE, {
+      headers: { Host: HOST },
+      timeout: '30s',
+      httpVersion: 'HTTP/2',
+    }),
+  );
   
   const duration = Date.now() - start;
   h2_latency.add(duration);
@@ -169,11 +160,14 @@ export function h2_request() {
 // HTTP/3 request
 export function h3_request() {
   const start = Date.now();
-  const res = http.get(`${BASE_URL}${ENDPOINT}`, {
-    headers: { Host: HOST },
-    timeout: '30s',
-    httpVersion: 'HTTP/3',
-  });
+  const res = http.get(
+    `${BASE_URL}${ENDPOINT}`,
+    mergeEdgeTls(RAW_BASE, {
+      headers: { Host: HOST },
+      timeout: '30s',
+      httpVersion: 'HTTP/3',
+    }),
+  );
   
   const duration = Date.now() - start;
   h3_latency.add(duration);

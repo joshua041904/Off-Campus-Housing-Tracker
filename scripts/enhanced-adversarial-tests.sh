@@ -19,7 +19,7 @@ export PATH="$SCRIPT_DIR/shims:/opt/homebrew/bin:/usr/local/bin:${PATH:-}"
 }
 
 NS="off-campus-housing-tracker"
-HOST="${HOST:-off-campus-housing.local}"
+HOST="${HOST:-off-campus-housing.test}"
 ctx=$(kubectl config current-context 2>/dev/null || echo "")
 _kb() {
   if [[ "$ctx" == *"colima"* ]] && command -v colima >/dev/null 2>&1; then
@@ -49,7 +49,7 @@ else
 fi
 CURL_BIN="${CURL_BIN:-/opt/homebrew/opt/curl/bin/curl}"
 
-# Get CA certificate for strict TLS (k6 and curl need this for off-campus-housing.local:30443; use absolute path for SSL_CERT_FILE)
+# Get CA certificate for strict TLS (k6 and curl need this for off-campus-housing.test:30443; use absolute path for SSL_CERT_FILE)
 # Prefer certs/dev-root.pem (canonical from preflight/rotation) so k6 and curl use the same CA as the rest of the pipeline.
 CA_CERT=""
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

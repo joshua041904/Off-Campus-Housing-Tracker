@@ -16,7 +16,7 @@ info() { echo "ℹ️  $*"; }
 
 NS="off-campus-housing-tracker"
 NS_ING="ingress-nginx"
-HOST="${HOST:-off-campus-housing.local}"
+HOST="${HOST:-off-campus-housing.test}"
 PORT="${PORT:-30443}"
 ctx=$(kubectl config current-context 2>/dev/null || echo "")
 
@@ -81,14 +81,29 @@ if [[ -z "$CA_CERT" ]] || [[ ! -f "$CA_CERT" ]]; then
   fi
 fi
 
-# mTLS client certs (from preflight / run-all-test-suites.sh or /tmp/grpc-certs)
+# Strict harness: no grpcurl -plaintext. Require trust anchor (repo certs/dev-root.pem or cluster dev-root-ca).
+if [[ "${TLS_SUITE_ALLOW_PLAINTEXT_GRPC:-0}" == "1" ]]; then
+  warn "TLS_SUITE_ALLOW_PLAINTEXT_GRPC=1 — plaintext gRPC fallbacks allowed (not recommended)"
+elif [[ -z "$CA_CERT" ]] || [[ ! -f "$CA_CERT" ]] || [[ ! -s "$CA_CERT" ]]; then
+  fail "Strict TLS harness: CA missing. Add certs/dev-root.pem or ensure ingress-nginx/dev-root-ca exists. Run: scripts/ensure-strict-tls-mtls-preflight.sh. Emergency override: TLS_SUITE_ALLOW_PLAINTEXT_GRPC=1"
+  exit 1
+fi
+
+# mTLS client certs: sync from cluster och-service-tls (or repo leaf) — never rely on missing certs/tls.crt in repo root.
 GRPC_CERTS_DIR="${GRPC_CERTS_DIR:-/tmp/grpc-certs}"
+if [[ -f "$SCRIPT_DIR/lib/ensure-och-grpc-certs.sh" ]]; then
+  # shellcheck source=scripts/lib/ensure-och-grpc-certs.sh
+  source "$SCRIPT_DIR/lib/ensure-och-grpc-certs.sh"
+  och_sync_grpc_certs_to_dir "$GRPC_CERTS_DIR" "$NS" || true
+fi
 MTLS_CERT=""
 MTLS_KEY=""
-if [[ -f "$GRPC_CERTS_DIR/tls.crt" ]] && [[ -f "$GRPC_CERTS_DIR/tls.key" ]]; then
+if [[ -f "$GRPC_CERTS_DIR/tls.crt" ]] && [[ -f "$GRPC_CERTS_DIR/tls.key" ]] && [[ -s "$GRPC_CERTS_DIR/tls.crt" ]] && [[ -s "$GRPC_CERTS_DIR/tls.key" ]]; then
   MTLS_CERT="$GRPC_CERTS_DIR/tls.crt"
   MTLS_KEY="$GRPC_CERTS_DIR/tls.key"
   info "mTLS client certs available (gRPC tests will use client auth)"
+else
+  warn "mTLS client certs missing after sync; gRPC via LB may use TLS-only or fail if Envoy requires client cert"
 fi
 # Pre-check: Colima uses port-forward + grpcurl inside VM (longer waits + retries)
 [[ "$ctx" == *"colima"* ]] && command -v colima >/dev/null 2>&1 && info "Colima detected — gRPC port-forward tests use 6s wait + retries"
@@ -138,7 +153,7 @@ fi
 
 if [[ -n "$PROTO_DIR" ]] && command -v grpcurl >/dev/null 2>&1; then
   GRPC_ENVOY_SUCCESS=0
-  grpc_authority="${HOST:-off-campus-housing.local}"
+  grpc_authority="${HOST:-off-campus-housing.test}"
   # LB IP primary: when TARGET_IP:443, gRPC via Caddy → Envoy (real production path)
   if [[ -n "${TARGET_IP:-}" ]] && [[ "${PORT:-}" == "443" ]] && [[ -n "$CA_CERT" ]] && [[ -f "$CA_CERT" ]]; then
     if [[ -n "$MTLS_CERT" ]] && [[ -n "$MTLS_KEY" ]] && [[ -f "$MTLS_CERT" ]] && [[ -f "$MTLS_KEY" ]]; then
@@ -569,13 +584,15 @@ if [[ -n "$PROTO_DIR" ]] && command -v grpcurl >/dev/null 2>&1; then
           -d "{\"email\":\"$TEST_EMAIL\",\"password\":\"$TEST_PASSWORD\"}" \
           "127.0.0.1:${auth_port}" \
           auth.AuthService/Authenticate 2>&1) || GRPC_AUTH_RC=$?
-      else
+      elif [[ "${TLS_SUITE_ALLOW_PLAINTEXT_GRPC:-0}" == "1" ]]; then
         GRPC_AUTH_TEST=$(grpcurl -plaintext -max-time 5 \
           -import-path "$PROTO_DIR" \
           -proto "$PROTO_DIR/auth.proto" \
           -d "{\"email\":\"$TEST_EMAIL\",\"password\":\"$TEST_PASSWORD\"}" \
           "127.0.0.1:${auth_port}" \
           auth.AuthService/Authenticate 2>&1) || GRPC_AUTH_RC=$?
+      else
+        GRPC_AUTH_TEST=""; GRPC_AUTH_RC=1
       fi
       GRPC_AUTH_RC=${GRPC_AUTH_RC:-0}
       if echo "$GRPC_AUTH_TEST" | grep -q "token"; then
@@ -689,8 +706,8 @@ else
   test_result 1 "gRPC Authenticate test skipped (prerequisites not met)"
 fi
 
-# Test 5: Certificate Chain Completeness (strict: full chain required)
-say "Test 5: Certificate Chain Completeness"
+# Test 5: Certificate material (edge: leaf-only tls.crt is OK; CA in dev-root-ca / ca.crt)
+say "Test 5: Certificate Chain Completeness (leaf + CA may be separate secrets)"
 CERT_COUNT=0
 CADDY_POD=$(_kb -n "$NS_ING" get pods -l app=caddy-h3 -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
 if [[ -n "$CADDY_POD" ]]; then
@@ -726,14 +743,14 @@ elif [[ "${CERT_COUNT:-0}" -eq 1 ]] && [[ -n "${SECRET_CA:-}" ]]; then
   # Leaf in off-campus-housing-local-tls + CA in dev-root-ca (separate secrets) is valid
   test_result 0 "Certificate chain completeness: PASSED (leaf in $LEAF_TLS_SECRET + CA in dev-root-ca)"
 elif [[ "${CERT_COUNT:-0}" -eq 1 ]]; then
-  test_result 1 "Certificate chain completeness: FAILED (only 1 certificate, expected 2+ for full chain - leaf+CA in $LEAF_TLS_SECRET and dev-root-ca)"
+  test_result 1 "Certificate chain completeness: FAILED (need leaf tls.crt + dev-root-ca; reissue writes leaf-only tls.crt)"
 else
   test_result 1 "Certificate chain test: FAILED (could not retrieve chain from pod or secret)"
 fi
 
 # Test 6: mTLS Configuration Check
 say "Test 6: mTLS Configuration Check"
-SERVICES=("auth-service" "listings-service" "booking-service" "messaging-service" "trust-service" "analytics-service")
+SERVICES=("auth-service" "listings-service" "booking-service" "messaging-service" "trust-service" "analytics-service" "media-service" "notification-service")
 MTLS_CAPABLE=0
 MTLS_ENABLED=0
 
@@ -793,10 +810,10 @@ else
   info "Redis: Externalized (not in cluster) - cache check skipped"
 fi
 
-# DB connectivity (quick: housing 7 DBs on 5441–5447)
+# DB connectivity (quick: housing 8 DBs on 5441–5448)
 say "DB connectivity (quick)"
-DB_PORTS=(5441 5442 5443 5444 5445 5446 5447)
-DB_NAMES=(auth listings bookings messaging notification trust analytics)
+DB_PORTS=(5441 5442 5443 5444 5445 5446 5447 5448)
+DB_NAMES=(auth listings bookings messaging notification trust analytics media)
 DB_OK=0
 for i in "${!DB_PORTS[@]}"; do
   port="${DB_PORTS[$i]}"
@@ -810,7 +827,7 @@ done
 if [[ $DB_OK -eq ${#DB_PORTS[@]} ]]; then
   test_result 0 "DB connectivity: PASSED ($DB_OK/${#DB_PORTS[@]} ports)"
 else
-  test_result 1 "DB connectivity: FAILED ($DB_OK/${#DB_PORTS[@]} ports - expected 5441-5447)"
+  test_result 1 "DB connectivity: FAILED ($DB_OK/${#DB_PORTS[@]} ports - expected 5441-5448)"
 fi
 
 # Summary

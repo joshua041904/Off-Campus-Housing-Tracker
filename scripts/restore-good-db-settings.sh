@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Apply good Postgres settings (DB-level + session-level) to all 7 housing DBs (5441–5447).
+# Apply good Postgres settings (DB-level + session-level) to all 8 housing DBs (5441–5448).
 # Each port is a separate Postgres instance (Docker). We apply:
 #   1. System-level (ALTER SYSTEM) — per instance, then reload.
 #   2. Database-level (ALTER DATABASE ... SET) — persistent per DB, with correct search_path.
@@ -9,7 +9,7 @@
 #   PGPASSWORD=postgres ./scripts/restore-good-db-settings.sh
 #   PGHOST=127.0.0.1 PGPASSWORD=postgres ./scripts/restore-good-db-settings.sh
 #
-# Prereq: All 7 Postgres containers up (docker compose up -d postgres-auth postgres-listings ... postgres-analytics).
+# Prereq: All 8 Postgres containers up (docker compose up -d … postgres-analytics postgres-media).
 
 set -euo pipefail
 
@@ -50,7 +50,7 @@ _psql() {
   psql -h "$PGHOST" -p "$port" -U "$PGUSER" -d "$db" -X -P pager=off -v ON_ERROR_STOP=1 "$@"
 }
 
-say "=== Restoring good DB settings across all 7 housing DBs (ports 5441–5447) ==="
+say "=== Restoring good DB settings across all 8 housing DBs (ports 5441–5448) ==="
 
 for port in "${PORTS[@]}"; do
   db="${PORT_DB[$port]}"
@@ -129,9 +129,9 @@ done
 
 say "=== Done ==="
 echo ""
-echo "Applied across all 7 DBs (where reachable):"
+echo "Applied across all 8 DBs (where reachable):"
 echo "  • System: random_page_cost, work_mem, effective_cache_size, parallel workers, track_io_timing, jit=off, autovacuum, etc."
-echo "  • Database: same + search_path per schema (auth, listings, booking, messaging, notification, trust, analytics)"
+echo "  • Database: same + search_path per schema (auth, listings, booking, messaging, notification, trust, analytics, media)"
 echo "  • Session: same for immediate effect and verification"
 echo ""
 echo "Note: shared_buffers/max_connections require Postgres restart to take effect; other ALTER SYSTEM settings apply after pg_reload_conf()."

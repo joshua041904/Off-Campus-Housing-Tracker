@@ -53,13 +53,26 @@ const healthProto = loadHealthProto();
 export class HealthService {
   private statusMap: ServiceHealthStatus = {};
   private healthCheckFunction?: () => Promise<boolean>;
+  /** Names K8s grpc-health-probe may pass via -service= (plus '' = overall). */
+  private readonly probeServiceNames: Set<string>;
 
-  constructor(serviceName: string, healthCheckFn?: () => Promise<boolean>) {
+  constructor(
+    primaryProbeServiceName: string,
+    healthCheckFn?: () => Promise<boolean>,
+    additionalProbeServiceNames: readonly string[] = []
+  ) {
     this.healthCheckFunction = healthCheckFn;
-    // Set default status for service
-    this.statusMap[serviceName] = ServingStatus.SERVING;
-    // Empty string = overall service health
-    this.statusMap[''] = ServingStatus.SERVING;
+    this.probeServiceNames = new Set<string>(['', primaryProbeServiceName, ...additionalProbeServiceNames]);
+    // Explicit canonical pattern: register overall + each FQ service name as SERVING until first Check runs.
+    for (const name of this.probeServiceNames) {
+      this.statusMap[name] = ServingStatus.SERVING;
+    }
+  }
+
+  private _applyHealthStatusToAllRegistered(status: ServingStatus) {
+    for (const name of this.probeServiceNames) {
+      this.statusMap[name] = status;
+    }
   }
 
   /**
@@ -67,32 +80,29 @@ export class HealthService {
    * Implements grpc.health.v1.Health.Check
    */
   async Check(call: any, callback: any) {
-    const service = call.request.service || '';
-    
-    // If health check function provided, use it to determine health
+    const service = call.request?.service ?? '';
+
+    if (service !== '' && !this.probeServiceNames.has(service)) {
+      callback(null, { status: ServingStatus.SERVICE_UNKNOWN });
+      return;
+    }
+
     if (this.healthCheckFunction) {
       try {
         const isHealthy = await this.healthCheckFunction();
         const status = isHealthy ? ServingStatus.SERVING : ServingStatus.NOT_SERVING;
-        
-        // Update status map
-        this.statusMap[service] = status;
-        this.statusMap[''] = status; // Overall service health
-        
+        this._applyHealthStatusToAllRegistered(status);
         callback(null, { status });
         return;
       } catch (err: any) {
         console.error('[grpc-health] Health check failed:', err);
-        this.statusMap[service] = ServingStatus.NOT_SERVING;
-        this.statusMap[''] = ServingStatus.NOT_SERVING;
+        this._applyHealthStatusToAllRegistered(ServingStatus.NOT_SERVING);
         callback(null, { status: ServingStatus.NOT_SERVING });
         return;
       }
     }
-    
-    // Use cached status if available
-    const status = this.statusMap[service] || ServingStatus.SERVICE_UNKNOWN;
-    
+
+    const status = this.statusMap[service] ?? ServingStatus.SERVICE_UNKNOWN;
     callback(null, { status });
   }
 
@@ -101,24 +111,30 @@ export class HealthService {
    * Implements grpc.health.v1.Health.Watch
    */
   async Watch(call: any) {
-    const service = call.request.service || '';
+    const service = call.request?.service ?? '';
+    if (service !== '' && !this.probeServiceNames.has(service)) {
+      call.write({ status: ServingStatus.SERVICE_UNKNOWN });
+      call.end?.();
+      return;
+    }
     const interval = setInterval(async () => {
       try {
         let status: number;
-        
+
         if (this.healthCheckFunction) {
           const isHealthy = await this.healthCheckFunction();
           status = isHealthy ? ServingStatus.SERVING : ServingStatus.NOT_SERVING;
+          this._applyHealthStatusToAllRegistered(status as ServingStatus);
         } else {
-          status = this.statusMap[service] || ServingStatus.SERVICE_UNKNOWN;
+          status = this.statusMap[service] ?? ServingStatus.SERVICE_UNKNOWN;
         }
-        
+
         call.write({ status });
       } catch (err) {
         call.write({ status: ServingStatus.NOT_SERVING });
       }
     }, 5000); // Check every 5 seconds
-    
+
     call.on('end', () => {
       clearInterval(interval);
     });
@@ -140,15 +156,17 @@ export class HealthService {
 }
 
 /**
- * Register standard gRPC Health Service on a server
- * @param server - gRPC server instance
- * @param serviceName - Name of the service (e.g., 'auth.AuthService', 'social.SocialService')
- * @param healthCheckFn - Optional function to check health (should return Promise<boolean>)
+ * Register standard gRPC Health Service on a server (strict per-service names for K8s mTLS probes).
+ *
+ * @param primaryProbeServiceName - Must match K8s readiness `grpc-health-probe -service=` (e.g. analytics.AnalyticsService)
+ * @param healthCheckFn - Optional; when set, SERVING/NOT_SERVING applies to all registered names + overall ('').
+ * @param additionalProbeServiceNames - Other FQ service names on the same server (e.g. RecommendationAdminService).
  */
 export function registerHealthService(
   server: grpc.Server,
-  serviceName: string,
-  healthCheckFn?: () => Promise<boolean>
+  primaryProbeServiceName: string,
+  healthCheckFn?: () => Promise<boolean>,
+  additionalProbeServiceNames?: readonly string[]
 ): HealthService | null {
   if (!healthProto) {
     console.warn('[grpc-health] health.proto not loaded, standard health service unavailable');
@@ -162,7 +180,11 @@ export function registerHealthService(
     return null;
   }
 
-  const healthService = new HealthService(serviceName, healthCheckFn);
+  const healthService = new HealthService(
+    primaryProbeServiceName,
+    healthCheckFn,
+    additionalProbeServiceNames ?? []
+  );
   const healthServiceDefinition = protoAny.grpc.health.v1.Health.service;
 
   server.addService(healthServiceDefinition, {
@@ -170,7 +192,12 @@ export function registerHealthService(
     Watch: healthService.Watch.bind(healthService),
   });
 
-  console.log(`[grpc-health] Standard gRPC Health Service registered for ${serviceName}`);
+  const allNames = ['', primaryProbeServiceName, ...(additionalProbeServiceNames ?? [])].filter(
+    (n, i, a) => a.indexOf(n) === i
+  );
+  console.log(
+    `[grpc-health] Health Check registered for probe names: ${allNames.map((n) => (n === '' ? '(overall)' : n)).join(', ')}`
+  );
   return healthService;
 }
 

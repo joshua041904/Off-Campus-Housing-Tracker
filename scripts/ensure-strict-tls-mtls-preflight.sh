@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Strict TLS/mTLS preflight: validate service-tls + dev-root-ca; provision from repo or mkcert if missing; sync CA to certs/dev-root.pem; optionally rollout restart gRPC/TLS workloads.
+# Strict TLS/mTLS preflight: validate service-tls + dev-root-ca (tls.crt = leaf only, ca.crt = CA; no bundled chain in tls.crt).
 # Used by run-preflight-scale-and-all-suites.sh (step 5) and run-all-test-suites.sh (with FORCE_TLS_RESTART=1 for standalone).
 # See Runbook §24–25.
 
@@ -79,12 +79,12 @@ _validate_secrets() {
 
 # --- 2. Provision from repo certs or mkcert ---
 _provision_from_repo() {
-  if [[ -f "$CERTS_DIR/dev-root.pem" ]] && [[ -f "$CERTS_DIR/off-campus-housing.local.crt" ]] && [[ -f "$CERTS_DIR/off-campus-housing.local.key" ]]; then
+  if [[ -f "$CERTS_DIR/dev-root.pem" ]] && [[ -f "$CERTS_DIR/off-campus-housing.test.crt" ]] && [[ -f "$CERTS_DIR/off-campus-housing.test.key" ]]; then
     mkdir -p "$CERTS_DIR"
     kubectl -n "$NS" create secret generic service-tls \
       --from-file=ca.crt="$CERTS_DIR/dev-root.pem" \
-      --from-file=tls.crt="$CERTS_DIR/off-campus-housing.local.crt" \
-      --from-file=tls.key="$CERTS_DIR/off-campus-housing.local.key" \
+      --from-file=tls.crt="$CERTS_DIR/off-campus-housing.test.crt" \
+      --from-file=tls.key="$CERTS_DIR/off-campus-housing.test.key" \
       --dry-run=client -o yaml | kubectl apply -f -
     kubectl -n "$NS_ING" create secret generic dev-root-ca --from-file=dev-root.pem="$CERTS_DIR/dev-root.pem" --dry-run=client -o yaml | kubectl apply -f -
     kubectl -n "$NS" create secret generic dev-root-ca --from-file=dev-root.pem="$CERTS_DIR/dev-root.pem" --dry-run=client -o yaml | kubectl apply -f -
@@ -103,7 +103,7 @@ _provision_from_mkcert() {
   local tmpd
   tmpd=$(mktemp -d 2>/dev/null || echo "/tmp/mkcert-provision-$$")
   mkcert -cert-file "$tmpd/tls.crt" -key-file "$tmpd/tls.key" \
-    off-campus-housing.local "*.off-campus-housing.local" localhost 127.0.0.1 \
+    off-campus-housing.test "*.off-campus-housing.test" localhost 127.0.0.1 \
     "auth-service.off-campus-housing-tracker.svc.cluster.local" \
     "api-gateway.off-campus-housing-tracker.svc.cluster.local" \
     "listings-service.off-campus-housing-tracker.svc.cluster.local" \
@@ -127,8 +127,8 @@ _provision_from_mkcert() {
   kubectl -n "$NS" create secret generic dev-root-ca --from-file=dev-root.pem="$tmpd/ca.crt" --dry-run=client -o yaml | kubectl apply -f -
   mkdir -p "$CERTS_DIR"
   cp -f "$tmpd/ca.crt" "$CERTS_DIR/dev-root.pem"
-  cp -f "$tmpd/tls.crt" "$CERTS_DIR/off-campus-housing.local.crt"
-  cp -f "$tmpd/tls.key" "$CERTS_DIR/off-campus-housing.local.key"
+  cp -f "$tmpd/tls.crt" "$CERTS_DIR/off-campus-housing.test.crt"
+  cp -f "$tmpd/tls.key" "$CERTS_DIR/off-campus-housing.test.key"
   ok "Provisioned service-tls + dev-root-ca from mkcert"
   rm -rf "$tmpd"
   return 0
@@ -157,7 +157,7 @@ if [[ "$need" == "1" ]]; then
   elif _provision_from_mkcert; then
     SECRET_UPDATED=1
   else
-    fail "Cannot provision: ensure certs/dev-root.pem, certs/off-campus-housing.local.crt, certs/off-campus-housing.local.key exist, or install mkcert (brew install mkcert && mkcert -install). Then re-run or run pnpm run reissue."
+    fail "Cannot provision: ensure certs/dev-root.pem, certs/off-campus-housing.test.crt, certs/off-campus-housing.test.key exist, or install mkcert (brew install mkcert && mkcert -install). Then re-run or run pnpm run reissue."
   fi
 else
   ok "service-tls + dev-root-ca validated"
@@ -232,11 +232,19 @@ if [[ -f "$SCRIPT_DIR/sync-envoy-tls-secrets.sh" ]]; then
 fi
 
 if [[ "${FORCE_TLS_RESTART:-0}" == "1" ]] || [[ $SECRET_UPDATED -eq 1 ]]; then
-  say "Rollout restart (FORCE_TLS_RESTART=$FORCE_TLS_RESTART, SECRET_UPDATED=$SECRET_UPDATED)"
-  for dep in api-gateway auth-service listings-service booking-service messaging-service trust-service analytics-service; do
-    kubectl -n "$NS" rollout restart "deploy/$dep" --request-timeout=15s 2>/dev/null && ok "Restarted $dep" || warn "Restart $dep failed"
-  done
-  kubectl -n "$NS_ING" rollout restart deploy/caddy-h3 --request-timeout=15s 2>/dev/null && ok "Restarted caddy-h3" || warn "Restart caddy-h3 failed"
+  say "Rollout restart (FORCE_TLS_RESTART=$FORCE_TLS_RESTART, SECRET_UPDATED=$SECRET_UPDATED; OCH_ROLLOUT_SEQUENTIAL=${OCH_ROLLOUT_SEQUENTIAL:-1})"
+  # shellcheck source=scripts/lib/och-sequential-rollout.sh
+  source "$SCRIPT_DIR/lib/och-sequential-rollout.sh"
+  if [[ "${OCH_ROLLOUT_SEQUENTIAL:-1}" == "1" ]]; then
+    OCH_ROLLOUT_NS="$NS" NS_ING="$NS_ING" och_rollout_ordered_housing_apps
+    OCH_ROLLOUT_NS="$NS" och_rollout_caddy_last
+    ok "Sequential app + Caddy rollouts triggered (OCH_ROLLOUT_STATUS_TIMEOUT=${OCH_ROLLOUT_STATUS_TIMEOUT:-180}s each)"
+  else
+    for dep in api-gateway auth-service listings-service booking-service messaging-service trust-service analytics-service; do
+      kubectl -n "$NS" rollout restart "deploy/$dep" --request-timeout=15s 2>/dev/null && ok "Restarted $dep" || warn "Restart $dep failed"
+    done
+    kubectl -n "$NS_ING" rollout restart deploy/caddy-h3 --request-timeout=15s 2>/dev/null && ok "Restarted caddy-h3" || warn "Restart caddy-h3 failed"
+  fi
 fi
 
 # Deployments mount och-service-tls; reissue updates service-tls — always refresh alias so mounts never go stale.
@@ -259,5 +267,16 @@ _ensure_och_service_tls_alias() {
   ok "och-service-tls synced from service-tls"
 }
 _ensure_och_service_tls_alias
+
+# Host grpcurl / suites: write tls.crt + tls.key + ca.crt (same material as pods; avoids empty PEM / wrong paths).
+if [[ -f "$SCRIPT_DIR/lib/ensure-och-grpc-certs.sh" ]]; then
+  # shellcheck source=scripts/lib/ensure-och-grpc-certs.sh
+  source "$SCRIPT_DIR/lib/ensure-och-grpc-certs.sh"
+  if och_sync_grpc_certs_to_dir "${GRPC_CERTS_DIR:-/tmp/grpc-certs}" "$NS"; then
+    ok "Synced och-service-tls → ${GRPC_CERTS_DIR:-/tmp/grpc-certs}/{tls.crt,tls.key,ca.crt} (grpcurl mTLS)"
+  else
+    warn "Could not materialize gRPC client certs to ${GRPC_CERTS_DIR:-/tmp/grpc-certs} (kubectl secret or repo certs/*.local.*)"
+  fi
+fi
 
 say "Strict TLS/mTLS preflight complete"

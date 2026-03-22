@@ -1,16 +1,20 @@
 import * as grpc from '@grpc/grpc-js'
 import * as protoLoader from '@grpc/proto-loader'
-import * as fs from 'fs'
-import * as path from 'path'
 import { createUploadUrl } from './handlers/createUploadUrl.js'
 import { completeUpload } from './handlers/completeUpload.js'
 import { getDownloadUrl } from './handlers/getDownloadUrl.js'
 import { registerHealthService } from '@common/utils/grpc-health'
-import { healthCheck } from './health.js'
+import { createOchStrictMtlsServerCredentials } from '@common/utils/grpc-server-credentials'
+import { resolveProtoPath } from '@common/utils/proto'
+import { checkConnection } from './db/mediaRepo.js'
 
-const PROTO_PATH = path.resolve(__dirname, '../../../proto/media.proto')
-const packageDefinition = protoLoader.loadSync(PROTO_PATH, { keepCase: true, longs: String, enums: String, defaults: true })
+const MEDIA_PROTO = resolveProtoPath('media.proto')
+const packageDefinition = protoLoader.loadSync(MEDIA_PROTO, { keepCase: true, longs: String, enums: String, defaults: true })
 const mediaProto = (grpc.loadPackageDefinition(packageDefinition) as any).media
+if (!mediaProto?.MediaService?.service) {
+  console.error('[media gRPC] invalid media.proto load — expected package media with MediaService')
+  process.exit(1)
+}
 
 export function startGrpcServer(port: number): void {
   const server = new grpc.Server()
@@ -56,30 +60,22 @@ export function startGrpcServer(port: number): void {
     },
   })
 
-  registerHealthService(server, 'media.MediaService', healthCheck)
-
-  const certsDir = path.resolve(__dirname, '../../../certs')
-  const keyPath = process.env.TLS_KEY_PATH || path.join(certsDir, 'media-service.key')
-  const certPath = process.env.TLS_CERT_PATH || path.join(certsDir, 'media-service.crt')
-  const caPath = process.env.TLS_CA_PATH || process.env.GRPC_CA_CERT || path.join(certsDir, 'dev-root.pem')
-  const requireClientCert = process.env.GRPC_REQUIRE_CLIENT_CERT === 'true'
+  // K8s grpc-health-probe: DB only (same pattern as listings). Full DB+Kafka+S3: see health.ts for future HTTP readiness.
+  registerHealthService(server, 'media.MediaService', async () => checkConnection())
 
   let credentials: grpc.ServerCredentials
-  if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
-    const key = fs.readFileSync(keyPath)
-    const cert = fs.readFileSync(certPath)
-    const rootCerts = fs.existsSync(caPath) ? fs.readFileSync(caPath) : null
-    credentials = grpc.ServerCredentials.createSsl(rootCerts, [{ private_key: key, cert_chain: cert }], requireClientCert as any)
-    console.log('[media gRPC] TLS enabled; client cert required:', requireClientCert)
-  } else {
-    console.warn('[media gRPC] TLS certs not found, starting insecure (dev only)')
-    credentials = grpc.ServerCredentials.createInsecure()
+  try {
+    credentials = createOchStrictMtlsServerCredentials('media gRPC')
+    console.log('[media gRPC] strict mTLS (client cert required)')
+  } catch (e) {
+    console.error(e)
+    process.exit(1)
   }
 
   server.bindAsync(`0.0.0.0:${port}`, credentials, (err, p) => {
     if (err) {
       console.error('[media gRPC] bind error:', err)
-      return
+      process.exit(1)
     }
     server.start()
     console.log(`[media gRPC] listening on ${p}`)

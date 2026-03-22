@@ -4,12 +4,13 @@ set -euo pipefail
 # Project-aware: housing uses off-campus-housing-local-tls; override for other projects (e.g. PROJECT_NAME=record-platform).
 PROJECT_NAME="${PROJECT_NAME:-off-campus-housing}"
 NAMESPACE_INGRESS="${NAMESPACE_INGRESS:-ingress-nginx}"
-HOSTNAME="${HOSTNAME:-off-campus-housing.local}"
+# macOS sets HOSTNAME to the machine name — do not use it for Caddy/TLS docs.
+CADDY_PUBLIC_HOSTNAME="${CADDY_PUBLIC_HOSTNAME:-off-campus-housing.test}"
 TLS_SECRET="${TLS_SECRET:-${PROJECT_NAME}-local-tls}"
 
 echo "🚀 Rolling out Caddy for project: $PROJECT_NAME"
 echo "   Namespace (Caddy): $NAMESPACE_INGRESS"
-echo "   Hostname: $HOSTNAME"
+echo "   Public hostname (SNI): $CADDY_PUBLIC_HOSTNAME"
 echo "   TLS Secret: $TLS_SECRET"
 
 NS="$NAMESPACE_INGRESS"
@@ -32,8 +33,8 @@ if [ "${CADDY_USE_HOSTPORT:-0}" = "1" ] || [ "${CADDY_USE_LOADBALANCER:-0}" = "1
     echo "Create it with:"
     echo ""
     echo "  kubectl create secret tls $TLS_SECRET \\"
-    echo "    --cert=certs/off-campus-housing.local.crt \\"
-    echo "    --key=certs/off-campus-housing.local.key \\"
+    echo "    --cert=certs/off-campus-housing.test.crt \\"
+    echo "    --key=certs/off-campus-housing.test.key \\"
     echo "    -n $NS"
     echo ""
     echo "  Or run: ./scripts/strict-tls-bootstrap.sh   # (requires certs in ./certs/)"

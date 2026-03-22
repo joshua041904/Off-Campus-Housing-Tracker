@@ -11,7 +11,7 @@ data:
         protocols h1 h2 h3
       }
     }
-    off-campus-housing.local {
+    off-campus-housing.test {
       tls /etc/caddy/certs/tls.crt /etc/caddy/certs/tls.key
       respond /_caddy/healthz 200
       respond "ok" 200

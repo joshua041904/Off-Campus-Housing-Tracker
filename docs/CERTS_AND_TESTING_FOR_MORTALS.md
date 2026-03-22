@@ -26,7 +26,7 @@ Creates under `certs/` (among others):
 | Artifact | Purpose |
 |----------|---------|
 | `dev-root.pem`, `dev-root.key` | Dev CA |
-| `off-campus-housing.local.crt`, `.key` | Caddy / ingress leaf (SNI **off-campus-housing.local**) |
+| `off-campus-housing.test.crt`, `.key` | Caddy / ingress leaf (SNI **off-campus-housing.test**) |
 | Per-service certs (if generated) | Optional; many flows use **service-tls** secret with the **same leaf** as edge |
 | `certs/kafka-dev/*`, `certs/kafka-ssl/*` | Kafka TLS clients / broker material for Docker |
 
@@ -59,8 +59,8 @@ This creates/updates:
 
 ```bash
 kubectl -n off-campus-housing-tracker create secret generic och-service-tls \
-  --from-file=tls.key=certs/off-campus-housing.local.key \
-  --from-file=tls.crt=certs/off-campus-housing.local.crt \
+  --from-file=tls.key=certs/off-campus-housing.test.key \
+  --from-file=tls.crt=certs/off-campus-housing.test.crt \
   --from-file=ca.crt=certs/dev-root.pem \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
@@ -87,13 +87,13 @@ Kafka brokers should be **external** (Docker Compose), not an in-cluster `kafka`
 Add to **`/etc/hosts`** (or pass `curl --resolve` only):
 
 ```text
-127.0.0.1 off-campus-housing.local
+127.0.0.1 off-campus-housing.test
 ```
 
 With **MetalLB**, scripts use:
 
 ```bash
-curl --resolve off-campus-housing.local:443:<LB_IP> https://off-campus-housing.local/_caddy/healthz
+curl --resolve off-campus-housing.test:443:<LB_IP> https://off-campus-housing.test/_caddy/healthz
 ```
 
 Get `<LB_IP>`: `kubectl -n ingress-nginx get svc caddy-h3`.
@@ -213,8 +213,8 @@ Preflight runs Vitest + housing + comprehensive scripts, then **k6** on messagin
 
 ```bash
 export SSL_CERT_FILE="$PWD/certs/dev-root.pem"
-export BASE_URL=https://off-campus-housing.local
-export K6_RESOLVE=off-campus-housing.local:443:<LB_IP>
+export BASE_URL=https://off-campus-housing.test
+export K6_RESOLVE=off-campus-housing.test:443:<LB_IP>
 k6 run scripts/load/k6-messaging.js
 k6 run scripts/load/k6-media-health.js
 ```

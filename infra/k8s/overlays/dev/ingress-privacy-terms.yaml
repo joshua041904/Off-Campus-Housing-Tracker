@@ -26,8 +26,8 @@ spec:
             name: auth-service
             port:
               number: 4001
-  # Specific rule for off-campus-housing.local
-  - host: off-campus-housing.local
+  # Specific rule for off-campus-housing.test
+  - host: off-campus-housing.test
     http:
       paths:
       - path: /privacy

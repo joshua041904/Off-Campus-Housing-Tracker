@@ -15,16 +15,17 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 LOAD_DIR="$SCRIPT_DIR"
 
 SUITE_LOG_DIR="${SUITE_LOG_DIR:-/tmp/k6-phases}"
-K6_CA_ABSOLUTE="${K6_CA_ABSOLUTE:-}"
-HOST="${HOST:-off-campus-housing.local}"
-PORT="${PORT:-30443}"
-# BASE_URL: always use hostname for strict TLS (cert SAN has DNS:off-campus-housing.local, not IP).
-# From host: use off-campus-housing.local + K6_RESOLVE so k6 connects to MetalLB IP but TLS SNI matches cert.
-# Never use raw IP — causes x509 SAN mismatch (cert valid for off-campus-housing.local, not 192.168.64.240).
+K6_CA_ABSOLUTE="${K6_CA_ABSOLUTE:-$REPO_ROOT/certs/dev-root.pem}"
+HOST="${HOST:-off-campus-housing.test}"
+# Worst-case / cert alignment: use https://off-campus-housing.test (SNI + SAN). Override PORT only if you must hit NodePort (e.g. 30443).
+PORT="${PORT:-443}"
+# BASE_URL: always use hostname for strict TLS (cert SAN has DNS:off-campus-housing.test, not IP).
+# From host: use off-campus-housing.test + K6_RESOLVE so k6 connects to MetalLB IP but TLS SNI matches cert.
+# Never use raw IP — causes x509 SAN mismatch (cert valid for off-campus-housing.test, not 192.168.64.240).
 if [[ -n "${BASE_URL:-}" ]]; then
   # Reject raw IP (strict TLS invariant)
   if [[ "$BASE_URL" =~ ^https?://[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(:[0-9]+)? ]]; then
-    echo "  ❌ Do not use raw IP for strict TLS. Use hostname (e.g. https://off-campus-housing.local:443) and K6_RESOLVE."
+    echo "  ❌ Do not use raw IP for strict TLS. Use hostname (e.g. https://off-campus-housing.test:443) and K6_RESOLVE."
     exit 1
   fi
   : # use caller-provided BASE_URL
@@ -33,7 +34,7 @@ elif [[ "${K6_IN_CLUSTER:-0}" == "1" ]]; then
   export BASE_URL
   echo "  ℹ️  k6 in-cluster: BASE_URL=$BASE_URL"
 else
-  # From host: use hostname + --resolve so TLS SAN matches (off-campus-housing.local in cert)
+  # From host: use hostname + --resolve so TLS SAN matches (off-campus-housing.test in cert)
   LB_IP=""
   if [[ "${K6_USE_METALLB:-1}" == "1" ]] && command -v kubectl >/dev/null 2>&1; then
     LB_IP=$(kubectl -n ingress-nginx get svc caddy-h3 -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
@@ -44,7 +45,12 @@ else
     export K6_RESOLVE="${HOST}:443:${LB_IP}"
     echo "  ℹ️  k6 from host (MetalLB): BASE_URL=$BASE_URL (ensure $HOST resolves to $LB_IP via /etc/hosts or route)"
   else
-    BASE_URL="${BASE_URL:-https://${HOST}:${PORT}}"
+    # Default: https://off-campus-housing.test (implicit :443). Set PORT=30443 only for raw NodePort without MetalLB.
+    if [[ "${PORT}" == "443" ]]; then
+      BASE_URL="${BASE_URL:-https://${HOST}}"
+    else
+      BASE_URL="${BASE_URL:-https://${HOST}:${PORT}}"
+    fi
   fi
 fi
 export BASE_URL
@@ -70,7 +76,7 @@ SKIP_HOST_HTTP3="${SKIP_HOST_HTTP3:-0}"
 [[ "$KUBE_CTX" == *"colima"* ]] && SKIP_HOST_HTTP3=1
 [[ "${SKIP_HOST_HTTP3:-0}" == "1" ]] && echo "  ℹ️  SKIP_HOST_HTTP3=1 (Colima or set): host HTTP/3 test skipped; in-cluster k6 and pod capture are authoritative for QUIC."
 
-# k6 (Go) requires a valid CA for https://off-campus-housing.local; without it we get "x509: certificate signed by unknown authority". Do not run phases without a CA.
+# k6 (Go) requires a valid CA for https://off-campus-housing.test; without it we get "x509: certificate signed by unknown authority". Do not run phases without a CA.
 if [[ -z "$K6_CA_ABSOLUTE" ]] || [[ ! -f "$K6_CA_ABSOLUTE" ]] || [[ ! -s "$K6_CA_ABSOLUTE" ]]; then
   echo "⚠️  Skip k6 phases: no CA (K6_CA_ABSOLUTE must point to certs/dev-root.pem). Run full preflight so rotation syncs CA to certs/dev-root.pem, or set K6_CA_ABSOLUTE=$REPO_ROOT/certs/dev-root.pem"
   exit 0
@@ -78,15 +84,21 @@ fi
 
 mkdir -p "$SUITE_LOG_DIR"
 export SSL_CERT_FILE="${K6_CA_ABSOLUTE}"
-# On macOS, Go ignores SSL_CERT_FILE; k6 uses Keychain. Run trust script (same as run-k6-chaos).
-if [[ "$(uname -s)" == "Darwin" ]] && [[ -n "$K6_CA_ABSOLUTE" ]] && [[ -s "$K6_CA_ABSOLUTE" ]]; then
-  if [[ -f "$SCRIPT_DIR/../lib/trust-dev-root-ca-macos.sh" ]]; then
-    "$SCRIPT_DIR/../lib/trust-dev-root-ca-macos.sh" "$K6_CA_ABSOLUTE" 2>/dev/null || true
+export K6_TLS_CA_CERT="${K6_TLS_CA_CERT:-$K6_CA_ABSOLUTE}"
+# macOS: k6 HTTP uses Security.framework (not SSL_CERT_FILE). Trust dev-root in login keychain before phases.
+# Phases pass many dynamic env vars (MODE, RATE, …) — use host k6 here; for Docker-only workflows use Linux/CI.
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  if [[ "${SKIP_MACOS_DEV_CA_TRUST:-0}" != "1" ]] && [[ -f "$SCRIPT_DIR/../lib/trust-dev-root-ca-macos.sh" ]] && [[ -s "$K6_CA_ABSOLUTE" ]]; then
+    "$SCRIPT_DIR/../lib/trust-dev-root-ca-macos.sh" "$K6_CA_ABSOLUTE" || {
+      echo "macOS: trust dev CA (script above) or SKIP_MACOS_DEV_CA_TRUST=1 if already trusted. See scripts/k6-exec-strict-edge.sh."
+      exit 1
+    }
   fi
 fi
 k6_extra=()
 [[ "$K6_INSECURE" == "1" || "$K6_INSECURE" == "true" ]] && k6_extra+=(--insecure-skip-tls-verify) || true
-# k6 has no --resolve flag (that's curl). Ensure off-campus-housing.local resolves: add to /etc/hosts or use route (e.g. Colima).
+command -v k6 >/dev/null 2>&1 || { echo "k6 not installed"; exit 1; }
+# k6 has no --resolve flag (that's curl). Ensure off-campus-housing.test resolves: add to /etc/hosts or use route (e.g. Colima).
 # K6_RESOLVE is for logging; pass via -e to script if needed: k6 reads BASE_URL, script may use different endpoint.
 
 run_phase() {
@@ -100,8 +112,16 @@ run_phase() {
       export BASE_URL="$BASE_URL"
       [[ -n "${K6_RESOLVE:-}" ]] && export K6_RESOLVE="$K6_RESOLVE"
       [[ -n "$K6_CA_ABSOLUTE" ]] && [[ -s "$K6_CA_ABSOLUTE" ]] && export SSL_CERT_FILE="$K6_CA_ABSOLUTE"
+      export K6_TLS_CA_CERT="${K6_TLS_CA_CERT:-$K6_CA_ABSOLUTE}"
       for v in "$@"; do export "$v"; done
-      k6 run "${k6_extra[@]}" "$script" 2>&1 | tee "$log"
+      k6 run \
+        -e "BASE_URL=${BASE_URL:-}" \
+        -e "K6_RESOLVE=${K6_RESOLVE:-}" \
+        -e "K6_TLS_CA_CERT=${K6_TLS_CA_CERT:-$K6_CA_ABSOLUTE}" \
+        -e "K6_CA_ABSOLUTE=${K6_CA_ABSOLUTE:-}" \
+        -e "K6_INSECURE_SKIP_TLS=${K6_INSECURE:-0}" \
+        "${k6_extra[@]}" \
+        "$script" 2>&1 | tee "$log"
     ) || echo "  ⚠️  $phase had issues"
   else
     echo "  ⚠️  script not found: $script" >> "$log"
@@ -123,7 +143,7 @@ run_http3_phase() {
   # K6_HTTP3_NO_REUSE=1: new QUIC connection per request from host (avoids "timeout: no recent network activity")
   export K6_HTTP3_NO_REUSE="${K6_HTTP3_NO_REUSE:-1}"
   if [[ -n "$K6_HTTP3_BIN" ]] && [[ -f "$LOAD_DIR/k6-http3-complete.js" ]]; then
-    ( env BASE_URL="$BASE_URL" SSL_CERT_FILE="$K6_CA_ABSOLUTE" \
+    ( env BASE_URL="$BASE_URL" SSL_CERT_FILE="$K6_CA_ABSOLUTE" K6_TLS_CA_CERT="${K6_TLS_CA_CERT:-$K6_CA_ABSOLUTE}" \
       K6_RESOLVE="${K6_RESOLVE:-}" K6_HTTP3_NO_REUSE="${K6_HTTP3_NO_REUSE:-1}" HOST="$HOST" PORT="$PORT" $h3_relax \
       "$K6_HTTP3_BIN" run "${k6_extra[@]}" "$LOAD_DIR/k6-http3-complete.js" 2>&1 | tee "$log" ) || echo "  ⚠️  http3 had issues"
   else

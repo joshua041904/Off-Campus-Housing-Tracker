@@ -43,9 +43,9 @@ if [[ -z "$CLUSTER_IP" ]]; then
   warn "Caddy ClusterIP not found; skipping in-cluster health"
 else
   CADDY_POD="tmp-curl-caddy-$$"
-  # Host: off-campus-housing.local required so Caddy matches https://off-campus-housing.local vhost (otherwise :443 catch-all; -k = no CA in pod)
+  # Host: off-campus-housing.test required so Caddy matches https://off-campus-housing.test vhost (otherwise :443 catch-all; -k = no CA in pod)
   _kb run "$CADDY_POD" --image="$CURL_IMAGE" --restart=Never -n "$NS_ING" -- \
-    curl -sS -o /dev/null -w "%{http_code}" -k --connect-timeout 5 --max-time 10 --resolve "off-campus-housing.local:443:${CLUSTER_IP}" "https://off-campus-housing.local/_caddy/healthz" 2>/dev/null || true
+    curl -sS -o /dev/null -w "%{http_code}" -k --connect-timeout 5 --max-time 10 --resolve "off-campus-housing.test:443:${CLUSTER_IP}" "https://off-campus-housing.test/_caddy/healthz" 2>/dev/null || true
   # Wait for pod to complete so logs are flushed (avoid empty CODE from reading too early)
   for _w in $(seq 1 20); do
     _phase=$(_kb -n "$NS_ING" get pod "$CADDY_POD" -o jsonpath='{.status.phase}' 2>/dev/null || echo "Pending")
@@ -94,9 +94,9 @@ for attempt in $(seq 1 "$HAPROXY_ATTEMPTS"); do
     consecutive_503=$((consecutive_503 + 1))
     warn "HAProxy 503 (attempt $attempt/$HAPROXY_ATTEMPTS)"
     if [[ $consecutive_503 -ge "$HAPROXY_CONSECUTIVE_503_FAIL" ]]; then
-      info "  Diagnose (HAProxy pod has no curl): kubectl run curl-diagnose --rm -i --restart=Never -n $NS_APP --image=curlimages/curl:latest -- curl -s -o /dev/null -w '%{http_code}' http://api-gateway.${NS_APP}.svc.cluster.local:4020/healthz"
+      info "  Diagnose (HAProxy pod has no curl): kubectl run curl-diagnose --rm -i --restart=Never -n $NS_APP --image=curlimages/curl:latest -- curl -s -o /dev/null -w '%{http_code}' http://api-gateway.${NS_APP}.svc.cluster.local:4020/readyz"
       info "  If 200 → backend OK; HAProxy needs 'resolvers k8s' + server ... resolvers k8s so health checks resolve FQDN (see haproxy configmap). If 404/000 → path or connectivity."
-      fail "HAProxy backend unhealthy for >30s (${consecutive_503} consecutive 503). Ensure api-gateway has ready pods and HAProxy config option httpchk GET /healthz."
+      fail "HAProxy backend unhealthy for >30s (${consecutive_503} consecutive 503). Ensure api-gateway has ready pods and HAProxy config option httpchk GET /readyz."
     fi
   else
     consecutive_503=0

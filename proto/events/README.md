@@ -2,6 +2,8 @@
 
 **Strong discipline:** All Kafka messages are serialized **EventEnvelope**. No raw domain messages on topics. RPC contracts (repo root `proto/*.proto`) stay untouched; events are isolated here.
 
+**See also:** [`ENGINEERING.md`](../ENGINEERING.md) → *Service Communication Patterns* → **Event-driven contracts: `proto/events/` vs `proto/` RPC** (why RPC and async events are separate, outbox, and how this relates to services like **media** — gRPC + `MEDIA_HTTP` at the gateway are orthogonal to Kafka event shapes).
+
 ## Envelope (mandatory)
 
 - **envelope.proto** — `EventEnvelope`: event_id, type, version, source, entity_id, timestamp, payload (bytes). Every producer serializes the domain message into `payload` and wraps it in EventEnvelope. Partition key = entity_id.

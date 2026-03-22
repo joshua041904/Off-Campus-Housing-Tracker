@@ -242,11 +242,11 @@ spec:
       set -e
       echo "Curling LB_IP=\$LB_IP ..."
       code1="000"
-      out1=\$(curl -k -sS -w '%{http_code}' -o /tmp/b1 --max-time 10 -H "Host: off-campus-housing.local" "https://\$LB_IP/_caddy/healthz" 2>&1) || true
+      out1=\$(curl -k -sS -w '%{http_code}' -o /tmp/b1 --max-time 10 -H "Host: off-campus-housing.test" "https://\$LB_IP/_caddy/healthz" 2>&1) || true
       code1=\$(echo "\$out1" | tail -1)
       echo "HTTP1: \$code1 (curl stderr: \$(echo "\$out1" | head -5))"
       code2="000"
-      out2=\$(curl -k -sS -w '%{http_code}' -o /tmp/b2 --max-time 10 --http2 -H "Host: off-campus-housing.local" "https://\$LB_IP/_caddy/healthz" 2>&1) || true
+      out2=\$(curl -k -sS -w '%{http_code}' -o /tmp/b2 --max-time 10 --http2 -H "Host: off-campus-housing.test" "https://\$LB_IP/_caddy/healthz" 2>&1) || true
       code2=\$(echo "\$out2" | tail -1)
       echo "HTTP2: \$code2 (curl stderr: \$(echo "\$out2" | head -5))"
       if [ "\$code1" = "200" ] && [ "\$code2" = "200" ]; then exit 0; fi
@@ -293,7 +293,7 @@ spec:
     - /bin/sh
     - -c
     - |
-      code=\$(curl -k -sS -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 --resolve "off-campus-housing.local:443:$lb_ip" "https://off-campus-housing.local/_caddy/healthz" 2>/dev/null) || code="000"
+      code=\$(curl -k -sS -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 --resolve "off-campus-housing.test:443:$lb_ip" "https://off-campus-housing.test/_caddy/healthz" 2>/dev/null) || code="000"
       echo "\$code"
 PODEOF2
       _node_ok=0
@@ -335,14 +335,14 @@ fi
 host_https_host="${HOST_HTTPS_HOST:-}"
 host_https_port="${HOST_HTTPS_PORT:-}"
 
-# Helper: curl to LB IP using off-campus-housing.local for TLS (cert SAN). Returns 200 or 000.
+# Helper: curl to LB IP using off-campus-housing.test for TLS (cert SAN). Returns 200 or 000.
 _curl_lb_health() {
-  curl -k -sS -o /dev/null -w "%{http_code}" --connect-timeout 3 --max-time 5 --resolve "off-campus-housing.local:443:${1}" "https://off-campus-housing.local/_caddy/healthz" 2>/dev/null || echo "000"
+  curl -k -sS -o /dev/null -w "%{http_code}" --connect-timeout 3 --max-time 5 --resolve "off-campus-housing.test:443:${1}" "https://off-campus-housing.test/_caddy/healthz" 2>/dev/null || echo "000"
 }
 # Helper: curl to host path (either LB IP:443 or 127.0.0.1:HOST_HTTPS_PORT when no-sudo path is used)
 _curl_host_path_health() {
   if [[ -n "$host_https_port" ]] && [[ -n "$host_https_host" ]]; then
-    curl -k -sS -o /dev/null -w "%{http_code}" --connect-timeout 3 --max-time 5 --resolve "off-campus-housing.local:${host_https_port}:${host_https_host}" "https://off-campus-housing.local:${host_https_port}/_caddy/healthz" 2>/dev/null || echo "000"
+    curl -k -sS -o /dev/null -w "%{http_code}" --connect-timeout 3 --max-time 5 --resolve "off-campus-housing.test:${host_https_port}:${host_https_host}" "https://off-campus-housing.test:${host_https_port}/_caddy/healthz" 2>/dev/null || echo "000"
   else
     [[ -z "$lb_ip" ]] && echo "000" && return
     _curl_lb_health "$lb_ip"
@@ -492,9 +492,9 @@ if [[ "${SKIP_HOST_CURL:-0}" != "1" ]]; then
   if [[ -n "$host_reached_lb" ]] && { [[ -n "$lb_ip" ]] || [[ -n "$host_curl_host" ]]; }; then
     _h3_host="${host_curl_host:-$lb_ip}"
     _h3_port="${host_curl_port:-443}"
-    _h3_resolve="off-campus-housing.local:${_h3_port}:${_h3_host}"
-    _h3_url="https://off-campus-housing.local:${_h3_port}/_caddy/healthz"
-    [[ "$_h3_port" == "443" ]] && _h3_url="https://off-campus-housing.local/_caddy/healthz"
+    _h3_resolve="off-campus-housing.test:${_h3_port}:${_h3_host}"
+    _h3_url="https://off-campus-housing.test:${_h3_port}/_caddy/healthz"
+    [[ "$_h3_port" == "443" ]] && _h3_url="https://off-campus-housing.test/_caddy/healthz"
     _h3_args=()
     # No-sudo path (127.0.0.1:8443): use -k to match setup-lb-ip-host-access-no-sudo.sh quick verify (avoids CA/temp-file quirks).
     if [[ "$_h3_port" != "443" ]]; then
@@ -510,7 +510,7 @@ if [[ "${SKIP_HOST_CURL:-0}" != "1" ]]; then
       _pod_h3_out=$(kubectl -n "$NS_ING" run "verify-h3-lb-$$" --rm -i --restart=Never --request-timeout=60s --quiet \
         --overrides='{"spec":{"hostNetwork":true}}' \
         --image="$_h3_img" -- \
-        curl -k -sS -o /dev/null -w "%{http_code}\n" --connect-timeout 8 --max-time 20 --http3 --resolve "off-campus-housing.local:443:${lb_ip}" "https://off-campus-housing.local/_caddy/healthz" 2>/dev/null || echo "000")
+        curl -k -sS -o /dev/null -w "%{http_code}\n" --connect-timeout 8 --max-time 20 --http3 --resolve "off-campus-housing.test:443:${lb_ip}" "https://off-campus-housing.test/_caddy/healthz" 2>/dev/null || echo "000")
       _pod_h3_code=$(echo "$_pod_h3_out" | head -1 | tr -d '\r\n')
       [[ ! "$_pod_h3_code" =~ ^[0-9]{3}$ ]] && _pod_h3_code="000"
       _pod_h3_code=$(_normalize_http_code "$_pod_h3_code")
@@ -525,7 +525,7 @@ if [[ "${SKIP_HOST_CURL:-0}" != "1" ]]; then
     fi
     # Colima fallback: in-VM curl (if in-cluster pod failed or image pull issue).
     if [[ "$_http3_lb_ok" != "1" ]] && [[ "$ctx" == *"colima"* ]] && [[ -n "$lb_ip" ]] && command -v colima &>/dev/null 2>&1; then
-      _vm_h3=$(colima ssh -- curl -k -sS -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 --http3-only --resolve "off-campus-housing.local:443:${lb_ip}" "https://off-campus-housing.local/_caddy/healthz" 2>/dev/null || echo "000")
+      _vm_h3=$(colima ssh -- curl -k -sS -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 --http3-only --resolve "off-campus-housing.test:443:${lb_ip}" "https://off-campus-housing.test/_caddy/healthz" 2>/dev/null || echo "000")
       _vm_h3=$(_normalize_http_code "$_vm_h3")
       if [[ "$_vm_h3" == "200" ]]; then
         _http3_lb_ok=1
@@ -538,7 +538,7 @@ if [[ "${SKIP_HOST_CURL:-0}" != "1" ]]; then
     # Colima fallback: when in-VM returned 000 (VM curl no HTTP/3) but no-sudo forward is up (127.0.0.1:8443), try host HTTP/3 so we pass when the forward works.
     if [[ "$_http3_lb_ok" != "1" ]] && [[ "$ctx" == *"colima"* ]] && [[ "$_h3_port" == "8443" ]] && [[ "$(uname -s)" == "Darwin" ]] && [[ -x "$CURL_BIN" ]] && "$CURL_BIN" --help all 2>/dev/null | grep -q -- "--http3-only"; then
       export NGTCP2_ENABLE_GSO="${NGTCP2_ENABLE_GSO:-0}"
-      _colima_h3=$(_normalize_http_code "$("$CURL_BIN" --http3-only -k -sS -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 15 --resolve "off-campus-housing.local:8443:127.0.0.1" "https://off-campus-housing.local:8443/_caddy/healthz" 2>/dev/null || echo "000")")
+      _colima_h3=$(_normalize_http_code "$("$CURL_BIN" --http3-only -k -sS -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 15 --resolve "off-campus-housing.test:8443:127.0.0.1" "https://off-campus-housing.test:8443/_caddy/healthz" 2>/dev/null || echo "000")")
       [[ "$_colima_h3" == "200" ]] && _http3_lb_ok=1
       [[ "$_http3_lb_ok" == "1" ]] && ok "HTTP/3 (QUIC) via 127.0.0.1:8443 (no-sudo forward) verified — QUIC working."
     fi
@@ -556,7 +556,7 @@ if [[ "${SKIP_HOST_CURL:-0}" != "1" ]]; then
       _h3_exact_code="000"
       if [[ "$(uname -s)" == "Darwin" ]] && [[ -x "$CURL_BIN" ]] && "$CURL_BIN" --help all 2>/dev/null | grep -q -- "--http3-only"; then
         _h3_exact_code=$("$CURL_BIN" --http3-only -k -sS -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 15 \
-            --resolve "off-campus-housing.local:${_h3_port}:127.0.0.1" "https://off-campus-housing.local:${_h3_port}/_caddy/healthz" 2>/dev/null || echo "000")
+            --resolve "off-campus-housing.test:${_h3_port}:127.0.0.1" "https://off-campus-housing.test:${_h3_port}/_caddy/healthz" 2>/dev/null || echo "000")
         _h3_exact_code=$(_normalize_http_code "$_h3_exact_code")
         [[ "$_h3_exact_code" == "200" ]] && _http3_lb_ok=1
       fi
@@ -564,7 +564,7 @@ if [[ "${SKIP_HOST_CURL:-0}" != "1" ]]; then
         info "Retrying HTTP/3 via 127.0.0.1:${_h3_port} in 2s..."
         sleep 2
         _h3_exact_code=$("$CURL_BIN" --http3-only -k -sS -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 15 \
-            --resolve "off-campus-housing.local:${_h3_port}:127.0.0.1" "https://off-campus-housing.local:${_h3_port}/_caddy/healthz" 2>/dev/null || echo "000")
+            --resolve "off-campus-housing.test:${_h3_port}:127.0.0.1" "https://off-campus-housing.test:${_h3_port}/_caddy/healthz" 2>/dev/null || echo "000")
         _h3_exact_code=$(_normalize_http_code "$_h3_exact_code")
         [[ "$_h3_exact_code" == "200" ]] && _http3_lb_ok=1
       fi
@@ -589,7 +589,7 @@ if [[ "${SKIP_HOST_CURL:-0}" != "1" ]]; then
         _docker_ip=$(docker run --rm alpine getent hosts host.docker.internal 2>/dev/null | awk '{print $1}' || echo "")
         _docker_port="18443"
         [[ -f "${TMPDIR:-/tmp}/lb-ip-docker-forward-port-$(echo "$lb_ip" | tr '.' '_').txt" ]] && _docker_port=$(cat "${TMPDIR:-/tmp}/lb-ip-docker-forward-port-$(echo "$lb_ip" | tr '.' '_').txt" 2>/dev/null || echo "18443")
-        [[ -n "$_docker_ip" ]] && _h3_resolve="off-campus-housing.local:${_docker_port}:$_docker_ip" && _h3_url="https://off-campus-housing.local:${_docker_port}/_caddy/healthz"
+        [[ -n "$_docker_ip" ]] && _h3_resolve="off-campus-housing.test:${_docker_port}:$_docker_ip" && _h3_url="https://off-campus-housing.test:${_docker_port}/_caddy/healthz"
       fi
       if http3_curl --http3-only -sS -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 12 \
           --resolve "$_h3_resolve" "${args_ca[@]}" "$_h3_url" 2>/dev/null | grep -q 200; then
@@ -615,7 +615,7 @@ if [[ "${SKIP_HOST_CURL:-0}" != "1" ]]; then
         _pod_out=$(kubectl -n "$NS_ING" run "verify-h3-stable-$$" --rm -i --restart=Never --request-timeout=30s --quiet \
           --overrides='{"spec":{"hostNetwork":true}}' \
           --image="$_h3_img" -- \
-          curl -k -sS -o /dev/null -w "%{http_code}\n" --connect-timeout 8 --max-time 20 --http3 --resolve "off-campus-housing.local:443:${lb_ip}" "https://off-campus-housing.local/_caddy/healthz" 2>/dev/null || echo "000")
+          curl -k -sS -o /dev/null -w "%{http_code}\n" --connect-timeout 8 --max-time 20 --http3 --resolve "off-campus-housing.test:443:${lb_ip}" "https://off-campus-housing.test/_caddy/healthz" 2>/dev/null || echo "000")
         _pod_code=$(echo "$_pod_out" | head -1 | tr -d '\r\n')
         [[ ! "$_pod_code" =~ ^[0-9]{3}$ ]] && _pod_code="000"
         _pod_code=$(_normalize_http_code "$_pod_code")
@@ -629,7 +629,7 @@ if [[ "${SKIP_HOST_CURL:-0}" != "1" ]]; then
       if [[ "$_http3_lb_ok" != "1" ]]; then
         echo ""
         info "Diagnostic: On Colima, UDP 443 from Mac to VM network (192.168.64.x) often does not work. In-cluster QUIC to LB IP is the authoritative check."
-        info "Manual in-cluster check: kubectl -n $NS_ING run verify-h3-manual --rm -i --restart=Never --image=rmarx/curl-http3:latest --overrides='{\"spec\":{\"hostNetwork\":true}}' -- curl -k -v --http3 --resolve off-campus-housing.local:443:$lb_ip https://off-campus-housing.local/_caddy/healthz"
+        info "Manual in-cluster check: kubectl -n $NS_ING run verify-h3-manual --rm -i --restart=Never --image=rmarx/curl-http3:latest --overrides='{\"spec\":{\"hostNetwork\":true}}' -- curl -k -v --http3 --resolve off-campus-housing.test:443:$lb_ip https://off-campus-housing.test/_caddy/healthz"
         fail "HTTP/3 did not pass within 15s (stable mode). QUIC must succeed from host or in-cluster; check UDP 443 and Caddy."
       fi
     fi
@@ -650,7 +650,7 @@ if [[ "${SKIP_HOST_CURL:-0}" != "1" ]]; then
       ok "On Colima, NodePort is on VM (not host). QUIC already verified via LB IP (in-VM or bridged host)."
       _http3_np_ok=1
     else
-      info "On Colima, NodePort is on VM; 127.0.0.1:$caddy_nodeport is not valid from Mac. Verify QUIC in-VM: colima ssh -- curl -k --http3-only --resolve off-campus-housing.local:443:$lb_ip https://off-campus-housing.local/_caddy/healthz"
+      info "On Colima, NodePort is on VM; 127.0.0.1:$caddy_nodeport is not valid from Mac. Verify QUIC in-VM: colima ssh -- curl -k --http3-only --resolve off-campus-housing.test:443:$lb_ip https://off-campus-housing.test/_caddy/healthz"
     fi
   elif [[ -n "$host_curl_port" ]] && [[ "$host_curl_port" != "443" ]] && [[ "$_http3_lb_ok" == "1" ]]; then
     ok "HTTP/3 via NodePort (via 127.0.0.1:$host_curl_port forward to VM:$caddy_nodeport) already verified in step 6"
@@ -665,14 +665,14 @@ if [[ "${SKIP_HOST_CURL:-0}" != "1" ]]; then
     fi
     if [[ "$(uname -s)" == "Darwin" ]] && "$CURL_BIN" --help all 2>/dev/null | grep -q -- "--http3-only"; then
       _np_code=$(_normalize_http_code "$(NGTCP2_ENABLE_GSO=0 "$CURL_BIN" --http3-only -sS -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 15 \
-          --resolve "off-campus-housing.local:${caddy_nodeport}:127.0.0.1" "${_np_args[@]}" "https://off-campus-housing.local:${caddy_nodeport}/_caddy/healthz" 2>/dev/null || echo "000")")
+          --resolve "off-campus-housing.test:${caddy_nodeport}:127.0.0.1" "${_np_args[@]}" "https://off-campus-housing.test:${caddy_nodeport}/_caddy/healthz" 2>/dev/null || echo "000")")
       [[ "$_np_code" == "200" ]] && _http3_np_ok=1
     fi
   fi
   if [[ "$_http3_np_ok" != "1" ]] && [[ "$ctx" != *"colima"* ]] && [[ -f "${SCRIPT_DIR}/lib/http3.sh" ]]; then
     source "${SCRIPT_DIR}/lib/http3.sh" 2>/dev/null || true
     _np_code=$(_normalize_http_code "$(http3_curl --http3-only -sS -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 12 \
-        --resolve "off-campus-housing.local:${caddy_nodeport}:127.0.0.1" "${_np_args[@]}" "https://off-campus-housing.local:${caddy_nodeport}/_caddy/healthz" 2>/dev/null || echo "000")")
+        --resolve "off-campus-housing.test:${caddy_nodeport}:127.0.0.1" "${_np_args[@]}" "https://off-campus-housing.test:${caddy_nodeport}/_caddy/healthz" 2>/dev/null || echo "000")")
     [[ "$_np_code" == "200" ]] && _http3_np_ok=1
   fi
   if [[ "$_http3_np_ok" == "1" ]]; then
@@ -683,7 +683,7 @@ if [[ "${SKIP_HOST_CURL:-0}" != "1" ]]; then
       if sudo LB_IP="$lb_ip" NODEPORT="$caddy_nodeport" "$SCRIPT_DIR/setup-lb-ip-host-access.sh" 2>/dev/null; then
         sleep 3
         _code_retry=$(_normalize_http_code "$(NGTCP2_ENABLE_GSO=0 "$CURL_BIN" --http3-only -sS -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 12 \
-            --resolve "off-campus-housing.local:443:$lb_ip" "${_h3_args[@]}" "https://off-campus-housing.local/_caddy/healthz" 2>/dev/null || echo "000")")
+            --resolve "off-campus-housing.test:443:$lb_ip" "${_h3_args[@]}" "https://off-campus-housing.test/_caddy/healthz" 2>/dev/null || echo "000")")
         [[ "$_code_retry" == "200" ]] && _http3_lb_ok=1
         [[ "$_http3_lb_ok" == "1" ]] && ok "HTTP/3 via LB IP $lb_ip OK after sudo setup retry"
       fi
@@ -698,8 +698,8 @@ if [[ "${SKIP_HOST_CURL:-0}" != "1" ]]; then
   if [[ "$_http3_lb_ok" != "1" ]] && [[ "$_http3_np_ok" != "1" ]]; then
     say "Root cause: HTTP/3 (QUIC) requires UDP. Both LB IP and NodePort paths failed or N/A."
     if [[ "$ctx" == *"colima"* ]]; then
-      info "  Colima: QUIC is validated only in-VM. Run: colima ssh -- curl -k --http3-only --resolve off-campus-housing.local:443:$lb_ip https://off-campus-housing.local/_caddy/healthz"
-      info "  If VM curl lacks --http3-only, install curl+ngtcp2 in the VM, or use bridged so Mac can hit LB IP directly (recommended): ./scripts/colima-start-k3s-bridged-clean.sh  then from Mac: curl -k --http3-only --resolve off-campus-housing.local:443:$lb_ip https://off-campus-housing.local/_caddy/healthz"
+      info "  Colima: QUIC is validated only in-VM. Run: colima ssh -- curl -k --http3-only --resolve off-campus-housing.test:443:$lb_ip https://off-campus-housing.test/_caddy/healthz"
+      info "  If VM curl lacks --http3-only, install curl+ngtcp2 in the VM, or use bridged so Mac can hit LB IP directly (recommended): ./scripts/colima-start-k3s-bridged-clean.sh  then from Mac: curl -k --http3-only --resolve off-campus-housing.test:443:$lb_ip https://off-campus-housing.test/_caddy/healthz"
     elif [[ "$ctx" == *"k3d"* ]] && [[ -f "$SCRIPT_DIR/verify-k3d-30443-udp.sh" ]]; then
       info "Checking k3d port bindings (TCP + UDP 30443)..."
       "$SCRIPT_DIR/verify-k3d-30443-udp.sh" 2>&1 | sed 's/^/  /' || true
@@ -717,7 +717,7 @@ if [[ "${SKIP_HOST_CURL:-0}" != "1" ]]; then
     info "     If something is listening but HTTP/3 still fails → UDP socket is stale; restart the forwarder."
     info "  2. Manual test (HTTP/3 via no-sudo forward):"
     _curl_path="${CURL_BIN:-/opt/homebrew/opt/curl/bin/curl}"
-    info "     NGTCP2_ENABLE_GSO=0 $_curl_path --http3-only -k -v --resolve off-campus-housing.local:8443:127.0.0.1 https://off-campus-housing.local:8443/_caddy/healthz"
+    info "     NGTCP2_ENABLE_GSO=0 $_curl_path --http3-only -k -v --resolve off-campus-housing.test:8443:127.0.0.1 https://off-campus-housing.test:8443/_caddy/healthz"
     info "  Prefer bridged (no socat): ./scripts/colima-start-k3s-bridged-clean.sh  then: curl --http3-only https://<LB_IP>/_caddy/healthz"
   fi
   # 6c. Diagnose when NodePort HTTP/3 works but LB IP HTTP/3 fails — UDP 443 on LB IP path is broken
@@ -777,15 +777,15 @@ elif [[ "$VERIFY_MODE" == "stable" ]]; then
   if [[ -n "$host_reached_lb" ]] && { [[ -n "$lb_ip" ]] || [[ -n "$host_curl_host" ]]; }; then
     _host_6a="${host_curl_host:-$lb_ip}"
     _port_6a="${host_curl_port:-443}"
-    _url="https://off-campus-housing.local/_caddy/healthz"
-    [[ "$_port_6a" != "443" ]] && _url="https://off-campus-housing.local:${_port_6a}/_caddy/healthz"
-    _resolve_6a=(--resolve "off-campus-housing.local:${_port_6a}:${_host_6a}")
+    _url="https://off-campus-housing.test/_caddy/healthz"
+    [[ "$_port_6a" != "443" ]] && _url="https://off-campus-housing.test:${_port_6a}/_caddy/healthz"
+    _resolve_6a=(--resolve "off-campus-housing.test:${_port_6a}:${_host_6a}")
     _url_h3="$_url"
     if [[ "$(uname -s)" == "Darwin" ]] && [[ "$_port_6a" == "443" ]]; then
       _docker_ip_6a=$(docker run --rm alpine getent hosts host.docker.internal 2>/dev/null | awk '{print $1}' || echo "")
       _docker_port_6a="18443"
       [[ -f "${TMPDIR:-/tmp}/lb-ip-docker-forward-port-$(echo "$lb_ip" | tr '.' '_').txt" ]] && _docker_port_6a=$(cat "${TMPDIR:-/tmp}/lb-ip-docker-forward-port-$(echo "$lb_ip" | tr '.' '_').txt" 2>/dev/null || echo "18443")
-      [[ -n "$_docker_ip_6a" ]] && _resolve_6a=(--resolve "off-campus-housing.local:${_docker_port_6a}:$_docker_ip_6a") && _url_h3="https://off-campus-housing.local:${_docker_port_6a}/_caddy/healthz"
+      [[ -n "$_docker_ip_6a" ]] && _resolve_6a=(--resolve "off-campus-housing.test:${_docker_port_6a}:$_docker_ip_6a") && _url_h3="https://off-campus-housing.test:${_docker_port_6a}/_caddy/healthz"
     fi
     _h1=""
     _h2=""
@@ -794,9 +794,9 @@ elif [[ "$VERIFY_MODE" == "stable" ]]; then
     if [[ "$_port_6a" == "443" ]] && [[ -n "${K8S_CA:-}" ]]; then
       _ca_file_6a=$(mktemp 2>/dev/null) && echo "$K8S_CA" > "$_ca_file_6a" && _ca_6a=(--cacert "$_ca_file_6a")
     fi
-    _code=$(_normalize_http_code "$(curl -k -sS -o /dev/null -w "%{http_code}" --http1.1 --connect-timeout 3 --max-time 5 --resolve "off-campus-housing.local:${_port_6a}:${_host_6a}" "$_url" 2>/dev/null || echo "000")")
+    _code=$(_normalize_http_code "$(curl -k -sS -o /dev/null -w "%{http_code}" --http1.1 --connect-timeout 3 --max-time 5 --resolve "off-campus-housing.test:${_port_6a}:${_host_6a}" "$_url" 2>/dev/null || echo "000")")
     [[ "$_code" == "200" ]] && _h1="200" || _h1="failed ($_code)"
-    _code=$(_normalize_http_code "$(curl -k -sS -o /dev/null -w "%{http_code}" --http2 --connect-timeout 3 --max-time 5 --resolve "off-campus-housing.local:${_port_6a}:${_host_6a}" "$_url" 2>/dev/null || echo "000")")
+    _code=$(_normalize_http_code "$(curl -k -sS -o /dev/null -w "%{http_code}" --http2 --connect-timeout 3 --max-time 5 --resolve "off-campus-housing.test:${_port_6a}:${_host_6a}" "$_url" 2>/dev/null || echo "000")")
     [[ "$_code" == "200" ]] && _h2="200" || _h2="failed ($_code)"
     # HTTP/3: On Colima, in-cluster (step 6) is authoritative; host curl often lacks --http3-only. Reuse step 6 result.
     _h3_code="000"
@@ -809,7 +809,7 @@ elif [[ "$VERIFY_MODE" == "stable" ]]; then
       for _a in 1 2 3 4 5; do
         if [[ "$(uname -s)" == "Darwin" ]] && [[ -x "$CURL_BIN" ]] && "$CURL_BIN" --help all 2>/dev/null | grep -q -- "--http3-only"; then
           _h3_code=$(_normalize_http_code "$(NGTCP2_ENABLE_GSO=0 "$CURL_BIN" --http3-only -sS -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 15 \
-              --resolve "off-campus-housing.local:${_port_6a}:${_host_6a}" "${_ca_6a[@]}" "$_url" 2>/dev/null || echo "000")")
+              --resolve "off-campus-housing.test:${_port_6a}:${_host_6a}" "${_ca_6a[@]}" "$_url" 2>/dev/null || echo "000")")
         fi
         if [[ "$_h3_code" != "200" ]] && [[ "$(uname -s)" != "Darwin" ]] && [[ -f "${SCRIPT_DIR}/lib/http3.sh" ]]; then
           source "${SCRIPT_DIR}/lib/http3.sh" 2>/dev/null || true
@@ -860,30 +860,30 @@ if [[ "$VERIFY_MODE" == "chaos" ]] && [[ "${SKIP_HOST_CURL:-0}" != "1" ]] && [[ 
   say "6a. All three protocols via LB IP (post-chaos — HTTP/3 must recover within 30s)"
   _host_6a="${host_curl_host:-$lb_ip}"
   _port_6a="${host_curl_port:-443}"
-  _url="https://off-campus-housing.local/_caddy/healthz"
-  [[ "$_port_6a" != "443" ]] && _url="https://off-campus-housing.local:${_port_6a}/_caddy/healthz"
-  _resolve_6a=(--resolve "off-campus-housing.local:${_port_6a}:${_host_6a}")
+  _url="https://off-campus-housing.test/_caddy/healthz"
+  [[ "$_port_6a" != "443" ]] && _url="https://off-campus-housing.test:${_port_6a}/_caddy/healthz"
+  _resolve_6a=(--resolve "off-campus-housing.test:${_port_6a}:${_host_6a}")
   _url_h3="$_url"
   if [[ "$(uname -s)" == "Darwin" ]] && [[ "$_port_6a" == "443" ]]; then
     _docker_ip_6a=$(docker run --rm alpine getent hosts host.docker.internal 2>/dev/null | awk '{print $1}' || echo "")
     _docker_port_6a="18443"
     [[ -f "${TMPDIR:-/tmp}/lb-ip-docker-forward-port-$(echo "$lb_ip" | tr '.' '_').txt" ]] && _docker_port_6a=$(cat "${TMPDIR:-/tmp}/lb-ip-docker-forward-port-$(echo "$lb_ip" | tr '.' '_').txt" 2>/dev/null || echo "18443")
-    [[ -n "$_docker_ip_6a" ]] && _resolve_6a=(--resolve "off-campus-housing.local:${_docker_port_6a}:$_docker_ip_6a") && _url_h3="https://off-campus-housing.local:${_docker_port_6a}/_caddy/healthz"
+    [[ -n "$_docker_ip_6a" ]] && _resolve_6a=(--resolve "off-campus-housing.test:${_docker_port_6a}:$_docker_ip_6a") && _url_h3="https://off-campus-housing.test:${_docker_port_6a}/_caddy/healthz"
   fi
   _ca_6a=(-k)
   if [[ "$_port_6a" == "443" ]] && [[ -n "${K8S_CA:-}" ]]; then
     _ca_file_6a=$(mktemp 2>/dev/null) && echo "$K8S_CA" > "$_ca_file_6a" && _ca_6a=(--cacert "$_ca_file_6a")
   fi
-  _code=$(_normalize_http_code "$(curl -k -sS -o /dev/null -w "%{http_code}" --http1.1 --connect-timeout 3 --max-time 5 --resolve "off-campus-housing.local:${_port_6a}:${_host_6a}" "$_url" 2>/dev/null || echo "000")")
+  _code=$(_normalize_http_code "$(curl -k -sS -o /dev/null -w "%{http_code}" --http1.1 --connect-timeout 3 --max-time 5 --resolve "off-campus-housing.test:${_port_6a}:${_host_6a}" "$_url" 2>/dev/null || echo "000")")
   [[ "$_code" == "200" ]] && _h1="200" || _h1="failed ($_code)"
-  _code=$(_normalize_http_code "$(curl -k -sS -o /dev/null -w "%{http_code}" --http2 --connect-timeout 3 --max-time 5 --resolve "off-campus-housing.local:${_port_6a}:${_host_6a}" "$_url" 2>/dev/null || echo "000")")
+  _code=$(_normalize_http_code "$(curl -k -sS -o /dev/null -w "%{http_code}" --http2 --connect-timeout 3 --max-time 5 --resolve "off-campus-housing.test:${_port_6a}:${_host_6a}" "$_url" 2>/dev/null || echo "000")")
   [[ "$_code" == "200" ]] && _h2="200" || _h2="failed ($_code)"
   _h3="failed (000)"
   _h3_code="000"
   for _attempt in 1 2 3 4 5 6 7 8 9 10; do
     if [[ "$(uname -s)" == "Darwin" ]] && "$CURL_BIN" --help all 2>/dev/null | grep -q -- "--http3-only"; then
       _h3_code=$(_normalize_http_code "$(NGTCP2_ENABLE_GSO=0 "$CURL_BIN" --http3-only -sS -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 15 \
-          --resolve "off-campus-housing.local:${_port_6a}:${_host_6a}" "${_ca_6a[@]}" "$_url" 2>/dev/null || echo "000")")
+          --resolve "off-campus-housing.test:${_port_6a}:${_host_6a}" "${_ca_6a[@]}" "$_url" 2>/dev/null || echo "000")")
     fi
     if [[ "$_h3_code" != "200" ]] && [[ "$(uname -s)" != "Darwin" ]] && [[ -f "${SCRIPT_DIR}/lib/http3.sh" ]]; then
       source "${SCRIPT_DIR}/lib/http3.sh" 2>/dev/null || true
@@ -940,7 +940,7 @@ if [[ -n "$host_reached_lb" ]] && [[ -n "$lb_ip" ]]; then
     [[ -z "${_docker_host_ip:-}" ]] && info "Host reachability: LB IP $lb_ip — HTTP/1.1, HTTP/2, HTTP/3 verified. Suites will use LB IP."
   else
     if [[ "$ctx" == *"colima"* ]]; then
-      info "Host reachability: LB IP $lb_ip — HTTP/1.1, HTTP/2 verified. HTTP/3: colima ssh -- curl -k --http3-only --resolve off-campus-housing.local:443:$lb_ip https://off-campus-housing.local/_caddy/healthz  (or use bridged: ./scripts/colima-start-k3s-bridged-clean.sh so Mac can curl LB IP directly)."
+      info "Host reachability: LB IP $lb_ip — HTTP/1.1, HTTP/2 verified. HTTP/3: colima ssh -- curl -k --http3-only --resolve off-campus-housing.test:443:$lb_ip https://off-campus-housing.test/_caddy/healthz  (or use bridged: ./scripts/colima-start-k3s-bridged-clean.sh so Mac can curl LB IP directly)."
     else
       info "Host reachability: LB IP $lb_ip — HTTP/1.1, HTTP/2 verified. HTTP/3: use 127.0.0.1:8443 when no-sudo forward is up, or in-VM curl to LB IP."
     fi

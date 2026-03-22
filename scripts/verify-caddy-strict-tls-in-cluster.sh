@@ -5,7 +5,7 @@
 #
 # Breakdown:
 #   1. Reads dev-root-ca from ingress-nginx (or off-campus-housing-tracker) secret.
-#   2. Creates a temporary Pod with curl image and CA mounted; runs curl with --cacert and Host: off-campus-housing.local.
+#   2. Creates a temporary Pod with curl image and CA mounted; runs curl with --cacert and Host: off-campus-housing.test.
 #   3. Waits for pod completion; exit 0 if curl succeeded (strict TLS OK), else exit 1.
 # Use: ./scripts/verify-caddy-strict-tls-in-cluster.sh
 
@@ -18,7 +18,7 @@ cd "$REPO_ROOT"
 
 NS_ING="${NS_ING:-ingress-nginx}"
 NS_APP="${NS_APP:-off-campus-housing-tracker}"
-HOST="${HOST:-off-campus-housing.local}"
+HOST="${HOST:-off-campus-housing.test}"
 CURL_IMAGE="${CURL_IMAGE:-curlimages/curl:latest}"
 ok()  { echo "✅ $*"; }
 warn(){ echo "⚠️  $*"; }

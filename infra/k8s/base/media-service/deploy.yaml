@@ -40,6 +40,14 @@ spec:
               value: "5448"
             - name: MEDIA_DB_NAME
               value: "media"
+            - name: GRPC_REQUIRE_CLIENT_CERT
+              value: "true"
+            - name: TLS_CA_PATH
+              value: "/etc/certs/ca.crt"
+            - name: TLS_CERT_PATH
+              value: "/etc/certs/tls.crt"
+            - name: TLS_KEY_PATH
+              value: "/etc/certs/tls.key"
             - name: KAFKA_CA_CERT
               value: "/etc/kafka/secrets/ca-cert.pem"
             - name: KAFKA_CLIENT_CERT
@@ -49,6 +57,9 @@ spec:
           volumeMounts:
             - name: proto-files
               mountPath: /app/proto
+              readOnly: true
+            - name: och-service-tls
+              mountPath: /etc/certs
               readOnly: true
             - name: kafka-ssl
               mountPath: /etc/kafka/secrets
@@ -60,22 +71,55 @@ spec:
             limits:
               cpu: "1000m"
               memory: "512Mi"
-          livenessProbe:
-            tcpSocket: { port: grpc }
-            initialDelaySeconds: 30
-            periodSeconds: 20
-            timeoutSeconds: 5
-            failureThreshold: 3
+          # Startup must NOT use grpc.health Check with DB — NOT_SERVING while Postgres warms up looks like a crash loop (kubelet restarts the container).
+          # TCP only: gRPC+mTLS listener is accepting connections.
+          startupProbe:
+            tcpSocket:
+              port: grpc
+            periodSeconds: 5
+            timeoutSeconds: 10
+            failureThreshold: 30
+          # Use 127.0.0.1 (not localhost): in some containers localhost → ::1 first; Node gRPC binds 0.0.0.0 (IPv4),
+          # so probes to ::1:50068 fail or time out while logs show "listening on 50068".
           readinessProbe:
-            tcpSocket: { port: grpc }
-            initialDelaySeconds: 10
-            periodSeconds: 10
-            timeoutSeconds: 3
-            failureThreshold: 2
+            exec:
+              command:
+                - /usr/local/bin/grpc-health-probe
+                - -addr=127.0.0.1:50068
+                - -service=media.MediaService
+                - -tls
+                - -tls-ca-cert=/etc/certs/ca.crt
+                - -tls-client-cert=/etc/certs/tls.crt
+                - -tls-client-key=/etc/certs/tls.key
+                - -tls-server-name=localhost
+                - -connect-timeout=15s
+                - -rpc-timeout=15s
+            initialDelaySeconds: 30
+            periodSeconds: 5
+            timeoutSeconds: 25
+            failureThreshold: 6
+          # Liveness: TCP only — avoid restart storms on transient DB blips (readiness uses strict gRPC+DB).
+          livenessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 90
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 5
       volumes:
         - name: proto-files
           configMap:
             name: proto-files
+        - name: och-service-tls
+          secret:
+            secretName: och-service-tls
+            items:
+              - key: tls.key
+                path: tls.key
+              - key: tls.crt
+                path: tls.crt
+              - key: ca.crt
+                path: ca.crt
         - name: kafka-ssl
           secret:
             secretName: och-kafka-ssl-secret

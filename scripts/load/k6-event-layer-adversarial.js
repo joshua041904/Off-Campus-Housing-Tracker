@@ -2,41 +2,30 @@
  * k6: Companion load + light adversarial traffic for the event/outbox pipeline (Vitest lives in event-layer-verification).
  * Exercises edge + messaging + booking health; injects malformed requests (expect 4xx) to ensure gateways stay stable under noise.
  *
- * Env: BASE_URL, K6_RESOLVE, DURATION, VUS, K6_INSECURE_SKIP_TLS, SSL_CERT_FILE (same as run-k6-all-services.sh).
+ * Env: BASE_URL, K6_RESOLVE, K6_TLS_CA_CERT, DURATION, VUS (same as run-k6-all-services.sh).
  * Tags: event_layer=true on all requests for log filtering.
  */
 import http from "k6/http";
 import { check, sleep } from "k6";
 import { Rate } from "k6/metrics";
+import {
+  defaultRawBase,
+  mergeEdgeTls,
+  strictEdgeTlsOptions,
+} from "./k6-strict-edge-tls.js";
 
-const RAW_BASE = (__ENV.BASE_URL || "https://off-campus-housing.local").replace(/\/$/, "");
+const RAW_BASE = defaultRawBase();
 const HAS_API = RAW_BASE.endsWith("/api");
 const BASE = RAW_BASE;
 const DUR = __ENV.DURATION || "45s";
 const VUS = Number(__ENV.VUS || 12);
-const K6_RESOLVE = __ENV.K6_RESOLVE || "";
-const SKIP_TLS_VERIFY =
-  (__ENV.K6_INSECURE_SKIP_TLS || "0") === "1" || /^https:\/\/[\d.]+(:\d+)?(\/|$)/.test(RAW_BASE);
 
 export const adversarialAccepted = new Rate("event_layer_adversarial_accepted");
-
-function parseHostsFromResolve() {
-  if (!K6_RESOLVE || typeof K6_RESOLVE !== "string") return {};
-  const parts = K6_RESOLVE.split(":");
-  if (parts.length < 3) return {};
-  const host = parts[0];
-  const ip = parts[parts.length - 1];
-  if (!host || !ip) return {};
-  return { [host]: ip };
-}
-
-const hosts = parseHostsFromResolve();
-const opts = Object.keys(hosts).length ? { hosts } : {};
 
 http.setResponseCallback(http.expectedStatuses({ min: 200, max: 599 }));
 
 export const options = {
-  ...opts,
+  ...strictEdgeTlsOptions(RAW_BASE),
   vus: VUS,
   duration: DUR,
   thresholds: {
@@ -51,8 +40,7 @@ const api = (p) => `${BASE}${HAS_API ? "" : "/api"}${p}`;
 function baseParams(extra = {}) {
   const p = { tags: { event_layer: "true", ...extra.tags }, timeout: "12s", ...extra };
   delete p.tags?.tags;
-  if (SKIP_TLS_VERIFY) p.insecureSkipTLSVerify = true;
-  return p;
+  return mergeEdgeTls(RAW_BASE, p);
 }
 
 export default function () {

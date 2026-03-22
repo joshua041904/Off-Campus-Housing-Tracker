@@ -37,13 +37,13 @@ info "Started: $DB_VERIFY_QUICK_START_HUMAN"
 info "Log: $VERIFY_LOG"
 [[ -n "${DB_VERIFY_MAX_SECONDS:-}" ]] && [[ "${DB_VERIFY_MAX_SECONDS}" -gt 0 ]] && info "Max wall time: ${DB_VERIFY_MAX_SECONDS}s (DB_VERIFY_MAX_SECONDS)"
 
-# 1. Database Connectivity Check (housing 7 DBs: 5441–5447)
+# 1. Database Connectivity Check (housing 8 DBs: 5441–5448)
 # Use short connect timeout so this step never blocks (DB_VERIFY_CONNECT_TIMEOUT=3).
 export PGCONNECT_TIMEOUT="${DB_VERIFY_CONNECT_TIMEOUT:-3}"
 say "1. Database Connectivity (connect timeout ${PGCONNECT_TIMEOUT}s)..."
-DB_PORTS=(5441 5442 5443 5444 5445 5446 5447)
-DB_NAMES=(auth listings bookings messaging notification trust analytics)
-DB_NAMES_PER_PORT=(auth listings bookings messaging notification trust analytics)
+DB_PORTS=(5441 5442 5443 5444 5445 5446 5447 5448)
+DB_NAMES=(auth listings bookings messaging notification trust analytics media)
+DB_NAMES_PER_PORT=(auth listings bookings messaging notification trust analytics media)
 for i in "${!DB_PORTS[@]}"; do
   port="${DB_PORTS[$i]}"
   db_label="${DB_NAMES[$i]}"

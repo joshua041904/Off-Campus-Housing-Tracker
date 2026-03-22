@@ -8,21 +8,14 @@
  */
 import http from 'k6/http';
 import { check } from 'k6';
+import { mergeEdgeTls, strictEdgeTlsOptions } from './k6-strict-edge-tls.js';
 
-const BASE = (__ENV.BASE_URL || 'https://off-campus-housing.local').replace(/\/$/, '');
-const SKIP_TLS = (__ENV.K6_INSECURE_SKIP_TLS || '0') === '1';
+const RAW_BASE = (__ENV.BASE_URL || 'https://off-campus-housing.test').replace(/\/$/, '');
+const BASE = RAW_BASE;
 const TOKEN = __ENV.TOKEN || '';
 
-function parseHosts() {
-  const r = __ENV.K6_RESOLVE || '';
-  if (!r) return {};
-  const parts = r.split(':');
-  if (parts.length < 3) return {};
-  return { [parts[0]]: parts[parts.length - 1] };
-}
-
 export const options = {
-  ...parseHosts(),
+  ...strictEdgeTlsOptions(RAW_BASE),
   vus: 5,
   iterations: 20,
   thresholds: {
@@ -34,13 +27,12 @@ export const options = {
 export default function () {
   const headers = { 'Content-Type': 'application/json' };
   if (TOKEN) headers['Authorization'] = `Bearer ${TOKEN}`;
-  const opts = { headers };
-  if (SKIP_TLS) opts.insecureSkipTLSVerify = true;
+  const opts = mergeEdgeTls(RAW_BASE, { headers });
 
   const createRes = http.post(
     `${BASE}/api/media/create-upload-url`,
     JSON.stringify({ filename: 'image.jpg', content_type: 'image/jpeg', size_bytes: 1024 }),
-    opts
+    opts,
   );
   if (createRes.status !== 200 && createRes.status !== 201) {
     return;
@@ -62,7 +54,7 @@ export default function () {
     const completeRes = http.post(
       `${BASE}/api/media/complete-upload`,
       JSON.stringify({ media_id: mediaId }),
-      opts
+      mergeEdgeTls(RAW_BASE, { headers }),
     );
     check(completeRes, { 'complete 200': (r) => r.status === 200 || r.status === 201 });
   }

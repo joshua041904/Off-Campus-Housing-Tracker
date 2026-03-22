@@ -3,7 +3,7 @@
 # Optional packet capture: ./scripts/run-suite-with-packet-capture.sh "$0" "$@"
 set -euo pipefail
 
-HOST="${HOST:-off-campus-housing.local}"
+HOST="${HOST:-off-campus-housing.test}"
 # Auto-detect port based on cluster, or use provided PORT
 # Validate PORT if set - if it's 443 (default HTTPS), re-detect
 if [[ -z "${PORT:-}" ]] || [[ "${PORT:-}" == "443" ]]; then

@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="624" height="360">
+<style>text{font-family:Arial,sans-serif;font-size:11px}.label{font-size:10px}</style>
+<text x="20" y="18" font-size="14">Per-service latency (avg ms): HTTP/2 vs HTTP/3</text>
+<line x1="80" y1="30" x2="80" y2="290" stroke="#444"/>
+<line x1="80" y1="290" x2="604" y2="290" stroke="#444"/>
+<line x1="80" y1="290" x2="604" y2="290" stroke="#eee"/>
+<text x="10" y="294" class="label">0ms</text>
+<line x1="80" y1="228" x2="604" y2="228" stroke="#eee"/>
+<text x="10" y="232" class="label">122ms</text>
+<line x1="80" y1="165" x2="604" y2="165" stroke="#eee"/>
+<text x="10" y="169" class="label">245ms</text>
+<line x1="80" y1="103" x2="604" y2="103" stroke="#eee"/>
+<text x="10" y="107" class="label">367ms</text>
+<line x1="80" y1="40" x2="604" y2="40" stroke="#eee"/>
+<text x="10" y="44" class="label">490ms</text>
+<rect x="90" y="195" width="18" height="95" fill="#4e79a7"/>
+<rect x="112" y="271" width="18" height="19" fill="#f28e2b"/>
+<text x="90" y="304" class="label">analyti</text>
+<rect x="146" y="131" width="18" height="159" fill="#4e79a7"/>
+<rect x="168" y="163" width="18" height="127" fill="#f28e2b"/>
+<text x="146" y="304" class="label">auth</text>
+<rect x="202" y="171" width="18" height="119" fill="#4e79a7"/>
+<rect x="224" y="216" width="18" height="74" fill="#f28e2b"/>
+<text x="202" y="304" class="label">booking</text>
+<rect x="258" y="281" width="18" height="9" fill="#4e79a7"/>
+<rect x="280" y="278" width="18" height="12" fill="#f28e2b"/>
+<text x="258" y="304" class="label">gateway</text>
+<rect x="314" y="40" width="18" height="250" fill="#4e79a7"/>
+<rect x="336" y="119" width="18" height="171" fill="#f28e2b"/>
+<text x="314" y="304" class="label">listing</text>
+<rect x="370" y="280" width="18" height="10" fill="#4e79a7"/>
+<rect x="392" y="248" width="18" height="42" fill="#f28e2b"/>
+<text x="370" y="304" class="label">media</text>
+<rect x="426" y="256" width="18" height="34" fill="#4e79a7"/>
+<rect x="448" y="261" width="18" height="29" fill="#f28e2b"/>
+<text x="426" y="304" class="label">messagi</text>
+<rect x="482" y="284" width="18" height="6" fill="#4e79a7"/>
+<rect x="504" y="271" width="18" height="19" fill="#f28e2b"/>
+<text x="482" y="304" class="label">notific</text>
+<rect x="538" y="196" width="18" height="94" fill="#4e79a7"/>
+<rect x="560" y="239" width="18" height="51" fill="#f28e2b"/>
+<text x="538" y="304" class="label">trust</text>
+<rect x="80" y="320" width="12" height="12" fill="#4e79a7"/><text x="98" y="330" class="label">HTTP/2</text>
+<rect x="170" y="320" width="12" height="12" fill="#f28e2b"/><text x="188" y="330" class="label">HTTP/3</text>
+</svg>

@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Smoke test after deploy-dev: Caddy health, gateway health, auth/messaging health endpoints.
 # Usage: ./scripts/smoke-test-dev.sh
-#   BASE_URL=https://off-campus-housing.local  (default from PORT/LB)
+#   BASE_URL=https://off-campus-housing.test  (default from PORT/LB)
 #   CADDY_TARGET=127.0.0.1  PORT=30443  (NodePort)
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-HOST="${HOST:-off-campus-housing.local}"
+HOST="${HOST:-off-campus-housing.test}"
 PORT="${PORT:-443}"
 CA_CERT="${CA_CERT:-$REPO_ROOT/certs/dev-root.pem}"
 

@@ -18,7 +18,7 @@ info() { echo "ℹ️  $*"; }
 # Housing namespace only — do not inherit stray NS= from other repos.
 HOUSING_NS="${HOUSING_NS:-off-campus-housing-tracker}"
 NS="$HOUSING_NS"
-HOST="${HOST:-off-campus-housing.local}"
+HOST="${HOST:-off-campus-housing.test}"
 ctx=$(kubectl config current-context 2>/dev/null || echo "")
 _kb() {
   if [[ "$ctx" == *"colima"* ]] && command -v colima >/dev/null 2>&1; then

@@ -1,6 +1,6 @@
 # -----------------------------------------------------------------------------
 # Off-Campus-Housing-Tracker — production-grade Caddy (network spine lock)
-# SNI: off-campus-housing.local only. No record-local; no protocol ambiguity.
+# SNI: off-campus-housing.test only. No record-local; no protocol ambiguity.
 # Data path: Caddy → services directly (no ingress-nginx in path).
 # -----------------------------------------------------------------------------
 {
@@ -26,7 +26,7 @@
 
 # Primary vhost — HTTP/3, REST, gRPC. Deterministic routing; no regex; SNI enforced.
 # Caddy → api-gateway:4020, auth:4011, Envoy:10000 (housing ports per README — no conflict with record platform).
-https://off-campus-housing.local {
+https://off-campus-housing.test {
 	tls /etc/caddy/certs/tls.crt /etc/caddy/certs/tls.key {
 		protocols tls1.2 tls1.3
 		ciphers TLS_AES_128_GCM_SHA256 TLS_AES_256_GCM_SHA384 TLS_CHACHA20_POLY1305_SHA256
@@ -40,7 +40,7 @@ https://off-campus-housing.local {
 	}
 
 	# SNI enforcement: wrong host → 421 Misdirected Request
-	@wrong_host not host off-campus-housing.local
+	@wrong_host not host off-campus-housing.test
 	handle @wrong_host {
 		respond "Invalid Host" 421
 	}

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "main": "dist/server.js",
   "scripts": {
-    "build": "prisma generate && tsc -b && node scripts/rewrite-prisma-imports.js",
+    "build": "bash scripts/prisma-generate-retry.sh && tsc -b && node scripts/rewrite-prisma-imports.js",
     "dev": "tsx watch src/server.ts",
     "start": "node dist/server.js"
   },

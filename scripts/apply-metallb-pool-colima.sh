@@ -45,7 +45,7 @@ for i in $(seq 1 30); do
   if [[ -n "$ext_ip" ]] && [[ "$ext_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     echo "caddy-h3 EXTERNAL-IP: $ext_ip"
     echo "Done. Verify: kubectl get svc -n $NS_ING"
-    echo "Then: curl -k --http3 https://$ext_ip/_caddy/healthz  (or add $ext_ip off-campus-housing.local to /etc/hosts)"
+    echo "Then: curl -k --http3 https://$ext_ip/_caddy/healthz  (or add $ext_ip off-campus-housing.test to /etc/hosts)"
     exit 0
   fi
   sleep 2

@@ -7,22 +7,15 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Rate } from 'k6/metrics';
+import { mergeEdgeTls, strictEdgeTlsOptions } from './k6-strict-edge-tls.js';
 
-const BASE = (__ENV.BASE_URL || 'https://off-campus-housing.local').replace(/\/$/, '');
-const SKIP_TLS = (__ENV.K6_INSECURE_SKIP_TLS || '0') === '1';
+const RAW_BASE = (__ENV.BASE_URL || 'https://off-campus-housing.test').replace(/\/$/, '');
+const BASE = RAW_BASE;
 
 export const errors = new Rate('errors');
 
-function parseHosts() {
-  const r = __ENV.K6_RESOLVE || '';
-  if (!r) return {};
-  const parts = r.split(':');
-  if (parts.length < 3) return {};
-  return { [parts[0]]: parts[parts.length - 1] };
-}
-
 export const options = {
-  ...parseHosts(),
+  ...strictEdgeTlsOptions(RAW_BASE),
   scenarios: {
     ramp_up: {
       executor: 'ramping-arrival-rate',
@@ -46,9 +39,10 @@ export const options = {
 };
 
 export default function () {
-  const opts = { tags: { name: 'messaging_health' } };
-  if (SKIP_TLS) opts.insecureSkipTLSVerify = true;
-  const res = http.get(`${BASE}/api/messaging/healthz`, opts);
+  const res = http.get(
+    `${BASE}/api/messaging/healthz`,
+    mergeEdgeTls(RAW_BASE, { tags: { name: 'messaging_health' } }),
+  );
   errors.add(res.status >= 500);
   check(res, { 'ok': (r) => r.status === 200 || r.status === 429 });
   sleep(0.2);

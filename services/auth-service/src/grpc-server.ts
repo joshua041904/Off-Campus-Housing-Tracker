@@ -5,11 +5,13 @@ import { signJwt, verifyJwt } from "@common/utils/auth";
 import { hashPassword, comparePassword, getQueueStatus } from "./lib/bcrypt-queue.js";
 import { getUserFromCache, cacheUser, invalidateUserCache, checkEmailExistsInCache } from "./lib/redis-cache.js"; // Redis caching with Lua scripts
 import { randomUUID } from "node:crypto";
-import * as fs from "fs";
 import { resolveProtoPath } from "@common/utils/proto";
 import { verifyMFA } from "./lib/mfa.js";
 import { prisma } from "./lib/prisma.js"; // Use shared PrismaClient instance
-import { registerHealthService } from "@common/utils"; // Standard gRPC health service
+import {
+  registerHealthService,
+  createOchStrictMtlsServerCredentials,
+} from "@common/utils"; // Standard gRPC health service + strict mTLS
 
 // Load proto file
 const PROTO_PATH = resolveProtoPath("auth.proto");
@@ -664,45 +666,13 @@ export function startGrpcServer(port: number = 50051) {
     }
   }
 
-  // Try to load TLS certs (for production with ALPN = h2)
   let credentials: grpc.ServerCredentials;
-  const keyPath = process.env.TLS_KEY_PATH || "/etc/certs/tls.key";
-  const certPath = process.env.TLS_CERT_PATH || "/etc/certs/tls.crt";
-  const caPath = process.env.TLS_CA_PATH || process.env.GRPC_CA_CERT || "/etc/certs/ca.crt";
-  
-  if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
-    const key = fs.readFileSync(keyPath);
-    const cert = fs.readFileSync(certPath);
-    
-    // For strict TLS: verify client certificates if CA cert exists
-    let rootCerts: Buffer | null = null;
-    let checkClientCert = false;
-    if (fs.existsSync(caPath)) {
-      rootCerts = fs.readFileSync(caPath);
-      checkClientCert = true;
-      console.log("[gRPC] Starting secure HTTP/2-only server with strict TLS (client cert verification)");
-    } else {
-      console.log("[gRPC] Starting secure HTTP/2-only server with ALPN = h2 (no client cert verification)");
-    }
-    
-    // For dev: Don't require client cert verification (use false)
-    // For production: Enable client cert verification (use checkClientCert)
-    const requireClientCert = process.env.GRPC_REQUIRE_CLIENT_CERT === 'true' ? checkClientCert : false;
-    
-    credentials = grpc.ServerCredentials.createSsl(
-      rootCerts,
-      [{ private_key: key, cert_chain: cert }],
-      requireClientCert as any
-    );
-    
-    if (requireClientCert) {
-      console.log("[gRPC] Client certificate verification: ENABLED (strict TLS)");
-    } else {
-      console.log("[gRPC] Client certificate verification: DISABLED (dev mode)");
-    }
-  } else {
-    console.warn("[gRPC] TLS certs not found, starting insecure server (dev only)");
-    credentials = grpc.ServerCredentials.createInsecure();
+  try {
+    credentials = createOchStrictMtlsServerCredentials("auth gRPC");
+    console.log("[gRPC] strict mTLS (client cert required)");
+  } catch (e) {
+    console.error(e);
+    process.exit(1);
   }
 
   server.bindAsync(

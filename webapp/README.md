@@ -16,7 +16,7 @@ Open [http://localhost:3000](http://localhost:3000).
 ### API base URL
 
 - **Default (recommended for local):** leave `NEXT_PUBLIC_API_BASE` unset. The app calls same-origin `/api/...`; `next.config.mjs` **rewrites** those to `API_GATEWAY_INTERNAL` (default `http://127.0.0.1:4020`), avoiding CORS during dev.
-- **Edge / TLS:** set `NEXT_PUBLIC_API_BASE=https://off-campus-housing.local` and ensure your browser trusts the cert (or use curl with `-k` only for debugging).
+- **Edge / TLS:** set `NEXT_PUBLIC_API_BASE=https://off-campus-housing.test` and ensure your browser trusts the cert (or use curl with `-k` only for debugging).
 
 ## Build
 

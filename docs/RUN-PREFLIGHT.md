@@ -13,10 +13,21 @@ If you see **"Cannot connect to the Docker daemon"** or **pods stuck 0/1 Ready**
 This will:
 
 1. **Start Colima** (so the Docker daemon is available at `~/.colima/default/docker.sock`).
-2. **Start externalized infra** via Docker Compose: **Zookeeper**, **Kafka** (port 29093), **Redis** (6379), and **7 Postgres** instances (ports 5441–5447: auth, listings, bookings, messaging, notification, trust, analytics).
+2. **Start externalized infra** via Docker Compose: **Zookeeper**, **Kafka** (port 29093), **Redis** (6379), and **8 Postgres** instances (ports 5441–5448: auth, listings, bookings, messaging, notification, trust, analytics, media).
 3. **Verify** all required ports are listening.
 
 After it succeeds, run preflight. To only check ports (no start): `./scripts/start-colima-and-external-deps.sh --verify-only`. If Colima is already running: `./scripts/start-colima-and-external-deps.sh --no-colima`.
+
+### Steady-state vs CA rotation (preflight 3a)
+
+By default, **`PREFLIGHT_REISSUE_CA=0`**: the full pipeline **skips** `reissue-ca-and-leaf-load-all-services.sh` when **`service-tls`** and **`dev-root-ca`** already exist in `off-campus-housing-tracker` (avoids a cluster-wide TLS/Kafka reconnect storm every run). If either secret is missing, 3a still runs once to bootstrap.
+
+- **Force full CA + leaf rotation every run:** `PREFLIGHT_REISSUE_CA=1 ./scripts/run-preflight-scale-and-all-suites.sh`
+- **Cert-only phase:** `./scripts/run-preflight-scale-and-all-suites.sh` with Phase B (see script header) or run `./scripts/reissue-ca-and-leaf-load-all-services.sh` directly.
+
+**6b wait tuning (readiness convergence):** defaults are **`PREFLIGHT_READY_MAX_WAIT=900`** (15 min) and **`PREFLIGHT_READY_INITIAL_WAIT=90`**. Step **5z** uses **`PREFLIGHT_STEP5Z_SLEEP`** (default **120** s).
+
+**Ordered rollouts** after TLS changes: `ensure-strict-tls-mtls-preflight.sh` and reissue step 7 restart app Deployments **one-by-one** with `rollout status` (see `scripts/lib/och-sequential-rollout.sh`). Set **`OCH_ROLLOUT_SEQUENTIAL=0`** to restore the old parallel restarts. Per-deploy timeout: **`OCH_ROLLOUT_STATUS_TIMEOUT`** (default **180** s).
 
 ## Run order: preflight first, then add data
 
@@ -79,7 +90,7 @@ This runs:
 
 - **Suites:** auth, baseline, enhanced, adversarial, rotation, standalone, tls-mtls, social
 - **k6 phases:** read, soak, sweep, limit, max, and HTTP3 (if xk6-http3 is built); **protocol comparison** (HTTP/2 vs HTTP/3) when `K6_PROTOCOL_COMPARISON=1` — logs under `bench_logs/suite-logs-<timestamp>/`
-- **pgbench:** all 7 housing DBs in parallel (auth, listings, bookings, messaging, notification, trust, analytics). **Postgres is external** (Docker Compose on host ports 5441–5447), not in-cluster; step 3b3 brings up Docker Postgres; suites and pgbench connect to `localhost:5441` etc.
+- **pgbench:** housing DBs in parallel (auth, listings, bookings, messaging, notification, trust, analytics; media when included). **Postgres is external** (Docker Compose on host ports **5441–5448**), not in-cluster; step 3b3 brings up Docker Postgres; suites and pgbench connect to `localhost:5441` etc.
 - **Summary:** `bench_logs/PREFLIGHT_SUMMARY.md` and `bench_logs/preflight-results.json` (for the observation deck)
 - **Packaged run folder:** All artifacts for the run go into **`bench_logs/preflight-<timestamp>/`**: suite logs, per-DB pgbench logs, **EXPLAIN (ANALYZE, BUFFERS)** for all 8 DBs/schemas, combined pgbench log, PREFLIGHT_SUMMARY.md, preflight-results.json
 - **Telemetry:** Control-plane telemetry is captured automatically (apiserver metrics every 8s during run; post-run snapshot and raw `/metrics`). Paths are printed at exit: `telemetry-during-<ts>.log`, `telemetry-after-<ts>.txt`, `raw-metrics-<ts>.txt` in repo root. Set `PREFLIGHT_TELEMETRY=0` to disable.
@@ -97,6 +108,28 @@ Override if you want, e.g. `SUITE_LOG_DIR=/tmp/k6` before the command.
 **Curl and chaos guardrails (single-node / Colima):** Preflight sets `CURL_MAX_TIME=15` and `CURL_CONNECT_TIMEOUT=3` so health checks are less likely to hit exit 28 (timeout) under load. Telemetry is capped (default 8 min / 60 iterations) to avoid API saturation. For chaos/rotation: set `CHAOS_CPU_GUARDRAIL=1` so the k6 chaos job is skipped when node CPU &gt; 80% or memory &gt; 85%; set `CHAOS_LOW_START_RATE=1` to start k6 at 200 req/s (H2=120, H3=80) instead of 320+180. Packet capture uses a 1s warmup after starting tcpdump (`CAPTURE_WARMUP_SECONDS=1`) so short requests are not missed.
 
 **gRPC in MetalLB mode:** When using MetalLB (TARGET_IP + PORT=443), gRPC is **internal only** (host → LB = Caddy HTTP; gRPC = in-cluster → Envoy ClusterIP → services). The suite uses an in-cluster ephemeral grpcurl pod to validate Envoy routing; host NodePort/port-forward gRPC tests are skipped. Envoy config includes an explicit route for `grpc.health.v1.Health` and 15s timeouts. Set `GRPC_USE_IN_CLUSTER=1` to force in-cluster gRPC even when not using the LB IP.
+
+### Step 5 vs “all pods Ready” (0/1)
+
+- **Preflight step 5** runs **strict TLS/mTLS** (`ensure-strict-tls-mtls-preflight.sh`) and may **restart** gRPC workloads. It does **not** mean every pod is `1/1` yet.
+- **Step 5z** only **sleeps 90s** so probes can start succeeding — still not a hard guarantee.
+- The script that actually **blocks** on readiness is **step 6b** (`wait-for-all-services-ready.sh`, default **MAX_WAIT=600s**). If something stays `0/1`, preflight should eventually **fail** at 6b unless you skipped that phase or changed env vars.
+- **Two `api-gateway` pods** briefly (`1/1` + `0/1`) is normal: `api-gateway` uses **RollingUpdate**, so old and new ReplicaSets overlap until the rollout finishes.
+- **Restarts (1, 4, …)** right after TLS rollout or image changes are common: containers recycle while **startup / readiness** probes and DB connections settle.
+
+### `media-service` stuck `0/1` Running
+
+`media-service` **readiness** uses **gRPC health** (`grpc-health-probe` → `media.MediaService`), which runs **`SELECT 1` against the media Postgres** (`POSTGRES_URL_MEDIA` in `app-config`, default `host.docker.internal:5448`).
+
+If that DB is down, wrong host from inside k3s, or the URL is wrong, readiness stays **failed** indefinitely (pod can still be **Running**).
+
+If **logs already show** `[media gRPC] listening on 50068` but events say **readiness failed to connect to `localhost:50068`**, the usual cause is **`localhost` resolving to IPv6 (`::1`)** while the Node server is listening on **IPv4 only** (`0.0.0.0`). The deploy uses **`127.0.0.1:50068`** for the probe to avoid that mismatch.
+
+**Check:**
+
+1. Host: `nc -z 127.0.0.1 5448` (or start Compose: `postgres-media` in `docker-compose.yml`).
+2. From the cluster: same `DATABASE_HOST` / `host.docker.internal` caveats as other services — on some Colima setups you need **`host.lima.internal`** (see comments in `infra/k8s/base/config/app-config.yaml`).
+3. In-cluster: `./scripts/diagnose-och-deployment.sh media-service` — inspect **Readiness probe failed**, events, and logs.
 
 ---
 
@@ -137,7 +170,7 @@ When the context is **k3d** (e.g. `k3d-off-campus-housing-tracker`), preflight d
 
 ## HTTP/3 and MetalLB (k3d)
 
-- **Step 4e** checks HTTP/3 from the host to NodePort 127.0.0.1:30443 using `off-campus-housing.local` + `--resolve`. On macOS, NodePort UDP often does not work from the host, so you may see code **000** — that is expected and non-fatal.
+- **Step 4e** checks HTTP/3 from the host to NodePort 127.0.0.1:30443 using `off-campus-housing.test` + `--resolve`. On macOS, NodePort UDP often does not work from the host, so you may see code **000** — that is expected and non-fatal.
 - **Step 4f** verifies HTTP/3 **in-cluster** (pod → Caddy via MetalLB/LB IP). That is the authoritative check for “HTTP/3 works” in preflight; suites can use HTTP/2 from the host or in-cluster QUIC.
 - So: **in-cluster HTTP/3 = pass**; host NodePort QUIC is best-effort and not required for preflight to succeed.
 
@@ -151,9 +184,9 @@ When using **Colima** with **bridged** networking and MetalLB (e.g. pool 192.168
    [[ -n "$NODE_IP" ]] && sudo route -n add 192.168.5.0/24 "$NODE_IP"
    ```
    Or use a known IPv4 from `kubectl get nodes -o wide`: `sudo route -n add 192.168.5.0/24 192.168.64.7`
-2. **Verify:** `curl -k -sS -o /dev/null -w '%{http_code}' --http2 --resolve off-campus-housing.local:443:192.168.5.240 https://off-campus-housing.local/_caddy/healthz` → **200**
+2. **Verify:** `curl -k -sS -o /dev/null -w '%{http_code}' --http2 --resolve off-campus-housing.test:443:192.168.5.240 https://off-campus-housing.test/_caddy/healthz` → **200**
 3. **HTTP/3** (use Homebrew curl):  
-   `NGTCP2_ENABLE_GSO=0 /opt/homebrew/opt/curl/bin/curl -k -sS -o /dev/null -w '%{http_code}' --http3-only --resolve off-campus-housing.local:443:192.168.5.240 https://off-campus-housing.local/_caddy/healthz` → **200**
+   `NGTCP2_ENABLE_GSO=0 /opt/homebrew/opt/curl/bin/curl -k -sS -o /dev/null -w '%{http_code}' --http3-only --resolve off-campus-housing.test:443:192.168.5.240 https://off-campus-housing.test/_caddy/healthz` → **200**
 4. Run preflight with MetalLB: `REQUIRE_COLIMA=1 METALLB_ENABLED=1 ./scripts/run-preflight-scale-and-all-suites.sh`. Step 3c1b (MetalLB verify) will see the LB IP reachable and write `/tmp/metallb-reachable.env` with `REACHABLE_LB_IP=192.168.5.240` and `PORT=443`, so **run-all-test-suites** and baseline/enhanced use the LB IP for HTTP/2 and HTTP/3 (no socat/127.0.0.1:8443 needed).
 
 Without the route, verification can still use the no-sudo forward (127.0.0.1:8443 → NodePort) for HTTP/2, but **QUIC to 127.0.0.1:8443 often fails**; the route is the supported path for host HTTP/3.

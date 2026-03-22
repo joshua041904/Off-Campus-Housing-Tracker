@@ -110,10 +110,10 @@ count_tcp443_udp443_in_pcap() {
   echo "$tcp443 $udp443"
 }
 
-# Count QUIC packets with SNI off-campus-housing.local (definitive proof traffic is for our domain; no background QUIC noise).
+# Count QUIC packets with SNI off-campus-housing.test (definitive proof traffic is for our domain; no background QUIC noise).
 count_quic_sni_record_local_in_pcap() {
   local pcap="${1:?pcap file path}"
-  local sni="${2:-off-campus-housing.local}"
+  local sni="${2:-off-campus-housing.test}"
   if [[ ! -f "$pcap" ]] || [[ ! -s "$pcap" ]]; then
     echo "0"
     return
@@ -123,7 +123,7 @@ count_quic_sni_record_local_in_pcap() {
     return
   fi
   local count
-  # Quote SNI for display filter (OCH: off-campus-housing.local; not record.local / RP)
+  # Quote SNI for display filter (OCH: off-campus-housing.test; not record.local / RP)
   count=$(tshark -r "$pcap" -Y "quic && tls.handshake.extensions_server_name contains \"${sni}\"" 2>/dev/null | wc -l 2>/dev/null | tr -d '[:space:]')
   [[ "$count" =~ ^[0-9]+$ ]] && echo "$count" || echo "0"
 }
@@ -150,7 +150,7 @@ count_udp443_stray_not_pod_in_pcap() {
 verify_caddy_pcap_quic_enforcement() {
   local pcap="${1:?pcap}"
   local pod_ip="${2:?pod IP}"
-  local sni="${CAPTURE_EXPECTED_SNI:-off-campus-housing.local}"
+  local sni="${CAPTURE_EXPECTED_SNI:-off-campus-housing.test}"
   [[ ! -f "$pcap" ]] || [[ ! -s "$pcap" ]] && return 0
   command -v tshark >/dev/null 2>&1 || { echo "  [capture-verify] tshark not installed; skip QUIC/SNI enforcement"; return 0; }
   local stray udp_all sni_count quic_any
@@ -339,14 +339,14 @@ verify_protocol_in_dir() {
   else
     echo "  WARN: $label No QUIC packets (no UDP 443; HTTP/3 may not be in use or traffic hit other Caddy pod)"
   fi
-  # SNI validation: QUIC with off-campus-housing.local = definitive proof traffic belongs to our domain (no background noise).
+  # SNI validation: QUIC with off-campus-housing.test = definitive proof traffic belongs to our domain (no background noise).
   local sni_total=0
   for pcap in "$dir"/*.pcap; do
     [[ -f "$pcap" ]] || continue
     [[ -s "$pcap" ]] || continue
-    sni_total=$((sni_total + $(count_quic_sni_record_local_in_pcap "$pcap" "${CAPTURE_EXPECTED_SNI:-off-campus-housing.local}")))
+    sni_total=$((sni_total + $(count_quic_sni_record_local_in_pcap "$pcap" "${CAPTURE_EXPECTED_SNI:-off-campus-housing.test}")))
   done
-  [[ "$sni_total" -gt 0 ]] && echo "  OK: $label QUIC SNI off-campus-housing.local: $sni_total packets (definitive proof traffic to our domain)"
+  [[ "$sni_total" -gt 0 ]] && echo "  OK: $label QUIC SNI off-campus-housing.test: $sni_total packets (definitive proof traffic to our domain)"
   # When TARGET_IP set: report QUIC to LB IP and stray (for host/VM pcaps; in-pod has dst=pod IP so to_lb may be 0).
   if [[ -n "${TARGET_IP:-}" ]]; then
     local to_lb=0 stray=0

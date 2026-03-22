@@ -32,7 +32,7 @@ say "=== Comprehensive Database and Cache Verification ==="
 info "Results will be saved to: $RESULTS_FILE"
 [[ -n "${DB_VERIFY_MAX_SECONDS:-}" ]] && [[ "${DB_VERIFY_MAX_SECONDS}" -gt 0 ]] && info "Max wall time: ${DB_VERIFY_MAX_SECONDS}s (DB_VERIFY_MAX_SECONDS)"
 
-# Database ports (housing 7 DBs: 5441–5447)
+# Database ports (housing 8 DBs: 5441–5448)
 AUTH_DB_PORT=5441
 LISTINGS_DB_PORT=5442
 BOOKINGS_DB_PORT=5443
@@ -40,12 +40,13 @@ MESSAGING_DB_PORT=5444
 NOTIFICATION_DB_PORT=5445
 TRUST_DB_PORT=5446
 ANALYTICS_DB_PORT=5447
+MEDIA_DB_PORT=5448
 
-# Test database connectivity (housing 7 DBs)
+# Test database connectivity (housing 8 DBs)
 test_db_connectivity() {
   say "Testing Database Connectivity..."
-  local ports="$AUTH_DB_PORT $LISTINGS_DB_PORT $BOOKINGS_DB_PORT $MESSAGING_DB_PORT $NOTIFICATION_DB_PORT $TRUST_DB_PORT $ANALYTICS_DB_PORT"
-  local db_names="auth listings bookings messaging notification trust analytics"
+  local ports="$AUTH_DB_PORT $LISTINGS_DB_PORT $BOOKINGS_DB_PORT $MESSAGING_DB_PORT $NOTIFICATION_DB_PORT $TRUST_DB_PORT $ANALYTICS_DB_PORT $MEDIA_DB_PORT"
+  local db_names="auth listings bookings messaging notification trust analytics media"
   local i=0
   for port in $ports; do
     local db
@@ -108,7 +109,7 @@ verify_cache_operations() {
   
   # Test auth service cache (multiple requests should show cache hits)
   if command -v curl >/dev/null 2>&1; then
-    HOST="${HOST:-off-campus-housing.local}"
+    HOST="${HOST:-off-campus-housing.test}"
     PORT="${PORT:-30443}"
     
     # Make multiple requests to same endpoint (should hit cache on subsequent requests)
@@ -154,7 +155,7 @@ verify_social_service() {
   fi
   # Health endpoint (if exposed)
   if command -v curl >/dev/null 2>&1; then
-    HOST="${HOST:-off-campus-housing.local}"
+    HOST="${HOST:-off-campus-housing.test}"
     PORT="${PORT:-30443}"
     MESSAGING_HEALTH=$(curl -k -s --http2 --max-time 5 \
       --resolve "${HOST}:${PORT}:127.0.0.1" \

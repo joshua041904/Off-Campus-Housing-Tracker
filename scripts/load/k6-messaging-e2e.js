@@ -3,28 +3,21 @@
  * Tests JWT, gateway, gRPC, DB, outbox, Kafka. No healthz placeholder.
  *
  * Usage:
- *   BASE_URL=https://off-campus-housing.local K6_RESOLVE=host:443:ip SSL_CERT_FILE=./certs/dev-root.pem \
+ *   BASE_URL=https://off-campus-housing.test K6_RESOLVE=host:443:ip SSL_CERT_FILE=./certs/dev-root.pem \
  *   k6 run scripts/load/k6-messaging-e2e.js
  */
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Rate } from 'k6/metrics';
+import { mergeEdgeTls, strictEdgeTlsOptions } from './k6-strict-edge-tls.js';
 
-const BASE = (__ENV.BASE_URL || 'https://off-campus-housing.local').replace(/\/$/, '');
-const SKIP_TLS = (__ENV.K6_INSECURE_SKIP_TLS || '0') === '1';
+const RAW_BASE = (__ENV.BASE_URL || 'https://off-campus-housing.test').replace(/\/$/, '');
+const BASE = RAW_BASE;
 
 export const errors = new Rate('errors');
 
-function parseHosts() {
-  const r = __ENV.K6_RESOLVE || '';
-  if (!r) return {};
-  const parts = r.split(':');
-  if (parts.length < 3) return {};
-  return { [parts[0]]: parts[parts.length - 1] };
-}
-
 export const options = {
-  ...parseHosts(),
+  ...strictEdgeTlsOptions(RAW_BASE),
   vus: 5,
   iterations: 20,
   thresholds: {
@@ -39,9 +32,8 @@ function request(method, url, body = null, token = null) {
     headers: { 'Content-Type': 'application/json' },
     tags: { name: url.split('?')[0] },
   };
-  if (SKIP_TLS) params.insecureSkipTLSVerify = true;
   if (token) params.headers['Authorization'] = `Bearer ${token}`;
-  return http.request(method, `${BASE}${url}`, body ? JSON.stringify(body) : null, params);
+  return http.request(method, `${BASE}${url}`, body ? JSON.stringify(body) : null, mergeEdgeTls(RAW_BASE, params));
 }
 
 export default function () {

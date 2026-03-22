@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Generate a dedicated Envoy client cert (CN=envoy) signed by dev-root for strict mTLS.
-# Backends expect a client identity; the edge leaf (off-campus-housing.local) is not a service identity.
+# Backends expect a client identity; the edge leaf (off-campus-housing.test) is not a service identity.
 # Run from repo root. Requires: certs/dev-root.pem, certs/dev-root.key (run reissue with KAFKA_SSL=1 to persist CA key).
 #
 # Output: certs/envoy-client.crt, certs/envoy-client.key

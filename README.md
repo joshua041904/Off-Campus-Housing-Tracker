@@ -67,7 +67,7 @@ For detailed technical documentation, system design, and architectural decisions
                                        ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                    ingress-nginx (Kubernetes Cluster)                       │
-│                    host: off-campus-housing.local                            │
+│                    host: off-campus-housing.test                            │
 └──────────────────────┬───────────────────────────┬──────────────────────────┘
                        │                           │
         REST /api/*    │                           │  gRPC /service.*
@@ -390,7 +390,7 @@ No business logic allowed in common.
 # Namespace & Hostname (cluster)
 
 - **App namespace:** `off-campus-housing-tracker` (all housing services run here).
-- **Hostname:** `off-campus-housing.local` (TLS, Caddy, and local DNS).
+- **Hostname:** `off-campus-housing.test` (TLS, Caddy, and local DNS).
 - **Other namespaces:** `ingress-nginx` and `envoy-test` are unchanged (shared infra).
 
 ---
@@ -428,7 +428,7 @@ pnpm run test:housing-wiring   # DB port defaults + builds (listings/trust/gatew
 
 **Listings** publishes to **`${ENV_PREFIX}.listing.events`** (same name the script creates). Wrap any protocol suite with capture: `./scripts/run-suite-with-packet-capture.sh ./scripts/test-listings-http2-http3.sh`.
 
-**k3s images:** `./scripts/build-housing-images-k3s.sh` (build `:dev` + `colima ssh docker load`).
+**k3s images:** `./scripts/build-housing-images-k3s.sh` (build `:dev` + `colima ssh docker load`). After gateway/TLS/Dockerfile changes, rebuild and rollout: **`pnpm run rebuild:och:rollout`** (default **`api-gateway` + `media-service`**) or **`pnpm run rebuild:gateway:rollout`** for gateway only. Override: `SERVICES="auth-service api-gateway" pnpm run rebuild:och:rollout`. Set `ROLLOUT=0` to build/load only.
 
 **Full ordering (Colima → infra → topics → images → deploy → tests):** [docs/RUN_PIPELINE_ORDER.md](docs/RUN_PIPELINE_ORDER.md).
 
@@ -438,7 +438,7 @@ pnpm run test:housing-wiring   # DB port defaults + builds (listings/trust/gatew
 
 ## No-conflict setup (same host as record platform)
 
-**Optional (same host as other projects):** Use hostname **off-campus-housing.local** (SNI must match; do not use record-local). Redis **6380**, Kafka **29094**, Caddy NodePort **30444**, Zookeeper **2182**, Postgres **5441–5448** so this project does not conflict with other stacks. Deploy Caddy with **CADDY_NODEPORT=30444** when using NodePort so the port diff is applied (e.g. `CADDY_NODEPORT=30444 ./scripts/rollout-caddy.sh`).
+**Optional (same host as other projects):** Use hostname **off-campus-housing.test** (SNI must match; do not use record-local). Redis **6380**, Kafka **29094**, Caddy NodePort **30444**, Zookeeper **2182**, Postgres **5441–5448** so this project does not conflict with other stacks. Deploy Caddy with **CADDY_NODEPORT=30444** when using NodePort so the port diff is applied (e.g. `CADDY_NODEPORT=30444 ./scripts/rollout-caddy.sh`).
 
 **In-cluster service ports** for housing:
 
@@ -461,11 +461,17 @@ pnpm run test:housing-wiring   # DB port defaults + builds (listings/trust/gatew
 
 Ensure manifests and Caddy/Envoy route to the gateway at **4020** and to these housing ports (4011–4018, 50061–50068).
 
+**Gateway → media:** The API gateway proxies **`/api/media/*` and `/media/*` over HTTP** to **`MEDIA_HTTP`** (default `http://media-service…:4018`). That path is **not** gRPC; **50068** is the **gRPC + mTLS** API (`proto/media.proto`). Kafka/async shapes live under **`proto/events/`** (separate from RPC). Rationale and trade-offs: **[ENGINEERING.md](ENGINEERING.md)** → *Service Communication Patterns*.
+
+**API Gateway probes (Kubernetes):** **`GET /healthz`** = liveness (process up). **`GET /readyz`** = readiness (auth gRPC `Health/Check` has succeeded); the server listens immediately and verifies auth in the background so the pod does not CrashLoop while auth is still starting. HAProxy `httpchk` uses **`/readyz`**. After CA rotation or simultaneous restarts, prefer **`./scripts/k8s-rollout-och-ordered.sh`** (auth → other services → gateway) instead of scaling ReplicaSets manually. Legacy **`aggressive-cleanup-replicasets.sh`** is a no-op unless **`OCH_AGGRESSIVE_RS_CLEANUP=1`**.
+
 **MetalLB:** The pool must be on the **same L2 subnet as your node** (Colima often uses `192.168.64.x`). If the pool is wrong (e.g. `192.168.5.x` while the node is `192.168.64.x`), the Mac will see **HTTP 000** / timeouts to the LoadBalancer IP — fix with `./scripts/apply-metallb-pool-colima.sh` or set `METALLB_POOL` accordingly, then recreate `caddy-h3` if needed. For two clusters on one Mac, use a **different L2 pool** per cluster (e.g. `192.168.64.240-192.168.64.250` vs `251-260`). This project’s docker-compose uses Redis **6380**, Kafka **29094**, and Zookeeper **2182** by default. Use `CADDY_NODEPORT=30444` when deploying Caddy on a conflicting NodePort.
 
 ### Certs, secrets, and how to run tests (readable checklist)
 
 **Full walkthrough:** **[docs/CERTS_AND_TESTING_FOR_MORTALS.md](docs/CERTS_AND_TESTING_FOR_MORTALS.md)** — generates every artifact the cluster expects (dev CA, edge leaf, service mTLS, Envoy client, Kafka files), loads K8s secrets, `/etc/hosts` + `--resolve` for curl/k6, messaging Vitest + Redis, and which scripts to run in order.
+
+**After CA rotation:** **[docs/CA_ROTATION_AND_CLIENT_TRUST.md](docs/CA_ROTATION_AND_CLIENT_TRUST.md)** — gRPC probe tuning, Kafka external + Colima, ordered rollout, **k6 `--tls-ca-cert`**, dual-CA workflow.
 
 ---
 
@@ -479,7 +485,7 @@ Once the repo is set up and services are coded, use these steps so the whole tea
   ```bash
   ./scripts/setup-new-colima-cluster.sh
   ```
-  This starts Colima with k3s and installs MetalLB. Namespaces `ingress-nginx` and `envoy-test` stay as-is; the app runs in `off-campus-housing-tracker`. Hostname: `off-campus-housing.local`.
+  This starts Colima with k3s and installs MetalLB. Namespaces `ingress-nginx` and `envoy-test` stay as-is; the app runs in `off-campus-housing-tracker`. Hostname: `off-campus-housing.test`.
 
 - **k3d:** Use your existing k3d workflow; ensure the cluster name/context matches what the scripts expect (e.g. `off-campus-housing-tracker`).
 
@@ -582,9 +588,9 @@ For a **housing-only** HTTP/2 + HTTP/3 smoke (auth register/login, messaging, me
 - **xk6-http3**  
   HTTP/3 load phases use a custom k6 binary built with the xk6-http3 extension. Preflight step 6d builds it when `RUN_K6=1` (or run manually):
   ```bash
-  ./scripts/build-k6-http3.sh   # produces .k6-build/k6-http3 (or .xk6-build)
+  ./scripts/build-k6-http3.sh   # produces .k6-build/bin/k6-http3 (pins k6 core + bandorko/xk6-http3; see script)
   ```
-  Use that binary (or an image that includes it) for k6 scripts that call `k6/x/http3`. The two root Dockerfiles above do not include xk6-http3; for host-based strict TLS + HTTP/3, use the built binary with `SSL_CERT_FILE=$PWD/certs/dev-root.pem` (or equivalent).
+  Use that binary (or an image that includes it) for k6 scripts that call `k6/x/http3`. The two root Dockerfiles above do not include xk6-http3; for host-based strict TLS + HTTP/3, use the built binary with `SSL_CERT_FILE=$PWD/certs/dev-root.pem` (or equivalent). Details: **[docs/XK6_HTTP3_SETUP.md](docs/XK6_HTTP3_SETUP.md)**. Dev hostname + `/etc/hosts`: **[docs/DEV_HOSTNAME.md](docs/DEV_HOSTNAME.md)**.
 
 ---
 

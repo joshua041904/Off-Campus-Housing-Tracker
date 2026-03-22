@@ -68,8 +68,14 @@ export async function startNotificationConsumer(pool: Pool | null): Promise<Cons
   }
 
   const consumer = kafka.consumer({ groupId: process.env.KAFKA_GROUP_ID || "notification-service-group" });
+  const connectBudgetMs = Number(process.env.NOTIFICATION_KAFKA_CONNECT_MS || "8000");
   try {
-    await consumer.connect();
+    await Promise.race([
+      consumer.connect(),
+      new Promise<never>((_, rej) =>
+        setTimeout(() => rej(new Error(`kafka consumer connect timeout after ${connectBudgetMs}ms`)), connectBudgetMs)
+      ),
+    ]);
     const t = topics();
     await consumer.subscribe({ topics: t, fromBeginning: false });
     console.log("[notification-kafka] subscribed:", t.join(", "));

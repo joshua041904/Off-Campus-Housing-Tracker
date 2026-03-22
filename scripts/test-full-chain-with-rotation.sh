@@ -2,7 +2,7 @@
 # HTTP/2 tests use nodeport_curl/curl with --http2; HTTP/3 tests use http3_curl with --http3-only (no fallback). Same across all suites.
 set -euo pipefail
 
-HOST="${HOST:-off-campus-housing.local}"
+HOST="${HOST:-off-campus-housing.test}"
 # Auto-detect port based on cluster, or use provided PORT
 # Validate PORT if set - if it's 443 (default HTTPS), re-detect
 if [[ -z "${PORT:-}" ]] || [[ "${PORT:-}" == "443" ]]; then
@@ -451,7 +451,7 @@ EXT
     
     # Use NodePort for rotation load test (high throughput, no bottleneck)
     ROTATION_PORT=${PORT}  # NodePort (typically 30443)
-    ROTATION_HOST="$HOST"  # off-campus-housing.local
+    ROTATION_HOST="$HOST"  # off-campus-housing.test
     ok "Using NodePort (${ROTATION_PORT}) for high-throughput rotation test (bypasses port-forward bottleneck)"
   
   # For production-grade zero-downtime, we need to:

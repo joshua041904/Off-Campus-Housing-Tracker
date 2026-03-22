@@ -93,14 +93,14 @@ spec:
                 - -tls-ca-cert=/etc/certs/ca.crt
                 - -tls-client-cert=/etc/certs/tls.crt
                 - -tls-client-key=/etc/certs/tls.key
-                - -tls-server-name=off-campus-housing.local
-                - -connect-timeout=10s
+                - -tls-server-name=localhost
+                - -connect-timeout=5s
                 - -rpc-timeout=5s
-            initialDelaySeconds: 15
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 18
+            periodSeconds: 5
+            timeoutSeconds: 10
+            failureThreshold: 30
 
+          # Kafka + gRPC: allow reconnect after TLS rotation (avoid 8/9 → 3/9 readiness flapping).
           readinessProbe:
             exec:
               command:
@@ -111,12 +111,13 @@ spec:
                 - -tls-ca-cert=/etc/certs/ca.crt
                 - -tls-client-cert=/etc/certs/tls.crt
                 - -tls-client-key=/etc/certs/tls.key
-                - -tls-server-name=off-campus-housing.local
-                - -connect-timeout=10s
+                - -tls-server-name=localhost
+                - -connect-timeout=5s
                 - -rpc-timeout=5s
-            initialDelaySeconds: 20
-            periodSeconds: 10
-            timeoutSeconds: 5
+            initialDelaySeconds: 30
+            periodSeconds: 5
+            timeoutSeconds: 10
+            failureThreshold: 6
 
           livenessProbe:
             exec:
@@ -128,12 +129,13 @@ spec:
                 - -tls-ca-cert=/etc/certs/ca.crt
                 - -tls-client-cert=/etc/certs/tls.crt
                 - -tls-client-key=/etc/certs/tls.key
-                - -tls-server-name=off-campus-housing.local
-                - -connect-timeout=10s
+                - -tls-server-name=localhost
+                - -connect-timeout=5s
                 - -rpc-timeout=5s
-            initialDelaySeconds: 60
-            periodSeconds: 30
-            timeoutSeconds: 5
+            initialDelaySeconds: 90
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 5
 
           resources:
             requests:

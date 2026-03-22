@@ -1,169 +1,93 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Script to build custom k6 binary with HTTP/3 support using xk6
-# This creates our own k6 toolchain with HTTP/3 (QUIC) support
+# Build custom k6 with HTTP/3 (QUIC) via xk6 + bandorko/xk6-http3 (import: k6/x/http3).
+#
+# Pin BOTH k6 core and the extension — do not use @latest for k6 core (breaks module graph).
+#
+# Defaults (override with env):
+#   HTTP3_EXTENSION   github.com/bandorko/xk6-http3@v0.2.0
+#                     Note: upstream repo has tags v0.2.0 / v0.1.1 only — there is NO v0.3.0 on GitHub.
+#                     If you have a fork with v0.3.0: HTTP3_EXTENSION=github.com/you/xk6-http3@v0.3.0
+#   K6_XK6_VERSION    If set, only that k6 tag is built (no auto-fallback).
+#                     If unset: try v0.49.0, then v0.48.0 (recommended when extension lags k6).
+#   XK6_TOOL_VERSION  xk6 CLI to install when missing (default v1.3.6).
+#   XK6_PURGE_GO_CACHE=1  Before build: go clean -modcache + remove common Go caches (use when resolving fails).
 
 say() { printf "\n\033[1m%s\033[0m\n" "$*"; }
 ok() { echo "✅ $*"; }
 warn() { echo "⚠️  $*"; }
 fail() { echo "❌ $*" >&2; exit 1; }
 
-# Check prerequisites
 if ! command -v go >/dev/null 2>&1; then
   fail "Go is required. Install from https://golang.org/dl/"
 fi
 
+XK6_TOOL_VERSION="${XK6_TOOL_VERSION:-v1.3.6}"
 if ! command -v xk6 >/dev/null 2>&1; then
   if [[ -f "$HOME/go/bin/xk6" ]]; then
     export PATH="$HOME/go/bin:$PATH"
   else
-    warn "xk6 not found. Installing..."
-    go install go.k6.io/xk6/cmd/xk6@latest
+    warn "xk6 not found. Installing pinned xk6 CLI: $XK6_TOOL_VERSION"
+    go install "go.k6.io/xk6/cmd/xk6@${XK6_TOOL_VERSION}"
     export PATH="$HOME/go/bin:$PATH"
   fi
 fi
 
-ok "xk6 found: $(which xk6)"
+ok "xk6 found: $(command -v xk6)"
 
-# Check for HTTP/3 extension
-# Note: There isn't an official xk6-http3 extension yet, but we can try to build with experimental support
-# or use a community extension if available
+HTTP3_EXT="${HTTP3_EXTENSION:-github.com/bandorko/xk6-http3@v0.2.0}"
 
-say "=== Building Custom k6 Binary with HTTP/3 Support ==="
-
-# Use our custom HTTP/3 extension
-HTTP3_EXT=""
-if [[ -n "${HTTP3_EXTENSION:-}" ]]; then
-  HTTP3_EXT="$HTTP3_EXTENSION"
-  ok "Using custom HTTP/3 extension: $HTTP3_EXT"
-elif [[ -d "$(pwd)/xk6-http3" ]]; then
-  # Use local extension
-  HTTP3_EXT="$(pwd)/xk6-http3"
-  ok "Using local HTTP/3 extension: $HTTP3_EXT"
-else
-  warn "No HTTP/3 extension found. Creating one..."
-  "$(pwd)/scripts/create-k6-http3-extension.sh" || warn "Extension creation failed, building without HTTP/3 extension"
-  if [[ -d "$(pwd)/xk6-http3" ]]; then
-    HTTP3_EXT="$(pwd)/xk6-http3"
-    ok "Using newly created HTTP/3 extension: $HTTP3_EXT"
-  fi
+if [[ "${XK6_PURGE_GO_CACHE:-0}" == "1" ]]; then
+  say "XK6_PURGE_GO_CACHE=1 — clearing module and build caches (slow next fetch)..."
+  go clean -modcache 2>/dev/null || true
+  rm -rf "${HOME}/go/pkg/mod" 2>/dev/null || true
+  rm -rf "${HOME}/Library/Caches/go-build" 2>/dev/null || true
+  rm -rf "${HOME}/.cache/go-build" 2>/dev/null || true
 fi
 
-# Build directory
-BUILD_DIR="$(pwd)/.k6-build"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BUILD_DIR="$REPO_ROOT/.k6-build"
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
+: > build.log
 
-# Build k6 with HTTP/3 support
-say "Building custom k6 binary..."
-
-if [[ -n "$HTTP3_EXT" ]]; then
-  # Build with extension
-  if [[ -d "$HTTP3_EXT" ]]; then
-    # For local extensions, we need to use the module path from go.mod
-    say "Building with local extension from: $HTTP3_EXT"
-    MODULE_PATH=$(cd "$HTTP3_EXT" && grep "^module " go.mod | awk '{print $2}')
-    if [[ -z "$MODULE_PATH" ]]; then
-      fail "Could not determine module path from $HTTP3_EXT/go.mod"
-    fi
-    say "Using module path: $MODULE_PATH"
-    
-    # Use xk6 build with local extension
-    # xk6 doesn't support local paths directly, so we'll build manually with replace directive
-    say "Building k6 with local HTTP/3 extension..."
-    
-    # Create build directory
-    XK6_BUILD="$BUILD_DIR/xk6-work"
-    mkdir -p "$XK6_BUILD"
-    cd "$XK6_BUILD"
-    
-    # Initialize go module
-    go mod init k6-custom-http3
-    
-    # Add k6 dependency
-    go get go.k6.io/k6@v0.50.0
-    
-    # Add replace directive FIRST (before adding the module)
-    go mod edit -replace "$MODULE_PATH=$HTTP3_EXT"
-    
-    # Now add the module (with replace in place, it will use local path)
-    go get "$MODULE_PATH@v0.0.0"
-    go mod tidy
-    
-    # Create main.go that imports k6 and registers our extension
-    cat > main.go <<'MAINGO'
-package main
-
-import (
-	_ "github.com/off-campus-housing-tracker/xk6-http3"
-	"go.k6.io/k6/cmd"
-)
-
-func main() {
-	cmd.Execute()
-}
-MAINGO
-    
-    # Make sure the extension is actually required
-    go get github.com/off-campus-housing-tracker/xk6-http3@v0.0.0
-    go get go.k6.io/k6/cmd@v0.50.0
-    go mod tidy
-    
-    # Build
-    go build -o "$BUILD_DIR/k6-http3" . 2>&1 | tee "$BUILD_DIR/build.log" || {
-      cd "$BUILD_DIR"
-      rm -rf "$XK6_BUILD"
-      warn "Failed to build with local extension. Check build.log for details."
-      fail "Build failed. Make sure the extension compiles: cd $HTTP3_EXT && go mod tidy && go build ./..."
-    }
-    
-    cd "$BUILD_DIR"
-    rm -rf "$XK6_BUILD"
-  else
-    # Assume it's a module path
-    xk6 build \
-      --with "$HTTP3_EXT" \
-      --output k6-http3 \
-      v0.50.0 2>&1 | tee build.log || {
-      warn "Failed to build with extension. Trying without extension..."
-      xk6 build \
-        --output k6-http3 \
-        v0.50.0 2>&1 | tee build.log
-    }
+try_build() {
+  local tag="$1"
+  say "xk6 build k6 $tag --with $HTTP3_EXT (appending build.log)..."
+  if xk6 build --with "$HTTP3_EXT" --output k6-http3 "$tag" >>build.log 2>&1; then
+    return 0
   fi
+  return 1
+}
+
+say "=== Building k6 with HTTP/3 (xk6-http3) ==="
+say "Extension: $HTTP3_EXT"
+
+if [[ -n "${K6_XK6_VERSION:-}" ]]; then
+  try_build "$K6_XK6_VERSION" || fail "xk6 build failed for K6_XK6_VERSION=$K6_XK6_VERSION — see $BUILD_DIR/build.log"
 else
-  # Build standard k6 (won't have HTTP/3 support)
-  warn "Building k6 without HTTP/3 extension - HTTP/3 will not work!"
-  xk6 build \
-    --output k6-http3 \
-    v0.50.0 2>&1 | tee build.log || {
-    fail "Failed to build k6 binary. Check build.log for details."
-  }
+  if try_build "v0.49.0"; then
+    ok "Built with k6 v0.49.0"
+  else
+    warn "k6 v0.49.0 + extension failed (see build.log). Retrying k6 v0.48.0..."
+    try_build "v0.48.0" || fail "xk6 build failed for v0.49.0 and v0.48.0 — try XK6_PURGE_GO_CACHE=1 or set K6_XK6_VERSION / HTTP3_EXTENSION. Log: $BUILD_DIR/build.log"
+    ok "Built with k6 v0.48.0"
+  fi
 fi
 
 if [[ -f "k6-http3" ]]; then
-  ok "k6 binary built successfully: $BUILD_DIR/k6-http3"
-  
-  # Test the binary
+  ok "k6 binary: $BUILD_DIR/k6-http3"
   say "Testing custom k6 binary..."
   ./k6-http3 version
-  
-  # Install to a convenient location
   INSTALL_DIR="$(pwd)/bin"
   mkdir -p "$INSTALL_DIR"
   cp k6-http3 "$INSTALL_DIR/k6-http3"
   chmod +x "$INSTALL_DIR/k6-http3"
-  
-  ok "Custom k6 binary installed to: $INSTALL_DIR/k6-http3"
+  ok "Also: $INSTALL_DIR/k6-http3"
   say ""
-  say "Usage:"
-  say "  $INSTALL_DIR/k6-http3 run scripts/load/k6-http3-toolchain.js"
-  say ""
-  say "Or add to PATH:"
-  say "  export PATH=\"$INSTALL_DIR:\$PATH\""
-  say "  k6-http3 run scripts/load/k6-http3-toolchain.js"
+  say "Verify HTTP/3 module loads (needs reachable edge + dev CA):"
+  say "  $INSTALL_DIR/k6-http3 run -e BASE_URL=https://off-campus-housing.test scripts/load/k6-http3-complete.js"
 else
   fail "k6 binary not found after build. Check build.log for errors."
 fi
-

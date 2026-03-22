@@ -1,8 +1,12 @@
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
-import * as fs from "node:fs";
 import { PrismaClient } from "../prisma/generated/client/index.js";
-import { kafka, registerHealthService, resolveProtoPath } from "@common/utils";
+import {
+  kafka,
+  registerHealthService,
+  resolveProtoPath,
+  createOchStrictMtlsServerCredentials,
+} from "@common/utils";
 import { randomUUID } from "node:crypto";
 
 const BOOKING_PROTO = resolveProtoPath("booking.proto");
@@ -217,21 +221,13 @@ export function startGrpcServer(port: number): void {
     }
   });
 
-  const keyPath = process.env.TLS_KEY_PATH || "/etc/certs/tls.key";
-  const certPath = process.env.TLS_CERT_PATH || "/etc/certs/tls.crt";
-  const caPath = process.env.TLS_CA_PATH || "/etc/certs/ca.crt";
-  const requireClientCert = process.env.GRPC_REQUIRE_CLIENT_CERT === "true";
-
   let credentials: grpc.ServerCredentials;
-  if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
-    const key = fs.readFileSync(keyPath);
-    const cert = fs.readFileSync(certPath);
-    const rootCerts = fs.existsSync(caPath) ? fs.readFileSync(caPath) : null;
-    credentials = grpc.ServerCredentials.createSsl(rootCerts, [{ private_key: key, cert_chain: cert }], requireClientCert as any);
-    console.log("[booking gRPC] TLS enabled; client cert required:", requireClientCert);
-  } else {
-    console.warn("[booking gRPC] TLS certs not found, starting insecure (dev only)");
-    credentials = grpc.ServerCredentials.createInsecure();
+  try {
+    credentials = createOchStrictMtlsServerCredentials("booking gRPC");
+    console.log("[booking gRPC] strict mTLS (client cert required)");
+  } catch (e) {
+    console.error(e);
+    process.exit(1);
   }
 
   server.bindAsync(`0.0.0.0:${port}`, credentials, (err: Error | null, boundPort: number) => {

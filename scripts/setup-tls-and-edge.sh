@@ -38,9 +38,9 @@ done
 ok "Namespaces ensured"
 
 # --- 2. Generate all certs (CA, Caddy leaf, Envoy client, services) ---
-say "Step 2/7: Generate certs (CA, off-campus-housing.local, envoy-client, services)"
+say "Step 2/7: Generate certs (CA, off-campus-housing.test, envoy-client, services)"
 "$SCRIPT_DIR/dev-generate-certs.sh" 2>&1 || true
-if [[ ! -f "$REPO_ROOT/certs/off-campus-housing.local.crt" ]] || [[ ! -f "$REPO_ROOT/certs/dev-root.pem" ]]; then
+if [[ ! -f "$REPO_ROOT/certs/off-campus-housing.test.crt" ]] || [[ ! -f "$REPO_ROOT/certs/dev-root.pem" ]]; then
   echo "ERROR: Required certs missing after dev-generate-certs. Check certs/ and run again." >&2
   exit 1
 fi

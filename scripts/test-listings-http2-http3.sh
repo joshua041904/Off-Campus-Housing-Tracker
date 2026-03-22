@@ -8,7 +8,7 @@ export PATH="$SCRIPT_DIR/shims:/opt/homebrew/bin:/usr/local/bin:${PATH:-}"
 [[ -f "$SCRIPT_DIR/lib/kubectl-helper.sh" ]] && . "$SCRIPT_DIR/lib/kubectl-helper.sh"
 _kubectl() { kctl "$@" 2>/dev/null || kubectl --request-timeout=15s "$@"; }
 
-HOST="${HOST:-off-campus-housing.local}"
+HOST="${HOST:-off-campus-housing.test}"
 NS="${LISTINGS_K8S_NS:-off-campus-housing-tracker}"
 LB_IP="${TARGET_IP:-$(_kubectl -n ingress-nginx get svc caddy-h3 -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")}"
 [[ -z "$LB_IP" ]] && { echo "❌ No MetalLB IP for caddy-h3"; exit 1; }

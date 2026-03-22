@@ -1,7 +1,10 @@
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
-import * as fs from "node:fs";
-import { registerHealthService, resolveProtoPath } from "@common/utils";
+import {
+  registerHealthService,
+  resolveProtoPath,
+  createOchStrictMtlsServerCredentials,
+} from "@common/utils";
 import { pool } from "./db.js";
 import { analyzeListingFeelText } from "./ollama.js";
 
@@ -158,30 +161,28 @@ export function startGrpcServer(port: number): grpc.Server {
   server.addService(root.analytics.AnalyticsService.service, analyticsService);
   server.addService(root.analytics.RecommendationAdminService.service, adminService);
 
-  registerHealthService(server, "analytics.AnalyticsService", async () => {
-    try {
-      await pool.query("SELECT 1");
-      return true;
-    } catch {
-      return false;
-    }
-  });
-
-  const keyPath = process.env.TLS_KEY_PATH || "/etc/certs/tls.key";
-  const certPath = process.env.TLS_CERT_PATH || "/etc/certs/tls.crt";
-  const caPath = process.env.TLS_CA_PATH || "/etc/certs/ca.crt";
-  const requireClientCert = process.env.GRPC_REQUIRE_CLIENT_CERT === "true";
+  // Primary name must match K8s readiness -service=; register every gRPC service FQ name on this server.
+  registerHealthService(
+    server,
+    "analytics.AnalyticsService",
+    async () => {
+      try {
+        await pool.query("SELECT 1");
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    ["analytics.RecommendationAdminService"]
+  );
 
   let credentials: grpc.ServerCredentials;
-  if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
-    const key = fs.readFileSync(keyPath);
-    const cert = fs.readFileSync(certPath);
-    const rootCerts = fs.existsSync(caPath) ? fs.readFileSync(caPath) : null;
-    credentials = grpc.ServerCredentials.createSsl(rootCerts, [{ private_key: key, cert_chain: cert }], requireClientCert as any);
-    console.log("[analytics gRPC] TLS enabled; client cert required:", requireClientCert);
-  } else {
-    console.warn("[analytics gRPC] TLS certs not found, starting insecure (dev only)");
-    credentials = grpc.ServerCredentials.createInsecure();
+  try {
+    credentials = createOchStrictMtlsServerCredentials("analytics gRPC");
+    console.log("[analytics gRPC] strict mTLS (client cert required)");
+  } catch (e) {
+    console.error(e);
+    process.exit(1);
   }
 
   server.bindAsync(`0.0.0.0:${port}`, credentials, (err: Error | null, boundPort: number) => {

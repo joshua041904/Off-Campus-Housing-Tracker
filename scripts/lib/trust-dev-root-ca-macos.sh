@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Add the dev-root CA to macOS keychain so k6, curl, and browsers trust https://off-campus-housing.local (avoids x509 and manual Keychain Access).
-# Call after rotation syncs certs/dev-root.pem, or before any step that hits off-campus-housing.local with TLS.
+# Add the dev-root CA to macOS keychain so k6, curl, and browsers trust https://off-campus-housing.test (avoids x509 and manual Keychain Access).
+# Call after rotation syncs certs/dev-root.pem, or before any step that hits off-campus-housing.test with TLS.
 # Usage: [CA_FILE=/path/to/certs/dev-root.pem] source scripts/lib/trust-dev-root-ca-macos.sh
 #        or: ./scripts/lib/trust-dev-root-ca-macos.sh /path/to/certs/dev-root.pem
 
@@ -38,11 +38,11 @@ done
 
 # Add current CA to login keychain as trusted for SSL (no sudo). This is the step that replaces opening Keychain Access manually.
 if security add-trusted-cert -d -r trustRoot -k "$LOGIN_KEYCHAIN" "$CA_FILE" 2>/dev/null; then
-  ok "Dev CA added to macOS login keychain (Always Trust for SSL). k6/curl/browser will trust off-campus-housing.local."
+  ok "Dev CA added to macOS login keychain (Always Trust for SSL). k6/curl/browser will trust off-campus-housing.test."
   exit 0
 fi
 if security add-trusted-cert -d -r trustAsRoot -k "$LOGIN_KEYCHAIN" "$CA_FILE" 2>/dev/null; then
-  ok "Dev CA added to macOS login keychain (trustAsRoot). k6/curl/browser will trust off-campus-housing.local."
+  ok "Dev CA added to macOS login keychain (trustAsRoot). k6/curl/browser will trust off-campus-housing.test."
   exit 0
 fi
 

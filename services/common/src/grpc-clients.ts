@@ -15,7 +15,6 @@ function buildCredentials() {
 
   const clientCertPath = process.env.GRPC_CLIENT_CERT || process.env.TLS_CERT_PATH || "/etc/certs/tls.crt";
   const clientKeyPath = process.env.GRPC_CLIENT_KEY || process.env.TLS_KEY_PATH || "/etc/certs/tls.key";
-  const serverName = process.env.GRPC_SERVER_NAME || process.env.TLS_SERVER_NAME || "off-campus-housing.local";
 
   if (fs.existsSync(caPath) && fs.existsSync(clientCertPath) && fs.existsSync(clientKeyPath)) {
     const rootCert = fs.readFileSync(caPath);
@@ -53,6 +52,7 @@ function loadProto(fileName: string) {
 
 // Housing protos only: auth, listings, booking, messaging, trust, analytics, media
 const authProto = loadProto("auth.proto");
+const healthProto = loadProto("health.proto");
 const listingsProto = loadProto("listings.proto");
 const bookingProto = loadProto("booking.proto");
 const messagingProto = loadProto("messaging.proto");
@@ -60,9 +60,25 @@ const trustProto = loadProto("trust.proto");
 const analyticsProto = loadProto("analytics.proto");
 const mediaProto = loadProto("media.proto");
 
+/**
+ * TLS hostname for certificate verification (grpc.ssl_target_name_override).
+ * Kubernetes gRPC targets must use the service DNS name (matches server cert SANs).
+ * Do not use GRPC_SERVER_NAME for *.svc.cluster.local — deploys often set it to the public edge host (.test),
+ * which breaks mTLS verification (ERR_TLS_CERT_ALTNAME_INVALID).
+ */
+function resolveGrpcSslTargetName(address: string): string {
+  const host = address.split(":")[0];
+  if (host.endsWith(".svc.cluster.local")) {
+    return host;
+  }
+  const explicit = process.env.GRPC_SERVER_NAME || process.env.TLS_SERVER_NAME;
+  if (explicit) return explicit;
+  return "off-campus-housing.test";
+}
+
 function createClientWithOptions(ServiceClass: any, address: string, credentials: grpc.ChannelCredentials) {
-  const serverName = process.env.GRPC_SERVER_NAME || process.env.TLS_SERVER_NAME || "off-campus-housing.local";
   const addressHost = address.split(":")[0];
+  const serverName = resolveGrpcSslTargetName(address);
   const options: grpc.ChannelOptions = {};
   if (addressHost.includes("service") || addressHost.includes("-")) {
     (options as any)["grpc.ssl_target_name_override"] = serverName;
@@ -74,6 +90,120 @@ function createClientWithOptions(ServiceClass: any, address: string, credentials
 export function createAuthClient(address: string = "auth-service.off-campus-housing-tracker.svc.cluster.local:50061") {
   const AuthService = authProto.auth.AuthService;
   return createClientWithOptions(AuthService, address, buildCredentials());
+}
+
+/** grpc.health.v1.Health client — same mTLS channel options as other housing clients. */
+export function createGrpcHealthClient(address: string) {
+  const Health = healthProto.grpc.health.v1.Health;
+  return createClientWithOptions(Health, address, buildCredentials());
+}
+
+/**
+ * True if Health/Check response status is SERVING.
+ * With proto-loader `enums: "String"`, status is often `"SERVING"` not numeric `1`.
+ */
+export function isGrpcHealthServingStatus(status: unknown): boolean {
+  if (status === 1) return true;
+  if (status === "SERVING") return true;
+  if (typeof status === "string" && status.toUpperCase() === "SERVING") return true;
+  return false;
+}
+
+/**
+ * Mandatory gateway/bootstrap check: dial auth gRPC with mTLS and call Health/Check for auth.AuthService.
+ * Fails if TLS/SNI/CA/client cert wrong or auth reports NOT_SERVING (e.g. DB down).
+ */
+export function verifyAuthGrpcUpstream(
+  address: string = process.env.AUTH_GRPC_TARGET || "auth-service.off-campus-housing-tracker.svc.cluster.local:50061",
+  serviceName: string = process.env.AUTH_GRPC_HEALTH_SERVICE || "auth.AuthService",
+  timeoutMs: number = Number(process.env.AUTH_UPSTREAM_VERIFY_TIMEOUT_MS || "15000")
+): Promise<void> {
+  const client = createGrpcHealthClient(address);
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => {
+      reject(new Error(`auth upstream Health/Check timed out after ${timeoutMs}ms (${address})`));
+    }, timeoutMs);
+    try {
+      client.check(
+        { service: serviceName },
+        (err: grpc.ServiceError | null, response: { status?: number | string } | undefined) => {
+          clearTimeout(t);
+          if (err) {
+            reject(err);
+            return;
+          }
+          const st = response?.status;
+          if (!isGrpcHealthServingStatus(st)) {
+            reject(
+              new Error(
+                `auth Health/Check not SERVING for "${serviceName}" (status=${JSON.stringify(st)}). Is auth DB up?`
+              )
+            );
+            return;
+          }
+          resolve();
+        }
+      );
+    } catch (e) {
+      clearTimeout(t);
+      reject(e);
+    }
+  });
+}
+
+/**
+ * Same as verifyAuthGrpcUpstream but retries until success or total budget exhausted.
+ * Use at gateway startup so a simultaneous rollout (auth not ready yet) does not exit(1) immediately.
+ *
+ * Env: AUTH_UPSTREAM_VERIFY_TOTAL_MS (default 60000), AUTH_UPSTREAM_VERIFY_ATTEMPT_TIMEOUT_MS (default 5000),
+ * AUTH_UPSTREAM_VERIFY_INITIAL_BACKOFF_MS (1000), AUTH_UPSTREAM_VERIFY_MAX_BACKOFF_MS (8000).
+ */
+export async function verifyAuthGrpcUpstreamWithRetry(
+  address: string = process.env.AUTH_GRPC_TARGET || "auth-service.off-campus-housing-tracker.svc.cluster.local:50061",
+  serviceName: string = process.env.AUTH_GRPC_HEALTH_SERVICE || "auth.AuthService",
+  opts?: {
+    totalBudgetMs?: number;
+    perAttemptTimeoutMs?: number;
+    initialBackoffMs?: number;
+    maxBackoffMs?: number;
+  }
+): Promise<void> {
+  const totalBudgetMs =
+    opts?.totalBudgetMs ?? Number(process.env.AUTH_UPSTREAM_VERIFY_TOTAL_MS || "60000");
+  const perAttemptTimeoutMs =
+    opts?.perAttemptTimeoutMs ?? Number(process.env.AUTH_UPSTREAM_VERIFY_ATTEMPT_TIMEOUT_MS || "5000");
+  const initialBackoffMs =
+    opts?.initialBackoffMs ?? Number(process.env.AUTH_UPSTREAM_VERIFY_INITIAL_BACKOFF_MS || "1000");
+  const maxBackoffMs =
+    opts?.maxBackoffMs ?? Number(process.env.AUTH_UPSTREAM_VERIFY_MAX_BACKOFF_MS || "8000");
+
+  const deadline = Date.now() + totalBudgetMs;
+  let attempt = 0;
+  let backoff = initialBackoffMs;
+  let lastErr: unknown;
+
+  while (Date.now() < deadline) {
+    attempt += 1;
+    try {
+      await verifyAuthGrpcUpstream(address, serviceName, perAttemptTimeoutMs);
+      if (attempt > 1) {
+        console.log(`[grpc-client] auth upstream verify succeeded on attempt ${attempt}`);
+      }
+      return;
+    } catch (e) {
+      lastErr = e;
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn(`[grpc-client] auth upstream verify attempt ${attempt} failed: ${msg}`);
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      const sleepMs = Math.min(backoff, Math.max(0, remaining));
+      await new Promise((r) => setTimeout(r, sleepMs));
+      backoff = Math.min(maxBackoffMs, Math.floor(backoff * 1.5));
+    }
+  }
+
+  if (lastErr instanceof Error) throw lastErr;
+  throw new Error(String(lastErr ?? "auth upstream verify failed"));
 }
 
 export function createListingsClient(address: string = "listings-service.off-campus-housing-tracker.svc.cluster.local:50062") {

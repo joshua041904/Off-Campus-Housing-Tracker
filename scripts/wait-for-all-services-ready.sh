@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Wait for app Deployments to be ready before proceeding with test suite.
 # Default list includes media-service; preflight sets WAIT_APP_SERVICES / PREFLIGHT_APP_DEPLOYS to scope (full vs core).
+#
+# Self-heal path can delete stuck Pending pods; default OFF (set OCH_WAIT_ALLOW_STUCK_POD_DELETE=1 to enable).
 
 set -euo pipefail
 
@@ -24,14 +26,26 @@ log() {
   echo "$msg" >> "${WAIT_LOG:-/dev/stdout}" 2>/dev/null || echo "$msg"
 }
 
-NS="off-campus-housing-tracker"
+NS="${HOUSING_NS:-off-campus-housing-tracker}"
+export HOUSING_NS="$NS"
 # Space-separated deploy names; preflight exports WAIT_APP_SERVICES from PREFLIGHT_APP_DEPLOYS.
+# WAIT_APP_AUTO_DETECT=1 (default): kubectl list of *-service + api-gateway in namespace (no hardcoded count).
+WAIT_APP_AUTO_DETECT="${WAIT_APP_AUTO_DETECT:-1}"
 if [[ -n "${WAIT_APP_SERVICES:-}" ]]; then
   read -r -a SERVICES <<< "$WAIT_APP_SERVICES"
 elif [[ -n "${PREFLIGHT_APP_DEPLOYS:-}" ]]; then
   read -r -a SERVICES <<< "$PREFLIGHT_APP_DEPLOYS"
+elif [[ "$WAIT_APP_AUTO_DETECT" == "1" ]] && [[ -f "$SCRIPT_DIR/lib/grpc-utils.sh" ]]; then
+  # shellcheck source=scripts/lib/grpc-utils.sh
+  source "$SCRIPT_DIR/lib/grpc-utils.sh"
+  _och_apps=$(och_list_app_deployments "$NS" | tr '\n' ' ')
+  if [[ -n "${_och_apps// /}" ]]; then
+    read -r -a SERVICES <<< "$_och_apps"
+  else
+    SERVICES=("auth-service" "listings-service" "booking-service" "messaging-service" "trust-service" "analytics-service" "api-gateway" "media-service" "notification-service")
+  fi
 else
-  SERVICES=("auth-service" "listings-service" "booking-service" "messaging-service" "trust-service" "analytics-service" "api-gateway" "media-service")
+  SERVICES=("auth-service" "listings-service" "booking-service" "messaging-service" "trust-service" "analytics-service" "api-gateway" "media-service" "notification-service")
 fi
 EXPECTED_COUNT=${#SERVICES[@]}
 
@@ -191,8 +205,12 @@ while [[ $ELAPSED -lt $MAX_WAIT ]]; do
         phase=$(_kubectl get pod "$pod" -n "$NS" -o jsonpath='{.status.phase}' 2>/dev/null || echo "Unknown")
         log "    Pod $pod: phase=$phase"
         if [[ "$phase" == "Pending" ]] || [[ "$phase" == "ContainerCreating" ]]; then
-          log "    ⚠️  Pod stuck in $phase, deleting to force recreation..."
-          _kubectl delete pod "$pod" -n "$NS" --force --grace-period=0 --request-timeout=10s >/dev/null 2>&1 || true
+          if [[ "${OCH_WAIT_ALLOW_STUCK_POD_DELETE:-0}" == "1" ]]; then
+            log "    ⚠️  Pod stuck in $phase, deleting to force recreation..."
+            _kubectl delete pod "$pod" -n "$NS" --force --grace-period=0 --request-timeout=10s >/dev/null 2>&1 || true
+          else
+            log "    ⚠️  Pod stuck in $phase (OCH_WAIT_ALLOW_STUCK_POD_DELETE=1 to delete)"
+          fi
         fi
       fi
     done

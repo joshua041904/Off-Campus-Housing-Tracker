@@ -30,6 +30,14 @@ FROM node:20-bookworm-slim
 WORKDIR /app/services/media-service
 
 ENV NODE_ENV=production
+ARG GRPC_HEALTH_PROBE_VERSION=v0.4.24
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && \
+  ARCH=$(dpkg --print-architecture) && \
+  case "$ARCH" in amd64) BINARY_ARCH=amd64 ;; arm64) BINARY_ARCH=arm64 ;; *) BINARY_ARCH=amd64 ;; esac && \
+  curl -Lf -o /usr/local/bin/grpc-health-probe \
+    "https://github.com/grpc-ecosystem/grpc-health-probe/releases/download/${GRPC_HEALTH_PROBE_VERSION}/grpc_health_probe-linux-${BINARY_ARCH}" && \
+  chmod +x /usr/local/bin/grpc-health-probe && \
+  apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /app/node_modules /app/node_modules
 COPY --from=build /app/services/media-service/node_modules ./node_modules

@@ -17,7 +17,7 @@ export PATH="$SCRIPT_DIR/shims:/opt/homebrew/bin:/usr/local/bin:${PATH:-}"
 
 HOUSING_NS="${HOUSING_NS:-off-campus-housing-tracker}"
 NS="$HOUSING_NS"
-HOST="${HOST:-off-campus-housing.local}"
+HOST="${HOST:-off-campus-housing.test}"
 PORT="${PORT:-30443}"
 
 # Auto-detect current Caddy LoadBalancer IP/hostname when not provided.

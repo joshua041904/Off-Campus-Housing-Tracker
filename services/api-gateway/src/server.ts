@@ -15,6 +15,7 @@ import { verifyJwt, type JwtPayload as TokenPayload } from "@common/utils/auth";
 import {
   createAuthClient,
   promisifyGrpcCall,
+  verifyAuthGrpcUpstreamWithRetry,
 } from "@common/utils/grpc-clients";
 import { createClient } from "redis";
 import type { ServerResponse as NodeServerResponse } from "http";
@@ -32,6 +33,9 @@ const keepAliveAgent = new HttpAgent({
 const AUTH_GRPC_TARGET = process.env.AUTH_GRPC_TARGET || "auth-service.off-campus-housing-tracker.svc.cluster.local:50061";
 const authGrpcClient = createAuthClient(AUTH_GRPC_TARGET);
 
+/** K8s readiness: false until auth gRPC Health/Check succeeds (liveness uses /healthz only). */
+let authUpstreamReady = false;
+
 // HTTP base URLs for housing services (README ports)
 const AUTH_HTTP = process.env.AUTH_HTTP || "http://auth-service.off-campus-housing-tracker.svc.cluster.local:4011";
 const LISTINGS_HTTP = process.env.LISTINGS_HTTP || "http://listings-service.off-campus-housing-tracker.svc.cluster.local:4012";
@@ -39,6 +43,7 @@ const BOOKING_HTTP = process.env.BOOKING_HTTP || "http://booking-service.off-cam
 const MESSAGING_HTTP = process.env.MESSAGING_HTTP || "http://messaging-service.off-campus-housing-tracker.svc.cluster.local:4014";
 const TRUST_HTTP = process.env.TRUST_HTTP || "http://trust-service.off-campus-housing-tracker.svc.cluster.local:4016";
 const ANALYTICS_HTTP = process.env.ANALYTICS_HTTP || "http://analytics-service.off-campus-housing-tracker.svc.cluster.local:4017";
+/** HTTP upstream for /media/* and /api/media/* (reverse proxy). Required: gateway does not map these paths to gRPC MediaService. See ENGINEERING.md § Service Communication Patterns → MEDIA_HTTP. */
 const MEDIA_HTTP = process.env.MEDIA_HTTP || "http://media-service.off-campus-housing-tracker.svc.cluster.local:4018";
 const NOTIFICATION_HTTP =
   process.env.NOTIFICATION_HTTP || "http://notification-service.off-campus-housing-tracker.svc.cluster.local:4015";
@@ -87,17 +92,35 @@ const grpcStatusToHttp: Record<number, number> = {
   [grpc.status.UNAVAILABLE ?? 14]: 503,
 };
 
-function handleGrpcError(res: Response, err: any) {
-  const code = err?.code ?? -1;
+const verboseGrpcErrors =
+  process.env.NODE_ENV !== "production" || process.env.GATEWAY_VERBOSE_GRPC_ERRORS === "1";
+
+function handleGrpcError(res: Response, err: any, routeHint?: string) {
+  const code = typeof err?.code === "number" ? err.code : -1;
   const status = grpcStatusToHttp[code] ?? 500;
   const message = err?.details || err?.message || "grpc error";
-  res.status(status).json({ error: message });
+  const hint = routeHint || "auth";
+  console.error(`[gateway → ${hint}] upstream gRPC error:`, {
+    grpcCode: code,
+    message: err?.message,
+    details: err?.details,
+    metadata: err?.metadata?.getMap?.() ?? undefined,
+  });
+  const body: Record<string, unknown> = { error: message };
+  if (verboseGrpcErrors) {
+    body.detail = err?.message || String(err);
+    if (code >= 0) body.grpcCode = code;
+  }
+  res.status(status).json(body);
 }
 
 const jsonParser = express.json({ limit: "1mb" });
 
 const OPEN_ROUTES = [
   { method: "GET", pattern: /^\/healthz\/?$/ },
+  { method: "GET", pattern: /^\/api\/healthz\/?$/ },
+  { method: "GET", pattern: /^\/readyz\/?$/ },
+  { method: "GET", pattern: /^\/api\/readyz\/?$/ },
   { method: "GET", pattern: /^\/metrics\/?$/ },
   { method: "GET", pattern: /^\/whoami\/?$/ },
   { method: "POST", pattern: /^\/auth\/register\/?$/ },
@@ -180,7 +203,13 @@ app.use(
 app.use(compression() as any);
 
 app.get("/whoami", (_req, res) => res.json({ pod: process.env.HOSTNAME || require("os").hostname() }));
+// Liveness: process is up and HTTP stack works (do not depend on auth).
 app.get(["/healthz", "/api/healthz"], (_req, res) => res.json({ ok: true }));
+// Readiness: auth gRPC+mTLS+Health verified (kube sends traffic only when this is 200).
+app.get(["/readyz", "/api/readyz"], (_req, res) => {
+  if (authUpstreamReady) return res.json({ ok: true, authUpstream: true });
+  return res.status(503).json({ ok: false, authUpstream: false });
+});
 app.get("/metrics", async (_req, res) => {
   res.setHeader("Content-Type", register.contentType);
   res.end(await register.metrics());
@@ -202,7 +231,13 @@ const limiter = rateLimit({
   max: process.env.DISABLE_RATE_LIMIT === "true" ? 999999 : 300,
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => req.path === "/healthz" || req.path === "/api/healthz" || req.path === "/metrics" || req.get("x-loadtest") === "1",
+  skip: (req) =>
+    req.path === "/healthz" ||
+    req.path === "/api/healthz" ||
+    req.path === "/readyz" ||
+    req.path === "/api/readyz" ||
+    req.path === "/metrics" ||
+    req.get("x-loadtest") === "1",
 });
 app.use(limiter);
 
@@ -226,7 +261,7 @@ app.post("/auth/register", jsonParser, async (req: Request, res: Response) => {
     const response = await promisifyGrpcCall<any>(authGrpcClient, "Register", { email, password }, 30000);
     res.status(201).json({ token: response?.token ?? "", user: response?.user ?? null });
   } catch (err: any) {
-    handleGrpcError(res, err);
+    handleGrpcError(res, err, "register");
   }
 });
 app.post("/api/auth/register", jsonParser, async (req: Request, res: Response) => {
@@ -236,24 +271,10 @@ app.post("/api/auth/register", jsonParser, async (req: Request, res: Response) =
     const response = await promisifyGrpcCall<any>(authGrpcClient, "Register", { email, password }, 30000);
     res.status(201).json({ token: response?.token ?? "", user: response?.user ?? null });
   } catch (err: any) {
-    handleGrpcError(res, err);
+    handleGrpcError(res, err, "register");
   }
 });
 
-app.post("/auth/login", jsonParser, async (req: Request, res: Response) => {
-  const { email, password, mfaCode } = (req.body ?? {}) as { email?: string; password?: string; mfaCode?: string };
-  if (!email || !password) return res.status(400).json({ error: "email/password required" });
-  try {
-    const response = await promisifyGrpcCall<any>(authGrpcClient, "Authenticate", { email, password, mfa_code: mfaCode }, 30000);
-    const requiresMFA = response?.requires_mfa === true || (!response?.token && (response?.user_id || response?.user?.id));
-    if (requiresMFA) {
-      return res.status(200).json({ requiresMFA: true, userId: response?.user_id ?? response?.user?.id ?? null, message: response?.message ?? "MFA code required" });
-    }
-    res.json({ token: response?.token ?? "", refreshToken: response?.refresh_token ?? "", user: response?.user ?? null });
-  } catch (err: any) {
-    handleGrpcError(res, err);
-  }
-});
 const loginHandler = async (req: Request, res: Response) => {
   const { email, password, mfaCode } = (req.body ?? {}) as { email?: string; password?: string; mfaCode?: string };
   if (!email || !password) return res.status(400).json({ error: "email/password required" });
@@ -263,7 +284,7 @@ const loginHandler = async (req: Request, res: Response) => {
     if (requiresMFA) return res.status(200).json({ requiresMFA: true, userId: response?.user_id ?? response?.user?.id ?? null, message: response?.message ?? "MFA code required" });
     res.json({ token: response?.token ?? "", refreshToken: response?.refresh_token ?? "", user: response?.user ?? null });
   } catch (err: any) {
-    handleGrpcError(res, err);
+    handleGrpcError(res, err, "login");
   }
 };
 app.post("/auth/login", jsonParser, loginHandler);
@@ -277,7 +298,7 @@ const validateTokenHandler = async (req: Request, res: Response) => {
     if (response?.valid) return res.status(200).json({ valid: true, user: response.user });
     return res.status(401).json({ error: "invalid token", valid: false });
   } catch (err: any) {
-    handleGrpcError(res, err);
+    handleGrpcError(res, err, "validate");
   }
 };
 const refreshTokenHandler = async (req: Request, res: Response) => {
@@ -288,7 +309,7 @@ const refreshTokenHandler = async (req: Request, res: Response) => {
     if (response?.token) return res.status(200).json({ token: response.token });
     return res.status(401).json({ error: "invalid token" });
   } catch (err: any) {
-    handleGrpcError(res, err);
+    handleGrpcError(res, err, "refresh");
   }
 };
 app.post("/auth/validate", jsonParser, validateTokenHandler);
@@ -319,11 +340,11 @@ app.use(async (req: AuthedRequest, res: Response, next: NextFunction) => {
 });
 
 // ----- Protected HTTP proxies (housing services) -----
-const proxyOpts = (target: string, pathRewrite: Record<string, string>) => ({
+const proxyOpts = (target: string, pathRewrite: Record<string, string>, proxyTimeoutMs = 15000) => ({
   target,
   changeOrigin: true,
   pathRewrite,
-  proxyTimeout: 15000,
+  proxyTimeout: proxyTimeoutMs,
   agent: keepAliveAgent,
   on: {
     error(err: any, _req: Request, res: Response) {
@@ -364,8 +385,9 @@ app.use("/api/trust", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpt
 app.use("/analytics", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(ANALYTICS_HTTP, { "^/analytics": "" }) as any));
 app.use("/api/analytics", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(ANALYTICS_HTTP, { "^/api/analytics": "" }) as any));
 
-app.use("/media", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(MEDIA_HTTP, { "^/media": "" }) as any));
-app.use("/api/media", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(MEDIA_HTTP, { "^/api/media": "" }) as any));
+// Media can be slow (S3/DB); avoid 504 on healthz through edge
+app.use("/media", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(MEDIA_HTTP, { "^/media": "" }, 45000) as any));
+app.use("/api/media", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(MEDIA_HTTP, { "^/api/media": "" }, 45000) as any));
 
 app.use("/notification", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(NOTIFICATION_HTTP, { "^/notification": "" }) as any));
 app.use("/api/notification", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(NOTIFICATION_HTTP, { "^/api/notification": "" }) as any));
@@ -377,5 +399,55 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   if (!res.headersSent) res.status(500).json({ error: "internal" });
 });
 
-// Housing port 4020 per README
-app.listen(process.env.GATEWAY_PORT || "4020", () => console.log("gateway up"));
+// Housing port 4020 per README — listen immediately; verify auth in background and gate readiness on /readyz (K8s-native).
+const gatewayPort = Number(process.env.GATEWAY_PORT || "4020");
+
+async function ensureAuthUpstreamBackground(): Promise<void> {
+  if (
+    process.env.GATEWAY_SKIP_AUTH_UPSTREAM_VERIFY === "1" ||
+    process.env.GATEWAY_SKIP_AUTH_UPSTREAM_VERIFY === "true"
+  ) {
+    console.warn("[gateway] GATEWAY_SKIP_AUTH_UPSTREAM_VERIFY=1 — /readyz true without auth verify (not recommended)");
+    authUpstreamReady = true;
+    return;
+  }
+
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  let pauseMs = Number(process.env.GATEWAY_AUTH_VERIFY_RETRY_INITIAL_MS || "2000");
+  const pauseMax = Number(process.env.GATEWAY_AUTH_VERIFY_RETRY_MAX_MS || "30000");
+
+  for (;;) {
+    try {
+      await verifyAuthGrpcUpstreamWithRetry(AUTH_GRPC_TARGET);
+      authUpstreamReady = true;
+      console.log("[gateway] auth-service gRPC upstream verified — /readyz OK");
+      return;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn("[gateway] auth upstream not ready yet (retrying):", msg);
+      await sleep(pauseMs);
+      pauseMs = Math.min(Math.floor(pauseMs * 1.5), pauseMax);
+    }
+  }
+}
+
+async function startGateway() {
+  console.log(`[gateway] AUTH_GRPC_TARGET=${AUTH_GRPC_TARGET}`);
+  await new Promise<void>((resolve, reject) => {
+    const srv = app.listen(gatewayPort, () => {
+      console.log(
+        `[gateway] listening on :${gatewayPort} (liveness /healthz; readiness /readyz until auth upstream OK)`
+      );
+      resolve();
+    });
+    srv.on("error", reject);
+  });
+  void ensureAuthUpstreamBackground().catch((e) => {
+    console.error("[gateway] auth upstream verifier crashed:", e);
+  });
+}
+
+void startGateway().catch((e) => {
+  console.error("[gateway] bootstrap failed:", e);
+  process.exit(1);
+});

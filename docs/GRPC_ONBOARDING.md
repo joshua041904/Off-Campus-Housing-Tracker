@@ -118,7 +118,7 @@ Use this before marking a task complete or before requesting merge:
 
 ## Edge routing (Caddy → Envoy)
 
-- gRPC to **`off-campus-housing.local:443`** is routed by **path prefix** (e.g. `/auth.`, `/listings.`, **`/booking.`** → `booking.BookingService/...`) in **`infra/k8s/base/envoy-test/envoy.yaml`** and **`infra/k8s/ingress-nginx-envoy.yaml`**.
+- gRPC to **`off-campus-housing.test:443`** is routed by **path prefix** (e.g. `/auth.`, `/listings.`, **`/booking.`** → `booking.BookingService/...`) in **`infra/k8s/base/envoy-test/envoy.yaml`** and **`infra/k8s/ingress-nginx-envoy.yaml`**.
 - After changing Envoy ConfigMaps, **roll the Envoy pod(s)** so listeners pick up the new clusters/routes.
 - **Smoke:** `scripts/test-booking-http2-http3.sh` calls **grpcurl** to **`${METALLB_IP}:443`** with edge CA + **service client cert** (mTLS) and `booking.BookingService/GetBooking` (dummy id → **NotFound** is OK).
 

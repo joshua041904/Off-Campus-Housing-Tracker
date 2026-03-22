@@ -1,11 +1,20 @@
-import { Pool, PoolClient } from 'pg'
+import pg from 'pg'
+
+const { Pool } = pg
+
+/** Media DB is 5448 in docker-compose / external Postgres. In K8s use POSTGRES_URL_MEDIA or DATABASE_HOST + MEDIA_DB_PORT (see app-config). */
+const mediaPort = process.env.MEDIA_DB_PORT || process.env.PG_PORT || '5448'
+const mediaDb = process.env.MEDIA_DB_NAME || process.env.PG_DATABASE || 'media'
+const conn =
+  process.env.POSTGRES_URL_MEDIA ||
+  (process.env.DATABASE_HOST
+    ? `postgresql://${process.env.PG_USER || 'postgres'}:${process.env.PG_PASSWORD || 'postgres'}@${process.env.DATABASE_HOST}:${mediaPort}/${mediaDb}?connect_timeout=10`
+    : `postgresql://postgres:postgres@127.0.0.1:${mediaPort}/${mediaDb}?connect_timeout=10`)
 
 export const pool = new Pool({
-  host: process.env.PG_HOST || '127.0.0.1',
-  port: parseInt(process.env.PG_PORT || '5448', 10),
-  database: process.env.PG_DATABASE || 'media',
-  user: process.env.PG_USER || 'postgres',
-  password: process.env.PG_PASSWORD || 'postgres',
+  connectionString: conn,
+  max: 10,
+  connectionTimeoutMillis: 10_000,
 })
 
 export interface MediaRow {
@@ -35,7 +44,7 @@ export async function insertPending(
   )
 }
 
-export async function setUploaded(id: string, client?: PoolClient): Promise<void> {
+export async function setUploaded(id: string, client?: pg.PoolClient): Promise<void> {
   const q = client || pool
   await q.query(
     `UPDATE media.media_files SET status = 'uploaded', updated_at = now() WHERE id = $1`,

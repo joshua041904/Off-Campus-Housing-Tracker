@@ -1,7 +1,11 @@
 import http from "k6/http";
 import { check, sleep } from "k6";
+import { mergeEdgeTls, strictEdgeTlsOptions } from "./k6-strict-edge-tls.js";
+
+const rawBase = (__ENV.BASE_URL || "https://off-campus-housing.test").replace(/\/$/, "");
 
 export const options = {
+  ...strictEdgeTlsOptions(rawBase),
   vus: Number(__ENV.VUS || 5),
   duration: __ENV.DURATION || "20s",
   thresholds: {
@@ -10,8 +14,8 @@ export const options = {
   },
 };
 
-const base = __ENV.BASE_URL || "https://off-campus-housing.local";
-const host = __ENV.HOST || "off-campus-housing.local";
+const base = rawBase;
+const host = __ENV.HOST || "off-campus-housing.test";
 const resolveIp = __ENV.RESOLVE_IP || "";
 
 function withHostParams() {
@@ -24,9 +28,9 @@ function withHostParams() {
 export function setup() {
   const email = `k6-booking-${Date.now()}@example.com`;
   const password = "TestPass123!";
-  const params = {
+  const params = mergeEdgeTls(rawBase, {
     headers: { "Content-Type": "application/json", ...(resolveIp ? { Host: host } : {}) },
-  };
+  });
   const registerRes = http.post(
     `${base}/api/auth/register`,
     JSON.stringify({ email, password }),
@@ -52,11 +56,11 @@ export default function (data) {
       maxPriceCents: 200000,
       maxDistanceKm: 8,
     }),
-    { headers }
+    mergeEdgeTls(rawBase, { headers }),
   );
   check(searchRes, { "search-history created": (r) => r.status === 201 });
 
-  const listRes = http.get(`${base}/api/booking/search-history/list?limit=5`, { headers });
+  const listRes = http.get(`${base}/api/booking/search-history/list?limit=5`, mergeEdgeTls(rawBase, { headers }));
   check(listRes, { "search-history list ok": (r) => r.status === 200 });
 
   const addRes = http.post(
@@ -65,7 +69,7 @@ export default function (data) {
       listingId: "11111111-1111-1111-1111-111111111111",
       source: "k6",
     }),
-    { headers }
+    mergeEdgeTls(rawBase, { headers }),
   );
   check(addRes, { "watchlist add ok": (r) => r.status === 201 || r.status === 200 });
 
@@ -74,7 +78,7 @@ export default function (data) {
     JSON.stringify({
       listingId: "11111111-1111-1111-1111-111111111111",
     }),
-    { headers }
+    mergeEdgeTls(rawBase, { headers }),
   );
   check(removeRes, { "watchlist remove ok": (r) => r.status === 200 });
 

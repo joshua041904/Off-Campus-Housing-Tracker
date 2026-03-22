@@ -18,7 +18,7 @@ warn() { echo "⚠️  $*"; }
 info() { echo "ℹ️  $*"; }
 
 NS="off-campus-housing-tracker"
-HOST="${HOST:-off-campus-housing.local}"
+HOST="${HOST:-off-campus-housing.test}"
 export PORT="${PORT:-30443}"
 export HOST
 # When run from run-all: TARGET_IP + PORT=443 (MetalLB). Use for --resolve so traffic hits Caddy.
@@ -67,6 +67,11 @@ strict_http3_curl() {
 # HTTP3_RESOLVE: same IP as curl MetalLB/--resolve (CURL_RESOLVE_IP), not ClusterIP — matches strict capture + grpc-http3-health
 HTTP3_RESOLVE="${HOST}:${PORT:-443}:${CURL_RESOLVE_IP}"
 GRPC_CERTS_DIR="${GRPC_CERTS_DIR:-/tmp/grpc-certs}"
+if [[ -f "$SCRIPT_DIR/lib/ensure-och-grpc-certs.sh" ]]; then
+  # shellcheck source=scripts/lib/ensure-och-grpc-certs.sh
+  source "$SCRIPT_DIR/lib/ensure-och-grpc-certs.sh"
+  och_sync_grpc_certs_to_dir "$GRPC_CERTS_DIR" "$NS" 2>/dev/null || true
+fi
 export HTTP3_RESOLVE CA_CERT NS HOST PORT SCRIPT_DIR GRPC_CERTS_DIR
 
 # Ensure API server (skip if SKIP_API_CHECK=1)
@@ -173,9 +178,9 @@ done
 
 ok "Generating gRPC traffic (grpcurl)…"
 if command -v grpcurl >/dev/null 2>&1; then
+  REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
   # Primary: gRPC via Caddy (TARGET_IP:443) — the real production path; generates traffic Caddy→Envoy
   if [[ -n "${TARGET_IP:-}" ]] && [[ "${PORT:-}" == "443" ]] && [[ -n "${CA_CERT:-}" ]] && [[ -f "${CA_CERT:-}" ]]; then
-    REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
     PROTO_DIR="${PROTO_DIR:-$REPO_ROOT/proto}"
     for _ in 1 2 3 4 5; do
       # Dial LB IP but TLS SNI + cert verify name = HOST (grpcurl: -authority; -servername same value is allowed)
@@ -192,11 +197,18 @@ if command -v grpcurl >/dev/null 2>&1; then
       fi
     done
   fi
-  # Fallback: direct to NodePort (127.0.0.1:30000) — works on k3d when NodePort exposed
-  for grpc_addr in "127.0.0.1:30000" "127.0.0.1:30001" "127.0.0.1:50051"; do
-    grpcurl -plaintext -max-time 3 "$grpc_addr" list 2>/dev/null || true
-    grpcurl -plaintext -max-time 3 "$grpc_addr" records.RecordsService/Health 2>/dev/null || true
-  done
+  # NodePort: strict TLS only (no -plaintext). Requires CA_CERT (repo certs/dev-root.pem or dev-root-ca secret).
+  if [[ -n "${CA_CERT:-}" ]] && [[ -f "${CA_CERT:-}" ]]; then
+    PROTO_DIR="${PROTO_DIR:-$REPO_ROOT/proto}"
+    if [[ -d "$PROTO_DIR" ]] && [[ -f "$PROTO_DIR/health.proto" ]]; then
+      for grpc_addr in "127.0.0.1:30000" "127.0.0.1:30001"; do
+        grpcurl -cacert "$CA_CERT" -authority "$HOST" -servername "$HOST" -import-path "$PROTO_DIR" -proto "$PROTO_DIR/health.proto" \
+          -max-time 3 -d '{"service":""}' "$grpc_addr" grpc.health.v1.Health/Check 2>/dev/null || true
+      done
+    fi
+  else
+    warn "Skipping NodePort gRPC probes (no CA_CERT — add certs/dev-root.pem or cluster dev-root-ca)"
+  fi
 else
   warn "grpcurl not found; skipping gRPC traffic"
 fi

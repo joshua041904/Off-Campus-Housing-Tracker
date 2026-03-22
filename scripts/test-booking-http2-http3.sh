@@ -8,7 +8,7 @@ export PATH="$SCRIPT_DIR/shims:/opt/homebrew/bin:/usr/local/bin:${PATH:-}"
 [[ -f "$SCRIPT_DIR/lib/kubectl-helper.sh" ]] && . "$SCRIPT_DIR/lib/kubectl-helper.sh"
 _kubectl() { kctl "$@" 2>/dev/null || kubectl --request-timeout=15s "$@"; }
 
-HOST="${HOST:-off-campus-housing.local}"
+HOST="${HOST:-off-campus-housing.test}"
 BOOKING_K8S_NS="${BOOKING_K8S_NS:-off-campus-housing-tracker}"
 LB_IP="${TARGET_IP:-$(_kubectl -n ingress-nginx get svc caddy-h3 -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")}"
 [[ -z "$LB_IP" ]] && { echo "❌ No MetalLB IP found for caddy-h3"; exit 1; }
@@ -98,36 +98,70 @@ CONFIRM_CODE="$("$HCURL" --http2 --cacert "$CA_CERT" "${RESOLVE[@]}" -sS -o /tmp
 [[ "$CONFIRM_CODE" == "200" ]] || fail "booking confirm over HTTP/2 failed (code=${CONFIRM_CODE})"
 ok "Booking confirm over HTTP/2 OK"
 
+BOOKING_GRPC_SNI="${BOOKING_GRPC_SNI:-booking-service.off-campus-housing-tracker.svc.cluster.local}"
 if _kubectl -n "$BOOKING_K8S_NS" exec deploy/booking-service -- /usr/local/bin/grpc-health-probe \
   -addr=127.0.0.1:50063 -service=booking.BookingService -tls \
   -tls-ca-cert=/etc/certs/ca.crt -tls-client-cert=/etc/certs/tls.crt -tls-client-key=/etc/certs/tls.key \
-  -tls-server-name="$HOST" -connect-timeout=10s -rpc-timeout=5s >/tmp/booking-grpc-health.out 2>/tmp/booking-grpc-health.err; then
+  -tls-server-name="$BOOKING_GRPC_SNI" -connect-timeout=15s -rpc-timeout=10s >/tmp/booking-grpc-health.out 2>/tmp/booking-grpc-health.err; then
   ok "gRPC TLS/mTLS health (grpc-health-probe in booking pod, :50063) OK"
 else
   warn "gRPC TLS/mTLS health probe in booking pod failed (see /tmp/booking-grpc-health.err)"
 fi
 
-# Edge: Caddy → Envoy → booking (proves /booking.BookingService/* routing, not only in-pod probe)
+# Edge: Caddy → Envoy → booking (proves /booking.BookingService/* routing, not only in-pod probe).
+# After CA/service-tls rotation, Envoy may need a moment to re-handshake; refresh certs and retry.
 BOOKING_PROTO="$REPO_ROOT/proto/booking.proto"
+if command -v grpcurl >/dev/null 2>&1 && [[ -f "$BOOKING_PROTO" ]]; then
+  for _sec in och-service-tls service-tls; do
+    _b64_crt="$(_kubectl -n "$BOOKING_K8S_NS" get secret "$_sec" -o jsonpath='{.data.tls\.crt}' 2>/dev/null)"
+    _b64_key="$(_kubectl -n "$BOOKING_K8S_NS" get secret "$_sec" -o jsonpath='{.data.tls\.key}' 2>/dev/null)"
+    if [[ -n "$_b64_crt" ]] && [[ -n "$_b64_key" ]]; then
+      printf '%s' "$_b64_crt" | base64 -d > "$GRPC_CERTS_DIR/tls.crt"
+      printf '%s' "$_b64_key" | base64 -d > "$GRPC_CERTS_DIR/tls.key"
+      break
+    fi
+  done
+fi
 if command -v grpcurl >/dev/null 2>&1 && [[ -f "$BOOKING_PROTO" ]] && [[ -f "$GRPC_CERTS_DIR/tls.crt" ]] && [[ -f "$GRPC_CERTS_DIR/tls.key" ]]; then
-  set +e
-  _edge_out="$(grpcurl -cacert "$CA_CERT" -cert "$GRPC_CERTS_DIR/tls.crt" -key "$GRPC_CERTS_DIR/tls.key" \
-    -authority "$HOST" -servername "$HOST" \
-    -import-path "$REPO_ROOT/proto" -proto "$BOOKING_PROTO" -max-time 15 \
-    -d '{"booking_id":"00000000-0000-0000-0000-000000000001"}' \
-    "${LB_IP}:443" booking.BookingService/GetBooking 2>&1)"
-  _edge_rc=$?
-  set -e
-  if echo "$_edge_out" | grep -qiE 'NotFound|NOT_FOUND|Code: 5|no rows|not found'; then
-    ok "gRPC edge (grpcurl → :443) reached booking service (NotFound for dummy id is OK)"
-  elif echo "$_edge_out" | grep -qiE 'SERVING|booking_id|listing_id'; then
-    ok "gRPC edge (grpcurl → :443) booking GetBooking response OK"
-  elif [[ "$_edge_rc" == "0" ]] && [[ -n "$_edge_out" ]]; then
-    ok "gRPC edge (grpcurl → :443) completed (rc=0)"
-  else
+  _edge_ok=0
+  _edge_restarted=0
+  for _attempt in 1 2 3 4; do
+    set +e
+    _edge_out="$(grpcurl -cacert "$CA_CERT" -cert "$GRPC_CERTS_DIR/tls.crt" -key "$GRPC_CERTS_DIR/tls.key" \
+      -authority "$HOST" -servername "$HOST" \
+      -import-path "$REPO_ROOT/proto" -proto "$BOOKING_PROTO" -max-time 20 \
+      -d '{"booking_id":"00000000-0000-0000-0000-000000000001"}' \
+      "${LB_IP}:443" booking.BookingService/GetBooking 2>&1)"
+    _edge_rc=$?
+    set -e
+    if echo "$_edge_out" | grep -qiE 'NotFound|NOT_FOUND|Code: 5|no rows|not found'; then
+      ok "gRPC edge (grpcurl → :443) reached booking service (NotFound for dummy id is OK)"
+      _edge_ok=1
+      break
+    fi
+    if echo "$_edge_out" | grep -qiE 'SERVING|booking_id|listing_id'; then
+      ok "gRPC edge (grpcurl → :443) booking GetBooking response OK"
+      _edge_ok=1
+      break
+    fi
+    if [[ "$_edge_rc" == "0" ]] && [[ -n "$_edge_out" ]]; then
+      ok "gRPC edge (grpcurl → :443) completed (rc=0)"
+      _edge_ok=1
+      break
+    fi
+    if [[ "$_edge_restarted" -eq 0 ]] && echo "$_edge_out" | grep -qiE 'CERTIFICATE_VERIFY_FAILED|TLS_error|Unavailable'; then
+      _kubectl -n "$BOOKING_K8S_NS" rollout restart deployment/booking-service >/dev/null 2>&1 || true
+      _kubectl -n envoy-test rollout restart deployment/envoy-test >/dev/null 2>&1 || true
+      _edge_restarted=1
+      sleep 20
+    else
+      sleep 8
+    fi
+  done
+  if [[ "$_edge_ok" != "1" ]]; then
     warn "gRPC edge grpcurl did not show expected booking response (rc=${_edge_rc}); tail: $(echo "$_edge_out" | tail -n 3)"
   fi
-  unset _edge_out _edge_rc
+  unset _edge_out _edge_rc _edge_ok
 else
   warn "Skipping edge grpcurl (need grpcurl, $BOOKING_PROTO, and extracted service TLS in $GRPC_CERTS_DIR)"
 fi

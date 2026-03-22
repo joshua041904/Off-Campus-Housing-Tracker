@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Readiness: verify gRPC still routes correctly (Caddy Content-Type matcher → Envoy).
-# Uses grpcurl to Caddy :443 with authority off-campus-housing.local; expects grpc.health.v1.Health/Check SERVING.
+# Uses grpcurl to Caddy :443 with authority off-campus-housing.test; expects grpc.health.v1.Health/Check SERVING.
 # Run after Caddy rollout to ensure no accidental downgrade or routing break.
 # Requires: grpcurl, cluster with Caddy + Envoy, certs/dev-root.pem or dev-root-ca secret in cluster.
 set -euo pipefail
@@ -9,7 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
-HOST="${HOST:-off-campus-housing.local}"
+HOST="${HOST:-off-campus-housing.test}"
 PORT="${PORT:-443}"
 CA_CERT="${CA_CERT:-$REPO_ROOT/certs/dev-root.pem}"
 
@@ -52,8 +52,20 @@ if [[ ! -f "${CA_CERT}" ]] || [[ ! -s "${CA_CERT}" ]]; then
   fi
 fi
 
+# Client cert for mTLS (same as pods; avoids grpcurl reading empty/nonexistent certs/tls.crt)
+GRPC_SYNC_DIR="${GRPC_CERTS_DIR:-/tmp/grpc-certs}"
+MTLS_EXTRA=()
+if [[ -f "$SCRIPT_DIR/lib/ensure-och-grpc-certs.sh" ]]; then
+  # shellcheck source=scripts/lib/ensure-och-grpc-certs.sh
+  source "$SCRIPT_DIR/lib/ensure-och-grpc-certs.sh"
+  och_sync_grpc_certs_to_dir "$GRPC_SYNC_DIR" off-campus-housing-tracker || true
+fi
+if [[ -f "$GRPC_SYNC_DIR/tls.crt" ]] && [[ -f "$GRPC_SYNC_DIR/tls.key" ]] && [[ -s "$GRPC_SYNC_DIR/tls.crt" ]]; then
+  MTLS_EXTRA=(-cert "$GRPC_SYNC_DIR/tls.crt" -key "$GRPC_SYNC_DIR/tls.key")
+fi
+
 # gRPC health via Caddy (Content-Type: application/grpc → Envoy)
-OUT=$(grpcurl -cacert "$CA_CERT" -authority "$HOST" -servername "$HOST" -max-time 10 -d '{}' "${TARGET_IP}:${PORT}" grpc.health.v1.Health/Check 2>&1) || true
+OUT=$(grpcurl -cacert "$CA_CERT" "${MTLS_EXTRA[@]}" -authority "$HOST" -servername "$HOST" -max-time 10 -d '{}' "${TARGET_IP}:${PORT}" grpc.health.v1.Health/Check 2>&1) || true
 if echo "$OUT" | grep -qE '"status":"SERVING"|SERVING'; then
   ok "gRPC routing OK (Caddy → Envoy; Content-Type matcher)"
   exit 0

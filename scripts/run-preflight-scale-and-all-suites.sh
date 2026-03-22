@@ -21,7 +21,14 @@ fi
 #
 # Single source of truth for CA: certs/dev-root.pem at repo root.
 #   - Reissue (3a) writes certs/dev-root.pem; ensure-strict-tls-mtls-preflight (5) syncs it from cluster.
-#   - k6 and run-all-test-suites.sh use certs/dev-root.pem (SSL_CERT_FILE) for strict TLS.
+#   - Linux / Docker k6: SSL_CERT_FILE=certs/dev-root.pem is honored for TLS verify.
+#
+# macOS + host k6 (Homebrew k6): Go uses Security.framework — SSL_CERT_FILE does NOT fix x509 for
+#   https://off-campus-housing.test. Step 7a runs ./scripts/lib/trust-dev-root-ca-macos.sh automatically
+#   before k6 (adds dev-root to login keychain; re-run after CA rotation). Overrides:
+#   SKIP_MACOS_DEV_CA_TRUST=1 — you already trusted the CA manually.
+#   K6_USE_DOCKER_K6=1 — use grafana/k6 in Docker (Linux; SSL_CERT_FILE works); see run-housing-k6-edge-smoke.sh.
+#   PREFLIGHT_STRICT_MACOS_K6_TRUST=0 — if keychain step fails, continue anyway (k6 may still x509).
 #
 # Ensures:
 #   - API server ready (mandatory); re-checked after reissue
@@ -64,7 +71,7 @@ fi
 #   APPLY_RATE_LIMIT_SLEEP=2 — seconds between kubectl apply batches (reduces API burst).
 #
 # Packet capture (step 7 suites): CAPTURE_STOP_TIMEOUT=30 and CAPTURE_MAX_STOP_SECONDS=75 are exported so baseline/enhanced capture stop phase never blocks (quick first-packet only when timeout set; full copy capped at 75s).
-#   In-pod Caddy: CAPTURE_STRICT_ENDPOINT_BPF=1 (default) → BPF (tcp|udp) dst podIP:443; post-verify stray UDP/443 (dst != pod) must be 0. CAPTURE_EXPECTED_SNI=off-campus-housing.local (OCH edge; not record.local). STRICT_QUIC_VALIDATION=1 / CAPTURE_ENFORCE_QUIC_SNI=1 tighten failures. Host/VM pcaps: dst MetalLB TARGET_IP.
+#   In-pod Caddy: CAPTURE_STRICT_ENDPOINT_BPF=1 (default) → BPF (tcp|udp) dst podIP:443; post-verify stray UDP/443 (dst != pod) must be 0. CAPTURE_EXPECTED_SNI=off-campus-housing.test (OCH edge; not record.local). STRICT_QUIC_VALIDATION=1 / CAPTURE_ENFORCE_QUIC_SNI=1 tighten failures. Host/VM pcaps: dst MetalLB TARGET_IP.
 #
 # Example (k3d + MetalLB, suites only): METALLB_ENABLED=1 REQUIRE_COLIMA=0 RUN_PGBENCH=0 ./scripts/run-preflight-scale-and-all-suites.sh
 # Example (Colima + MetalLB, full preflight + k6 + all suites, no pgbench): METALLB_ENABLED=1 RUN_PGBENCH=0 ./scripts/run-preflight-scale-and-all-suites.sh
@@ -86,16 +93,19 @@ fi
 #   3     Ensure API server ready (ensure-api-server-ready.sh; k3d ENSURE_CAP=180, Colima 480). Phase 0/1A/1B/D gates.
 #   3a0   Auto housing secrets: ensure-housing-cluster-secrets.sh (service-tls/dev-root-ca, och-service-tls alias,
 #         och-kafka-ssl-secret). On by default; PREFLIGHT_AUTO_ENSURE_CLUSTER_SECRETS=0 or SKIP_AUTO_CLUSTER_SECRETS=1 to skip.
-#   3a    Reissue CA + leaf (secrets), Kafka SSL, remove in-cluster DB/Kafka. Phase 1B write lock.
+#   3a    Reissue CA + leaf (secrets) — **default off** when cluster has service-tls + dev-root-ca (PREFLIGHT_REISSUE_CA=0).
+#         Set PREFLIGHT_REISSUE_CA=1 to rotate CA every run (chaos / recovery). Bootstrap: missing secrets still runs reissue.
+#         Kafka SSL (3b), Phase 1B write lock.
 #   3b    3b1–3b4: Re-ensure API, Caddy strict TLS verify, scale to baseline, pod/DB/Redis/TLS checks. 3b4: no SQL applied (run ensure-* or setup-* manually).
-#   3c    Colima+MetalLB: 3c1-early installs MetalLB before 3a (reissue) so webhook is ready while API is calm. 3c0: k3d node restart (optional). 3c0b: API stabilize. 3c1: MetalLB install (skipped on Colima if 3c1-early succeeded). 3c1a: FRR BGP. 3c2: Caddy deploy + service. 3c1b: MetalLB verify (VERIFY_MODE=stable). 3c1c: optional Colima-only L2/BGP (METALLB_VERIFY_COLIMA_L2=1). Colima pool default: METALLB_POOL=192.168.64.240-192.168.64.250 so host can reach LB IP.
+#   3c    Colima+MetalLB: 3c1-early installs MetalLB before 3a (reissue) so webhook is ready while API is calm. 3c0-housing: kubectl apply -k each infra/k8s/base/<app> in PREFLIGHT_APP_DEPLOYS so Deployments exist before scale (fixes missing notification-service). 3c0: k3d node restart (optional). 3c0b: API stabilize. 3c1: MetalLB install (skipped on Colima if 3c1-early succeeded). 3c1a: FRR BGP. 3c2: Caddy deploy + service. 3c1b: MetalLB verify (VERIFY_MODE=stable). 3c1c: optional Colima-only L2/BGP (METALLB_VERIFY_COLIMA_L2=1). Colima pool default: METALLB_POOL=192.168.64.240-192.168.64.250 so host can reach LB IP.
 #   4     Scale to baseline (1 replica per app, 2 Caddy, exporters 1, Envoy 1).
 #   5     Strict TLS/mTLS preflight (ensure-strict-tls-mtls-preflight.sh). Verify Caddy strict TLS (no curl 60).
-#   6     6a1–6a2: Force deployments, ensure Kafka. 6b: wait-for-all-services-ready. 6d: build xk6-http3 if RUN_K6=1. 6e: ensure-tcpdump-in-capture-pods (before suites).
+#   6     6a1–6a2: Force deployments, ensure Kafka. 6b: wait-for-all-services-ready (PREFLIGHT_READY_MAX_WAIT default 900s, INITIAL_WAIT 90s).
+#         6d: build xk6-http3 if RUN_K6=1. 6e: ensure-tcpdump-in-capture-pods (before suites).
 #   7     7a (Colima): ROTATION_USE_BBR=1 switches TCP congestion to BBR before suites. Run all test suites via run-all-test-suites.sh (auth, baseline, enhanced, adversarial, rotation, k6, standalone, tls-mtls, social). ROTATION_UDP_STATS=1 (Colima default) captures UDP stats pre/post k6. All 8 suites run to completion even if one fails; step 8 runs when RUN_PGBENCH=1. Step 5b inside run-all = k6 phases (HTTP/2 + xk6 HTTP/3 when K6_HTTP3=1). HTTP/3 on k3d: see docs/HTTP3-CURL-EXIT-CODES.md if baseline/enhanced hit exit 7/28/55.
 #   7b    Transport-layer study experiments (UDP drops, QUIC cwnd, BBR, NodePort, Caddy native, in-cluster k6). TRANSPORT_STUDY=1.
 #   7c    In-cluster k6 (Pod → Caddy ClusterIP; no host/VM). RUN_K6=1 and RUN_K6_IN_CLUSTER=1 (default). K6_IN_CLUSTER_DURATION=30s. Set RUN_K6_IN_CLUSTER=0 to skip.
-#   8     All 7 housing pgbench sweeps (ports 5441–5447, cold then warm), EXPLAIN, observation-deck summary. RUN_PGBENCH=1.
+#   8     All 7 housing pgbench sweeps (ports 5441–5447; media 5448 optional), EXPLAIN, observation-deck summary. RUN_PGBENCH=1.
 
 set -euo pipefail
 
@@ -103,6 +113,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 export PATH="$SCRIPT_DIR/shims:/opt/homebrew/bin:/usr/local/bin:${PATH:-}"
 cd "$REPO_ROOT"
+
+# Steady-state preflight: skip full CA reissue unless PREFLIGHT_REISSUE_CA=1 or cluster TLS secrets are missing.
+PREFLIGHT_REISSUE_CA="${PREFLIGHT_REISSUE_CA:-0}"
+export PREFLIGHT_REISSUE_CA
 
 [[ -f "$SCRIPT_DIR/lib/kubectl-helper.sh" ]] && . "$SCRIPT_DIR/lib/kubectl-helper.sh"
 _kubectl() { kctl "$@" 2>/dev/null || kubectl --request-timeout=10s "$@"; }
@@ -264,6 +278,17 @@ _apply_file_with_rate_limit() {
     kubectl apply -f "$f" --request-timeout=20s 2>/dev/null || { warn "Apply $name failed"; return 1; }
   fi
   sleep "${APPLY_RATE_LIMIT_SLEEP:-2}"
+}
+
+# Apply each housing microservice under infra/k8s/base/<name> so Deployments exist before scale (e.g. notification-service).
+_apply_housing_app_bases() {
+  local _svc _kd
+  for _svc in $PREFLIGHT_APP_DEPLOYS; do
+    _kd="$REPO_ROOT/infra/k8s/base/$_svc"
+    if [[ -d "$_kd" ]] && [[ -f "$_kd/kustomization.yaml" ]]; then
+      _apply_with_rate_limit "$_kd" "housing-$_svc" && ok "Applied housing base: $_svc" || warn "Apply housing base $_svc failed"
+    fi
+  done
 }
 
 # Phase timing: append to TELEMETRY_DURING so we can see which step took long (gaps between phase_ts = slow step).
@@ -997,7 +1022,7 @@ if ! _phase_a_only; then
     chmod +x "$SCRIPT_DIR/install-metallb-colima.sh" 2>/dev/null || true
     # Pass pool and webhook wait so child script sees them (shell vars are not exported to children).
     _pool="${METALLB_POOL:-192.168.64.240-192.168.64.250}"
-    _webhook_wait="${PREFLIGHT_METALLB_WEBHOOK_WAIT:-48}"
+    _webhook_wait="${PREFLIGHT_METALLB_WEBHOOK_WAIT:-12}"
     if METALLB_POOL="$_pool" PREFLIGHT_METALLB_WEBHOOK_WAIT="$_webhook_wait" "$SCRIPT_DIR/install-metallb-colima.sh" 2>/dev/null; then
       ok "MetalLB installed / pool applied (Colima, pre-wired before reissue)"
       _preflight_metallb_installed_early=1
@@ -1027,30 +1052,53 @@ if ! _phase_a_only; then
     fi
   fi
   _phase_start "3a_reissue"
-  say "3a. Reissue CA + leaf (ensure CA/Caddy match, prevent curl 60; KAFKA_SSL=1 for Kafka strict TLS)..."
-  if [[ -f "$SCRIPT_DIR/reissue-ca-and-leaf-load-all-services.sh" ]]; then
-    export REISSUE_STEP2_VIA_SSH="${REISSUE_STEP2_VIA_SSH:-1}"
-    if REISSUE_SKIP_PREFLIGHT="$REISSUE_USE_6443" REISSUE_CAP="${REISSUE_CAP:-0}" KAFKA_SSL=1 "$SCRIPT_DIR/reissue-ca-and-leaf-load-all-services.sh"; then
-      ok "Reissue done; CA and Caddy certs aligned"
-      ok "CA and leaf both rotated (dev-root-ca, off-campus-housing-local-tls, service-tls); certs/dev-root.pem is single source of truth"
+  _housing_ns="${HOUSING_NS:-off-campus-housing-tracker}"
+  _preflight_3a_bootstrap=0
+  if [[ "${PREFLIGHT_REISSUE_CA:-0}" != "1" ]]; then
+    kubectl get secret service-tls -n "$_housing_ns" -o name --request-timeout=15s &>/dev/null || _preflight_3a_bootstrap=1
+    kubectl get secret dev-root-ca -n "$_housing_ns" -o name --request-timeout=15s &>/dev/null || _preflight_3a_bootstrap=1
+  fi
+  PREFLIGHT_3A_DID_REISSUE=0
+  export PREFLIGHT_3A_DID_REISSUE
+  if [[ "${PREFLIGHT_REISSUE_CA:-0}" == "1" ]] || [[ "$_preflight_3a_bootstrap" -eq 1 ]]; then
+    if [[ "${PREFLIGHT_REISSUE_CA:-0}" == "1" ]]; then
+      say "3a. Reissue CA + leaf (PREFLIGHT_REISSUE_CA=1 — full rotation; KAFKA_SSL=1 for Kafka strict TLS)..."
     else
-      warn "Reissue failed — suites may hit curl 60. Fix cluster/certs and re-run."
-      # Only run connection-reset diagnostic on Colima (6443 tunnel); skip on k3d or run with short timeout to avoid hanging.
-      if [[ "$ctx" == *"colima"* ]] && [[ -f "$SCRIPT_DIR/diagnose-reset-by-peer.sh" ]]; then
-        say "Running connection-reset diagnostic (15s timeout)..."
-        ( DEEP=1 DIAG_GATHER=1 timeout 15 "$SCRIPT_DIR/diagnose-reset-by-peer.sh" 6443 2>/dev/null || true )
-        info "Diagnostic log: scripts/diag-reset-*.log"
+      say "3a. Reissue CA + leaf (bootstrap: service-tls or dev-root-ca missing in $_housing_ns)..."
+    fi
+    if [[ -f "$SCRIPT_DIR/reissue-ca-and-leaf-load-all-services.sh" ]]; then
+      export REISSUE_STEP2_VIA_SSH="${REISSUE_STEP2_VIA_SSH:-1}"
+      if REISSUE_SKIP_PREFLIGHT="$REISSUE_USE_6443" REISSUE_CAP="${REISSUE_CAP:-0}" KAFKA_SSL=1 "$SCRIPT_DIR/reissue-ca-and-leaf-load-all-services.sh"; then
+        ok "Reissue done; CA and Caddy certs aligned"
+        ok "CA and leaf both rotated (dev-root-ca, off-campus-housing-local-tls, service-tls); certs/dev-root.pem is single source of truth"
+        PREFLIGHT_3A_DID_REISSUE=1
+        export PREFLIGHT_3A_DID_REISSUE
+      else
+        warn "Reissue failed — suites may hit curl 60. Fix cluster/certs and re-run."
+        if [[ "$ctx" == *"colima"* ]] && [[ -f "$SCRIPT_DIR/diagnose-reset-by-peer.sh" ]]; then
+          say "Running connection-reset diagnostic (15s timeout)..."
+          ( DEEP=1 DIAG_GATHER=1 timeout 15 "$SCRIPT_DIR/diagnose-reset-by-peer.sh" 6443 2>/dev/null || true )
+          info "Diagnostic log: scripts/diag-reset-*.log"
+        fi
+        exit 1
       fi
+    else
+      echo "❌ reissue script not found"
       exit 1
     fi
   else
-    echo "❌ reissue script not found"
-    exit 1
+    say "3a. Skipping CA reissue (PREFLIGHT_REISSUE_CA=0; service-tls + dev-root-ca already in $_housing_ns)."
+    info "  Force rotation: PREFLIGHT_REISSUE_CA=1 $0  (or run Phase B only for cert work)."
+    ok "3a skipped — steady-state preflight"
   fi
 fi
 # Brief settle after reissue so API is stable before Kafka SSL (reduces 503 / reset on 3b).
 if ! _phase_a_only; then
-  sleep 30
+  if [[ "${PREFLIGHT_3A_DID_REISSUE:-0}" == "1" ]]; then
+    sleep 30
+  else
+    sleep 10
+  fi
 fi
 # 3b. Kafka SSL from dev-root-ca (kafka-ssl-secret for strict TLS). Phase A skips (no cert work).
 if ! _phase_a_only; then
@@ -1098,11 +1146,11 @@ if ! _phase_a_only; then
     warn "Docker or certs/kafka-ssl or docker-compose missing; skip starting Kafka"
   fi
 
-  # 3b3. Ensure all 7 Postgres DBs are up (ports 5441–5447)
+  # 3b3. Ensure all 8 Postgres DBs are up (ports 5441–5448; media on 5448)
   if command -v docker >/dev/null 2>&1 && [[ -f "$REPO_ROOT/docker-compose.yml" ]]; then
-    say "3b3. Ensuring Docker Postgres (all 7 DBs: 5441–5447) are up..."
-    ( cd "$REPO_ROOT" && docker compose up -d postgres-auth postgres-listings postgres-bookings postgres-messaging postgres-notification postgres-trust postgres-analytics 2>/dev/null ) && ok "Docker Postgres (all 7) up" || warn "Docker Postgres start skipped or partial (run manually: docker compose up -d postgres-auth postgres-listings postgres-bookings postgres-messaging postgres-notification postgres-trust postgres-analytics)"
-    for port in 5441 5442 5443 5444 5445 5446 5447; do
+    say "3b3. Ensuring Docker Postgres (all 8 DBs: 5441–5448) are up..."
+    ( cd "$REPO_ROOT" && docker compose up -d postgres-auth postgres-listings postgres-bookings postgres-messaging postgres-notification postgres-trust postgres-analytics postgres-media 2>/dev/null ) && ok "Docker Postgres (all 8) up" || warn "Docker Postgres start skipped or partial (run manually: docker compose up -d postgres-auth postgres-listings postgres-bookings postgres-messaging postgres-notification postgres-trust postgres-analytics postgres-media)"
+    for port in 5441 5442 5443 5444 5445 5446 5447 5448; do
       for _ in 1 2 3 4 5; do
         nc -z 127.0.0.1 "$port" 2>/dev/null && break
         sleep 2
@@ -1112,8 +1160,20 @@ if ! _phase_a_only; then
     warn "Docker or docker-compose missing; skip starting Postgres"
   fi
 
-  # 3b4. DB migrations / SQL files are no longer run by preflight. Apply schemas manually when needed (e.g. scripts/setup-*-db.sh, scripts/ensure-*.sh, or infra/db/*.sql).
-  ok "DB migrations skipped (preflight does not apply SQL; run ensure-* or setup-* scripts manually when schema changes)"
+  # 3b4. Preflight does not run Prisma/SQL migrations by default. After reissue/rotation, if auth register/login 503 with INTERNAL, run auth migrations:
+  #   POSTGRES_URL_AUTH=postgresql://postgres:postgres@host.docker.internal:5441/auth pnpm -C services/auth-service exec prisma migrate deploy
+  # Opt-in: PREFLIGHT_AUTH_PRISMA_MIGRATE=1 runs that migrate deploy (requires pnpm + DB reachable from host).
+  if [[ "${PREFLIGHT_AUTH_PRISMA_MIGRATE:-0}" == "1" ]] && command -v pnpm >/dev/null 2>&1; then
+    say "3b4a. PREFLIGHT_AUTH_PRISMA_MIGRATE=1 — prisma migrate deploy (auth-service)..."
+    _url="${POSTGRES_URL_AUTH:-postgresql://postgres:postgres@127.0.0.1:5441/auth}"
+    if ( cd "$REPO_ROOT" && POSTGRES_URL_AUTH="$_url" pnpm -C services/auth-service exec prisma migrate deploy --skip-generate ); then
+      ok "Auth prisma migrate deploy completed"
+    else
+      warn "Auth prisma migrate deploy failed (check POSTGRES_URL_AUTH and Postgres on 5441)"
+    fi
+  else
+    : # Migrations opt-in only (PREFLIGHT_AUTH_PRISMA_MIGRATE=1); no per-run message — see script header 3b4.
+  fi
   if [[ -x "$SCRIPT_DIR/inspect-external-db-schemas.sh" ]]; then
     say "3b5. Inspecting external DB schemas (ports 5441-5448) and writing markdown report..."
     if "$SCRIPT_DIR/inspect-external-db-schemas.sh" "$REPO_ROOT/bench_logs" 2>/dev/null; then
@@ -1136,10 +1196,13 @@ for k in "$REPO_ROOT/infra/k8s/base/config" "$REPO_ROOT/infra/k8s/base/kafka-ext
     fi
   fi
 done
-# On k3d re-apply hostAliases so pods can reach host Postgres/Redis (5441–5447).
+say "3c0-housing. Applying housing app Deployments/Services from infra/k8s/base/<service> (notification-service, etc.)..."
+_apply_housing_app_bases
+ok "Housing app manifests applied (scale targets exist)"
+# On k3d re-apply hostAliases so pods can reach host Postgres/Redis (5441–5448).
 if [[ "$ctx" == *"k3d"* ]]; then
   _apply_k3d_host_aliases
-  ok "host.docker.internal re-applied after 3c (listings/analytics reach 5441–5447)"
+  ok "host.docker.internal re-applied after 3c (listings/analytics/media reach 5441–5448)"
 fi
 
 # Helper: re-apply registry image on all app deployments (k3d only). Call after 4a recovery, which does apply -k base and can overwrite image to e.g. analytics-service:dev (no registry).
@@ -1218,7 +1281,7 @@ if [[ "$ctx" == *"colima"* ]]; then
   ok "host.docker.internal set for Colima app pods (Mac Postgres/Redis reachable)"
 fi
 
-# 3c0a0-pre. Ensure all 7 Postgres (5441–5447) are up for suites; ensure kafka-ssl-secret for Kafka TLS (no SQL applied).
+# 3c0a0-pre. Ensure all 8 Postgres (5441–5448) are up for suites; ensure kafka-ssl-secret for Kafka TLS (no SQL applied).
 if command -v docker >/dev/null 2>&1 && [[ -f "$REPO_ROOT/docker-compose.yml" ]]; then
   ( cd "$REPO_ROOT" && docker compose up -d postgres-auth postgres-listings postgres-bookings postgres-messaging postgres-notification postgres-trust postgres-analytics postgres-media 2>/dev/null ) && ok "Docker Postgres (5441–5448) ensured up" || true
   if [[ -f "$REPO_ROOT/certs/dev-root.pem" ]] && [[ -f "$REPO_ROOT/certs/dev-root.key" ]] && [[ -f "$SCRIPT_DIR/kafka-ssl-from-dev-root.sh" ]]; then
@@ -1637,6 +1700,17 @@ _phase_start "4_scale_baseline"
 say "4. Scaling to baseline (service 1, exporters 1, Envoy 1, Caddy 2)..."
 _scale_one() {
   local name=$1 ns=${2:-off-campus-housing-tracker} rep=${3:-1} rc=1
+  local _kd="$REPO_ROOT/infra/k8s/base/$name"
+  local _exists=0
+  if [[ "$ctx" == *"colima"* ]] && command -v colima >/dev/null 2>&1; then
+    colima ssh -- kubectl get deploy -n "$ns" "$name" --request-timeout=10s >/dev/null 2>&1 && _exists=1
+  else
+    _kubectl get deploy -n "$ns" "$name" >/dev/null 2>&1 && _exists=1
+  fi
+  if [[ "$_exists" -ne 1 ]] && [[ -d "$_kd" ]] && [[ -f "$_kd/kustomization.yaml" ]]; then
+    warn "Deployment $name not in $ns; applying infra/k8s/base/$name..."
+    _apply_with_rate_limit "$_kd" "housing-$name" || true
+  fi
   if [[ "$ctx" == *"colima"* ]] && command -v colima >/dev/null 2>&1; then
     colima ssh -- kubectl scale deploy -n "$ns" "$name" --replicas="$rep" --request-timeout=15s 2>/dev/null && rc=0
   else
@@ -1659,9 +1733,10 @@ set -e
 if [[ "${PREFLIGHT_RECOVERY_PASS:-1}" == "1" ]] && [[ "$PREFLIGHT_PHASE" == "full" ]]; then
   say "4a. Recovery pass (wait 30s, retry applies + scale once)..."
   sleep 30
-  for k in "$REPO_ROOT/infra/k8s/base/config" "$REPO_ROOT/infra/k8s/base/kafka-external" "$REPO_ROOT/infra/k8s/base/nginx" "$REPO_ROOT/infra/k8s/base/haproxy" "$REPO_ROOT/infra/k8s/base/analytics-service"; do
+  for k in "$REPO_ROOT/infra/k8s/base/config" "$REPO_ROOT/infra/k8s/base/kafka-external" "$REPO_ROOT/infra/k8s/base/nginx" "$REPO_ROOT/infra/k8s/base/haproxy"; do
     [[ -d "$k" ]] && kubectl apply -k "$k" --request-timeout=25s 2>/dev/null && ok "Recovery: $(basename "$k")" || true
   done
+  _apply_housing_app_bases
   # Recovery: use LoadBalancer on Colima when MetalLB exists; otherwise NodePort
   _metallb_ns_recovery=0
   kubectl get ns metallb-system --request-timeout=5s >/dev/null 2>&1 && _metallb_ns_recovery=1
@@ -1789,7 +1864,7 @@ if ! _phase_a_only; then
     fi
   fi
 
-  # 4e. k3d: verify HTTP/3 (QUIC) on NodePort from host (off-campus-housing.local + --resolve; host UDP often broken on macOS).
+  # 4e. k3d: verify HTTP/3 (QUIC) on NodePort from host (off-campus-housing.test + --resolve; host UDP often broken on macOS).
   if [[ "$ctx" == *"k3d"* ]] && [[ -f "$SCRIPT_DIR/lib/http3.sh" ]]; then
     _ca="$REPO_ROOT/certs/dev-root.pem"
     if [[ -s "$_ca" ]]; then
@@ -1797,12 +1872,12 @@ if ! _phase_a_only; then
       # shellcheck source=scripts/lib/http3.sh
       if source "$SCRIPT_DIR/lib/http3.sh" 2>/dev/null; then
         _h3_code="000"
-        # QUIC invariant: use off-campus-housing.local URL + --resolve (no raw IP); PORT/HTTP3_RESOLVE_PORT for NodePort.
+        # QUIC invariant: use off-campus-housing.test URL + --resolve (no raw IP); PORT/HTTP3_RESOLVE_PORT for NodePort.
         _h3_out=$(PORT=30443 HTTP3_RESOLVE_PORT=30443 TARGET_IP=127.0.0.1 http3_curl --cacert "$_ca" -sS -o /dev/null -w "%{http_code}" --max-time 8 --http3-only \
-          "https://off-campus-housing.local:30443/_caddy/healthz" 2>/dev/null) || true
+          "https://off-campus-housing.test:30443/_caddy/healthz" 2>/dev/null) || true
         _h3_code="${_h3_out:-000}"
         if [[ "$_h3_code" == "200" ]]; then
-          ok "HTTP/3 (NodePort 30443) OK — QUIC reachable from host via off-campus-housing.local:30443"
+          ok "HTTP/3 (NodePort 30443) OK — QUIC reachable from host via off-campus-housing.test:30443"
         else
           info "HTTP/3 on 30443 not available from host (code $_h3_code). Normal on macOS (NodePort UDP). Step 4f verifies HTTP/3 in-cluster; suites use HTTP/2 from host or in-cluster QUIC."
         fi
@@ -1818,7 +1893,7 @@ if ! _phase_a_only; then
     _lb_ip=$(kubectl -n ingress-nginx get svc caddy-h3 -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
     if [[ -n "$_lb_ip" ]]; then
       say "4f. Verify HTTP/3 via MetalLB IP $_lb_ip (in-cluster; no host UDP)..."
-      if TARGET_IP="$_lb_ip" HOST="off-campus-housing.local" "$SCRIPT_DIR/verify-caddy-http3-in-cluster.sh" 2>/dev/null; then
+      if TARGET_IP="$_lb_ip" HOST="off-campus-housing.test" "$SCRIPT_DIR/verify-caddy-http3-in-cluster.sh" 2>/dev/null; then
         ok "HTTP/3 via MetalLB IP $_lb_ip OK (in-cluster)"
       else
         info "HTTP/3 via MetalLB IP $_lb_ip in-cluster not 200; host path may still work for HTTP/2. Run: ./scripts/verify-caddy-http3-in-cluster.sh TARGET_IP=$_lb_ip"
@@ -1856,10 +1931,11 @@ fi
 # Deploy manifest check (CA + leaf mounts)
 "$SCRIPT_DIR/ensure-all-services-tls.sh" 2>/dev/null || warn "TLS deploy check had issues"
 
-# 5z. Wait for pods to pass initial readiness (readiness probes use initialDelaySeconds up to 90s)
+# 5z. Wait for pods to pass initial readiness (readiness probes use initialDelaySeconds up to 90s+)
 if [[ "$PREFLIGHT_PHASE" == "full" ]]; then
-  say "5z. Waiting 90s for pods to pass initial readiness (gRPC health probes)..."
-  sleep 90
+  _5z="${PREFLIGHT_STEP5Z_SLEEP:-120}"
+  say "5z. Waiting ${_5z}s for pods to pass initial readiness (gRPC / Kafka reconnect after TLS; override PREFLIGHT_STEP5Z_SLEEP)..."
+  sleep "$_5z"
   ok "Readiness wait done"
 fi
 
@@ -1912,7 +1988,8 @@ say "6b. Waiting for all services to be ready..."
 WAIT_LOG="/tmp/wait-services-$(date +%Y%m%d-%H%M%S).log"
 if [[ -f "$SCRIPT_DIR/wait-for-all-services-ready.sh" ]]; then
   echo "  Detailed wait log: $WAIT_LOG"
-  MAX_WAIT=600 WAIT_LOG="$WAIT_LOG" CLEANUP_LOG="${CLEANUP_LOG:-}" "$SCRIPT_DIR/wait-for-all-services-ready.sh" 2>&1 | tee -a "$WAIT_LOG" || {
+  MAX_WAIT="${PREFLIGHT_READY_MAX_WAIT:-900}" INITIAL_WAIT="${PREFLIGHT_READY_INITIAL_WAIT:-90}" \
+    WAIT_LOG="$WAIT_LOG" CLEANUP_LOG="${CLEANUP_LOG:-}" "$SCRIPT_DIR/wait-for-all-services-ready.sh" 2>&1 | tee -a "$WAIT_LOG" || {
     warn "Not all services are ready. Check logs:"
     warn "  Wait log: $WAIT_LOG"
     [[ -n "${CLEANUP_LOG:-}" ]] && warn "  Cleanup log: $CLEANUP_LOG"
@@ -2013,13 +2090,18 @@ fi
 
 _phase_start "7_run_all_suites"
 say "7. Running housing + protocol test suites (auth, rotation, standalone-capture, tls-mtls; booking inside housing + k6)${RUN_K6:+ + k6}..."
+if [[ "$(uname -s)" == "Darwin" ]] && command -v k6 >/dev/null 2>&1; then
+  if [[ "${SKIP_MACOS_DEV_CA_TRUST:-0}" != "1" ]] && [[ "${K6_USE_DOCKER_K6:-0}" != "1" ]]; then
+    info "macOS + host k6: TLS trust comes from the login keychain (Go ignores SSL_CERT_FILE). 7a-prep will run scripts/lib/trust-dev-root-ca-macos.sh before k6, or set SKIP_MACOS_DEV_CA_TRUST=1 / K6_USE_DOCKER_K6=1."
+  fi
+fi
 export SUITE_LOG_DIR="${SUITE_LOG_DIR:-$PREFLIGHT_RUN_DIR/suite-logs}"
 mkdir -p "$SUITE_LOG_DIR"
 # Explicit timeouts and verification caps so the run progresses and never hangs (override with env when calling preflight).
 export CAPTURE_STOP_TIMEOUT="${CAPTURE_STOP_TIMEOUT:-30}"
 export CAPTURE_MAX_STOP_SECONDS="${CAPTURE_MAX_STOP_SECONDS:-75}"
 export SUITE_TIMEOUT="${SUITE_TIMEOUT:-3600}"
-# Packet capture standard: (1) Host/VM: BPF (tcp|udp) dst TARGET_IP:443 if capturing before DNAT. (2) In-pod Caddy: BPF (tcp|udp) dst podIP:443, tcpdump -i eth0 (fallback any). (3) tshark: in-pod stray = udp.port==443 && ip.dst!=podIP (must 0); TARGET_IP rollup for pcaps that still show LB dst. SNI: quic && tls... contains CAPTURE_EXPECTED_SNI (default off-campus-housing.local). (4) STRICT_QUIC_VALIDATION=1 fails on pod stray / inconsistent LB rollup.
+# Packet capture standard: (1) Host/VM: BPF (tcp|udp) dst TARGET_IP:443 if capturing before DNAT. (2) In-pod Caddy: BPF (tcp|udp) dst podIP:443, tcpdump -i eth0 (fallback any). (3) tshark: in-pod stray = udp.port==443 && ip.dst!=podIP (must 0); TARGET_IP rollup for pcaps that still show LB dst. SNI: quic && tls... contains CAPTURE_EXPECTED_SNI (default off-campus-housing.test). (4) STRICT_QUIC_VALIDATION=1 fails on pod stray / inconsistent LB rollup.
 export STRICT_QUIC_VALIDATION="${STRICT_QUIC_VALIDATION:-1}"
 [[ -n "${TARGET_IP:-}" ]] && export CAPTURE_V2_LB_IP="$TARGET_IP"
 # Fast default: 10s DB verify cap so baseline finishes in ~2–3 min after tests (set DB_VERIFY_MAX_SECONDS=60 for full verify).
@@ -2075,8 +2157,49 @@ if [[ "${COLIMA_QUIC_SYSCTL:-1}" == "1" ]] && [[ "$ctx" == *"colima"* ]] && [[ -
   "$SCRIPT_DIR/colima-quic-sysctl.sh" || warn "colima-quic-sysctl.sh had issues (continuing)"
 fi
 
+# Before any host k6 (phases or edge grid): macOS must trust dev-root in Keychain — see header "macOS + host k6".
+_preflight_ensure_macos_k6_keychain_trust() {
+  [[ "$(uname -s)" == "Darwin" ]] || return 0
+  [[ "${SKIP_MACOS_DEV_CA_TRUST:-0}" == "1" ]] && {
+    info "SKIP_MACOS_DEV_CA_TRUST=1 — skipping login keychain dev-root (host k6 must already trust the CA)."
+    return 0
+  }
+  [[ "${K6_USE_DOCKER_K6:-0}" == "1" ]] && command -v docker >/dev/null 2>&1 && {
+    info "K6_USE_DOCKER_K6=1 + Docker on PATH — edge k6 smoke can use Linux k6 + SSL_CERT_FILE; skipping macOS keychain step here."
+    return 0
+  }
+  command -v k6 >/dev/null 2>&1 || return 0
+  local _need_host_k6=0
+  [[ "${RUN_K6:-0}" == "1" ]] && _need_host_k6=1
+  [[ "${RUN_MESSAGING_LOAD:-1}" != "0" ]] && [[ "${RUN_K6_SERVICE_GRID:-1}" != "0" ]] && _need_host_k6=1
+  [[ "$_need_host_k6" == "0" ]] && return 0
+  local _ca="${PREFLIGHT_MACOS_K6_CA:-$REPO_ROOT/certs/dev-root.pem}"
+  [[ -f "$_ca" ]] || {
+    warn "macOS k6 prep: CA missing at $_ca — sync certs first"
+    return 0
+  }
+  [[ -f "$SCRIPT_DIR/lib/trust-dev-root-ca-macos.sh" ]] || {
+    warn "macOS k6 prep: scripts/lib/trust-dev-root-ca-macos.sh missing"
+    return 0
+  }
+  chmod +x "$SCRIPT_DIR/lib/trust-dev-root-ca-macos.sh" 2>/dev/null || true
+  say "7a-prep (macOS). Host k6 ignores SSL_CERT_FILE for TLS — trusting dev-root in login keychain (re-run after CA rotation)."
+  info "  Same as: ./scripts/lib/trust-dev-root-ca-macos.sh \"$_ca\""
+  if ! "$SCRIPT_DIR/lib/trust-dev-root-ca-macos.sh" "$_ca"; then
+    if [[ "${PREFLIGHT_STRICT_MACOS_K6_TRUST:-1}" == "1" ]]; then
+      say "Preflight stopped: macOS keychain trust is required for host k6 → https://off-campus-housing.test"
+      say "  Fix: run ./scripts/lib/trust-dev-root-ca-macos.sh \"$_ca\""
+      say "  Or: K6_USE_DOCKER_K6=1, SKIP_MACOS_DEV_CA_TRUST=1 (already trusted), or PREFLIGHT_STRICT_MACOS_K6_TRUST=0 (not recommended)"
+      return 1
+    fi
+    warn "macOS dev CA keychain trust failed — host k6 may show x509: certificate is not trusted"
+  fi
+  return 0
+}
+
 # Do not skip strict TLS/mTLS preflight — always run ensure-strict-tls-mtls-preflight so all tests use strict TLS/mTLS
 _run_all_suites() {
+  _preflight_ensure_macos_k6_keychain_trust || return 1
   export SKIP_PREFLIGHT=1 SKIP_FULL_PREFLIGHT=1 RUN_K6="${RUN_K6:-0}" RUN_PGBENCH=0
   export SUITE_LOG_DIR DB_VERIFY_TIMING_LOG RUN_SHOPPING_SEQUENCE CAPTURE_STOP_TIMEOUT CAPTURE_MAX_STOP_SECONDS
   export SUITE_TIMEOUT DB_VERIFY_MAX_SECONDS DB_VERIFY_CONNECT_TIMEOUT DB_VERIFY_FAST
@@ -2109,8 +2232,11 @@ _run_all_suites() {
     if [[ -n "$_k6_lb" ]] && [[ -f "$_k6_ca" ]]; then
       say "7a3–7a7. k6 per-service edge smoke (run-housing-k6-edge-smoke.sh)…"
       export SSL_CERT_FILE="$_k6_ca"
-      export BASE_URL="${BASE_URL:-https://off-campus-housing.local}"
-      export K6_RESOLVE="${K6_RESOLVE:-off-campus-housing.local:443:$_k6_lb}"
+      export K6_TLS_CA_CERT="$_k6_ca"
+      export K6_CA_ABSOLUTE="$_k6_ca"
+      # macOS keychain trust already enforced at start of _run_all_suites (7a-prep)
+      export BASE_URL="${BASE_URL:-https://off-campus-housing.test}"
+      export K6_RESOLVE="${K6_RESOLVE:-off-campus-housing.test:443:$_k6_lb}"
       export K6_LB_IP="$_k6_lb"
       chmod +x "$SCRIPT_DIR/run-housing-k6-edge-smoke.sh" 2>/dev/null || true
       K6_SMOKE_DURATION="${K6_SMOKE_DURATION:-${K6_MESSAGING_DURATION:-28s}}" K6_SMOKE_VUS="${K6_SMOKE_VUS:-${K6_MESSAGING_VUS:-6}}" \

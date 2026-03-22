@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Bring up the external stack: Zookeeper, Kafka (SSL), Redis, and 7 Postgres instances (housing platform).
 # Uses docker-compose volumes (pgdata-auth, pgdata-listings, etc.); all have healthchecks.
-# Run before preflight or k8s bring-up so pods can reach host.docker.internal:5441–5447, Redis 6380, Kafka 29094.
+# Run before preflight or k8s bring-up so pods can reach host.docker.internal:5441–5448, Redis 6380, Kafka 29094.
 # Housing uses 6380/29094/2182 so it does not conflict with record platform (6379/29093/2181).
 #
 # Usage: ./scripts/bring-up-external-infra.sh

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Generate dev CA and leaf certs for local dev (no k3s). Required for strict TLS/mTLS.
-# Output: certs/dev-root.pem, certs/dev-root.key; certs/off-campus-housing.local.{crt,key} (Caddy/ingress);
+# Output: certs/dev-root.pem, certs/dev-root.key; certs/off-campus-housing.test.{crt,key} (Caddy/ingress);
 #         certs/messaging-service.{crt,key}; certs/media-service.{crt,key};
 #         certs/kafka-dev/ca.pem, client.crt, client.key (Node clients); certs/kafka-ssl/ (JKS for broker if keytool available).
 #
@@ -44,22 +44,22 @@ fi
 CA_PEM="$CERTS/dev-root.pem"
 CA_KEY="$CERTS/dev-root.key"
 
-# 2. Caddy/ingress leaf (off-campus-housing.local) — required for strict-tls-bootstrap.sh and rollout-caddy.sh
-say "2. Creating Caddy leaf (off-campus-housing.local)..."
-HOST="${HOST:-off-campus-housing.local}"
-if [[ ! -f "$CERTS/off-campus-housing.local.crt" ]] || [[ ! -f "$CERTS/off-campus-housing.local.key" ]]; then
-  openssl genrsa -out "$CERTS/off-campus-housing.local.key" 2048 2>/dev/null
-  openssl req -new -key "$CERTS/off-campus-housing.local.key" -out "$TMP/leaf.csr" \
+# 2. Caddy/ingress leaf (off-campus-housing.test) — required for strict-tls-bootstrap.sh and rollout-caddy.sh
+say "2. Creating Caddy leaf (off-campus-housing.test)..."
+HOST="${HOST:-off-campus-housing.test}"
+if [[ ! -f "$CERTS/off-campus-housing.test.crt" ]] || [[ ! -f "$CERTS/off-campus-housing.test.key" ]]; then
+  openssl genrsa -out "$CERTS/off-campus-housing.test.key" 2048 2>/dev/null
+  openssl req -new -key "$CERTS/off-campus-housing.test.key" -out "$TMP/leaf.csr" \
     -subj "/CN=${HOST}/O=off-campus-housing-tracker" 2>/dev/null
   SANS="DNS:${HOST},DNS:*.${HOST},DNS:localhost,DNS:caddy-h3.ingress-nginx.svc.cluster.local,IP:127.0.0.1,IP:::1"
   echo "[v3_req]
 subjectAltName=$SANS" > "$TMP/ext.conf"
   openssl x509 -req -in "$TMP/leaf.csr" -CA "$CA_PEM" -CAkey "$CA_KEY" \
-    -CAcreateserial -out "$CERTS/off-campus-housing.local.crt" -days "$DAYS" \
+    -CAcreateserial -out "$CERTS/off-campus-housing.test.crt" -days "$DAYS" \
     -extensions v3_req -extfile "$TMP/ext.conf" 2>/dev/null
-  ok "off-campus-housing.local.crt, .key (for Caddy TLS)"
+  ok "off-campus-housing.test.crt, .key (for Caddy TLS)"
 else
-  ok "off-campus-housing.local.crt|.key already exist"
+  ok "off-campus-housing.test.crt|.key already exist"
 fi
 
 # 3. messaging-service leaf
@@ -127,7 +127,7 @@ fi
 
 say "=== Dev certs done ==="
 echo "  CA: certs/dev-root.pem, certs/dev-root.key"
-echo "  Caddy/ingress: certs/off-campus-housing.local.crt, certs/off-campus-housing.local.key"
+echo "  Caddy/ingress: certs/off-campus-housing.test.crt, certs/off-campus-housing.test.key"
 echo "  Services: certs/messaging-service.{crt,key}, certs/media-service.{crt,key}"
 echo "  Kafka client (Node): certs/kafka-dev/ca.pem, client.crt, client.key"
 echo "  Kafka broker: certs/kafka-ssl/ (use with docker-compose Kafka TLS)"

@@ -12,7 +12,7 @@ set -euo pipefail
 # Defaults: ROTATION_H2_KEYLOG=0 (in-cluster k6, no SSH/keylog) so rotation passes reliably; ROTATE_CA=1 (full cert chain test).
 # ROTATION_MODE: "cluster" (in-cluster k6, default) or "host" (host k6 via MetalLB). Set ROTATION_H2_KEYLOG=1 only when you need SSLKEYLOGFILE (forces host mode, adds TLS debug overhead and SSH mux risk).
 ROTATION_MODE="${ROTATION_MODE:-cluster}"
-HOST="${HOST:-off-campus-housing.local}"
+HOST="${HOST:-off-campus-housing.test}"
 NS_ING="ingress-nginx"
 NS_APP="off-campus-housing-tracker"
 SERVICE="caddy-h3"
@@ -551,7 +551,7 @@ if $ROTATE_CA && [[ -f "${CA_ROOT:-}" ]] && [[ -f "${CA_KEY:-}" ]]; then
   fi
 fi
 
-# Verify record-local-tls exists (use kctl so Colima shim works when host kubectl would fail)
+# Verify edge TLS secret exists (LEAF_SECRET / off-campus-housing-local-tls; use kctl so Colima shim works when host kubectl would fail)
 if ! kctl -n "$NS_ING" get secret "$LEAF_SECRET" >/dev/null 2>&1; then
   fail "$LEAF_SECRET missing in $NS_ING - Caddy pods will fail to mount; fix secret updates above"
 fi
@@ -664,7 +664,7 @@ sleep "$ROTATION_GRACE_SECONDS"
 ok "Stabilization complete (Caddy + Envoy ready, ${ROTATION_GRACE_SECONDS}s grace)"
 
 # Explicit 8s warmup + one HTTP/3 health to clear stale QUIC before chaos (avoids k6 hanging on first H3 request).
-say "Warmup: 8s + one HTTP/3 health to off-campus-housing.local (clear stale QUIC sessions)…"
+say "Warmup: 8s + one HTTP/3 health to off-campus-housing.test (clear stale QUIC sessions)…"
 sleep 8
 if [[ -n "${TARGET_IP:-}" ]] && [[ -f "$REPO_ROOT/certs/dev-root.pem" ]] && command -v curl >/dev/null 2>&1; then
   curl -k -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 --http3 \
@@ -997,7 +997,7 @@ if [[ "$WIRE_VERIFY" == "true" ]] && [[ "${CAPTURE_DURING_K6:-1}" != "0" ]]; the
       fi
       # Gold standard: per-pod pcap — UDP/443 dst must be pod IP only; optional QUIC SNI (OCH hostname, not RP record.local)
       if type verify_caddy_pcap_quic_enforcement &>/dev/null; then
-        _sni_enf="${CAPTURE_EXPECTED_SNI:-off-campus-housing.local}"
+        _sni_enf="${CAPTURE_EXPECTED_SNI:-off-campus-housing.test}"
         say "Caddy capture enforcement (stray UDP/443 vs pod IP + SNI ${_sni_enf})…"
         for _rp in "${CADDY_PODS[@]:-}"; do
           [[ -z "$_rp" ]] && continue
@@ -1688,8 +1688,8 @@ fi
 say "=== Strict TLS / mTLS proof (CA + leaf rotation) ==="
 ok "k6: insecureSkipTLSVerify=false; CA from ConfigMap (dev-root-ca); TLS 1.3 only for H2; H3 strict TLS."
 ok "Caddy: serves leaf from $LEAF_SECRET (rotated); clients validate with dev-root-ca."
-ok "gRPC: services use service-tls (leaf + CA); mTLS with client cert (tls.crt/tls.key) and CA verification."
-log_info "Certificate verified above: issuer = dev CA (CN=dev-root-ca, O=off-campus-housing-tracker); subject = CN=off-campus-housing.local."
+ok "gRPC: service-tls uses leaf-only tls.crt + ca.crt; strict mTLS with client cert (tls.crt/tls.key)."
+log_info "Certificate verified above: issuer = dev CA (CN=dev-root-ca, O=off-campus-housing-tracker); subject = CN=off-campus-housing.test."
 
 # Extract error details from k6 logs if failures occurred (only when RESULT is a valid file - avoid set -e exit on grep)
 if [[ "$H2_FAIL_COUNT" -gt 0 ]] || [[ "$H3_FAIL_COUNT" -gt 0 ]]; then

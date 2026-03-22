@@ -3,7 +3,7 @@
 # Uses: namespace ingress-nginx, deployment caddy-h3 (not off-campus-housing / deploy/caddy).
 #
 # Usage: ./scripts/verify-http3-edge.sh
-#   TARGET=https://off-campus-housing.local  (default)
+#   TARGET=https://off-campus-housing.test  (default)
 #   CADDY_NS=ingress-nginx  DEPLOY=caddy-h3  (defaults; override if different)
 #
 # For this repo Caddy runs in ingress-nginx. If you have NS=record-platform in your
@@ -26,7 +26,7 @@ CADDY_NS="${CADDY_NS:-ingress-nginx}"
 NS="$CADDY_NS"
 DEPLOY="${DEPLOY:-caddy-h3}"
 SVC="${SVC:-caddy-h3}"
-TARGET="${TARGET:-https://off-campus-housing.local}"
+TARGET="${TARGET:-https://off-campus-housing.test}"
 
 # Use Homebrew curl when available (supports --http3). Fallback: PATH curl.
 CURL_CMD=""

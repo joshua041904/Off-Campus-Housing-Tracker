@@ -1,0 +1,54 @@
+# Reference only — not applied. Copy into a Deployment when adding a strict mTLS gRPC service.
+# See docs/CA_ROTATION_AND_CLIENT_TRUST.md
+#
+# Replace PLACEHOLDER_PORT and PLACEHOLDER.ServiceName with your gRPC port and health service name.
+#
+#          startupProbe:
+#            exec:
+#              command:
+#                - /usr/local/bin/grpc-health-probe
+#                - -addr=localhost:PLACEHOLDER_PORT
+#                - -service=PLACEHOLDER.ServiceName
+#                - -tls
+#                - -tls-ca-cert=/etc/certs/ca.crt
+#                - -tls-client-cert=/etc/certs/tls.crt
+#                - -tls-client-key=/etc/certs/tls.key
+#                - -tls-server-name=localhost
+#                - -connect-timeout=5s
+#                - -rpc-timeout=5s
+#            periodSeconds: 5
+#            timeoutSeconds: 10
+#            failureThreshold: 30
+#          readinessProbe:
+#            exec:
+#              command:
+#                - /usr/local/bin/grpc-health-probe
+#                - -addr=localhost:PLACEHOLDER_PORT
+#                - -service=PLACEHOLDER.ServiceName
+#                - -tls
+#                - -tls-ca-cert=/etc/certs/ca.crt
+#                - -tls-client-cert=/etc/certs/tls.crt
+#                - -tls-client-key=/etc/certs/tls.key
+#                - -tls-server-name=localhost
+#                - -connect-timeout=5s
+#                - -rpc-timeout=5s
+#            periodSeconds: 10
+#            timeoutSeconds: 10
+#            failureThreshold: 6
+#          livenessProbe:
+#            exec:
+#              command:
+#                - /usr/local/bin/grpc-health-probe
+#                - -addr=localhost:PLACEHOLDER_PORT
+#                - -service=PLACEHOLDER.ServiceName
+#                - -tls
+#                - -tls-ca-cert=/etc/certs/ca.crt
+#                - -tls-client-cert=/etc/certs/tls.crt
+#                - -tls-client-key=/etc/certs/tls.key
+#                - -tls-server-name=localhost
+#                - -connect-timeout=5s
+#                - -rpc-timeout=5s
+#            initialDelaySeconds: 90
+#            periodSeconds: 15
+#            timeoutSeconds: 10
+#            failureThreshold: 5

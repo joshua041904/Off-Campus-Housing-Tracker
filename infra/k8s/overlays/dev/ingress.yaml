@@ -16,7 +16,7 @@ metadata:
 spec:
   ingressClassName: nginx
   tls:
-  - hosts: [off-campus-housing.local]
+  - hosts: [off-campus-housing.test]
     secretName: off-campus-housing-local-tls
   rules:
   # Catch-all rule for any hostname (ngrok, etc.)
@@ -36,8 +36,8 @@ spec:
             name: nginx
             port:
               number: 8080
-  # Specific rule for off-campus-housing.local (for backwards compatibility)
-  - host: off-campus-housing.local
+  # Specific rule for off-campus-housing.test (for backwards compatibility)
+  - host: off-campus-housing.test
     http:
       paths:
       - path: /api(/|$)(.*)

@@ -27,7 +27,7 @@ _capture_kubectl() {
 # Start capture on a pod. Usage: start_capture <namespace> <pod> [pcap-filter]
 # Filter default: tcp port 443, tcp port 30443 (NodePort), udp port 443 (QUIC) — BPF limits volume.
 # In-pod: destination is pod IP (after DNAT), so "dst host TARGET_IP" cannot be used; use port-only.
-# Host/VM capture (when applicable): use "(tcp or udp) and port 443 and dst host $TARGET_IP" so only traffic to MetalLB IP is captured (gold standard). Post-capture: verify with tshark -Y "udp.port == 443 && ip.dst == $TARGET_IP" and stray -Y "udp.port == 443 && ip.dst != $TARGET_IP" (must be 0); SNI: tshark -Y "quic && tls.handshake.extensions_server_name contains off-campus-housing.local".
+# Host/VM capture (when applicable): use "(tcp or udp) and port 443 and dst host $TARGET_IP" so only traffic to MetalLB IP is captured (gold standard). Post-capture: verify with tshark -Y "udp.port == 443 && ip.dst == $TARGET_IP" and stray -Y "udp.port == 443 && ip.dst != $TARGET_IP" (must be 0); SNI: tshark -Y "quic && tls.handshake.extensions_server_name contains off-campus-housing.test".
 # CAPTURE_MAX_DURATION: max seconds tcpdump runs in-pod (timeout wrapper); avoids runaway size and OOM. Unset = no limit.
 # In-pod apk/apt install capped at CAPTURE_INSTALL_TIMEOUT so we never hang. Quick mode (CAPTURE_STOP_TIMEOUT set) uses 55s; else up to 60s.
 # To avoid install at runtime, bake tcpdump into Caddy/Envoy images (scripts/ensure-caddy-envoy-tcpdump.sh or k3d-registry-push-and-patch.sh).
@@ -354,7 +354,7 @@ stop_and_analyze_captures() {
       echo "  [packet-capture] Verifying protocols (tshark) in $copy_dir_used"
       verify_protocol_in_dir "$copy_dir_used" "capture" || true
     fi
-    # Per-pod QUIC proof: stray UDP/443 vs pod IP + optional SNI (OCH: CAPTURE_EXPECTED_SNI default off-campus-housing.local)
+    # Per-pod QUIC proof: stray UDP/443 vs pod IP + optional SNI (OCH: CAPTURE_EXPECTED_SNI default off-campus-housing.test)
     if [[ "${CAPTURE_POST_VERIFY_QUIC:-1}" != "0" ]] && command -v tshark >/dev/null 2>&1 && type verify_caddy_pcap_quic_enforcement &>/dev/null 2>&1; then
       for (( _ci=0; _ci<${#_CAPTURE_PODS[@]}; _ci++ )); do
         local _cns="${_CAPTURE_NS[$_ci]}" _cpod="${_CAPTURE_PODS[$_ci]}"

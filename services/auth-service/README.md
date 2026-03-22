@@ -6,6 +6,8 @@ Owns: user accounts, roles (tenant, landlord, admin), JWT issuance and validatio
 
 **Build:** Use `services/common` (Kafka mTLS, Redis, gRPC, logger, metrics). package.json, tsconfig.json, Dockerfile (multi-stage; build common first), `/health`, `/metrics`, Prisma schema. Restore from `backups/5437-auth.dump` when using ported DB (see backups/README.txt).
 
+**Prisma `generate` on Apple Silicon (intermittent crash):** If `pnpm build` dies with `assertion failed [block != nullptr]: BasicBlock requested for unrecognized address` / **Abort trap: 6**, the build already runs `scripts/prisma-generate-retry.sh` (default **5** attempts, backoff). Override retries: `PRISMA_GENERATE_RETRIES=8 pnpm build`. From repo root: `pnpm -C services/auth-service build`. CI/Linux is unaffected. See [prisma#20739](https://github.com/prisma/prisma/discussions/20739).
+
 ## Implementing this service (gRPC)
 
 **Contract (source of truth):** [proto/auth.proto](../../proto/auth.proto) defines the RPCs and messages. Use it as the single source of truth.

@@ -5,8 +5,8 @@ metadata:
 data:
   NODE_ENV: production
   ALLOW_MOCK_PASSKEY_DATA: "false"  # Production mode - requires real WebAuthn data (set to "true" for testing)
-  WEBAUTHN_RP_ID: "off-campus-housing.local"  # Relying Party ID (your domain)
-  WEBAUTHN_ORIGIN: "https://off-campus-housing.local:8443"  # WebAuthn origin (must match actual origin)
+  WEBAUTHN_RP_ID: "off-campus-housing.test"  # Relying Party ID (your domain)
+  WEBAUTHN_ORIGIN: "https://off-campus-housing.test"  # WebAuthn origin (must match browser origin; use :8443 only if you terminate TLS there)
   
   # SMS Provider Configuration
   # Using Mock SMS Provider (FREE - like MailHog for email)
@@ -17,6 +17,8 @@ data:
   NEXT_PUBLIC_GATEWAY_URL: http://localhost:8080
 
   GATEWAY_PORT: "4020"
+  # api-gateway → auth-service gRPC (strict mTLS; mount service-tls at /etc/certs)
+  AUTH_GRPC_TARGET: "auth-service.off-campus-housing-tracker.svc.cluster.local:50061"
   AUTH_PORT: "4011"
   RECORDS_PORT: "4002"
   LISTINGS_PORT: "4003"
@@ -49,12 +51,14 @@ data:
   POSTGRES_URL_NOTIFICATION: postgresql://postgres:postgres@host.docker.internal:5445/notification?connect_timeout=5
   POSTGRES_URL_TRUST:       postgresql://postgres:postgres@host.docker.internal:5446/trust?connect_timeout=5
   POSTGRES_URL_ANALYTICS:   postgresql://postgres:postgres@host.docker.internal:5447/analytics?connect_timeout=10
+  POSTGRES_URL_MEDIA:       postgresql://postgres:postgres@host.docker.internal:5448/media?connect_timeout=10
   
   # Kafka: strict TLS only (no plaintext/cleartext). All client connections use port 9093 (SSL).
   # Broker PLAINTEXT is bound to 127.0.0.1 only (healthcheck); clients must use SSL.
   # Required when KAFKA_SSL_ENABLED=true: set KAFKA_CA_CERT to path to CA PEM (e.g. kafka-ssl-secret).
   # Optional mTLS: KAFKA_CLIENT_CERT, KAFKA_CLIENT_KEY. Mount certs via Secret and set env in deployment.
   # Single broker (Docker Compose: one Kafka, SSL on 9093 / host 29094 for housing; RP uses 29093). Multi-broker when cluster exists — see docs/KAFKA_CURRENT_AND_ROADMAP.md.
+  # Align with infra/k8s/base/kafka-external: ClusterIP :9093 kube-proxies to Endpoints :29094 on the host (strict TLS). If pods ECONNREFUSED :9093, run ./scripts/patch-kafka-external-host.sh and ensure host:29094 listens.
   KAFKA_BROKER: kafka-external.off-campus-housing-tracker.svc.cluster.local:9093
   KAFKA_USE_SSL: "true"
   KAFKA_SSL_ENABLED: "true"

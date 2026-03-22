@@ -47,11 +47,6 @@ spec:
                 configMapKeyRef:
                   name: app-config
                   key: POSTGRES_URL_ANALYTICS
-            - name: POSTGRES_URL_BOOKINGS
-              valueFrom:
-                configMapKeyRef:
-                  name: app-config
-                  key: POSTGRES_URL_BOOKINGS
             - name: GRPC_REQUIRE_CLIENT_CERT
               value: "true"
             - name: TLS_CA_PATH
@@ -87,13 +82,12 @@ spec:
                 - -tls-ca-cert=/etc/certs/ca.crt
                 - -tls-client-cert=/etc/certs/tls.crt
                 - -tls-client-key=/etc/certs/tls.key
-                - -tls-server-name=off-campus-housing.local
-                - -connect-timeout=10s
+                - -tls-server-name=localhost
+                - -connect-timeout=5s
                 - -rpc-timeout=5s
-            initialDelaySeconds: 15
-            periodSeconds: 10
+            periodSeconds: 5
             timeoutSeconds: 10
-            failureThreshold: 18
+            failureThreshold: 30
           readinessProbe:
             exec:
               command:
@@ -104,12 +98,13 @@ spec:
                 - -tls-ca-cert=/etc/certs/ca.crt
                 - -tls-client-cert=/etc/certs/tls.crt
                 - -tls-client-key=/etc/certs/tls.key
-                - -tls-server-name=off-campus-housing.local
-                - -connect-timeout=10s
+                - -tls-server-name=localhost
+                - -connect-timeout=5s
                 - -rpc-timeout=5s
-            initialDelaySeconds: 20
-            periodSeconds: 10
-            timeoutSeconds: 3
+            initialDelaySeconds: 30
+            periodSeconds: 5
+            timeoutSeconds: 10
+            failureThreshold: 6
           livenessProbe:
             exec:
               command:
@@ -120,19 +115,20 @@ spec:
                 - -tls-ca-cert=/etc/certs/ca.crt
                 - -tls-client-cert=/etc/certs/tls.crt
                 - -tls-client-key=/etc/certs/tls.key
-                - -tls-server-name=off-campus-housing.local
-                - -connect-timeout=10s
+                - -tls-server-name=localhost
+                - -connect-timeout=5s
                 - -rpc-timeout=5s
-            initialDelaySeconds: 30
-            periodSeconds: 20
+            initialDelaySeconds: 90
+            periodSeconds: 15
             timeoutSeconds: 10
+            failureThreshold: 5
           resources:
             requests:
               cpu: "100m"
               memory: "128Mi"
             limits:
               cpu: "500m"
-              memory: "384Mi"
+              memory: "512Mi"
       volumes:
         - name: service-tls
           secret:

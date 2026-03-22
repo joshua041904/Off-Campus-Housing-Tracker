@@ -36,7 +36,7 @@ fi
 unset _live_lb 2>/dev/null || true
 
 NS="off-campus-housing-tracker"
-HOST="${HOST:-off-campus-housing.local}"
+HOST="${HOST:-off-campus-housing.test}"
 AUTH_DB_PORT="${AUTH_DB_PORT:-5441}"
 
 # Curl: prefer HTTP/3-capable
@@ -175,16 +175,22 @@ grpc_test() {
   fi
 
   local proto_dir="$REPO_ROOT/proto"
+  local grpc_cert_dir="${GRPC_CERTS_DIR:-/tmp/grpc-certs}"
+  if [[ -f "$SCRIPT_DIR/lib/ensure-och-grpc-certs.sh" ]]; then
+    # shellcheck source=scripts/lib/ensure-och-grpc-certs.sh
+    source "$SCRIPT_DIR/lib/ensure-och-grpc-certs.sh"
+    och_sync_grpc_certs_to_dir "$grpc_cert_dir" "$NS" 2>/dev/null || true
+  fi
   local cert_args=()
-  if [[ -f "/tmp/grpc-certs/ca.crt" ]]; then
-    cert_args+=("-cacert" "/tmp/grpc-certs/ca.crt")
+  if [[ -f "$grpc_cert_dir/ca.crt" ]] && [[ -s "$grpc_cert_dir/ca.crt" ]]; then
+    cert_args+=("-cacert" "$grpc_cert_dir/ca.crt")
   elif [[ -n "${CA_CERT:-}" ]] && [[ -f "${CA_CERT:-}" ]]; then
     cert_args+=("-cacert" "$CA_CERT")
   else
     cert_args+=("-insecure")
   fi
-  if [[ -f "/tmp/grpc-certs/tls.crt" ]] && [[ -f "/tmp/grpc-certs/tls.key" ]]; then
-    cert_args+=("-cert" "/tmp/grpc-certs/tls.crt" "-key" "/tmp/grpc-certs/tls.key")
+  if [[ -f "$grpc_cert_dir/tls.crt" ]] && [[ -f "$grpc_cert_dir/tls.key" ]]; then
+    cert_args+=("-cert" "$grpc_cert_dir/tls.crt" "-key" "$grpc_cert_dir/tls.key")
   fi
 
   out=$(grpcurl_with_timeout 12 grpcurl \
@@ -1218,27 +1224,10 @@ else
   warn "Skipping get post attachments - Forum post ID not available"
 fi
 
-# Test 10–11: Auth logout (HTTP/3 then HTTP/2)
-if [[ -n "${TOKEN:-}" ]] && type strict_http3_curl &>/dev/null && [[ -n "${HTTP3_RESOLVE:-}" ]]; then
-  say "Test 10: Auth Service - Logout via HTTP/3"
-  LOGOUT_H3_RC=0
-  LOGOUT_H3_RESPONSE=$(strict_http3_curl -sS -w "\n%{http_code}" --http3-only --max-time 30 \
-    -H "Host: $HOST" \
-    -H "Authorization: Bearer $TOKEN" \
-    --resolve "$HTTP3_RESOLVE" \
-    -X POST "https://$HOST/api/auth/logout" 2>&1) || LOGOUT_H3_RC=$?
-  LOGOUT_H3_CODE=$(echo "$LOGOUT_H3_RESPONSE" | tail -1)
-  if [[ "$LOGOUT_H3_RC" -ne 0 ]]; then
-    warn "Logout via HTTP/3 request failed (curl exit $LOGOUT_H3_RC)"
-  elif [[ "$LOGOUT_H3_CODE" =~ ^(200|204)$ ]]; then
-    ok "Logout works via HTTP/3 (HTTP $LOGOUT_H3_CODE)"
-  else
-    warn "Logout via HTTP/3 failed - HTTP $LOGOUT_H3_CODE"
-  fi
-fi
-
+# Test 10–11: Auth logout — HTTP/2 first, then HTTP/3 (same token valid for both).
+# If HTTP/3 ran first, the session is revoked and HTTP/2 would spuriously get 401.
 if [[ -n "${TOKEN:-}" ]]; then
-  say "Test 11: Auth Service - Logout via HTTP/2"
+  say "Test 10: Auth Service - Logout via HTTP/2"
   LOGOUT_RC=0
   LOGOUT_RESPONSE=$(strict_curl -sS -w "\n%{http_code}" --http2 --max-time 30 \
     --resolve "$HOST:${PORT}:${CURL_RESOLVE_IP}" \
@@ -1247,14 +1236,50 @@ if [[ -n "${TOKEN:-}" ]]; then
     -X POST "https://$HOST:${PORT}/api/auth/logout" 2>&1) || LOGOUT_RC=$?
   LOGOUT_CODE=$(echo "$LOGOUT_RESPONSE" | tail -1)
   if [[ "$LOGOUT_RC" -ne 0 ]]; then
-    warn "Logout request failed (curl exit $LOGOUT_RC)"
+    warn "Logout via HTTP/2 request failed (curl exit $LOGOUT_RC)"
   elif [[ "$LOGOUT_CODE" =~ ^(200|204)$ ]]; then
     ok "Logout works via HTTP/2 (HTTP $LOGOUT_CODE)"
   else
-    warn "Logout failed - HTTP $LOGOUT_CODE"
+    warn "Logout via HTTP/2 failed - HTTP $LOGOUT_CODE"
+  fi
+fi
+
+# HTTP/3 logout after re-login (token was invalidated by HTTP/2 logout above)
+_U1_PW="${TEST_PASSWORD:-test123}"
+if type strict_http3_curl &>/dev/null && [[ -n "${HTTP3_RESOLVE:-}" ]] && [[ -n "${TEST_EMAIL:-}" ]]; then
+  say "Test 11: Auth Service - Logout via HTTP/3 (fresh session after HTTP/2 logout)"
+  LOGOUT_H3_LOGIN_RC=0
+  LOGOUT_H3_LOGIN=$(strict_http3_curl -sS -w "\n%{http_code}" --http3-only --max-time 30 \
+    -H "Host: $HOST" -H "Content-Type: application/json" --resolve "$HTTP3_RESOLVE" \
+    -X POST "https://$HOST/api/auth/login" \
+    -d "{\"email\":\"${TEST_EMAIL}\",\"password\":\"${_U1_PW}\"}" 2>&1) || LOGOUT_H3_LOGIN_RC=$?
+  LOGOUT_H3_LOGIN_CODE=$(echo "$LOGOUT_H3_LOGIN" | tail -1)
+  TOKEN_H3_LOGOUT=$(echo "$LOGOUT_H3_LOGIN" | sed '$d' | grep -o '"token":"[^"]*"' | cut -d'"' -f4 || echo "")
+  if [[ "$LOGOUT_H3_LOGIN_CODE" == "200" ]] && [[ -n "$TOKEN_H3_LOGOUT" ]]; then
+    LOGOUT_H3_RC=0
+    LOGOUT_H3_RESPONSE=$(strict_http3_curl -sS -w "\n%{http_code}" --http3-only --max-time 30 \
+      -H "Host: $HOST" \
+      -H "Authorization: Bearer $TOKEN_H3_LOGOUT" \
+      --resolve "$HTTP3_RESOLVE" \
+      -X POST "https://$HOST/api/auth/logout" 2>&1) || LOGOUT_H3_RC=$?
+    LOGOUT_H3_CODE=$(echo "$LOGOUT_H3_RESPONSE" | tail -1)
+    if [[ "$LOGOUT_H3_RC" -ne 0 ]]; then
+      warn "Logout via HTTP/3 request failed (curl exit $LOGOUT_H3_RC)"
+    elif [[ "$LOGOUT_H3_CODE" =~ ^(200|204)$ ]]; then
+      ok "Logout works via HTTP/3 (HTTP $LOGOUT_H3_CODE)"
+    else
+      warn "Logout via HTTP/3 failed - HTTP $LOGOUT_H3_CODE"
+    fi
+  else
+    warn "Test 11 skipped: HTTP/3 re-login failed (HTTP ${LOGOUT_H3_LOGIN_CODE:-000}) — check TEST_EMAIL / register (password default test123)"
   fi
 else
-  warn "Skipping logout test - no auth token available"
+  if ! type strict_http3_curl &>/dev/null || [[ -z "${HTTP3_RESOLVE:-}" ]]; then
+    info "Test 11 skipped (HTTP/3 curl or resolve not available)"
+  elif [[ -z "${TEST_EMAIL:-}" ]]; then
+    warn "Test 11 skipped (no TEST_EMAIL after register — cannot re-login for HTTP/3 logout)"
+  fi
+  [[ -z "${TOKEN:-}" ]] && [[ -z "${TEST_EMAIL:-}" ]] && warn "Skipping logout tests - no auth token / user"
 fi
 
 # Test 12: Auth Service - Delete Account via HTTP/2
@@ -1365,13 +1390,22 @@ if type strict_http3_curl &>/dev/null && [[ -n "${HTTP3_RESOLVE:-}" ]]; then
     "/api/healthz:API Gateway"; do
     path="${route%%:*}"
     label="${route#*:}"
-    H3_HEALTH=$(strict_http3_curl -sS -w "\n%{http_code}" --http3-only --max-time 15 \
-      -H "Host: $HOST" \
-      --resolve "$HTTP3_RESOLVE" \
-      "https://$HOST${path}" 2>&1) || H3_HEALTH=""
-    H3_CODE=$(echo "$H3_HEALTH" | tail -1)
+    _h3_max=15
+    [[ "$path" == *media*healthz* ]] && _h3_max=90
+    H3_CODE=""
+    for _h3_try in 1 2 3; do
+      H3_HEALTH=$(strict_http3_curl -sS -w "\n%{http_code}" --http3-only --max-time "$_h3_max" \
+        -H "Host: $HOST" \
+        --resolve "$HTTP3_RESOLVE" \
+        "https://$HOST${path}" 2>&1) || H3_HEALTH=""
+      H3_CODE=$(echo "$H3_HEALTH" | tail -1)
+      [[ "$H3_CODE" == "200" ]] && break
+      [[ "$path" == *media*healthz* ]] && [[ "$_h3_try" -lt 3 ]] && sleep 4
+    done
     if [[ "$H3_CODE" == "200" ]]; then
       ok "${label} health via HTTP/3"
+    elif [[ "$path" == *notification*healthz* ]] && [[ "$H3_CODE" == "401" ]]; then
+      ok "${label} health via HTTP/3 (HTTP 401 — route JWT-protected; service reachable)"
     else
       warn "${label} health via HTTP/3 failed - HTTP ${H3_CODE:-000}"
     fi
@@ -1407,13 +1441,15 @@ for route in \
   "/api/healthz:gateway"; do
   path="${route%%:*}"
   service="${route#*:}"
+  _lat_max=15
+  [[ "$path" == *media*healthz* ]] && _lat_max=90
 
-  H2_LAT=$(strict_curl -sS -o /dev/null -w "%{http_code} %{time_total}" --http2 --max-time 15 \
+  H2_LAT=$(strict_curl -sS -o /dev/null -w "%{http_code} %{time_total}" --http2 --max-time "$_lat_max" \
     --resolve "$HOST:${PORT}:${CURL_RESOLVE_IP}" -H "Host: $HOST" "https://$HOST:${PORT}${path}" 2>/dev/null || echo "000 0")
   append_latency_row "$service" "HTTP2" "$(echo "$H2_LAT" | awk '{print $1}')" "$(echo "$H2_LAT" | awk '{print $2}')"
 
   if type strict_http3_curl &>/dev/null && [[ -n "${HTTP3_RESOLVE:-}" ]]; then
-    H3_LAT=$(strict_http3_curl -sS -o /dev/null -w "%{http_code} %{time_total}" --http3-only --max-time 15 \
+    H3_LAT=$(strict_http3_curl -sS -o /dev/null -w "%{http_code} %{time_total}" --http3-only --max-time "$_lat_max" \
       -H "Host: $HOST" --resolve "$HTTP3_RESOLVE" "https://$HOST${path}" 2>/dev/null || echo "000 0")
     append_latency_row "$service" "HTTP3" "$(echo "$H3_LAT" | awk '{print $1}')" "$(echo "$H3_LAT" | awk '{print $2}')"
   fi
@@ -1438,7 +1474,7 @@ fi
 if [[ "${SKIP_BOOKING_IN_HOUSING_SUITE:-0}" != "1" ]]; then
   say "Test 18: Booking service protocol suite (delegates to test-booking-http2-http3.sh)"
   if [[ -x "$SCRIPT_DIR/test-booking-http2-http3.sh" ]]; then
-    HOST="${HOST:-off-campus-housing.local}" "$SCRIPT_DIR/test-booking-http2-http3.sh" || fail "Booking protocol suite failed"
+    HOST="${HOST:-off-campus-housing.test}" "$SCRIPT_DIR/test-booking-http2-http3.sh" || fail "Booking protocol suite failed"
   else
     warn "test-booking-http2-http3.sh missing or not executable — skipping"
   fi

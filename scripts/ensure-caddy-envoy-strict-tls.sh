@@ -2,7 +2,7 @@
 # Ensure Caddy H3 (2 pods) and Envoy (1 pod) are running with strict TLS/mTLS and certs loaded.
 # Namespaces: ingress-nginx (Caddy), envoy-test (Envoy). Use before or with run-preflight-scale-and-all-suites.sh.
 #
-# Prerequisites: certs in ./certs/ (dev-root.pem, off-campus-housing.local.crt/key, envoy-client.crt/key).
+# Prerequisites: certs in ./certs/ (dev-root.pem, off-campus-housing.test.crt/key, envoy-client.crt/key).
 #   Create with: KAFKA_SSL=1 ./scripts/reissue-ca-and-leaf-load-all-services.sh
 #   Then: ./scripts/generate-envoy-client-cert.sh
 #   Then: ./scripts/strict-tls-bootstrap.sh  (or this script will run it if certs exist)
@@ -32,7 +32,7 @@ ok "Namespaces $NS_INGRESS, $NS_ENVOY ensured"
 
 # 2. TLS secrets (off-campus-housing-local-tls, dev-root-ca in ingress-nginx; dev-root-ca, envoy-client-tls in envoy-test)
 TLS_SECRET="${TLS_SECRET:-off-campus-housing-local-tls}"
-if [[ -f "$REPO_ROOT/certs/dev-root.pem" ]] && [[ -f "$REPO_ROOT/certs/off-campus-housing.local.crt" ]] && [[ -f "$REPO_ROOT/certs/off-campus-housing.local.key" ]]; then
+if [[ -f "$REPO_ROOT/certs/dev-root.pem" ]] && [[ -f "$REPO_ROOT/certs/off-campus-housing.test.crt" ]] && [[ -f "$REPO_ROOT/certs/off-campus-housing.test.key" ]]; then
   if ! kubectl -n "$NS_INGRESS" get secret "$TLS_SECRET" &>/dev/null || ! kubectl -n "$NS_INGRESS" get secret dev-root-ca &>/dev/null; then
     info "Creating TLS secrets (strict-tls-bootstrap)..."
     "$SCRIPT_DIR/strict-tls-bootstrap.sh" 2>&1 || warn "strict-tls-bootstrap had issues (secrets may already exist)"
@@ -52,7 +52,7 @@ if [[ -f "$REPO_ROOT/certs/dev-root.pem" ]] && [[ -f "$REPO_ROOT/certs/off-campu
     warn "certs/envoy-client.crt or .key missing; run ./scripts/generate-envoy-client-cert.sh (Envoy mTLS may fail)"
   fi
 else
-  warn "certs/dev-root.pem or off-campus-housing.local.crt/key missing. Run: KAFKA_SSL=1 ./scripts/reissue-ca-and-leaf-load-all-services.sh then ./scripts/strict-tls-bootstrap.sh"
+  warn "certs/dev-root.pem or off-campus-housing.test.crt/key missing. Run: KAFKA_SSL=1 ./scripts/reissue-ca-and-leaf-load-all-services.sh then ./scripts/strict-tls-bootstrap.sh"
   exit 1
 fi
 

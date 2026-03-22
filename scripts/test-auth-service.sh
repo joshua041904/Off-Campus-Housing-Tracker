@@ -3,7 +3,7 @@
 set -euo pipefail
 
 NS="off-campus-housing-tracker"
-HOST="${HOST:-off-campus-housing.local}"
+HOST="${HOST:-off-campus-housing.test}"
 PORT="${PORT:-30443}"  # Caddy HTTPS NodePort (use 8443 for HTTP port-forward; 443 when using LB IP)
 CURL_RESOLVE_IP="${TARGET_IP:-127.0.0.1}"  # Use LB IP when MetalLB verification set USE_LB_FOR_TESTS=1
 CURL_BIN="${CURL_BIN:-/opt/homebrew/opt/curl/bin/curl}"

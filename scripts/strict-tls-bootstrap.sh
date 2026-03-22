@@ -1,7 +1,7 @@
 # file: scripts/strict-tls-bootstrap.sh  (re-run to ensure secrets exist in BOTH namespaces)
 #!/usr/bin/env bash
 set -euo pipefail
-# Run from repo root. dev-root.pem, off-campus-housing.local.crt, off-campus-housing.local.key must be in ./certs/
+# Run from repo root. dev-root.pem, off-campus-housing.test.crt, off-campus-housing.test.key must be in ./certs/
 # For Envoy→backend mTLS we also need a dedicated Envoy client cert (CN=envoy). Generate with:
 #   KAFKA_SSL=1 ./scripts/reissue-ca-and-leaf-load-all-services.sh   # persists certs/dev-root.key
 #   ./scripts/generate-envoy-client-cert.sh                         # creates certs/envoy-client.crt|.key
@@ -12,8 +12,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT"
 
-LEAF_CRT="$ROOT/certs/off-campus-housing.local.crt"
-LEAF_KEY="$ROOT/certs/off-campus-housing.local.key"
+LEAF_CRT="$ROOT/certs/off-campus-housing.test.crt"
+LEAF_KEY="$ROOT/certs/off-campus-housing.test.key"
 CA_PEM="$ROOT/certs/dev-root.pem"
 if [[ ! -f "$LEAF_CRT" ]] || [[ ! -f "$LEAF_KEY" ]]; then
   echo "ERROR: Caddy/ingress certs missing. Create them first from repo root:" >&2

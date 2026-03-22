@@ -40,7 +40,7 @@ So: **preflight runs verify in the same order as a standalone run** (3c2 → wai
     then: `curl -k --http3-only https://<LB_IP>/_caddy/healthz`  
   - **Or** ensure the no-sudo forward is running and that the **VM** NodePort exposes **UDP** for 443:  
     `./scripts/setup-lb-ip-host-access-no-sudo.sh`  
-    then: `NGTCP2_ENABLE_GSO=0 curl --http3-only -k --resolve off-campus-housing.local:8443:127.0.0.1 https://off-campus-housing.local:8443/_caddy/healthz`  
+    then: `NGTCP2_ENABLE_GSO=0 curl --http3-only -k --resolve off-campus-housing.test:8443:127.0.0.1 https://off-campus-housing.test:8443/_caddy/healthz`  
   - If step 6 still fails: run in-VM:  
     `colima ssh -- curl -k --http3-only https://<LB_IP>/_caddy/healthz`  
     (VM curl must be built with HTTP/3/ngtcp2 for this to work.)
@@ -54,9 +54,9 @@ To prove that failure is the **host → Colima UDP path** and not Caddy/MetalLB:
 
 ```bash
 curl --http3 -v \
-  --resolve off-campus-housing.local:443:192.168.64.240 \
+  --resolve off-campus-housing.test:443:192.168.64.240 \
   --cacert certs/dev-root.pem \
-  https://off-campus-housing.local/_caddy/healthz
+  https://off-campus-housing.test/_caddy/healthz
 ```
 
 If this succeeds while host k6 HTTP/3 fails (e.g. "context deadline exceeded", 0% success), the issue is the host k6 + Colima UDP path, not the platform. In that case, treat **in-cluster k6** and **pod-level capture (L2 Caddy)** as authoritative for QUIC; host HTTP/3 is optional diagnostic only on Colima.

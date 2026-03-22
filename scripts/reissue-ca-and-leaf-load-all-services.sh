@@ -11,8 +11,8 @@
 # Run from repo root, or ensure PATH includes scripts/shims for kubectl.
 #
 # Usage: ./scripts/reissue-ca-and-leaf-load-all-services.sh
-#   RESTART_SERVICES=1     (default) — restart service deployments after updating secrets
-#   HOST=off-campus-housing.local      — leaf CN and SANs (default off-campus-housing.local)
+#   RESTART_SERVICES=1     (default) — restart service deployments after updating secrets (sequential ordered rollout)
+#   HOST=off-campus-housing.test      — leaf CN and SANs (default off-campus-housing.test)
 #   REISSUE_CAP=0          — no cap (default). Set >0 to limit total seconds; exits 1 if exceeded.
 #   CADDY_ROLLOUT_TIMEOUT  — seconds to wait for Caddy rollout (default 120)
 #   CADDY_WAIT_TIMEOUT     — seconds for pod wait fallback (default 60)
@@ -23,6 +23,7 @@
 #   REISSUE_STEP2_USE_APPLY=1 (default) — use kubectl apply -f (single write per secret). Set 0 to use legacy delete+create.
 #   REISSUE_PHASE1_ABORT=1 (default) — Phase 1: health gate before first apply; abort on first write failure (max 1 retry after readyz). Set 0 for legacy 12 retries.
 #   REISSUE_STEP2_SLEEP=5 — when REISSUE_PHASE1_ABORT=1 we enforce at least 5s between mutating calls.
+#   OCH_ROLLOUT_STATUS_TIMEOUT — seconds for each kubectl rollout status during step 7 (default 180).
 
 set -euo pipefail
 
@@ -36,7 +37,7 @@ cd "$REPO_ROOT"
 NS_ING="ingress-nginx"
 NS_APP="off-campus-housing-tracker"
 LEAF_TLS_SECRET="${LEAF_TLS_SECRET:-off-campus-housing-local-tls}"
-HOST="${HOST:-off-campus-housing.local}"
+HOST="${HOST:-off-campus-housing.test}"
 RESTART_SERVICES="${RESTART_SERVICES:-1}"
 
 say() { printf "\n\033[1m%s\033[0m\n" "$*"; }
@@ -210,11 +211,8 @@ EXT
     -extensions v3_req -extfile "$TMP/ext.conf" 2>/dev/null
   ok "Leaf generated (SANs: $HOST, localhost, ClusterIP, services)"
 
-  # Create full certificate chain (leaf + CA) for Caddy
-  # HTTP/3 curl needs the full chain to verify with --cacert
-  CHAIN_CRT="$TMP/tls-chain.crt"
-  cat "$LEAF_CRT" "$CA_CRT" > "$CHAIN_CRT"
-  ok "Certificate chain created (leaf + CA)"
+  # Edge (Caddy) and service-tls: tls.crt = leaf only; ca.crt / dev-root.pem = trust anchor (no chain concatenation).
+  ok "Leaf certificate ready (tls.crt will be leaf-only; verify with --cacert dev-root.pem)"
 
   log_progress "step 2: updating secrets…"
   say "2. Updating secrets (off-campus-housing-tracker + ingress-nginx)…"
@@ -231,7 +229,7 @@ EXT
   if [[ "$_use_ssh_step2" == "1" ]]; then
     SSH_DIR="$REPO_ROOT/.reissue-ssh-$$"
     mkdir -p "$SSH_DIR"
-    cp "$CHAIN_CRT" "$SSH_DIR/tls-chain.crt"
+    cp "$LEAF_CRT" "$SSH_DIR/tls.crt"
     cp "$LEAF_KEY" "$SSH_DIR/tls.key"
     cp "$CA_CRT" "$SSH_DIR/dev-root.pem"
     cp "$CA_CRT" "$SSH_DIR/ca.crt"
@@ -485,7 +483,7 @@ metadata:
   namespace: $n
 type: Opaque
 data:
-  tls.crt: \"$(_b64 "$CHAIN_CRT")\"
+  tls.crt: \"$(_b64 "$LEAF_CRT")\"
   tls.key: \"$(_b64 "$LEAF_KEY")\"" > "$f_rlt"
       _apply_yaml_with_retry "$f_rlt" || return 1
       sleep "$STEP2_SLEEP"
@@ -515,7 +513,7 @@ data:
       fi
       [[ "$n" == "$NS_APP" ]] && sleep 15
     done
-    ok "record-local-tls (with full chain) and dev-root-ca updated in both namespaces (apply)"
+    ok "$LEAF_TLS_SECRET (edge leaf-only tls.crt) and dev-root-ca updated in both namespaces (apply)"
     # Secret type is immutable: delete service-tls before apply so we can set type Opaque.
     _kubectl_step2 -n "$NS_APP" delete secret service-tls --ignore-not-found 2>/dev/null || true
     sleep "$STEP2_SLEEP"
@@ -527,21 +525,21 @@ metadata:
   namespace: $NS_APP
 type: Opaque
 data:
-  tls.crt: \"$(_b64 "$CHAIN_CRT")\"
+  tls.crt: \"$(_b64 "$LEAF_CRT")\"
   tls.key: \"$(_b64 "$LEAF_KEY")\"
   ca.crt: \"$(_b64 "$CA_CRT")\"" > "$f_svc"
     _apply_yaml_with_retry "$f_svc" || return 1
     sleep "$STEP2_SLEEP"
-    ok "service-tls updated (off-campus-housing-tracker) with full chain in tls.crt (apply)"
+    ok "service-tls updated (off-campus-housing-tracker) — tls.crt=leaf only, ca.crt=CA (apply)"
   else
     # Legacy: delete + create (more writes, more watch churn).
     for n in "$NS_APP" "$NS_ING"; do
       _kubectl_step2 -n "$n" delete secret "$LEAF_TLS_SECRET" 2>/dev/null || true
       sleep "$STEP2_SLEEP"
       if [[ -n "$SSH_DIR" ]]; then
-        _apply_with_retry -n "$n" create secret generic "$LEAF_TLS_SECRET" --from-file=tls.crt="$SSH_DIR/tls-chain.crt" --from-file=tls.key="$SSH_DIR/tls.key"
+        _apply_with_retry -n "$n" create secret generic "$LEAF_TLS_SECRET" --from-file=tls.crt="$SSH_DIR/tls.crt" --from-file=tls.key="$SSH_DIR/tls.key"
       else
-        _apply_with_retry -n "$n" create secret generic "$LEAF_TLS_SECRET" --from-file=tls.crt="$CHAIN_CRT" --from-file=tls.key="$LEAF_KEY"
+        _apply_with_retry -n "$n" create secret generic "$LEAF_TLS_SECRET" --from-file=tls.crt="$LEAF_CRT" --from-file=tls.key="$LEAF_KEY"
       fi
       sleep "$STEP2_SLEEP"
       _kubectl_step2 -n "$n" patch secret "$LEAF_TLS_SECRET" -p '{"type":"kubernetes.io/tls"}' 2>/dev/null || true
@@ -558,16 +556,16 @@ data:
         sleep 15
       fi
     done
-    ok "$LEAF_TLS_SECRET (with full chain) and dev-root-ca updated in both namespaces"
+    ok "$LEAF_TLS_SECRET (leaf-only tls.crt) and dev-root-ca updated in both namespaces"
     _kubectl_step2 -n "$NS_APP" delete secret service-tls 2>/dev/null || true
     sleep "$STEP2_SLEEP"
     if [[ -n "$SSH_DIR" ]]; then
-      _apply_with_retry -n "$NS_APP" create secret generic service-tls --from-file=tls.crt="$SSH_DIR/tls-chain.crt" --from-file=tls.key="$SSH_DIR/tls.key" --from-file=ca.crt="$SSH_DIR/ca.crt"
+      _apply_with_retry -n "$NS_APP" create secret generic service-tls --from-file=tls.crt="$SSH_DIR/tls.crt" --from-file=tls.key="$SSH_DIR/tls.key" --from-file=ca.crt="$SSH_DIR/ca.crt"
     else
-      _apply_with_retry -n "$NS_APP" create secret generic service-tls --from-file=tls.crt="$CHAIN_CRT" --from-file=tls.key="$LEAF_KEY" --from-file=ca.crt="$CA_CRT"
+      _apply_with_retry -n "$NS_APP" create secret generic service-tls --from-file=tls.crt="$LEAF_CRT" --from-file=tls.key="$LEAF_KEY" --from-file=ca.crt="$CA_CRT"
     fi
     sleep "$STEP2_SLEEP"
-    ok "service-tls updated (off-campus-housing-tracker) with full chain in tls.crt"
+    ok "service-tls updated (off-campus-housing-tracker) — tls.crt=leaf only, ca.crt=CA"
   fi
   [[ -n "$SSH_DIR" ]] && rm -rf "$SSH_DIR"
 
@@ -588,14 +586,14 @@ data:
   say "4. Writing certs to certs/ (for Kustomize consistency)…"
   mkdir -p "$REPO_ROOT/certs"
   cp "$CA_CRT" "$REPO_ROOT/certs/dev-root.pem"
-  cp "$LEAF_CRT" "$REPO_ROOT/certs/off-campus-housing.local.crt"
-  cp "$LEAF_KEY" "$REPO_ROOT/certs/off-campus-housing.local.key"
+  cp "$LEAF_CRT" "$REPO_ROOT/certs/off-campus-housing.test.crt"
+  cp "$LEAF_KEY" "$REPO_ROOT/certs/off-campus-housing.test.key"
   if [[ "${KAFKA_SSL:-0}" == "1" ]]; then
     cp "$CA_KEY" "$REPO_ROOT/certs/dev-root.key"
     chmod 600 "$REPO_ROOT/certs/dev-root.key" 2>/dev/null || true
-    ok "certs/dev-root.pem|.key, off-campus-housing.local.crt|.key (KAFKA_SSL=1: CA key persisted for kafka-ssl-from-dev-root)"
+    ok "certs/dev-root.pem|.key, off-campus-housing.test.crt|.key (KAFKA_SSL=1: CA key persisted for kafka-ssl-from-dev-root)"
   else
-    ok "certs/dev-root.pem, certs/off-campus-housing.local.crt|.key updated"
+    ok "certs/dev-root.pem, certs/off-campus-housing.test.crt|.key updated"
   fi
 
   # Step 4b: API is often overloaded right after step 2 (many secret creates). Wait for it to respond before Caddy rollout.
@@ -726,28 +724,15 @@ data:
       warn "service-tls secret not fully ready after 15s, but continuing with restarts..."
     fi
     
-    log_progress "step 7: restarting service deployments…"
-    say "7. Restarting service deployments (pick up new service-tls)…"
+    log_progress "step 7: restarting service deployments (sequential ordered rollout)…"
+    say "7. Restarting service deployments (sequential order; pick up new service-tls)…"
     # Only restart deployments that exist (preflight may not have applied them yet — 3c/4 apply and scale come after reissue).
-    # Use colima ssh when on Colima so restarts don't hit the flaky host tunnel (same as step 2).
-    _use_vm_restart=0
-    if [[ "$ctx" == *"colima"* ]] && command -v colima >/dev/null 2>&1 && colima ssh -- env KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl get nodes --request-timeout=5s >/dev/null 2>&1; then
-      _use_vm_restart=1
-    fi
-    _restarted=0
-    _skipped=0
-    for d in auth-service api-gateway listings-service booking-service messaging-service trust-service analytics-service; do
-      if ! kctl get deploy "$d" -n "$NS_APP" --request-timeout=5s >/dev/null 2>&1; then
-        _skipped=$((_skipped + 1))
-        continue
-      fi
-      if [[ "$_use_vm_restart" == "1" ]]; then
-        colima ssh -- env KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl -n "$NS_APP" rollout restart "deploy/$d" --request-timeout=30s 2>/dev/null && { ok "$d restarted"; _restarted=$((_restarted + 1)); } || warn "$d restart failed"
-      else
-        kctl -n "$NS_APP" rollout restart "deploy/$d" 2>/dev/null && { ok "$d restarted"; _restarted=$((_restarted + 1)); } || warn "$d restart failed"
-      fi
-    done
-    [[ "$_skipped" -gt 0 ]] && info "  $_skipped deployment(s) not present yet (preflight 3c/4 create them); restarted $_restarted"
+    # kctl uses host kubectl or colima VM kubectl (step 0c) — same as step 2.
+    och_kubectl() { kctl "$@"; }
+    # shellcheck source=scripts/lib/och-sequential-rollout.sh
+    source "$SCRIPT_DIR/lib/och-sequential-rollout.sh"
+    OCH_ROLLOUT_NS="$NS_APP" NS_ING="$NS_ING" och_rollout_ordered_housing_apps
+    unset -f och_kubectl 2>/dev/null || true
     if kctl get deploy envoy-test -n envoy-test --request-timeout=5s >/dev/null 2>&1; then
       if [[ "$_use_vm_restart" == "1" ]]; then
         colima ssh -- env KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl -n envoy-test rollout restart deploy/envoy-test --request-timeout=30s 2>/dev/null && ok "envoy-test restarted" || true

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Deterministic DB bootstrap: run SQL migrations in order for all 7 housing DBs (5441–5447).
+# Deterministic DB bootstrap: run SQL migrations in order for all 8 housing DBs (5441–5448; media optional via BOOTSTRAP_SKIP_MEDIA).
 # Prefer over dumps for team reproducibility. External Postgres must be up (e.g. bring-up-external-infra.sh).
 #
-# Order: auth → listings → bookings → messaging → notification → trust → analytics
+# Order: auth → listings → bookings → messaging → notification → trust → analytics → media
 # Usage: PGPASSWORD=postgres ./scripts/bootstrap-all-dbs.sh
 # Optional: BOOTSTRAP_HOST=127.0.0.1 BOOTSTRAP_ONLY=messaging
 #           DROP_IF_EXISTS=true — drop and recreate each DB before schema (deterministic, no leftover state)

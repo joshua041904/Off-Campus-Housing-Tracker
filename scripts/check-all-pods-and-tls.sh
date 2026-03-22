@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Check all pods health and strict TLS configuration.
 # Supports Colima/k3s; uses kubectl shim (shims-first PATH).
+#
+# Destructive fixes (kubectl delete pod) are OFF by default — they amplify crash/probe storms.
+# Set OCH_DIAGNOSTIC_ALLOW_POD_DELETE=1 to allow stuck-Pending, FailedMount-retry, and probe-TLS pod deletion.
 
 set -euo pipefail
 
@@ -11,6 +14,7 @@ export PATH="$SCRIPT_DIR/shims:/opt/homebrew/bin:/usr/local/bin:${PATH:-}"
 cd "$REPO_ROOT"
 
 [[ -f "$SCRIPT_DIR/lib/kubectl-helper.sh" ]] && . "$SCRIPT_DIR/lib/kubectl-helper.sh"
+[[ -f "$SCRIPT_DIR/lib/grpc-utils.sh" ]] && . "$SCRIPT_DIR/lib/grpc-utils.sh"
 ctx=$(kubectl config current-context 2>/dev/null || echo "")
 _kubectl() {
   if [[ "$ctx" == *"colima"* ]] && command -v colima >/dev/null 2>&1; then
@@ -54,9 +58,9 @@ else
   say "1. Preflight (skipped, SKIP_PREFLIGHT=1)"
 fi
 
-# 2. Check external database ports (7 PostgreSQL: docker-compose 5441–5447). Port UP = reachable; database names (auth, listings, bookings, messaging, notification, trust, analytics) must exist on each instance.
-say "2. Checking external database ports (7 PostgreSQL)..."
-DB_PORTS=(5441 5442 5443 5444 5445 5446 5447)
+# 2. Check external database ports (8 PostgreSQL: docker-compose 5441–5448). Port UP = reachable; DB names on each instance per service.
+say "2. Checking external database ports (8 PostgreSQL)..."
+DB_PORTS=(5441 5442 5443 5444 5445 5446 5447 5448)
 DB_UP=0
 for port in "${DB_PORTS[@]}"; do
   if nc -z localhost "$port" 2>/dev/null; then
@@ -67,22 +71,44 @@ for port in "${DB_PORTS[@]}"; do
   fi
 done
 if [[ "${DB_UP:-0}" -eq 8 ]]; then
-  ok "All 8 database ports UP (reachable)"
-  info "Database names (listings, shopping, auth, etc.) must exist on each port — create with infra/db/00-create-*-database.sql or run preflight without SKIP_PREFLIGHT_MIGRATIONS=1 for 9/9"
+  ok "All 8 database ports UP (reachable, 5441–5448)"
+  info "Database names (auth, listings, …, media) must exist on each port — create with infra/db SQL or setup scripts"
 else
-  warn "Only ${DB_UP:-0}/7 database ports UP (expected 5441–5447)"
+  warn "Only ${DB_UP:-0}/8 database ports UP (expected 5441–5448; media=5448)"
 fi
 
 KAFKA_SSL_PORT="${KAFKA_SSL_PORT:-29094}"
 REDIS_PORT="${REDIS_PORT:-6380}"
 
+# Wait for Kafka SSL port on host (strict TLS). Starts compose if needed. Used in step 3 and before app readiness.
+_ensure_kafka_host_port() {
+  local port="${1:-$KAFKA_SSL_PORT}"
+  local max_sec="${2:-90}"
+  local step=3
+  local waited=0
+  if nc -z 127.0.0.1 "$port" 2>/dev/null || nc -z localhost "$port" 2>/dev/null; then
+    return 0
+  fi
+  if command -v docker >/dev/null 2>&1 && [[ -f "$REPO_ROOT/docker-compose.yml" ]]; then
+    ( cd "$REPO_ROOT" && docker compose up -d zookeeper kafka ) 2>/dev/null || true
+  fi
+  while [[ "$waited" -lt "$max_sec" ]]; do
+    if nc -z 127.0.0.1 "$port" 2>/dev/null || nc -z localhost "$port" 2>/dev/null; then
+      return 0
+    fi
+    sleep "$step"
+    waited=$((waited + step))
+  done
+  return 1
+}
+
 # 3. Kafka: external strict TLS (Docker Compose :29094 for housing; RP uses 29093). No in-cluster Kafka/ZK.
 say "3. Checking Kafka (external strict TLS, :$KAFKA_SSL_PORT)..."
-if nc -z 127.0.0.1 "$KAFKA_SSL_PORT" 2>/dev/null || nc -z localhost "$KAFKA_SSL_PORT" 2>/dev/null; then
+if _ensure_kafka_host_port "$KAFKA_SSL_PORT" 90; then
   ok "Kafka (external $KAFKA_SSL_PORT): UP"
 else
   if command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' 2>/dev/null | grep -q "kafka"; then
-    warn "Kafka container running but port $KAFKA_SSL_PORT not accessible from host — may need to wait for startup"
+    warn "Kafka container present but port $KAFKA_SSL_PORT not reachable after 90s — check compose / listener"
   else
     warn "Kafka (external $KAFKA_SSL_PORT): DOWN — run: docker compose up -d kafka zookeeper"
   fi
@@ -110,14 +136,62 @@ else
   warn "Redis ($REDIS_PORT): DOWN (external Redis required for cache hits)"
 fi
 
-# 5. Service pods (off-campus-housing-tracker, 1/1 each) — use _kubectl (request-timeout); avoid cap timeouts
-say "5. Checking service pods (off-campus-housing-tracker, should be 1/1 Ready)..."
-SERVICES=("auth-service" "listings-service" "booking-service" "messaging-service" "trust-service" "analytics-service" "api-gateway")
+# 5. App workloads (dynamic): *-service + api-gateway — excludes nginx/haproxy/exporters/caddy/envoy
+say "5. Checking app pods (off-campus-housing-tracker, should be 1/1 Ready)..."
+HOUSING_CHECK_NS="${HOUSING_NS:-off-campus-housing-tracker}"
+if type och_list_app_deployments &>/dev/null; then
+  _listed=$(och_list_app_deployments "$HOUSING_CHECK_NS" | tr '\n' ' ')
+  if [[ -n "${_listed// /}" ]]; then
+    read -r -a SERVICES <<< "$_listed"
+  else
+    SERVICES=("auth-service" "api-gateway" "listings-service" "booking-service" "messaging-service" "trust-service" "analytics-service" "media-service" "notification-service")
+  fi
+else
+  SERVICES=("auth-service" "api-gateway" "listings-service" "booking-service" "messaging-service" "trust-service" "analytics-service" "media-service" "notification-service")
+fi
+APP_EXPECTED=${#SERVICES[@]}
+echo "  ℹ️  App deployments to verify: $APP_EXPECTED (${SERVICES[*]})"
+
+# Kafka must be on the host before analytics/notification stabilize (same as step 3).
+_ensure_kafka_host_port "$KAFKA_SSL_PORT" 30 >/dev/null 2>&1 || true
+
+# Optional settle time: OCH_APP_READY_WAIT_SEC (default 180), poll OCH_APP_READY_POLL_STEP (default 12)
+APP_WAIT_SEC="${OCH_APP_READY_WAIT_SEC:-180}"
+APP_POLL_STEP="${OCH_APP_READY_POLL_STEP:-12}"
+_elapsed=0
 READY=0
-TOTAL=0
 NOT_READY=()
 
-# First pass: check status
+_count_app_ready() {
+  READY=0
+  NOT_READY=()
+  local svc R S
+  for svc in "${SERVICES[@]}"; do
+    R=$(_kubectl get deploy -n off-campus-housing-tracker "$svc" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+    S=$(_kubectl get deploy -n off-campus-housing-tracker "$svc" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "1")
+    [[ -z "$R" ]] && R="0"
+    [[ -z "$S" ]] && S="1"
+    if [[ "$R" == "1" && "$S" == "1" ]]; then
+      ((READY++)) || true
+    else
+      NOT_READY+=("$svc")
+    fi
+  done
+}
+
+while [[ "$_elapsed" -lt "$APP_WAIT_SEC" ]]; do
+  _count_app_ready
+  [[ "$READY" -eq "$APP_EXPECTED" ]] && break
+  echo "  ℹ️  App readiness $READY/$APP_EXPECTED (waiting for Kafka + probes; ${_elapsed}s / ${APP_WAIT_SEC}s max)..."
+  _ensure_kafka_host_port "$KAFKA_SSL_PORT" 20 >/dev/null 2>&1 || true
+  sleep "$APP_POLL_STEP"
+  _elapsed=$((_elapsed + APP_POLL_STEP))
+done
+
+# Final pass: print per-service lines
+TOTAL=0
+READY=0
+NOT_READY=()
 for svc in "${SERVICES[@]}"; do
   TOTAL=$((TOTAL + 1))
   R=$(_kubectl get deploy -n off-campus-housing-tracker "$svc" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
@@ -134,27 +208,17 @@ for svc in "${SERVICES[@]}"; do
 done
 
 # If not all ready, diagnose and fix
-if [[ "${READY:-0}" -ne 7 ]]; then
-  warn "Only ${READY:-0}/7 services Ready - diagnosing issues..."
-  echo "  If pod logs show \"database X does not exist\", create that database on the correct port (e.g. listings on 5442) or run preflight without SKIP_PREFLIGHT_MIGRATIONS=1."
+if [[ "${READY:-0}" -ne "$APP_EXPECTED" ]]; then
+  warn "Only ${READY:-0}/${APP_EXPECTED} app deployments Ready - diagnosing issues..."
+  echo "  If pods show DB errors, ensure Postgres DBs exist on 5441–5448 (docker compose) or run PREFLIGHT_AUTH_PRISMA_MIGRATE=1 for auth only."
   echo ""
   
   # Ensure Kafka is up first (required for analytics-service)
   say "5a. Ensuring Kafka is accessible..."
-  if ! nc -z 127.0.0.1 "$KAFKA_SSL_PORT" 2>/dev/null && ! nc -z localhost "$KAFKA_SSL_PORT" 2>/dev/null; then
-    warn "Kafka port $KAFKA_SSL_PORT not accessible, starting Kafka..."
-    if command -v docker >/dev/null 2>&1; then
-      docker compose up -d zookeeper kafka 2>&1 | tail -5 || true
-      for i in {1..30}; do
-        if nc -z 127.0.0.1 "$KAFKA_SSL_PORT" 2>/dev/null || nc -z localhost "$KAFKA_SSL_PORT" 2>/dev/null; then
-          ok "Kafka is now accessible (took ${i}s)"
-          break
-        fi
-        sleep 2
-      done
-    fi
-  else
+  if _ensure_kafka_host_port "$KAFKA_SSL_PORT" 60; then
     ok "Kafka ($KAFKA_SSL_PORT): UP"
+  else
+    warn "Kafka ($KAFKA_SSL_PORT) still not reachable — check docker compose"
   fi
   
   # Diagnose each not-ready service
@@ -212,10 +276,15 @@ if [[ "${READY:-0}" -ne 7 ]]; then
         # Check if pod is older than 2 minutes
         AGE_SEC=$(($(date +%s) - $(date -j -f "%Y-%m-%dT%H:%M:%SZ" "${AGE}Z" +%s 2>/dev/null || echo 0)))
         if [[ $AGE_SEC -gt 120 ]]; then
-          warn "  Pod $POD stuck in $PHASE for ${AGE_SEC}s, deleting..."
-          echo "  Deleting stuck pod: $POD" | tee -a "$DIAG_LOG"
-          _kubectl delete pod "$POD" -n off-campus-housing-tracker --force --grace-period=0 2>&1 | tee -a "$DIAG_LOG" || true
-          FIXED_THIS_SERVICE=1
+          if [[ "${OCH_DIAGNOSTIC_ALLOW_POD_DELETE:-0}" == "1" ]]; then
+            warn "  Pod $POD stuck in $PHASE for ${AGE_SEC}s, deleting..."
+            echo "  Deleting stuck pod: $POD" | tee -a "$DIAG_LOG"
+            _kubectl delete pod "$POD" -n off-campus-housing-tracker --force --grace-period=0 2>&1 | tee -a "$DIAG_LOG" || true
+            FIXED_THIS_SERVICE=1
+          else
+            warn "  Pod $POD stuck in $PHASE for ${AGE_SEC}s (set OCH_DIAGNOSTIC_ALLOW_POD_DELETE=1 to delete)"
+            echo "  Stuck pod (no delete): $POD" | tee -a "$DIAG_LOG"
+          fi
         fi
       fi
     fi
@@ -238,11 +307,15 @@ if [[ "${READY:-0}" -ne 7 ]]; then
         warn "  service-tls secret missing! This is required."
         echo "  service-tls secret missing!" | tee -a "$DIAG_LOG"
       else
-        # Secret exists but mount failed - delete pod to retry
-        warn "  Secret exists but mount failed, deleting pod to retry..."
-        echo "  Deleting pod to retry mount: $POD" | tee -a "$DIAG_LOG"
-        _kubectl delete pod "$POD" -n off-campus-housing-tracker --force --grace-period=0 2>&1 | tee -a "$DIAG_LOG" || true
-        FIXED_THIS_SERVICE=1
+        if [[ "${OCH_DIAGNOSTIC_ALLOW_POD_DELETE:-0}" == "1" ]]; then
+          warn "  Secret exists but mount failed, deleting pod to retry..."
+          echo "  Deleting pod to retry mount: $POD" | tee -a "$DIAG_LOG"
+          _kubectl delete pod "$POD" -n off-campus-housing-tracker --force --grace-period=0 2>&1 | tee -a "$DIAG_LOG" || true
+          FIXED_THIS_SERVICE=1
+        else
+          warn "  Mount failed but pod delete disabled (OCH_DIAGNOSTIC_ALLOW_POD_DELETE=1 to retry via delete)"
+          echo "  Mount retry skipped: $POD" | tee -a "$DIAG_LOG"
+        fi
       fi
     fi
     
@@ -288,10 +361,15 @@ if [[ "${READY:-0}" -ne 7 ]]; then
       echo "  Probe error: $PROBE_ERROR" | tee -a "$DIAG_LOG"
       # If it's a TLS/probe config issue, delete pod to retry
       if echo "$PROBE_ERROR" | grep -qi "tls\|cert"; then
-        warn "  TLS/probe config issue detected, deleting pod to retry..."
-        echo "  Deleting pod due to probe error: $POD" | tee -a "$DIAG_LOG"
-        _kubectl delete pod "$POD" -n off-campus-housing-tracker --force --grace-period=0 2>&1 | tee -a "$DIAG_LOG" || true
-        FIXED_THIS_SERVICE=1
+        if [[ "${OCH_DIAGNOSTIC_ALLOW_POD_DELETE:-0}" == "1" ]]; then
+          warn "  TLS/probe config issue detected, deleting pod to retry..."
+          echo "  Deleting pod due to probe error: $POD" | tee -a "$DIAG_LOG"
+          _kubectl delete pod "$POD" -n off-campus-housing-tracker --force --grace-period=0 2>&1 | tee -a "$DIAG_LOG" || true
+          FIXED_THIS_SERVICE=1
+        else
+          warn "  TLS/probe issue logged; not deleting pod (OCH_DIAGNOSTIC_ALLOW_POD_DELETE=1 to enable)"
+          echo "  Probe TLS issue (no delete): $POD — $PROBE_ERROR" | tee -a "$DIAG_LOG"
+        fi
       fi
     fi
     
@@ -327,7 +405,7 @@ if [[ "${READY:-0}" -ne 7 ]]; then
   done
 fi
 
-[[ "${READY:-0}" -eq 9 ]] && ok "All 9 services Ready (1/1)" || warn "Only ${READY:-0}/9 services Ready"
+[[ "${READY:-0}" -eq "$APP_EXPECTED" ]] && ok "All ${APP_EXPECTED} app deployments Ready (1/1)" || warn "Only ${READY:-0}/${APP_EXPECTED} app deployments Ready"
 
 # 6. Exporters (off-campus-housing-tracker, 1/1 each)
 say "6. Checking exporters (off-campus-housing-tracker, 1/1 each)..."

@@ -1,129 +1,178 @@
-fix: make demo = Colima+k3s only; preflight no longer hard-exits; housing suite 10–18 + notification + listings
+================================================================================
+GIT COMMIT — FIRST LINE (copy/paste for `git commit -m "..."`)
+================================================================================
+docs+fix: housing playbook, media HTTP :4018, k6/macOS TLS docs, k6 script fixes
 
-Summary
--------
-- **Makefile**: **`REQUIRE_COLIMA=1`**, **`METALLB_USE_K3D=0`** on **demo** / **demo-full** / **demo-network** / **preflight-metallb**. **`PREFLIGHT_EXIT_AFTER_HOUSING_SUITES=1`** on **make demo** (stops after 7a: housing HTTP suite + k6 grid + Playwright). **demo-full** sets **`PREFLIGHT_EXIT_AFTER_HOUSING_SUITES=0`** so transport study / pgbench / later steps can run.
-- **run-preflight-scale-and-all-suites.sh**: Removed unconditional **`exit 0`** after `_run_all_suites`; gated by **`PREFLIGHT_EXIT_AFTER_HOUSING_SUITES`** (documented in script header).
-- **test-microservices-http2-http3-housing.sh**: Renumbered tail tests **14–19 → 10–16** (logout/delete/health/grpc/latency); added **notification** to HTTP/3 health, gRPC **:50065**, latency loop; **Test 17** **`test-listings-http2-http3.sh`** when **`TARGET_IP`** set; **Test 18** booking delegate.
-- **run-demo-network-preflight.sh**: Exports **REQUIRE_COLIMA** / **METALLB_USE_K3D** defaults.
-- **docs/MAKE_DEMO.md**, **package.json** **`pnpm run demo:full`**.
+================================================================================
+WHO SHOULD READ THIS
+================================================================================
+Anyone landing on this branch who did not live through the debugging session. This file is both:
+  • a **commit message / changelog** for what we changed, and  
+  • a **short runbook** for order of setup and how to run tests.
 
-Verification
-------------
-- `bash -n` on modified shell scripts
-- `pnpm run test` (Vitest)
-- `pnpm exec playwright test e2e/guest.spec.ts` (guest-only; integrated E2E needs cluster + `make test-e2e-integrated`)
+If you only read one section, read **“In plain English — what we fixed”** and **“TL;DR — files and behavior”**.
 
----
+================================================================================
+IN PLAIN ENGLISH — WHAT WE FIXED
+================================================================================
+1. **Media service had gRPC only; the API gateway talks to media over HTTP.**  
+   The gateway sends `/api/media/*` to **http://media-service:4018**. The process was only listening on
+   **gRPC port 50068**, so the gateway got **connection refused** on 4018 — even though k6/gRPC health
+   on 50068 could look “fine”. We added a small **HTTP server on 4018** with **`/healthz`** so the
+   gateway and k6 media health checks can succeed.
 
-feat: Makefile demo targets, demo-network preflight + sslkeylog, housing-only cron-jobs
+2. **macOS + Homebrew k6 + HTTPS to the dev hostname.**  
+   On Mac, k6 (Go) does **not** use `SSL_CERT_FILE` the way Linux does. Teammates hit **x509 certificate
+   is not trusted** unless the dev CA is in the **login keychain** or they use **Docker k6**. Preflight
+   can run a helper script automatically; docs and Runbook explain the overrides.
 
-Summary
--------
-- **Makefile** (`make help`): **`make demo`** — `setup-full-off-campus-housing-stack.sh` with **`METALLB_ENABLED=1`**, **`K6_USE_METALLB=1`**, **`RUN_PREFLIGHT=1`**, **`RUN_PGBENCH=0`**, **`RUN_FULL_LOAD=0`**. **`make demo-full`** / **`make demo-k3d`** / **`make stack`** / **`make images`** / **`make kustomize-apply`** / **`make deploy-dev`** / **`make preflight-metallb`** / **`make test-e2e-integrated`** / **`make packet-capture-standalone`**.
-- **`scripts/run-demo-network-preflight.sh`**: sets **`SSLKEYLOGFILE`** + **`CAPTURE_V2_TLS_KEYLOG`**, **`STRICT_QUIC_VALIDATION`**, sources **`lib/resolve-lb-ip.sh`**, runs **`run-preflight-scale-and-all-suites.sh`**, then **`test-packet-capture-standalone.sh`** when **`TARGET_IP`** exists (**`RUN_STANDALONE_PACKET_TEST=0`** to skip).
-- **`docs/MAKE_DEMO.md`**: how to run **`make demo`** / **`make demo-network`**, env tuning, pointer to **`scripts/lib/COHERENT_ANALYSIS.md`** for pcap analytics.
-- **`scripts/lib/COHERENT_ANALYSIS.md`**: links **`make demo-network`** / **`make demo`** into the lib pipeline story.
-- **`README.md`**: Makefile + **MAKE_DEMO** link.
-- **`services/cron-jobs`**: **housing-only** — **`NOTIFICATION_HEARTBEAT_URL`** heartbeat every 5m; removed **pg** / **S3** / legacy auction crons from this package.
-- **Root `package.json`**: **`pnpm run demo`**, **`demo:network`**, **`make:help`**.
+3. **k6 scripts must pass settings explicitly.**  
+   Shell `export` alone was flaky vs Docker k6. Wrappers now use **`k6 run -e KEY=value`** so the test
+   scripts see **`__ENV`** the same way every time.
 
-Verification
-------------
-- `pnpm install` / `pnpm -C services/cron-jobs build`
-- `make help`
+4. **Two k6 JS bugs.**  
+   **`k6-media-health.js`** called **`mergeEdgeTls`** without importing it → crash.  
+   **`k6-search-watchlist.js`** used **`rawBase`** in `setup()` but never defined it → crash.
 
----
+5. **Documentation so the next person does not re-debug the same dead ends.**  
+   For example: **HAProxy** in this repo only forwards to the **API gateway**, not to media — so
+   blaming HAProxy for “media port dead” was wrong. **RPC protos** (`proto/*.proto`) vs **Kafka event
+   protos** (`proto/events/`) are explained in **ENGINEERING.md** and **Runbook.md**.
 
-fix: gRPC probe timeouts; och TLS/Kafka secrets; preflight 3a0 auto-bundle; Kafka och secret
+================================================================================
+TERMINOLOGY (QUICK)
+================================================================================
+| Term | Meaning |
+|------|--------|
+| **OCH / housing** | This app: namespace **`off-campus-housing-tracker`**, services on HTTP 401x / gRPC 5006x. |
+| **Preflight** | **`scripts/run-preflight-scale-and-all-suites.sh`** — long orchestrated check (cluster, TLS, suites, k6, …). |
+| **Step 7a** | Part of preflight: Vitest + housing HTTP suite + **k6 edge smoke** + Playwright. |
+| **MEDIA_HTTP** | Env / URL the gateway uses to **HTTP proxy** `/media` and `/api/media` (default port **4018**). |
+| **5441–5448** | Eight **Postgres** instances on the **host** (Docker Compose): one DB per service area. |
+| **k6** | Load testing tool; **edge smoke** hits **https://off-campus-housing.test** through Caddy/metal LB. |
 
-Summary
--------
-- **analytics-service restarts**: kubelet killed **grpc-health-probe** at **timeoutSeconds: 3** while mTLS
-  handshakes need longer. **Startup/readiness/liveness** `timeoutSeconds` raised **3 → 10** for
-  **analytics, trust, booking, listings** (messaging already 5s).
-- **`scripts/ensure-housing-cluster-secrets.sh`**: if **service-tls** / **dev-root-ca** missing, runs
-  **ensure-strict-tls-mtls-preflight.sh**; always ensures **och-service-tls** (copy of **service-tls**) and
-  **och-kafka-ssl-secret** (from **kafka-ssl-secret** or **kafka-ssl-from-dev-root.sh** when CA key exists).
-- **`run-preflight-scale-and-all-suites.sh`**: new **3a0** after Phase 1A — runs the above by default
-  (`PREFLIGHT_AUTO_ENSURE_CLUSTER_SECRETS=1`). Disable with **`PREFLIGHT_AUTO_ENSURE_CLUSTER_SECRETS=0`**
-  or **`SKIP_AUTO_CLUSTER_SECRETS=1`**.
-- **`ensure-strict-tls-mtls-preflight.sh`**: after rollouts, applies **och-service-tls** alias so reissue
-  and strict preflight stay aligned with Deployment secret names.
-- **`kafka-ssl-from-dev-root.sh`**: also creates/updates **och-kafka-ssl-secret** (client PEMs) for pod mounts.
+================================================================================
+TL;DR — FILES AND BEHAVIOR (WHAT CHANGED)
+================================================================================
+Code / runtime
+--------------
+• **services/media-service/src/http-server.ts** (new) — HTTP **4018**, **`GET /healthz`** (and `/health`).  
+• **services/media-service/src/server.ts** — starts HTTP + gRPC.  
+• **services/api-gateway/src/server.ts** — comment on **`MEDIA_HTTP`** pointing to ENGINEERING.md.  
+• **scripts/load/k6-media-health.js** — import **`mergeEdgeTls`**.  
+• **scripts/load/k6-search-watchlist.js** — **`rawBase`** + **`strictEdgeTlsOptions`** in options.  
+• **scripts/run-housing-k6-edge-smoke.sh** — native **`k6 run`** passes **`-e`** for BASE_URL, TLS, etc.  
+• **scripts/k6-exec-strict-edge.sh** — same for **`k6 … run`** on host.  
+• **scripts/load/run-k6-all-services.sh** / **run-k6-phases.sh** — same pattern where applicable.  
+• **scripts/run-preflight-scale-and-all-suites.sh** — macOS: trust dev CA in keychain before host k6
+  (with env overrides documented in script header).
 
----
+Docs
+----
+• **ENGINEERING.md** — **Service communication**: gateway uses **both** gRPC and HTTP proxy; **why
+  MEDIA_HTTP**; **proto/** (RPC) vs **proto/events/** (Kafka).  
+• **Runbook.md** — index items **92–97** + section: k6 Mac TLS, HAProxy→gateway only, MEDIA_HTTP vs gRPC,
+  JSON errors, rebuild media.  
+• **docs/MEDIA_GATEWAY_K6_DIAGNOSTICS_REPORT.md** — incident-style write-up (SAN, ECONNREFUSED :4018).  
+• **README.md** — short “gateway → media” note.  
+• **proto/events/README.md** — pointer to ENGINEERING.md.
 
-fix: housing verify uses HOUSING_NS (not NS); Prometheus pod SD; k6 all-services + Grafana uptime
+After changing **media-service** code, rebuild the image and restart the Deployment (commands at bottom).
 
-Summary
--------
-- **verify-required-housing-pods.sh**: Namespace is **`HOUSING_NS`** (default `off-campus-housing-tracker`).
-  Generic **`NS=` is ignored** so shells exported from other repos (e.g. `record-platform`) no longer
-  break checks. Preflight passes **`HOUSING_NS`** explicitly when invoking the script.
-- **Prometheus** (`infra/k8s/base/observability/prometheus-deploy.yaml`): Replace per-job stubs with one
-  **`housing-pods`** scrape config: Kubernetes SD in `off-campus-housing-tracker`, keep pods with
-  `prometheus.io/scrape=true`, honor **path/port annotations**, label **`service`** from pod `app` label.
-- **auth-service** deploy: **`prometheus.io/port`** corrected **4011** (was 4001) to match HTTP `/metrics`.
-- **k6 (all services)**: **`scripts/load/run-k6-all-services.sh`** runs gateway, trust, analytics, messaging,
-  media, listings, booking; each **`--summary-export`** JSON; **`aggregate-k6-summaries.py`** writes
-  **`latency-report.md`** (p50/p95/p99/**max as p100**) and **`latency-graph.html`** (Chart.js).
-  New scripts: **`k6-gateway-health.js`**, **`k6-trust-public.js`**, **`k6-analytics-public.js`**.
-  Extended **p(100)** (or max) thresholds on **listings, booking, messaging, media** scripts.
-- **Grafana** (`grafana-dashboards.yaml`): **`housing-uptime.json`** — smoothed **`avg_over_time(up[5m])`**,
-  strict **`min_over_time(up[1h])`**, raw **`up`**, with **textbox `svc`** regex filter on **`service`** label
-  (job=`housing-pods`).
-- **trust-service** + **analytics-service** deploys: mount **`och-kafka-ssl-secret`** at `/etc/kafka/secrets` and set
-  **`KAFKA_CA_CERT` / `KAFKA_CLIENT_CERT` / `KAFKA_CLIENT_KEY`** (same pattern as **booking-service**) so
-  `KAFKA_SSL_ENABLED=true` from **app-config** no longer crashes the process at startup.
+================================================================================
+SETUP ORDER (DO THIS ON A NEW MACHINE) — 8 DATABASES + CLUSTER
+================================================================================
+You need **Postgres listening on 5441 through 5448 on the host** *and* a working **Kubernetes** cluster
+with apps deployed. Order matters.
 
-Deploy / ops
-------------
-- Re-apply observability + housing: `kustomize build infra/k8s/overlays/dev | kubectl apply -f -` (or your overlay).
-- Roll **listings-service** if missing: `kubectl rollout status deploy/listings-service -n off-campus-housing-tracker --timeout=300s`
-- k6: `K6_CA_ABSOLUTE=$PWD/certs/dev-root.pem ./scripts/load/run-k6-all-services.sh`
-- Verify: `./scripts/verify-required-housing-pods.sh` (optional `HOUSING_NS=...` for non-default namespaces).
+Step | What to do
+-----|------------
+1 | **Start databases (and Redis/Kafka if compose includes them)**  
+    | `docker compose up -d` (or project’s `bring-up-external-infra.sh`).  
+    | Confirm ports: **5441** auth, **5442** listings, **5443** bookings, **5444** messaging, **5445** notification, **5446** trust, **5447** analytics, **5448** media.  
+    | Quick check: `nc -z 127.0.0.1 5441` … `5448`.
+2 | **Start Colima + k3s** (or k3d if you use `REQUIRE_COLIMA=0`).  
+    | Scripts like `colima-start-and-ready.sh` — see **Runbook.md** item 80.
+3 | **MetalLB** pool on the **same subnet as the node** (else host gets HTTP “000” to LB IP).  
+    | See Runbook item 83, `apply-metallb-pool-colima.sh`.
+4 | **Pods can reach the host** — `colima-apply-host-aliases.sh` so **`host.docker.internal`** works for DB/Redis/Kafka.
+5 | **TLS secrets in the cluster** — `ensure-strict-tls-mtls-preflight.sh`, `ensure-housing-cluster-secrets.sh`  
+    | → **`service-tls`**, **`dev-root-ca`**, **`och-service-tls`** copy, Kafka TLS secret as needed.
+6 | **Build images + apply YAML** — `build-housing-images-k3s.sh`, `kubectl apply -k infra/k8s/overlays/dev`  
+    | After CA rotation: ordered rollout **`k8s-rollout-och-ordered.sh`**.
+7 | **Optional one command** — `./scripts/setup-full-off-campus-housing-stack.sh`  
+    | Heavy check: `RUN_PREFLIGHT=1 ./scripts/setup-full-off-campus-housing-stack.sh`
+8 | **Makefile shortcuts** — `make help`  
+    | **`make demo`** — brings stack + MetalLB + preflight; stops after housing + k6 + Playwright (**no pgbench** by default).  
+    | **`make demo-full`** — continues further (transport study / pgbench paths).  
+    | **Makefile does not start Docker Compose for you** — still do step 1.
 
----
+**macOS + k6 against https://off-campus-housing.test**  
+`./scripts/lib/trust-dev-root-ca-macos.sh "$PWD/certs/dev-root.pem"`  
+Then: `export BASE_URL=…`, `export K6_RESOLVE=off-campus-housing.test:443:<LB_IP>`  
+Or use **`K6_USE_DOCKER_K6=1`** to run k6 in Linux Docker.
 
-feat: one-shot stack setup, event-layer k6 + partition verify, Redis Lua benchmark
+================================================================================
+HOW TO RUN TESTS (COPY/PASTE FRIENDLY)
+================================================================================
+Command | What it runs
+--------|----------------
+`pnpm run test` | Unit/integration Vitest (common, event-layer, messaging, media, …) — same family as preflight step 7a.
+`RUN_PGBENCH=0 ./scripts/run-preflight-scale-and-all-suites.sh` | Full preflight **without** pgbench (example).
+`./scripts/run-housing-k6-edge-smoke.sh` | All k6 edge scripts in sequence (needs **BASE_URL**, **K6_RESOLVE**, **K6_LB_IP** for JWT/IP tests).
+`k6 run scripts/load/k6-gateway-health.js` | Single smoke script (set env or use wrapper that passes **`-e`**).
+`./scripts/test-microservices-http2-http3-housing.sh` | Housing HTTP/2 + HTTP/3 suite (needs **TARGET_IP**, certs — read script header).
+`pnpm run test:e2e:preflight` | Playwright with gateway port-forward helper (or `pnpm --filter webapp test:e2e` if gateway already on 4020).
 
-Summary
--------
-- **`scripts/setup-full-off-campus-housing-stack.sh`**: Single orchestrator — Colima (optional) → `bring-up-external-infra` → auto `dev-generate-certs` when needed → `strict-tls-bootstrap` → `bootstrap-all-dbs` → Kafka topics + **`verify-proto-events-topics`** + **`verify-kafka-event-topic-partitions`** → `build-housing-images-k3s` → **`deploy-dev`** (`NAMESPACE=HOUSING_NS`) → **`ensure-housing-cluster-secrets`** → **`run-event-layer-verification`** → optional **`RUN_PREFLIGHT=1`**. Unsets stray **`NS=`**; uses **`HOUSING_NS`** only.
-- **`scripts/ensure-housing-cluster-secrets.sh`**: Creates **`HOUSING_NS`** if missing (instead of exit 0); invokes strict TLS preflight with **`HOUSING_NS=`** only.
-- **`scripts/verify-kafka-event-topic-partitions.sh`**: Docker **kafka** service, SSL client props — asserts **PartitionCount: 6** for all domain topics (aligned with **`create-kafka-event-topics.sh`**).
-- **`scripts/run-event-layer-verification.sh`**: Vitest + proto contract + partition verify + optional **`RUN_K6_ADVERSARIAL=1`**.
-- **`scripts/load/k6-event-layer-adversarial.js`**: Companion/adversarial edge load; wired into **`run-k6-all-services.sh`**.
-- **`scripts/benchmark-redis-lua-vs-plain.sh`** + **`redis-benchmark-lua-vs-plain.cjs`**: Lua **EVAL** vs plain **GET+INCRBY+PEXPIRE** (same semantics as **`services/common/src/redis-lua.ts`**); **CSV + HTML** chart under **`bench_logs/redis-lua-bench-*`**.
-- **`services/event-layer-verification`**: **`kafka-partition-contract.test.ts`**; **`verify-proto-events-topics.sh`** asserts **`PARTITIONS:-6`**.
-- **`test-microservices-http2-http3-enhanced.sh`**: **`HOUSING_NS`** / no inherited **`NS=`**.
-- **`run-preflight-scale-and-all-suites.sh`** (3a0): invoke **`ensure-housing-cluster-secrets`** with **`HOUSING_NS=`** (not **`NS=`**).
-- **`run-suite-with-packet-capture.sh`**: **`HOUSING_NS`** for capture namespace.
-- **Docs / package.json**: **`pnpm run setup:full-stack`**, **`test:event-layer`**, **`bench:redis-lua`**; **README**, **RUN_PIPELINE_ORDER**, **FIRST_TIME_TEAM_SETUP**, **ENGINEERING**, **Runbook**, **CERTS** — messaging suite naming + one-shot docs.
+Skip Playwright in preflight: **`RUN_PREFLIGHT_PLAYWRIGHT=0`**.  
+Skip k6 grid: **`RUN_K6_SERVICE_GRID=0`** and/or **`RUN_MESSAGING_LOAD=0`** (see preflight script header).
 
-Teammate quick path
-------------------
+================================================================================
+STILL OPEN / FOLLOW-UP (NOT FIXED BY THIS WORK)
+================================================================================
+These showed up in logs around **2026-03-22**; treat as **next issues**, not “this commit broke it”.
+
+• **analytics-service + grpcurl** — `127.0.0.1:<random port> connection refused`: port-forward not ready or died.  
+• **k6** — **gateway-health** can pass while **auth / listings / booking / …** health scripts show high **http_req_failed**: check real HTTP status (401 vs 503 vs 404) and whether DBs 544x are up.  
+• **k6-booking / JWT** — 100% fail on register often = TLS/SNI, auth/gRPC from gateway, or wrong **BASE_URL**.  
+• **Playwright** — guest listings empty, analytics heading missing, watchlist flow timeout → usually same as unstable APIs above.  
+• **Gateway** — `Expected property name or '}' in JSON` = client sent bad JSON with JSON content-type (Runbook 96).  
+• **Transport study (7b)** — separate from k6 grid; inspect that script’s log.
+
+================================================================================
+REBUILD MEDIA-SERVICE AFTER PULLING THESE CHANGES
+================================================================================
 ```bash
-./scripts/setup-full-off-campus-housing-stack.sh
-RUN_PREFLIGHT=1 ./scripts/setup-full-off-campus-housing-stack.sh   # optional heavy preflight
+cd /path/to/Off-Campus-Housing-Tracker
+SERVICES=media-service ./scripts/rebuild-och-images-and-rollout.sh
+kubectl rollout status deploy/media-service -n off-campus-housing-tracker --timeout=180s
 ```
 
----
+Sanity check (gateway pod → media HTTP):
+```bash
+kubectl exec -n off-campus-housing-tracker deploy/api-gateway -- node -e "
+require('http').get('http://media-service.off-campus-housing-tracker.svc.cluster.local:4018/healthz',
+  r=>{let d='';r.on('data',c=>d+=c);r.on('end',()=>console.log(r.statusCode,d))}).on('error',e=>console.error(e));
+"
+```
+Expect **200** and JSON mentioning **`ok`** / **`media-service`**.
 
-feat: messaging Redis Lua rate limit; k6 health grid + Playwright in preflight
+================================================================================
+VERIFY BEFORE YOU COMMIT
+================================================================================
+• `pnpm --filter media-service run build`  
+• Re-run **`./scripts/run-housing-k6-edge-smoke.sh`** (with trust + **BASE_URL** + **K6_RESOLVE** set)  
+• `k6 run scripts/load/k6-media-health.js` and **`k6-search-watchlist.js`** (no ReferenceError)
 
-Summary
--------
-- **`services/common/src/redis-lua.ts`**: **`checkMessagingSendRateLimit`** — single **`EVAL`** for minute + day caps with rollback; fixed try/catch so limit errors are not swallowed as **`RATE_LIMIT_UNAVAILABLE`**.
-- **`services/messaging-service/src/rateLimit.ts`**: Uses **`checkMessagingSendRateLimit`** (Lua) instead of **`MULTI`/`EXEC`**.
-- **`services/common/src/redis.ts`**: **`enableOfflineQueue: true`** under Vitest / **`NODE_ENV=test`** to avoid flaky **`Stream isn't writeable`** on integration bursts; production unchanged (**`false`**).
-- **k6**: **`k6-auth-service-health.js`**, **`k6-listings-health.js`**, **`k6-booking-health.js`**; **`run-housing-k6-edge-smoke.sh`** runs full grid + booking/search JWT; **`run-k6-all-services.sh`** includes the new health scripts.
-- **`run-preflight-scale-and-all-suites.sh`**: Step **7a0b–c** uses **`pnpm run test`** (common + event-layer + messaging + media); **7a3–7a7** calls **`run-housing-k6-edge-smoke.sh`**; **7a8** **`run-playwright-e2e-preflight.sh`** (gateway port-forward + Playwright). Env: **`RUN_K6_SERVICE_GRID=0`**, **`RUN_PREFLIGHT_PLAYWRIGHT=0`** to skip.
-- **Playwright**: **`e2e/webapp-pages.spec.ts`**, **`e2e/auth-cycle.spec.ts`**; **`guest.spec.ts`** aligned with current home copy + storage clear; **`Nav`** **`data-testid="nav-sign-out"`**; analytics/mission headings have test ids.
-- **Root**: **`pnpm run test:e2e:preflight`**.
-
-Verification
-------------
-- `pnpm run test` (Vitest: common, event-layer, messaging, media) — pass.
-- `pnpm --filter webapp test:e2e` — guest + shell tests pass; flows needing gateway skipped when **`4020`** down.
+================================================================================
+OTHER RECENT THEMES ALREADY IN THE REPO (NOT REPEATED IN DETAIL HERE)
+================================================================================
+If you are doing archaeology: the same repo recently gained **make demo** / **demo-full** (Colima-only
+defaults, **PREFLIGHT_EXIT_AFTER_HOUSING_SUITES** on demo), **demo-network** + SSL key log, housing HTTP
+suite renumbering + **notification** + listings test 17, **setup-full-off-campus-housing-stack.sh**,
+event-layer k6 + Kafka partition checks, **messaging** Redis Lua rate limit, **HOUSING_NS** fixes for
+verify scripts, Prometheus **housing-pods** scrape, **run-k6-all-services** + latency reports, gRPC probe
+**timeoutSeconds** bumps for analytics/trust/booking/listings, **och-service-tls** / Kafka secret wiring,
+cron-jobs housing-only, etc. See **`git log`** and **Runbook.md** index for those stories.  
+**This file’s sections above** focus on **media HTTP 4018**, **MEDIA_HTTP** docs, **macOS k6 trust**,
+**k6 -e** wrappers, **Runbook 92–97**, and **k6-media-health / k6-search-watchlist** JS fixes.

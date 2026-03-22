@@ -15,7 +15,7 @@ export PATH="$SCRIPT_DIR/shims:/opt/homebrew/bin:/usr/local/bin:${PATH:-}"
 cd "$REPO_ROOT"
 
 NS="${NS:-off-campus-housing-tracker}"
-HOST="${HOST:-off-campus-housing.local}"
+HOST="${HOST:-off-campus-housing.test}"
 CURL_BIN="${CURL_BIN:-/opt/homebrew/opt/curl/bin/curl}"
 ok()  { echo "✅ $*"; }
 warn(){ echo "⚠️  $*"; }

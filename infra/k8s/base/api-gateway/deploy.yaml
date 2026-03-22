@@ -42,35 +42,39 @@ spec:
             # Gateway does not use Kafka; avoid common/kafka SSL cert validation at startup
             - name: KAFKA_SSL_ENABLED
               value: "false"
-            # Strict TLS/mTLS for gRPC calls to auth-service etc. (mount service-tls at /etc/certs)
+            # Strict TLS/mTLS for gRPC to auth-service — internal leaf + CA only (secret service-tls; sync alias och-service-tls is optional).
             - name: GRPC_CA_CERT
               value: "/etc/certs/ca.crt"
             - name: GRPC_CLIENT_CERT
               value: "/etc/certs/tls.crt"
             - name: GRPC_CLIENT_KEY
               value: "/etc/certs/tls.key"
-            - name: GRPC_SERVER_NAME
-              value: "off-campus-housing.local"
+            # Optional: GRPC_SERVER_NAME for non-cluster gRPC targets. In-cluster *.svc.cluster.local uses the target host automatically (see services/common grpc-clients.ts).
           volumeMounts:
             - name: service-tls
               mountPath: /etc/certs
               readOnly: true
+          # Readiness: auth gRPC verified in-process (/readyz). Liveness: only checks HTTP stack (/healthz).
           readinessProbe:
             httpGet:
-              path: /healthz
+              path: /readyz
               port: 4020
             periodSeconds: 5
             initialDelaySeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 6
           livenessProbe:
             httpGet:
               path: /healthz
               port: 4020
             periodSeconds: 15
-            initialDelaySeconds: 10
+            initialDelaySeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 6
       volumes:
         - name: service-tls
           secret:
-            secretName: och-service-tls
+            secretName: service-tls
             items:
               - key: tls.key
                 path: tls.key

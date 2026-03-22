@@ -87,11 +87,29 @@ spec:
               readOnly: true
           # Dual Health Checks: gRPC (for gRPC traffic) + HTTP (for HTTP/3 tests via Caddy)
           # gRPC Health Checks (grpc.health.v1.Health/Check) - HTTP/2/3 only, NOT HTTP/1.1
+          # In-pod probe: -addr=localhost → -tls-server-name=localhost (do not use edge hostname SNI here).
           # Uses grpc-health-probe binary for standard gRPC health checking protocol
           # Protocol: HTTP/2 cleartext (h2c) for in-cluster communication via Caddy
           # Service name: auth.AuthService (registered service name)
           # Note: Service runs in h2c mode (no TLS) for in-cluster, Caddy handles TLS at edge
           # Use plaintext mode since service runs h2c (no TLS) for in-cluster
+          startupProbe:
+            exec:
+              command:
+                - /usr/local/bin/grpc-health-probe
+                - -addr=localhost:50061
+                - -service=auth.AuthService
+                - -tls
+                - -tls-no-verify=false
+                - -tls-ca-cert=/etc/certs/ca.crt
+                - -tls-client-cert=/etc/certs/tls.crt
+                - -tls-client-key=/etc/certs/tls.key
+                - -tls-server-name=localhost
+                - -connect-timeout=5s
+                - -rpc-timeout=5s
+            periodSeconds: 5
+            timeoutSeconds: 10
+            failureThreshold: 30
           readinessProbe:
             exec:
               command:
@@ -103,12 +121,11 @@ spec:
                 - -tls-ca-cert=/etc/certs/ca.crt
                 - -tls-client-cert=/etc/certs/tls.crt
                 - -tls-client-key=/etc/certs/tls.key
-                - -tls-server-name=off-campus-housing.local
-                - -connect-timeout=10s
+                - -tls-server-name=localhost
+                - -connect-timeout=5s
                 - -rpc-timeout=5s
-            initialDelaySeconds: 90
-            periodSeconds: 15
-            timeoutSeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 10
             failureThreshold: 6
           livenessProbe:
             exec:
@@ -121,31 +138,13 @@ spec:
                 - -tls-ca-cert=/etc/certs/ca.crt
                 - -tls-client-cert=/etc/certs/tls.crt
                 - -tls-client-key=/etc/certs/tls.key
-                - -tls-server-name=off-campus-housing.local
-                - -connect-timeout=10s
+                - -tls-server-name=localhost
+                - -connect-timeout=5s
                 - -rpc-timeout=5s
-            initialDelaySeconds: 150
-            periodSeconds: 30
-            timeoutSeconds: 20
-            failureThreshold: 6
-          startupProbe:
-            exec:
-              command:
-                - /usr/local/bin/grpc-health-probe
-                - -addr=localhost:50061
-                - -service=auth.AuthService
-                - -tls
-                - -tls-no-verify=false
-                - -tls-ca-cert=/etc/certs/ca.crt
-                - -tls-client-cert=/etc/certs/tls.crt
-                - -tls-client-key=/etc/certs/tls.key
-                - -tls-server-name=off-campus-housing.local
-                - -connect-timeout=10s
-                - -rpc-timeout=5s
-            initialDelaySeconds: 45
+            initialDelaySeconds: 90
             periodSeconds: 15
-            timeoutSeconds: 20
-            failureThreshold: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
       volumes:
         - name: proto-files
           configMap:

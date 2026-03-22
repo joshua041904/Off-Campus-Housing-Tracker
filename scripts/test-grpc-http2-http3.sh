@@ -3,7 +3,7 @@
 # Optional packet capture: ./scripts/run-suite-with-packet-capture.sh "$0" "$@"
 set -euo pipefail
 
-HOST="${HOST:-off-campus-housing.local}"
+HOST="${HOST:-off-campus-housing.test}"
 NS="off-campus-housing-tracker"
 CURL_BIN="/opt/homebrew/opt/curl/bin/curl"
 

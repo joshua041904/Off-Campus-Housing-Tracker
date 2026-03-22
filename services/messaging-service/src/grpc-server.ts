@@ -1,12 +1,11 @@
 /* cspell:ignore grpc */
 import * as grpc from '@grpc/grpc-js'
 import * as protoLoader from '@grpc/proto-loader'
-import * as fs from 'fs'
 import os from 'os'
 import { pool } from './lib/db.js'
 import { makeRedis, cached, makePostKey, makePostsListKey, makeCommentsKey, makeMessagesKey, makeThreadKey } from './lib/cache.js'
 import { kafka } from '@common/utils/kafka'
-import { registerHealthService } from '@common/utils'
+import { registerHealthService, createOchStrictMtlsServerCredentials } from '@common/utils'
 import { resolveProtoPath } from '@common/utils/proto'
 import { buildMetadata, sendMessagingEvent } from './kafkaMessagingEvents.js'
 import { randomUUID } from 'node:crypto'
@@ -588,41 +587,13 @@ export function startGrpcServer(port: number) {
     }
   }
 
-  // TLS credentials (same as social)
   let credentials: grpc.ServerCredentials
-  const keyPath = process.env.TLS_KEY_PATH || '/etc/certs/tls.key'
-  const certPath = process.env.TLS_CERT_PATH || '/etc/certs/tls.crt'
-  const caPath = process.env.TLS_CA_PATH || process.env.GRPC_CA_CERT || '/etc/certs/ca.crt'
-
-  if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
-    const key = fs.readFileSync(keyPath)
-    const cert = fs.readFileSync(certPath)
-
-    let rootCerts: Buffer | null = null
-    let checkClientCert = false
-    if (fs.existsSync(caPath)) {
-      rootCerts = fs.readFileSync(caPath)
-      checkClientCert = true
-      console.log('[gRPC] Starting secure HTTP/2-only server with strict TLS (client cert verification)')
-    } else {
-      console.log('[gRPC] Starting secure HTTP/2-only server with ALPN = h2 (no client cert verification)')
-    }
-
-    const requireClientCert = process.env.GRPC_REQUIRE_CLIENT_CERT === 'true' ? checkClientCert : false
-
-    credentials = grpc.ServerCredentials.createSsl(
-      rootCerts,
-      [{ private_key: key, cert_chain: cert }],
-      requireClientCert as any
-    )
-    if (requireClientCert) {
-      console.log('[gRPC] Client certificate verification is ENABLED.')
-    } else {
-      console.log('[gRPC] Client certificate verification is DISABLED (dev mode).')
-    }
-  } else {
-    console.warn('[gRPC] TLS certs not found, starting insecure server (dev only)')
-    credentials = grpc.ServerCredentials.createInsecure()
+  try {
+    credentials = createOchStrictMtlsServerCredentials('messaging gRPC')
+    console.log('[messaging gRPC] strict mTLS (client cert required)')
+  } catch (e) {
+    console.error(e)
+    process.exit(1)
   }
 
   server.bindAsync(`0.0.0.0:${port}`, credentials, (err, actualPort) => {

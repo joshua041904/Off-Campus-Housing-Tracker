@@ -29,6 +29,7 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Rate, Trend, Counter } from 'k6/metrics';
+import { mergeEdgeTls, strictEdgeTlsOptions } from './k6-strict-edge-tls.js';
 
 // Try to import HTTP/3 extension (only available if custom k6-http3 binary is used)
 let http3 = null;
@@ -56,25 +57,15 @@ const protocol_verified = new Counter('protocol_verified');
 const h3_strict_fail = new Rate('h3_strict_fail');
 
 // Configuration
-const HOST = __ENV.HOST || 'off-campus-housing.local';
-const BASE_URL = __ENV.BASE_URL || 'https://caddy-h3.ingress-nginx.svc.cluster.local:443';
+const HOST = __ENV.HOST || 'off-campus-housing.test';
+// Default matches dev cert SAN; in-cluster runners should set BASE_URL to caddy-h3.ingress-nginx.svc.cluster.local:443
+const BASE_URL = (__ENV.BASE_URL || 'https://off-campus-housing.test').replace(/\/$/, '');
+const RAW_BASE = BASE_URL;
 const ENDPOINT = __ENV.ENDPOINT || '/_caddy/healthz';
 const URL = `${BASE_URL}${ENDPOINT}`;
 
-// K6_RESOLVE: "host:port:ip" (e.g. off-campus-housing.local:443:192.168.64.240) — pin hostname to IP so k6 connects to MetalLB (not 127.0.0.1 NodePort)
-const K6_RESOLVE = __ENV.K6_RESOLVE || '';
 // From host (macOS→Colima), QUIC connection reuse often causes "timeout: no recent network activity". Default noReuse=1 for protocol comparison.
 const NO_REUSE = __ENV.K6_HTTP3_NO_REUSE !== '0';
-function parseHostsFromResolve() {
-  if (!K6_RESOLVE || typeof K6_RESOLVE !== 'string') return {};
-  const parts = K6_RESOLVE.split(':');
-  if (parts.length < 3) return {};
-  const host = parts[0];
-  const ip = parts[parts.length - 1];
-  if (!host || !ip) return {};
-  return { [host]: ip };
-}
-const hosts = parseHostsFromResolve();
 
 // Packet capture configuration
 const ENABLE_PACKET_CAPTURE = __ENV.ENABLE_PACKET_CAPTURE === 'true';
@@ -88,6 +79,7 @@ const PROTOCOL_DURATION = __ENV.K6_PROTOCOL_DURATION || '30s';
 const RELAX_H3 = __ENV.K6_HTTP3_RELAX_THRESHOLDS === '1';
 
 const opts = {
+  ...strictEdgeTlsOptions(RAW_BASE),
   scenarios: {
     default: {
       executor: 'constant-vus',
@@ -104,7 +96,6 @@ const opts = {
 };
 // STRICT_H3=1: fail run on any H3 protocol fallback (Transport Hardening V4; use custom metric, not "errors")
 if (__ENV.STRICT_H3 === '1') opts.thresholds['h3_strict_fail'] = ['rate<0.01'];
-if (Object.keys(hosts).length) opts.hosts = hosts;
 export const options = opts;
 
 /**
@@ -177,14 +168,14 @@ function makeHttp2Request(url, options = {}) {
   const startTime = Date.now();
   
   const headers = Object.assign({ Host: HOST }, options.headers || {});
-  const params = {
+  const params = mergeEdgeTls(RAW_BASE, {
     headers: headers,
     timeout: options.timeout || '10s',
     httpVersion: 'HTTP/2',
     noConnectionReuse: false,
     tlsVersion: { min: '1.3', max: '1.3' },
-  };
-  
+  });
+
   const res = http.get(url, params);
   const latency = Date.now() - startTime;
   
@@ -236,11 +227,14 @@ export default function () {
     }
   } else {
     // Fallback: try standard k6 with HTTP/3 hint (may fall back to HTTP/2)
-    const h3_fallback = http.get(URL, {
-      headers: { Host: HOST },
-      timeout: '10s',
-      httpVersion: 'HTTP/3',
-    });
+    const h3_fallback = http.get(
+      URL,
+      mergeEdgeTls(RAW_BASE, {
+        headers: { Host: HOST },
+        timeout: '10s',
+        httpVersion: 'HTTP/3',
+      }),
+    );
     
     console.warn('[HTTP/3] Using fallback (standard k6) - may not be true HTTP/3');
   }

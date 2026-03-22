@@ -5,7 +5,7 @@ This guide gets **Caddy** (TLS edge), **Envoy** (gRPC proxy), and **namespaces**
 ## What you get
 
 - **Namespaces:** `ingress-nginx` (Caddy), `envoy-test` (Envoy), `off-campus-housing-tracker` (app pods)
-- **Certs:** Dev CA + Caddy leaf (`off-campus-housing.local`) + Envoy client cert + service certs — all generated for you
+- **Certs:** Dev CA + Caddy leaf (`off-campus-housing.test`) + Envoy client cert + service certs — all generated for you
 - **TLS secrets:** Loaded into the cluster for Caddy, Envoy, and backends (mTLS)
 - **Caddy:** 2 pods in `ingress-nginx`, built with **xcaddy** (HTTP/3 support) and **tcpdump**
 - **Envoy:** 1 pod in `envoy-test`, with **tcpdump** for packet capture
@@ -53,7 +53,7 @@ Caddy and Envoy both use **tcpdump** in their images so packet-capture and rotat
 
 ## If something goes wrong
 
-- **“Cannot read file certs/off-campus-housing.local.crt”**  
+- **“Cannot read file certs/off-campus-housing.test.crt”**  
   Run the one script above; it generates those certs in step 2. If you ran an older flow, run `./scripts/dev-generate-certs.sh` then `./scripts/strict-tls-bootstrap.sh`.
 
 - **Caddy/Envoy ImagePullBackOff**  
@@ -101,8 +101,8 @@ This checks:
 
 1. **Caddy built with h3** — `kubectl exec -n ingress-nginx deploy/caddy-h3 -- caddy version` (must show `h3`).
 2. **UDP 443 on Service** — `kubectl get svc caddy-h3 -n ingress-nginx` and `-o yaml` must show port 443 with `protocol: UDP`.
-3. **alt-svc header** — `curl -I https://off-campus-housing.local` must include `alt-svc: h3=":443"`.
-4. **QUIC handshake** — `curl -I --http3 https://off-campus-housing.local` must return `HTTP/3 200`. The script uses **Homebrew curl** when available (`/opt/homebrew/bin/curl` or `/usr/local/bin/curl`) so the `--http3` test runs; install with `brew install curl` if needed.
+3. **alt-svc header** — `curl -I https://off-campus-housing.test` must include `alt-svc: h3=":443"`.
+4. **QUIC handshake** — `curl -I --http3 https://off-campus-housing.test` must return `HTTP/3 200`. The script uses **Homebrew curl** when available (`/opt/homebrew/bin/curl` or `/usr/local/bin/curl`) so the `--http3` test runs; install with `brew install curl` if needed.
 5. **Optional:** Run `tcpdump -i any udp port 443` inside a Caddy pod while loading the site to see QUIC traffic.
 
 **Important:** In this repo, Caddy runs in namespace **ingress-nginx** with deployment name **caddy-h3** (not `off-campus-housing` / `deploy/caddy`). The script uses **CADDY_NS** (default `ingress-nginx`). If you have `NS=record-platform` in your environment from another project, either unset it or run `CADDY_NS=ingress-nginx ./scripts/verify-http3-edge.sh`. **MetalLB** is installed when you run **`./scripts/setup-new-colima-cluster.sh`**; if the LoadBalancer service has EXTERNAL-IP `<pending>`, run `./scripts/verify-metallb-and-traffic-policy.sh` to verify pool/L2.

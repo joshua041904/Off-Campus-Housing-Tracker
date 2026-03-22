@@ -4,7 +4,7 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
-HOST="${HOST:-off-campus-housing.local}"
+HOST="${HOST:-off-campus-housing.test}"
 CURL="${CURL_BIN:-$(command -v curl)}"
 command -v "$CURL" >/dev/null || { echo "curl not found"; exit 1; }
 
@@ -42,7 +42,7 @@ strict_http3_curl() {
   fi
 }
 
-# Ensure host resolves (optional: add off-campus-housing.local to /etc/hosts if needed)
+# Ensure host resolves (optional: add off-campus-housing.test to /etc/hosts if needed)
 if ! getent hosts "$HOST" &>/dev/null && ! grep -q "$HOST" /etc/hosts 2>/dev/null; then
   echo "Add $HOST to /etc/hosts or set HOST= to your gateway. Continuing..."
 fi

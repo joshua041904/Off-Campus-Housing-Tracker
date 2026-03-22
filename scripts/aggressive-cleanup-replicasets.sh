@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
-# Aggressive cleanup of ALL rogue ReplicaSets
-# Identifies the current ReplicaSet for each deployment and deletes all others
+# Legacy ReplicaSet cleanup — DISABLED by default.
+#
+# ReplicaSets are owned by Deployments. Scaling/deleting RS manually races the controller and causes
+# CrashLoop vs Running split-brain (two RS with pods). Prefer: kubectl rollout status deploy/NAME,
+# kubectl rollout restart deploy/NAME, and ./scripts/k8s-rollout-och-ordered.sh for dependency order.
+#
+# Set OCH_AGGRESSIVE_RS_CLEANUP=1 only for interactive emergency debugging.
 
 set -euo pipefail
 
@@ -18,6 +23,18 @@ warn(){ echo "⚠️  $*"; }
 log() { echo "[$(date +%H:%M:%S)] $*" | tee -a "${CLEANUP_LOG:-/dev/stdout}"; }
 
 NS="off-campus-housing-tracker"
+
+if [[ "${OCH_AGGRESSIVE_RS_CLEANUP:-0}" != "1" ]]; then
+  say "=== ReplicaSet cleanup skipped (default) ==="
+  log "OCH_AGGRESSIVE_RS_CLEANUP is not 1 — not scaling or deleting ReplicaSets."
+  log "Use: kubectl rollout status deploy/<name> -n $NS"
+  log "Ordered rollout: $SCRIPT_DIR/k8s-rollout-och-ordered.sh"
+  _kubectl get rs -n "$NS" 2>/dev/null | head -40 || true
+  ok "Exiting without controller fights."
+  exit 0
+fi
+
+warn "OCH_AGGRESSIVE_RS_CLEANUP=1 — running legacy RS manipulation (debug only)"
 if [[ -n "${WAIT_APP_SERVICES:-}" ]]; then
   read -r -a SERVICES <<< "$WAIT_APP_SERVICES"
 elif [[ -n "${PREFLIGHT_APP_DEPLOYS:-}" ]]; then

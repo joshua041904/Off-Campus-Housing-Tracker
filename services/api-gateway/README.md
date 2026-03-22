@@ -4,6 +4,10 @@ Single public entrypoint: JWT validation, rate limiting, and gRPC proxy to the s
 
 **Architecture:** All client traffic hits the gateway (port 4020). The gateway validates JWT (via auth-service when needed), applies policy, then forwards gRPC to the appropriate backend. See root [README.md](../../README.md) and [docs/HOUSING_ARCHITECTURE_CONTRACT.md](../../docs/HOUSING_ARCHITECTURE_CONTRACT.md).
 
+**Startup / readiness:** Before binding HTTP, the gateway calls **`grpc.health.v1.Health/Check`** on **`AUTH_GRPC_TARGET`** (default `auth-service...:50061`) with the same **mTLS** credentials as Register/Login. If that fails (TLS, SNI, wrong port, auth NOT_SERVING/DB down), the process **exits 1** so Kubernetes does not report a healthy gateway while auth is unreachable. Override only for broken dev: `GATEWAY_SKIP_AUTH_UPSTREAM_VERIFY=1`.
+
+**Verbose client errors:** In non-`production` `NODE_ENV`, gRPC failures include `detail` and `grpcCode` in JSON. In production, set `GATEWAY_VERBOSE_GRPC_ERRORS=1` to expose them (logs always include `[gateway → …] upstream gRPC error`).
+
 ## Supported backends (gRPC)
 
 The gateway routes to these services. Each contract is defined in the repo root **proto/** directory:

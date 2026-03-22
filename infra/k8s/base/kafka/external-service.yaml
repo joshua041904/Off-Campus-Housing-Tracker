@@ -1,3 +1,5 @@
+# DEPRECATED: Do not apply. Canonical kafka-external is infra/k8s/base/kafka-external/external-service.yaml
+# (Service :9093 → host :29094 strict TLS). This file is not referenced by base/kustomization.yaml.
 apiVersion: v1
 kind: Service
 metadata:

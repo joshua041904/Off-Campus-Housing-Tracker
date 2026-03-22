@@ -6,7 +6,7 @@
 #   CURL_IMAGE=alpine/curl-http3:latest  (default; in-cluster uses container curl, not host Homebrew)
 #   TARGET_IP=192.168.106.240  (optional) — curl MetalLB IP from pod (tests real LB path in-cluster)
 #   USE_HOST_CURL=1  (optional) — try host Homebrew curl first (LB IP); use when host UDP works
-#   HOST=off-campus-housing.local  (required when TARGET_IP set for SNI)
+#   HOST=off-campus-housing.test  (required when TARGET_IP set for SNI)
 #
 # By default runs in-cluster (container image). Host-side checks (setup, baseline) use Homebrew curl; use USE_HOST_CURL=1 here to prefer host curl when you have an LB IP.
 
@@ -19,7 +19,7 @@ cd "$REPO_ROOT"
 
 NS_ING="${NS_ING:-ingress-nginx}"
 NS_APP="${NS_APP:-off-campus-housing-tracker}"
-HOST="${HOST:-off-campus-housing.local}"
+HOST="${HOST:-off-campus-housing.test}"
 # Same default as scripts/lib/http3.sh so image is consistent
 CURL_IMAGE="${CURL_IMAGE:-alpine/curl-http3:latest}"
 ok()  { echo "✅ $*"; }
@@ -46,9 +46,9 @@ if [[ -n "$_curl_host" ]] && [[ -n "$_lb_ip" ]] && [[ "${USE_HOST_CURL:-0}" == "
   _ca="$REPO_ROOT/certs/dev-root.pem"
   [[ -s "$_ca" ]] || _ca=""
   if [[ -n "$_ca" ]]; then
-    _code=$(NGTCP2_ENABLE_GSO=0 "$_curl_host" -sS -w '%{http_code}' -o /dev/null --max-time 15 --http3-only --cacert "$_ca" --resolve "off-campus-housing.local:443:$_lb_ip" "https://off-campus-housing.local/_caddy/healthz" 2>/dev/null) || _code=000
+    _code=$(NGTCP2_ENABLE_GSO=0 "$_curl_host" -sS -w '%{http_code}' -o /dev/null --max-time 15 --http3-only --cacert "$_ca" --resolve "off-campus-housing.test:443:$_lb_ip" "https://off-campus-housing.test/_caddy/healthz" 2>/dev/null) || _code=000
     if [[ "$_code" == "200" ]]; then
-      ok "Caddy HTTP/3 OK via host Homebrew curl (off-campus-housing.local:443 -> $_lb_ip)"
+      ok "Caddy HTTP/3 OK via host Homebrew curl (off-campus-housing.test:443 -> $_lb_ip)"
       exit 0
     fi
   fi
@@ -69,15 +69,15 @@ POD_NAME="verify-caddy-http3-$$"
 _kb delete pod -n "$NS_ING" "$POD_NAME" --ignore-not-found --request-timeout=5s 2>/dev/null || true
 sleep 1
 
-# Caddy serves off-campus-housing.local (cert SAN). --resolve requires an IP; get ClusterIP or use TARGET_IP.
+# Caddy serves off-campus-housing.test (cert SAN). --resolve requires an IP; get ClusterIP or use TARGET_IP.
 if [[ -n "${TARGET_IP:-}" ]]; then
-  CURL_RESOLVE="off-campus-housing.local:443:${TARGET_IP}"
+  CURL_RESOLVE="off-campus-housing.test:443:${TARGET_IP}"
 else
   _cluster_ip=$(_kb -n "$NS_ING" get svc caddy-h3 -o jsonpath='{.spec.clusterIP}' 2>/dev/null || echo "")
   [[ -z "$_cluster_ip" ]] && fail "Could not get caddy-h3 ClusterIP (is the service deployed?)"
-  CURL_RESOLVE="off-campus-housing.local:443:${_cluster_ip}"
+  CURL_RESOLVE="off-campus-housing.test:443:${_cluster_ip}"
 fi
-CURL_URL="https://off-campus-housing.local/_caddy/healthz"
+CURL_URL="https://off-campus-housing.test/_caddy/healthz"
 # NGTCP2_ENABLE_GSO=0 avoids QUIC issues.
 cat <<PODEOF | _kb apply -f - 2>/dev/null || fail "Failed to create verify pod"
 apiVersion: v1

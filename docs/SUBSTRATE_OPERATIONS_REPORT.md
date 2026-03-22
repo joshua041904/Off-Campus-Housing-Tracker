@@ -55,9 +55,9 @@ The substrate is the shared infrastructure layer that provides:
 |-----------|------|
 | **Colima + k3s** | Local Kubernetes (single-node or multi-node). API at `127.0.0.1:6443`. Alternative: k3d with `REQUIRE_COLIMA=0`. |
 | **MetalLB** | L2 LoadBalancer so `type: LoadBalancer` gets an external IP (e.g. `192.168.64.240`). Required for HTTP/3 from host when not using NodePort. |
-| **Caddy** | Edge TLS termination, HTTP/1.1, HTTP/2, HTTP/3 (QUIC). Hostname `off-campus-housing.local`. Serves REST, web, and proxies gRPC to Envoy. |
+| **Caddy** | Edge TLS termination, HTTP/1.1, HTTP/2, HTTP/3 (QUIC). Hostname `off-campus-housing.test`. Serves REST, web, and proxies gRPC to Envoy. |
 | **Envoy** | gRPC proxy (port 10000). Receives gRPC from Caddy (h2c). Uses **mTLS** to backends (auth, records, listings, etc.). |
-| **Strict TLS** | TLS 1.2/1.3 only; dev-root CA (`certs/dev-root.pem`); leaf cert for `off-campus-housing.local`. No weak ciphers. |
+| **Strict TLS** | TLS 1.2/1.3 only; dev-root CA (`certs/dev-root.pem`); leaf cert for `off-campus-housing.test`. No weak ciphers. |
 | **mTLS** | Backend services present server certs; Envoy presents a **client cert** (CN=envoy) to backends. CA = same dev-root. |
 | **Data plane (external)** | **Docker Compose**: Redis (6379) and Kafka (Zookeeper + broker SSL 9093 / host 29093) are **substrate** — same across projects. **Postgres/DBs are per-project** (e.g. off-campus-housing-tracker 8 DBs, housing 10); schemas and ports differ. Pods reach them via `host.docker.internal` (Colima) or `192.168.5.2` (k3d). |
 | **Kafka** | Strict TLS on 9093; optional **ssl.client.auth=required** (mTLS) for projects that require client authentication. Single broker by default; **multi-broker (e.g. 2)** possible without breaking Colima k3s if kept small. |
@@ -87,7 +87,7 @@ Substrate is ready to plug in with the following tuning knobs documented and app
 
 Traffic flow:
 
-- **Client → Caddy** (HTTPS, SNI `off-campus-housing.local`) → REST/Web → API Gateway, or gRPC → **Envoy** (h2c).
+- **Client → Caddy** (HTTPS, SNI `off-campus-housing.test`) → REST/Web → API Gateway, or gRPC → **Envoy** (h2c).
 - **Caddy → Envoy** (HTTP/2 cleartext inside cluster).
 - **Envoy → backends** (gRPC over TLS with client cert).
 
@@ -101,13 +101,13 @@ Paths are relative to repo root. Another project can copy this layout and adapt 
 
 | Path | Purpose |
 |------|---------|
-| `Caddyfile` | Caddy config: vhost `off-campus-housing.local`, TLS paths, routes (REST, gRPC proxy, health, resell, catch-all). Grace period and request access log. |
+| `Caddyfile` | Caddy config: vhost `off-campus-housing.test`, TLS paths, routes (REST, gRPC proxy, health, resell, catch-all). Grace period and request access log. |
 | `infra/k8s/caddy-h3-deploy.yaml` | Caddy deployment (NodePort; hostPort 443 on single node). |
 | `infra/k8s/caddy-h3-deploy-loadbalancer.yaml` | Caddy deployment **without** hostPort (for MetalLB; use with LoadBalancer service). |
 | `infra/k8s/caddy-h3-service-loadbalancer.yaml` | LoadBalancer service for Caddy (TCP+UDP 443, admin 2019, gRPC 5000). |
 | `infra/k8s/base/envoy-test/deploy.yaml` | Envoy gRPC proxy deployment; mounts `dev-root-ca`, `envoy-client-tls`. |
 | `infra/k8s/base/config/proto/health.proto` | gRPC health proto (used by Envoy and services). |
-| `scripts/strict-tls-bootstrap.sh` | Create/update TLS secrets: `record-local-tls`, `dev-root-ca`, `service-tls`, `envoy-client-tls` in the right namespaces. |
+| `scripts/strict-tls-bootstrap.sh` | Create/update TLS secrets: `off-campus-housing-local-tls`, `dev-root-ca`, `service-tls`, `envoy-client-tls` in the right namespaces. |
 | `scripts/rollout-caddy.sh` | Deploy Caddy (NodePort or LoadBalancer per `CADDY_USE_LOADBALANCER`). |
 | `scripts/generate-envoy-client-cert.sh` | Generate Envoy client cert (CN=envoy) from dev-root CA. |
 
@@ -117,7 +117,7 @@ Paths are relative to repo root. Another project can copy this layout and adapt 
 |------|---------|
 | `certs/dev-root.pem` | Canonical CA cert (synced from cluster or reissue). Used by k6, curl, and ConfigMaps. |
 | `certs/dev-root.key` | CA key (persisted only when reissuing; not in cluster). |
-| `certs/off-campus-housing.local.crt`, `certs/off-campus-housing.local.key` | Leaf cert for `off-campus-housing.local`. |
+| `certs/off-campus-housing.test.crt`, `certs/off-campus-housing.test.key` | Leaf cert for `off-campus-housing.test`. |
 | `certs/envoy-client.crt`, `certs/envoy-client.key` | Envoy client cert for mTLS to backends. |
 | `scripts/reissue-ca-and-leaf-load-all-services.sh` | Reissue CA + leaf; update secrets; optional Kafka SSL. |
 | `scripts/rotation-suite.sh` | Full rotation runbook: reissue, Caddy reload, backend restarts, grace, H3 warmup, k6 chaos. |
@@ -233,7 +233,7 @@ All namespaces the substrate expects; create them so Kustomize and scripts apply
 |------|---------|
 | `scripts/run-preflight-scale-and-all-suites.sh` | Top-level preflight: ensure-ready, reissue, scale, 9 suites (auth, baseline, enhanced, adversarial, rotation, standalone-capture, tls-mtls, social, lb-coordinated). **Porting:** script uses `off-campus-housing-tracker` namespace and Colima/k3d context; override with env or search-replace `off-campus-housing-tracker` / hostname per project. |
 | `scripts/ensure-ready-for-preflight.sh` | Layered readiness before preflight (API, DBs, Kafka, optional host aliases). |
-| `scripts/test-microservices-http2-http3.sh` | Baseline: HTTP/2 + HTTP/3 + gRPC health, strict TLS. Uses `HOST`, `NS` (default off-campus-housing.local, off-campus-housing-tracker). |
+| `scripts/test-microservices-http2-http3.sh` | Baseline: HTTP/2 + HTTP/3 + gRPC health, strict TLS. Uses `HOST`, `NS` (default off-campus-housing.test, off-campus-housing-tracker). |
 | `scripts/test-tls-mtls-comprehensive.sh` | TLS/mTLS tests (chain, gRPC, Envoy, client cert). |
 | `scripts/rotation-suite.sh` | CA/leaf rotation, Caddy reload, H3 warmup, k6 chaos. |
 | `scripts/test-packet-capture-standalone.sh` | Packet capture (Caddy/Envoy tcpdump), HTTP/2 + HTTP/3 + gRPC traffic. |
@@ -242,7 +242,7 @@ All namespaces the substrate expects; create them so Kustomize and scripts apply
 | `scripts/setup-new-colima-cluster.sh` | One-shot Colima + k3s + MetalLB. **METALLB_POOL** (default 192.168.64.240–250); set a different range per project (e.g. housing .251–260). See `docs/NEW_CLUSTER_SETUP.md`. |
 | `scripts/backup-all-dbs.sh` | Backup N external Postgres DBs; **PGPASSWORD=postgres** in script; writes dumps and `backup-report-<timestamp>.md`. Override **BACKUP_DBS** (format `port:dbname:label`) for your DB layout. |
 | `scripts/inspect-external-db-schemas.sh` | Inspect external DBs; **PGPASSWORD=postgres**; writes `schema-report-<timestamp>.md`. Override **INSPECT_DBS** for your DB list. |
-| **scripts/lib/** | Shared networking and test helpers. **scripts/lib/http3.sh** is used by baseline/rotation for HTTP/3 curl and `--resolve`; uses `HTTP3_EXPECTED_HOST` (default off-campus-housing.local). **scripts/lib/kubectl-helper.sh** used by run-preflight. Bring entire `scripts/lib/` when porting; override host/namespace via env where supported. |
+| **scripts/lib/** | Shared networking and test helpers. **scripts/lib/http3.sh** is used by baseline/rotation for HTTP/3 curl and `--resolve`; uses `HTTP3_EXPECTED_HOST` (default off-campus-housing.test). **scripts/lib/kubectl-helper.sh** used by run-preflight. Bring entire `scripts/lib/` when porting; override host/namespace via env where supported. |
 | **scripts/load/** | k6 scripts (e.g. k6-chaos-test.js, k6-http3-complete.js, k6-reads.js) included in bundle; add your own k6 tests here. |
 
 ### 2.11 Documentation (this substrate)
@@ -304,7 +304,7 @@ Preflight runs: auth, baseline HTTP/2+HTTP/3, enhanced, adversarial, **rotation*
 ### 3.3 Rotation (CA + leaf, zero-downtime under load)
 
 1. Reissue CA and leaf (or use existing certs).
-2. Update secrets in cluster (`record-local-tls`, `dev-root-ca`, `service-tls`; Envoy `envoy-client-tls` if CA changed).
+2. Update secrets in cluster (`off-campus-housing-local-tls`, `dev-root-ca`, `service-tls`; Envoy `envoy-client-tls` if CA changed).
 3. Caddy reload: admin API `POST /load` (or rolling restart if hot reload not available).
 4. Restart all gRPC/TLS backends so they load new certs.
 5. **Grace**: `ROTATION_GRACE_SECONDS=8` (default) after Caddy/Envoy ready.
@@ -318,7 +318,7 @@ All of the above are implemented in `scripts/rotation-suite.sh`. Run: `./scripts
 
 - MetalLB assigns an IP on the **VM** network (e.g. 192.168.64.240). The Mac host may not be on that subnet.
 - One-time route on Mac (if needed): `sudo route add -host 192.168.64.240 <colima-vm-ip>` (or use Colima’s bridged networking if available).
-- Verify script writes `REACHABLE_LB_IP` for suites; curl/health use `--resolve off-campus-housing.local:443:<LB_IP>` and `certs/dev-root.pem`.
+- Verify script writes `REACHABLE_LB_IP` for suites; curl/health use `--resolve off-campus-housing.test:443:<LB_IP>` and `certs/dev-root.pem`.
 
 ### 3.5 Pods 0/1 Ready (Colima)
 
@@ -333,7 +333,7 @@ All of the above are implemented in `scripts/rotation-suite.sh`. Run: `./scripts
 
 | Secret | Namespace(s) | Contents | Used by |
 |--------|--------------|----------|---------|
-| `record-local-tls` | ingress-nginx, off-campus-housing-tracker | tls.crt, tls.key (leaf) | Caddy, optional nginx |
+| `off-campus-housing-local-tls` | ingress-nginx, off-campus-housing-tracker | tls.crt, tls.key (leaf) | Caddy, optional nginx |
 | `dev-root-ca` | ingress-nginx, off-campus-housing-tracker, envoy-test, k6-load | dev-root.pem | Caddy (optional), services (trust), Envoy (trust), k6 ConfigMap |
 | `service-tls` | off-campus-housing-tracker | tls.crt, tls.key, ca.crt | Backend services (server + client TLS) |
 | `envoy-client-tls` | envoy-test | envoy.crt, envoy.key | Envoy (client cert to backends) |
@@ -349,11 +349,11 @@ All of the above are implemented in `scripts/rotation-suite.sh`. Run: `./scripts
 | `ROTATION_GRACE_SECONDS` | 8 | Seconds after Caddy/Envoy ready before load. |
 | `ROTATION_H3_WARMUP` | 5 | Number of HTTP/3 health requests before chaos; 0 = skip. |
 | `ROTATION_PREWARM_SLEEP` | 15 | Seconds settle before chaos. |
-| `HOST` | off-campus-housing.local | TLS SNI and Host header for tests. |
+| `HOST` | off-campus-housing.test | TLS SNI and Host header for tests. |
 
 ### 4.3 Caddyfile conventions (portable)
 
-- **Single primary vhost**: `https://off-campus-housing.local` (or your hostname). TLS paths: `/etc/caddy/certs/tls.crt`, `tls.key`.
+- **Single primary vhost**: `https://off-campus-housing.test` (or your hostname). TLS paths: `/etc/caddy/certs/tls.crt`, `tls.key`.
 - **Health**: `handle_path /_caddy/healthz { respond "ok" 200 }` (no redirect).
 - **gRPC**: Route by path or `path_regexp \.` to Envoy; `transport http { versions h2c }`.
 - **REST**: Reverse proxy to API Gateway; use `handle` (not `handle_path`) for `/api/*` so path is not stripped and H2/H3 behave the same.
@@ -364,7 +364,7 @@ All of the above are implemented in `scripts/rotation-suite.sh`. Run: `./scripts
 
 ## 6. How HTTP/2, HTTP/3, and gRPC work (substrate behavior)
 
-- **Caddy** listens on port **443** (TLS). It terminates TLS and speaks HTTP/1.1, HTTP/2, and HTTP/3 (QUIC) on the same port. ALPN selects the protocol (e.g. `h2` for HTTP/2, `h3` for HTTP/3). Clients must use **SNI** = your hostname (e.g. `off-campus-housing.local`) and present the CA so the leaf cert is trusted.
+- **Caddy** listens on port **443** (TLS). It terminates TLS and speaks HTTP/1.1, HTTP/2, and HTTP/3 (QUIC) on the same port. ALPN selects the protocol (e.g. `h2` for HTTP/2, `h3` for HTTP/3). Clients must use **SNI** = your hostname (e.g. `off-campus-housing.test`) and present the CA so the leaf cert is trusted.
 - **HTTP/2:** TLS 1.2/1.3 with ALPN `h2`. Requests over a single connection are multiplexed. Health and REST go through Caddy to the API Gateway or backends. Use `--http2` with curl and `--resolve <host>:443:<LB_IP>` when targeting the MetalLB IP.
 - **HTTP/3 (QUIC):** UDP 443. Same TLS cert as HTTP/2. Use `--http3` (or `--http3-only`) with curl; same `--resolve` and CA. On Colima, the host may not have UDP 443 to the VM; in-cluster pods (hostNetwork) can verify QUIC to the LB IP. Rotation and load tests use **no QUIC connection reuse** (`K6_HTTP3_NO_REUSE=1`) after cert reload to avoid stale-session timeouts.
 - **gRPC:** Caddy matches gRPC-style paths (e.g. by path or `path_regexp \.`) and proxies to **Envoy** over **h2c** (HTTP/2 cleartext). Envoy then forwards to backend services over **TLS with mTLS** (Envoy presents client cert). So: Client → Caddy (TLS) → Envoy (h2c) → Backend (TLS + client cert). All use the same dev-root CA.
@@ -391,7 +391,7 @@ To reuse this substrate in a new project (e.g. housing):
    - Data plane: `docker-compose.yml` (Kafka + Redis + your DBs), `scripts/kafka-ssl-from-dev-root.sh`, `docs/STRICT_TLS_MTLS_AND_KAFKA.md`, `docs/KAFKA_CURRENT_AND_ROADMAP.md`.
 
 2. **Adapt**
-   - Replace `off-campus-housing.local` with your hostname in Caddyfile, scripts, and certs.
+   - Replace `off-campus-housing.test` with your hostname in Caddyfile, scripts, and certs.
    - Replace `off-campus-housing-tracker` namespace with your app namespace where relevant.
    - **DBs:** Use your own Postgres count and schemas (e.g. 10 DBs); keep Redis and Kafka the same (Redis URL, Kafka broker + SSL).
    - **MetalLB:** Use a **different IP pool** (e.g. `192.168.64.251-260`) so it does not conflict with another project on the same network.
@@ -422,10 +422,10 @@ To reuse this substrate in a new project (e.g. housing):
 
 | Asset | What to change |
 |-------|----------------|
-| **Caddyfile** | Replace `off-campus-housing.local` with your hostname (vhost and TLS SNI). Replace every `*.off-campus-housing-tracker.svc.cluster.local` with `*.<your-namespace>.svc.cluster.local`. Adjust route paths if your API is under a different prefix (e.g. `/api/` → `/v1/`). Leave grace_period, servers.protocols, transport h2c, and log config as-is. |
+| **Caddyfile** | Replace `off-campus-housing.test` with your hostname (vhost and TLS SNI). Replace every `*.off-campus-housing-tracker.svc.cluster.local` with `*.<your-namespace>.svc.cluster.local`. Adjust route paths if your API is under a different prefix (e.g. `/api/` → `/v1/`). Leave grace_period, servers.protocols, transport h2c, and log config as-is. |
 | **infra/k8s** | **Namespace:** Replace `off-campus-housing-tracker` in namespaces.yaml, all deploy.yaml metadata.namespace, HPA namespace, and ConfigMap/Secret refs. **Service names:** Deploy and service names (e.g. api-gateway, auth-service) can stay or be renamed; update Caddyfile reverse_proxy targets and Envoy clusters to match. **Images:** Set your registry/image names in overlays. |
 | **proto/** | Proto package and service names can stay or be renamed; ensure Caddy/Envoy routes and backend gRPC server names match. Copy `proto/health.proto` (and any shared protos); app-specific protos are per-project. |
-| **Scripts** | Most scripts use `NS="${NS:-off-campus-housing-tracker}"` and `HOST="${HOST:-off-campus-housing.local}"`. Export `NS` and `HOST` in the new project (e.g. in a `.env` or wrapper script), or search-replace once. **scripts/lib/http3.sh** uses `HTTP3_EXPECTED_HOST` (default off-campus-housing.local). **run-preflight-scale-and-all-suites.sh** references off-campus-housing-tracker and Caddy/Envoy; set namespace/host via env where supported or patch the script. |
+| **Scripts** | Most scripts use `NS="${NS:-off-campus-housing-tracker}"` and `HOST="${HOST:-off-campus-housing.test}"`. Export `NS` and `HOST` in the new project (e.g. in a `.env` or wrapper script), or search-replace once. **scripts/lib/http3.sh** uses `HTTP3_EXPECTED_HOST` (default off-campus-housing.test). **run-preflight-scale-and-all-suites.sh** references off-campus-housing-tracker and Caddy/Envoy; set namespace/host via env where supported or patch the script. |
 
 ---
 
@@ -452,7 +452,7 @@ To produce a **single portable bundle** (e.g. a tarball or a directory) that ano
    done
    ```
 
-3. **Second project**: untar or copy `substrate-bundle/` into the new repo; replace `off-campus-housing.local` and `off-campus-housing-tracker`; generate certs; run procedures in section 3.
+3. **Second project**: untar or copy `substrate-bundle/` into the new repo; replace `off-campus-housing.test` and `off-campus-housing-tracker`; generate certs; run procedures in section 3.
 
 ---
 

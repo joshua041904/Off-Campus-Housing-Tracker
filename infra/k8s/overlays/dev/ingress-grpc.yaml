@@ -20,10 +20,10 @@ spec:
   ingressClassName: nginx
   tls:
   - hosts:
-    - off-campus-housing.local
+    - off-campus-housing.test
     secretName: off-campus-housing-local-tls
   rules:
-  - host: off-campus-housing.local
+  - host: off-campus-housing.test
     http:
       paths:
       - path: /records.RecordsService

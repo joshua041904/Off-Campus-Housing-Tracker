@@ -96,7 +96,7 @@ fi
 
 # --- 4. Ensure external infra (Redis, then all 8 Postgres) ---
 REDIS_PORT="${REDIS_PORT:-6380}"
-say "4. Ensuring Redis ($REDIS_PORT) and Postgres (5441–5447)..."
+say "4. Ensuring Redis ($REDIS_PORT) and Postgres (5441–5448)..."
 if ! nc -z 127.0.0.1 "$REDIS_PORT" 2>/dev/null; then
   if [[ -f "$SCRIPT_DIR/bring-up-external-infra.sh" ]]; then
     info "Redis not reachable; bringing up external infra (Redis, Kafka, 8 Postgres)..."
@@ -110,13 +110,22 @@ fi
 ok "Redis reachable ($REDIS_PORT)"
 if [[ -x "$SCRIPT_DIR/ensure-pgbench-dbs-ready.sh" ]]; then
   if "$SCRIPT_DIR/ensure-pgbench-dbs-ready.sh"; then
-    ok "All 7 Postgres DBs reachable (5441–5447)"
+    ok "All 8 Postgres DBs reachable (5441–5448)"
   else
-    warn "Not all DBs ready. Run: ./scripts/bring-up-external-infra.sh  or docker compose up -d postgres-auth postgres-listings postgres-bookings postgres-messaging postgres-notification postgres-trust postgres-analytics"
+    warn "Not all DBs ready. Run: ./scripts/bring-up-external-infra.sh  or docker compose up -d postgres-auth postgres-listings postgres-bookings postgres-messaging postgres-notification postgres-trust postgres-analytics postgres-media"
     exit 1
   fi
 else
-  warn "ensure-pgbench-dbs-ready.sh not found; skipping DB check."
+  _pg_up=0
+  for _p in 5441 5442 5443 5444 5445 5446 5447 5448; do
+    nc -z 127.0.0.1 "$_p" 2>/dev/null && _pg_up=$((_pg_up + 1)) || true
+  done
+  if [[ "$_pg_up" -eq 8 ]]; then
+    ok "All 8 Postgres ports reachable (5441–5448)"
+  else
+    warn "Postgres ports: $_pg_up/8 up (expected 5441–5448). Run: ./scripts/bring-up-external-infra.sh"
+    exit 1
+  fi
 fi
 
 KAFKA_SSL_PORT="${KAFKA_SSL_PORT:-29094}"

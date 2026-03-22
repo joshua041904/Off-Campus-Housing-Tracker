@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Build housing service images (:dev) from repo root and load into Colima/k3s (docker save | colima ssh docker load).
 # Run after code changes before kubectl rollout restart, when not using a registry.
+# Build + rollout helper: ./scripts/rebuild-och-images-and-rollout.sh (or pnpm run rebuild:och:rollout).
 #
 # Usage: ./scripts/build-housing-images-k3s.sh
 #   SERVICES="auth-service api-gateway"  — space-separated subset (default: all HTTP/gRPC app services)

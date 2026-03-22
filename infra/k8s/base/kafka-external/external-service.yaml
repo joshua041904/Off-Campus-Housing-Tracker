@@ -1,7 +1,10 @@
 # Service + Endpoints for external Kafka (Docker Compose strict TLS). Housing uses host port 29094 (RP uses 29093).
-# Endpoints IP = host from cluster (host.docker.internal). Run:
+# Clients in-cluster use kafka-external:9093; kube-proxy forwards to Endpoints port 29094 on the listed IP.
+#
+# Default IP 192.168.64.1: Colima VM’s usual default gateway (host reachability from the Linux VM).
+# If `kubectl exec … -- nc -vz kafka-external 9093` fails, override this Endpoints IP or run:
 #   ./scripts/patch-kafka-external-host.sh
-# after apply.
+# (script resolves host.docker.internal / Docker host-gateway — no silent wrong fallback).
 apiVersion: v1
 kind: Service
 metadata:
@@ -22,7 +25,7 @@ metadata:
   namespace: off-campus-housing-tracker
 subsets:
   - addresses:
-      - ip: 10.0.0.8
+      - ip: 192.168.64.1
     ports:
       - port: 29094
         name: kafka-ssl

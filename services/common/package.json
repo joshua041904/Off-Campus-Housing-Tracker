@@ -37,6 +37,10 @@
       "types": "./dist/grpc-health.d.ts",
       "default": "./dist/grpc-health.js"
     },
+    "./grpc-server-credentials": {
+      "types": "./dist/grpc-server-credentials.d.ts",
+      "default": "./dist/grpc-server-credentials.js"
+    },
     "./grpc-reflection": {
       "types": "./dist/grpc-reflection.d.ts",
       "default": "./dist/grpc-reflection.js"

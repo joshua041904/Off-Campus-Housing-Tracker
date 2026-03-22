@@ -112,7 +112,7 @@ if (__ENV.STRICT_H3 === "1") {
 if (Object.keys(HOSTS).length) opts.hosts = HOSTS;
 export const options = opts;
 
-const HOST = __ENV.HOST || "off-campus-housing.local";
+const HOST = __ENV.HOST || "off-campus-housing.test";
 const PORT = __ENV.K6_PORT || "443";
 // K6_LB_IP: REQUIRED for HTTP/3 when running locally (MetalLB). Bypasses system DNS entirely.
 // When unset (in-cluster): use ClusterIP FQDN — cluster DNS resolves correctly.
@@ -168,7 +168,7 @@ export function h2_request() {
   sleep(Math.random() * 0.01);
 }
 
-// HTTP/3 test — resolver-proof: connect via LB IP, validate TLS against off-campus-housing.local
+// HTTP/3 test — resolver-proof: connect via LB IP, validate TLS against off-campus-housing.test
 // K6_H3_TIMEOUT: QUIC idle timeout (default 30s). "timeout: no recent network activity" occurs when
 // UDP packets stall (Colima+MetalLB nested NAT). 30s gives more headroom than Go default ~15s.
 // CRITICAL: noReuse must be true during rotation. When Caddy pod restarts, old QUIC connection IDs
