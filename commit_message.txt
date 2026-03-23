@@ -16,7 +16,7 @@ Canonical PR body (plain .txt — paste entire file into GitHub/GitLab PR descri
 
   GITHUB_PR_DESCRIPTION.txt   (repo root)
 
-Includes: 3-teammate review breakdown, copy/paste run recipes, env tables, FAQ, verify commands.
+Includes: review split for Joshua / Franco / Arkar, copy/paste run recipes, env tables, FAQ, verify commands.
 
 HOW TO RUN (minimal cheat sheet)
 --------------------------------

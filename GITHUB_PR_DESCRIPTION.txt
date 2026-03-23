@@ -1,17 +1,32 @@
+================================================================================
+PASTE THIS FILE INTO THE GITHUB / GITLAB PULL REQUEST DESCRIPTION (Preview OK).
+================================================================================
 
 # First PR — full description (team review + how to run)
 
-**Purpose:** Single file the author pastes into the PR. It explains **what we did end-to-end**, **how to run** every path, and **who should review what** (3 teammates).
+**Purpose:** Single file pasted into the PR: **what we did end-to-end**, **how to run** everything, and a **split for three named reviewers** so Joshua, Franco, and Arkar can review in parallel.
 
 ---
 
-## Review breakdown — assign to 3 teammates
+## Review owners (quick map)
 
-Split the diff so review is parallel and nothing is missed. Each person signs off their section in the PR thread.
+| Person | Primary focus | Reply in PR with |
+|--------|----------------|------------------|
+| **Joshua** | Listings service, listings K8s YAML, perf docs (`docs/perf/*` for listings/timing) | `Review: Joshua — LGTM on listings + k8s + perf docs` (or comments) |
+| **Franco** | k6 scripts, suite hooks, preflight wiring (`k6-suite-resource-hooks`, smoke, phases, suites) | `Review: Franco — LGTM on k6 + orchestration` |
+| **Arkar** | API gateway, packet capture, housing HTTP suite script, `scripts/perf` automation | `Review: Arkar — LGTM on gateway + transport + perf scripts` |
 
-### Teammate 1 — Listings service + Kubernetes + perf docs
+**Process:** Each person works through their section below, checks boxes, and posts one summary comment. If something spans two areas, tag both names in-thread.
 
-**Owns:** runtime behavior of listings, cluster config for diagnostics, operator docs.
+---
+
+## Review breakdown — Joshua, Franco & Arkar
+
+Split the diff so review is parallel and nothing is missed.
+
+### Joshua — Listings service + Kubernetes + perf docs
+
+**Owns:** runtime behavior of listings, cluster config for diagnostics, operator-facing perf docs.
 
 | Action | Path(s) |
 |--------|---------|
@@ -25,9 +40,9 @@ Split the diff so review is parallel and nothing is missed. Each person signs of
 
 ---
 
-### Teammate 2 — k6 + suite orchestration + preflight wiring
+### Franco — k6 + suite orchestration + preflight wiring
 
-**Owns:** all host-side load scripts, hooks between tests, phase runner, preflight mentions.
+**Owns:** all host-side load scripts, hooks between tests, phase runner, preflight script changes.
 
 | Action | Path(s) |
 |--------|---------|
@@ -45,7 +60,7 @@ Split the diff so review is parallel and nothing is missed. Each person signs of
 
 ---
 
-### Teammate 3 — API gateway + transport capture + housing HTTP suite + perf automation
+### Arkar — API gateway + transport capture + housing HTTP suite + perf automation
 
 **Owns:** gateway correctness, packet capture strictness, broader housing health script, SQL/report scripts.
 
@@ -63,11 +78,11 @@ Split the diff so review is parallel and nothing is missed. Each person signs of
 
 ---
 
-### Everyone — shared checklist before merge
+### Joshua, Franco & Arkar — shared checklist before merge
 
 - [ ] `commit_message.txt` at repo root matches what landed in git / release notes intent.
 - [ ] No secrets committed; only env *names* in docs/YAML.
-- [ ] At least one person ran **edge k6 grid** + one person confirmed **listings diagnostics** or **preflight** path per §9.
+- [ ] At least **Franco** or author ran **edge k6 grid**; **Joshua** or author confirmed **listings diagnostics** or **preflight** path per §9 (adjust if someone else volunteers).
 
 ---
 
@@ -89,7 +104,7 @@ Split the diff so review is parallel and nothing is missed. Each person signs of
 ## 1. Welcome / how to use this doc
 
 - **Only run one thing?** → §5 copy/paste recipes.  
-- **Reviewing?** → **Review breakdown (3 teammates)** above, then §6 and §9.  
+- **Reviewing?** → **Joshua / Franco / Arkar** sections above, then §6 and §9.  
 - **Something failed?** → §8 FAQ, then logs under `bench_logs/` or paths printed by scripts.
 
 **Repo root:** every command assumes `cd` to **Off-Campus-Housing-Tracker** root.
@@ -350,11 +365,9 @@ Rebuild **api-gateway** in-cluster to validate JSON **400** behavior.
 
 ## 10. Review checklist (quick)
 
-- [ ] Listings diagnostics off by default in base YAML.  
-- [ ] k6 default `BASE_URL` OK for all dev envs (override documented).  
-- [ ] Team OK with default CPU fail or CI sets `K6_SUITE_FAIL_ON_NODE_CPU=0`.  
-- [ ] Gateway rolled out before claiming adversarial k6 paths fixed.  
-- [ ] Perf scripts only when DB ports/creds available.
+- [ ] **Joshua:** Listings diagnostics off by default in base YAML.  
+- [ ] **Franco:** k6 default `BASE_URL` OK for all dev envs (override documented); team OK with CPU gate or CI sets `K6_SUITE_FAIL_ON_NODE_CPU=0`.  
+- [ ] **Arkar:** Gateway rolled out before claiming adversarial k6 paths fixed; perf scripts only when DB ports/creds available.
 
 ---
 
