@@ -27,7 +27,7 @@ fi
 #   https://off-campus-housing.test. Step 7a runs ./scripts/lib/trust-dev-root-ca-macos.sh automatically
 #   before k6 (adds dev-root to login keychain; re-run after CA rotation). Overrides:
 #   SKIP_MACOS_DEV_CA_TRUST=1 — you already trusted the CA manually.
-#   K6_USE_DOCKER_K6=1 — use grafana/k6 in Docker (Linux; SSL_CERT_FILE works); see run-housing-k6-edge-smoke.sh.
+#   K6_USE_DOCKER_K6=1 — use grafana/k6 in Docker for other k6 flows (Linux; SSL_CERT_FILE works). Housing edge smoke uses host k6 only.
 #   PREFLIGHT_STRICT_MACOS_K6_TRUST=0 — if keychain step fails, continue anyway (k6 may still x509).
 #
 # Ensures:
@@ -41,7 +41,7 @@ fi
 #     Override exact list: PREFLIGHT_APP_DEPLOYS="auth-service api-gateway messaging-service"
 #   RUN_MESSAGING_LOAD=1 (default) — after Vitest + housing scripts, run k6 edge smoke grid (run-housing-k6-edge-smoke.sh) if k6 is installed.
 #   RUN_K6_SERVICE_GRID=0 — skip the full k6 per-service smoke (gateway, auth, listings, booking health, trust, analytics, messaging, media, event-layer + booking/search JWT).
-#   RUN_PREFLIGHT_PLAYWRIGHT=0 — skip Playwright E2E (webapp) with api-gateway port-forward.
+#   RUN_PREFLIGHT_PLAYWRIGHT=0 — skip Playwright E2E (https edge /api/readyz wait + tests against E2E_API_BASE).
 #   PREFLIGHT_EXIT_AFTER_HOUSING_SUITES=1 — exit after step 7a (Vitest + housing HTTP suite + k6 grid + Playwright); skip transport study / in-cluster k6 / step 8 pgbench. make demo sets this to 1; make demo-full sets 0.
 #     Set RUN_MESSAGING_LOAD=0 to skip. Tune: K6_MESSAGING_DURATION, K6_MESSAGING_RATE, K6_MESSAGING_VUS, K6_MEDIA_*.
 #   Preflight does not apply DB migrations or infra/db/*.sql; run scripts/setup-*-db.sh or scripts/ensure-*.sh manually when schema changes.
@@ -2225,34 +2225,29 @@ _run_all_suites() {
   "$SCRIPT_DIR/test-messaging-service-comprehensive.sh" || return 1
   # k6: full per-service edge grid (health + public + messaging + media + event-layer + booking/search JWT flows).
   if [[ "${RUN_MESSAGING_LOAD:-1}" != "0" ]] && [[ "${RUN_K6_SERVICE_GRID:-1}" != "0" ]] && command -v k6 >/dev/null 2>&1; then
-    _k6_lb="$(kubectl -n ingress-nginx get svc caddy-h3 -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
-    [[ -z "$_k6_lb" ]] && _k6_lb="${TARGET_IP:-${REACHABLE_LB_IP:-}}"
     _k6_ca="$REPO_ROOT/certs/dev-root.pem"
     [[ ! -f "$_k6_ca" ]] && _k6_ca="${K6_CA_CERT:-}"
-    if [[ -n "$_k6_lb" ]] && [[ -f "$_k6_ca" ]]; then
-      say "7a3–7a7. k6 per-service edge smoke (run-housing-k6-edge-smoke.sh)…"
+    if [[ -f "$_k6_ca" ]] && [[ -s "$_k6_ca" ]]; then
+      say "7a3–7a7. k6 per-service edge smoke (run-housing-k6-edge-smoke.sh; hostname + SSL_CERT_FILE, no K6_RESOLVE)…"
       export SSL_CERT_FILE="$_k6_ca"
       export K6_TLS_CA_CERT="$_k6_ca"
       export K6_CA_ABSOLUTE="$_k6_ca"
-      # macOS keychain trust already enforced at start of _run_all_suites (7a-prep)
       export BASE_URL="${BASE_URL:-https://off-campus-housing.test}"
-      export K6_RESOLVE="${K6_RESOLVE:-off-campus-housing.test:443:$_k6_lb}"
-      export K6_LB_IP="$_k6_lb"
       chmod +x "$SCRIPT_DIR/run-housing-k6-edge-smoke.sh" 2>/dev/null || true
       K6_SMOKE_DURATION="${K6_SMOKE_DURATION:-${K6_MESSAGING_DURATION:-28s}}" K6_SMOKE_VUS="${K6_SMOKE_VUS:-${K6_MESSAGING_VUS:-6}}" \
         K6_BOOKING_DURATION="${K6_BOOKING_DURATION:-25s}" K6_BOOKING_VUS="${K6_BOOKING_VUS:-3}" \
         K6_SEARCH_DURATION="${K6_SEARCH_DURATION:-28s}" K6_SEARCH_VUS="${K6_SEARCH_VUS:-6}" \
         "$SCRIPT_DIR/run-housing-k6-edge-smoke.sh" || warn "k6 edge smoke had failures (non-fatal unless K6_GRID_STRICT=1)"
     else
-      warn "7a3 k6 grid skipped: need reachable LB IP (got '${_k6_lb:-empty}') and CA at certs/dev-root.pem"
+      warn "7a3 k6 grid skipped: need non-empty CA at certs/dev-root.pem (sync from preflight)"
     fi
   elif [[ "${RUN_MESSAGING_LOAD:-1}" != "0" ]] && [[ "${RUN_K6_SERVICE_GRID:-1}" != "0" ]]; then
     info "7a3 k6 skipped: k6 not on PATH (install: brew install k6; or RUN_MESSAGING_LOAD=0 / RUN_K6_SERVICE_GRID=0)"
   fi
   if [[ "${RUN_PREFLIGHT_PLAYWRIGHT:-1}" != "0" ]]; then
-    say "7a8. Playwright E2E (webapp + api-gateway port-forward)…"
+    say "7a8. Playwright E2E (webapp via edge; no port-forward)…"
     chmod +x "$SCRIPT_DIR/run-playwright-e2e-preflight.sh" 2>/dev/null || true
-    HOUSING_NS="${HOUSING_NS:-off-campus-housing-tracker}" "$SCRIPT_DIR/run-playwright-e2e-preflight.sh" || warn "Playwright E2E had failures (see log; set RUN_PREFLIGHT_PLAYWRIGHT=0 to skip)"
+    "$SCRIPT_DIR/run-playwright-e2e-preflight.sh" || warn "Playwright E2E had failures (see log; set RUN_PREFLIGHT_PLAYWRIGHT=0 to skip)"
   fi
 }
 if ! _run_all_suites; then

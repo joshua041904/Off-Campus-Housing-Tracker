@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: webapp
+  namespace: off-campus-housing-tracker
+  labels:
+    app: webapp
+spec:
+  selector:
+    app: webapp
+  ports:
+    - name: http
+      port: 3001
+      targetPort: http

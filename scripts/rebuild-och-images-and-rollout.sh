@@ -6,6 +6,7 @@
 #   ./scripts/rebuild-och-images-and-rollout.sh
 #   SERVICES=api-gateway ./scripts/rebuild-och-images-and-rollout.sh   # gateway only
 #   SERVICES="media-service listings-service" SKIP_LOAD=1 ./scripts/rebuild-och-images-and-rollout.sh   # build only
+#   SERVICES="api-gateway,listings-service" ./scripts/rebuild-och-images-and-rollout.sh   # commas OK too
 #   ROLLOUT=0 ./scripts/rebuild-och-images-and-rollout.sh   # build/load only, no kubectl restart
 #
 # Env:
@@ -22,6 +23,8 @@ cd "$REPO_ROOT"
 
 HOUSING_NS="${HOUSING_NS:-off-campus-housing-tracker}"
 SERVICES="${SERVICES:-api-gateway media-service}"
+# Allow SERVICES=api-gateway,listings-service (commas → spaces)
+SERVICES="${SERVICES//,/ }"
 IMAGE_TAG="${IMAGE_TAG:-dev}"
 ROLLOUT="${ROLLOUT:-1}"
 

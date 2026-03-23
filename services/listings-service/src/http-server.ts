@@ -60,8 +60,8 @@ export function createListingsHttpApp() {
     res.end(await register.metrics());
   });
 
-  /** Public search (also used by webapp / k6) — optional filters */
-  app.get("/search", async (req, res) => {
+  /** Public browse + search (gateway strips /api/listings → GET / or GET /search). */
+  const searchListingsPublic = async (req: Request, res: Response) => {
     try {
       const q = String(req.query.q || "").trim();
       const minP = req.query.min_price != null ? Number(req.query.min_price) : null;
@@ -103,7 +103,10 @@ export function createListingsHttpApp() {
       console.error("[listings HTTP search]", e);
       res.status(500).json({ error: "search failed" });
     }
-  });
+  };
+
+  app.get("/", searchListingsPublic);
+  app.get("/search", searchListingsPublic);
 
   app.get("/listings/:id", async (req, res) => {
     try {

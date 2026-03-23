@@ -2,6 +2,11 @@
  * API Gateway — housing only. Uses proto: auth, listings, booking, messaging, notification, trust, analytics, media.
  * Ports per README: gateway 4020; auth 4011/50061, listings 4012/50062, booking 4013/50063, messaging 4014/50064,
  * notification 4015/50065, trust 4016/50066, analytics 4017/50067, media 4018/50068.
+ *
+ * Auth boundary: one global guard runs before service proxies (below). That does not mean every path under
+ * /api needs JWT. Public routes are either mounted above the guard (explicit app.get or gRPC auth handlers),
+ * listed in OPEN_ROUTES, or (for liveness) any GET whose path ends in /healthz (LB, smoke, k6). Everything
+ * else needs Authorization: Bearer so the gateway can set x-user-id for upstreams.
  */
 import express, { type Request, type Response, type NextFunction } from "express";
 import * as grpc from "@grpc/grpc-js";
@@ -116,6 +121,17 @@ function handleGrpcError(res: Response, err: any, routeHint?: string) {
 
 const jsonParser = express.json({ limit: "1mb" });
 
+/** Strip query string for path matching. */
+function gatewayPathOnly(req: Request): string {
+  return (req.originalUrl || req.url || "").split("?")[0];
+}
+
+/** Any GET path ending in /healthz is upstream liveness — never require JWT (avoids drift vs OPEN_ROUTES). */
+function isGetHealthzBypass(req: Request): boolean {
+  if (req.method !== "GET") return false;
+  return /\/healthz\/?$/.test(gatewayPathOnly(req));
+}
+
 const OPEN_ROUTES = [
   { method: "GET", pattern: /^\/healthz\/?$/ },
   { method: "GET", pattern: /^\/api\/healthz\/?$/ },
@@ -132,9 +148,12 @@ const OPEN_ROUTES = [
   { method: "POST", pattern: /^\/auth\/refresh\/?$/ },
   { method: "POST", pattern: /^\/api\/auth\/refresh\/?$/ },
   { method: "GET", pattern: /^\/auth\/healthz\/?$/ },
+  { method: "GET", pattern: /^\/api\/auth\/healthz\/?$/ },
   { method: "GET", pattern: /^\/auth\/metrics\/?$/ },
+  { method: "GET", pattern: /^\/api\/auth\/metrics\/?$/ },
   { method: "GET", pattern: /^\/(?:api\/)?listings\/healthz\/?$/ },
-  // Public browse: search + single listing (no JWT). Create listing stays protected via proxy + x-user-id.
+  // Public browse: index + search + single listing (no JWT). POST /create stays protected via proxy + x-user-id.
+  { method: "GET", pattern: /^\/(?:api\/)?listings\/?$/ },
   { method: "GET", pattern: /^\/(?:api\/)?listings\/search\/?$/ },
   { method: "GET", pattern: /^\/(?:api\/)?listings\/listings\/[^/]+\/?$/ },
   // Public reputation lookup (trust HTTP).
@@ -144,13 +163,15 @@ const OPEN_ROUTES = [
   { method: "GET", pattern: /^\/(?:api\/)?trust\/healthz\/?$/ },
   { method: "GET", pattern: /^\/(?:api\/)?analytics\/healthz\/?$/ },
   { method: "GET", pattern: /^\/(?:api\/)?analytics\/daily-metrics\/?$/ },
+  // Listing "feel" uses optional JWT upstream; allow unauthenticated for smoke/k6 when Ollama is enabled.
+  { method: "POST", pattern: /^\/(?:api\/)?analytics\/insights\/listing-feel\/?$/ },
   { method: "GET", pattern: /^\/(?:api\/)?media\/healthz\/?$/ },
   { method: "GET", pattern: /^\/(?:api\/)?notification\/healthz\/?$/ },
 ];
 
 function isOpenRoute(req: Request): boolean {
   const method = req.method;
-  const path = (req.originalUrl || req.url || "").split("?")[0];
+  const path = gatewayPathOnly(req);
   return OPEN_ROUTES.some((r) => r.method === method && r.pattern.test(path));
 }
 
@@ -194,10 +215,11 @@ app.use(
       /^http:\/\/localhost(:\d+)?$/,
       /^http:\/\/127\.0\.0\.1(:\d+)?$/,
       /^https:\/\/off-campus-housing\.local(:\d+)?$/,
+      /^https:\/\/off-campus-housing\.test(:\d+)?$/,
     ],
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "x-e2e-test"],
   })
 );
 app.use(compression() as any);
@@ -231,13 +253,19 @@ const limiter = rateLimit({
   max: process.env.DISABLE_RATE_LIMIT === "true" ? 999999 : 300,
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) =>
-    req.path === "/healthz" ||
-    req.path === "/api/healthz" ||
-    req.path === "/readyz" ||
-    req.path === "/api/readyz" ||
-    req.path === "/metrics" ||
-    req.get("x-loadtest") === "1",
+  skip: (req) => {
+    // E2E only: header from Playwright — do not use NODE_ENV=test here (would disable limits for all traffic).
+    const e2eBypass = req.get("x-e2e-test") === "1";
+    return (
+      e2eBypass ||
+      req.path === "/healthz" ||
+      req.path === "/api/healthz" ||
+      req.path === "/readyz" ||
+      req.path === "/api/readyz" ||
+      req.path === "/metrics" ||
+      req.get("x-loadtest") === "1"
+    );
+  },
 });
 app.use(limiter);
 
@@ -317,8 +345,9 @@ app.post("/api/auth/validate", jsonParser, validateTokenHandler);
 app.post("/auth/refresh", jsonParser, refreshTokenHandler);
 app.post("/api/auth/refresh", jsonParser, refreshTokenHandler);
 
-// ----- Auth guard -----
+// ----- Auth guard (after public auth + health mounts; before service proxies) -----
 app.use(async (req: AuthedRequest, res: Response, next: NextFunction) => {
+  if (isGetHealthzBypass(req)) return next();
   if (isOpenRoute(req)) return next();
   const token = extractBearer(req);
   if (!token) return res.status(401).json({ error: "auth required" });
@@ -393,10 +422,30 @@ app.use("/notification", injectIdentityHeadersIfAny, createProxyMiddleware(proxy
 app.use("/api/notification", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(NOTIFICATION_HTTP, { "^/api/notification": "" }) as any));
 
 app.use((_req, res) => res.status(404).json({ error: "not found" }));
+
+/** Preserve 4xx from body-parser / express.json (invalid JSON) instead of collapsing to 500. */
+function statusFromGatewayError(err: unknown): number {
+  if (err && typeof err === "object") {
+    const e = err as { status?: unknown; statusCode?: unknown };
+    const s = typeof e.status === "number" ? e.status : typeof e.statusCode === "number" ? e.statusCode : NaN;
+    if (s >= 400 && s < 600) return s;
+  }
+  if (err instanceof SyntaxError) return 400;
+  const name = err instanceof Error ? err.name : "";
+  if (name === "PayloadTooLargeError" || name === "URIError") return 400;
+  return 500;
+}
+
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   const msg = err instanceof Error ? err.message : String(err);
-  console.error("[gw] Unhandled error:", msg);
-  if (!res.headersSent) res.status(500).json({ error: "internal" });
+  const status = statusFromGatewayError(err);
+  console.error("[gw] Unhandled error:", msg, `(→ HTTP ${status})`);
+  if (!res.headersSent) {
+    res.status(status).json({
+      error: status >= 500 ? "internal" : "bad request",
+      ...(status < 500 && msg ? { detail: msg } : {}),
+    });
+  }
 });
 
 // Housing port 4020 per README — listen immediately; verify auth in background and gate readiness on /readyz (K8s-native).

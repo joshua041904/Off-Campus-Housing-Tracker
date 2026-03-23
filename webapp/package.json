@@ -7,10 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test:e2e": "playwright test",
+    "test:e2e": "NODE_EXTRA_CA_CERTS=$PWD/../certs/dev-root.pem playwright test",
     "test:e2e:strict-edge": "sh ../scripts/webapp-playwright-strict-edge.sh",
-    "test:e2e:ui": "playwright test --ui",
-    "test:e2e:headed": "playwright test --headed"
+    "test:e2e:ui": "NODE_EXTRA_CA_CERTS=$PWD/../certs/dev-root.pem playwright test --ui",
+    "test:e2e:headed": "NODE_EXTRA_CA_CERTS=$PWD/../certs/dev-root.pem playwright test --headed"
   },
   "dependencies": {
     "react": "^18",

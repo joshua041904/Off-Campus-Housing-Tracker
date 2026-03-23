@@ -1,4 +1,5 @@
-# Envoy gRPC proxy: Caddy (h2c) -> Envoy :10000 -> gRPC backends (mTLS).
+# Envoy gRPC proxy: Caddy (h2c) -> Envoy :10000 -> OCH gRPC backends only (mTLS).
+# Clusters: auth, messaging, listings, analytics, booking, notification, trust. Upstream SNI: off-campus-housing.test (dev leaf SAN).
 # Admin on :15000 for diagnostics: kubectl port-forward deploy/envoy-test 15000:15000; curl localhost:15000/clusters
 apiVersion: v1
 kind: Namespace
@@ -43,54 +44,24 @@ data:
                       cluster: auth_service
                       timeout: 15s
                   - match:
-                      path: "/auth."
+                      prefix: "/auth."
                     route:
                       cluster: auth_service
                       timeout: 15s
                   - match:
-                      path: "/records."
-                    route:
-                      cluster: records_service
-                      timeout: 15s
-                  - match:
-                      path: "/messaging."
+                      prefix: "/messaging."
                     route:
                       cluster: messaging_service
                       timeout: 15s
                   - match:
-                      path: "/listings."
+                      prefix: "/listings."
                     route:
                       cluster: listings_service
                       timeout: 15s
                   - match:
-                      path: "/analytics."
+                      prefix: "/analytics."
                     route:
                       cluster: analytics_service
-                      timeout: 15s
-                  - match:
-                      path: "/shopping."
-                    route:
-                      cluster: shopping_service
-                      timeout: 15s
-                  - match:
-                      path: "/auction_monitor."
-                    route:
-                      cluster: auction_monitor_service
-                      timeout: 15s
-                  - match:
-                      path: "/auction-monitor."
-                    route:
-                      cluster: auction_monitor_service
-                      timeout: 15s
-                  - match:
-                      path: "/python_ai."
-                    route:
-                      cluster: python_ai_service
-                      timeout: 15s
-                  - match:
-                      path: "/python-ai."
-                    route:
-                      cluster: python_ai_service
                       timeout: 15s
                   - match:
                       prefix: "/booking."
@@ -118,10 +89,16 @@ data:
                   "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
       clusters:
       - name: auth_service
-        connect_timeout: 5s
+        connect_timeout: 15s
         type: LOGICAL_DNS
         lb_policy: ROUND_ROBIN
         http2_protocol_options: {}
+        health_checks:
+        - timeout: 2s
+          interval: 5s
+          unhealthy_threshold: 2
+          healthy_threshold: 2
+          grpc_health_check: {}
         load_assignment:
           cluster_name: auth_service
           endpoints:
@@ -130,40 +107,12 @@ data:
                 address:
                   socket_address:
                     address: auth-service.off-campus-housing-tracker.svc.cluster.local
-                    port_value: 50051
+                    port_value: 50061
         transport_socket:
           name: envoy.transport_sockets.tls
           typed_config:
             "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
-            sni: auth-service.off-campus-housing-tracker.svc.cluster.local
-            common_tls_context:
-              tls_certificates:
-              - certificate_chain:
-                  filename: /etc/certs/client/envoy.crt
-                private_key:
-                  filename: /etc/certs/client/envoy.key
-              validation_context:
-                trusted_ca:
-                  filename: /etc/certs/ca/dev-root.pem
-      - name: records_service
-        connect_timeout: 5s
-        type: LOGICAL_DNS
-        lb_policy: ROUND_ROBIN
-        http2_protocol_options: {}
-        load_assignment:
-          cluster_name: records_service
-          endpoints:
-          - lb_endpoints:
-            - endpoint:
-                address:
-                  socket_address:
-                    address: records-service.off-campus-housing-tracker.svc.cluster.local
-                    port_value: 50051
-        transport_socket:
-          name: envoy.transport_sockets.tls
-          typed_config:
-            "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
-            sni: records-service.off-campus-housing-tracker.svc.cluster.local
+            sni: off-campus-housing.test
             common_tls_context:
               tls_certificates:
               - certificate_chain:
@@ -174,10 +123,16 @@ data:
                 trusted_ca:
                   filename: /etc/certs/ca/dev-root.pem
       - name: messaging_service
-        connect_timeout: 5s
+        connect_timeout: 15s
         type: LOGICAL_DNS
         lb_policy: ROUND_ROBIN
         http2_protocol_options: {}
+        health_checks:
+        - timeout: 2s
+          interval: 5s
+          unhealthy_threshold: 2
+          healthy_threshold: 2
+          grpc_health_check: {}
         load_assignment:
           cluster_name: messaging_service
           endpoints:
@@ -202,10 +157,16 @@ data:
                 trusted_ca:
                   filename: /etc/certs/ca/dev-root.pem
       - name: listings_service
-        connect_timeout: 5s
+        connect_timeout: 15s
         type: LOGICAL_DNS
         lb_policy: ROUND_ROBIN
         http2_protocol_options: {}
+        health_checks:
+        - timeout: 2s
+          interval: 5s
+          unhealthy_threshold: 2
+          healthy_threshold: 2
+          grpc_health_check: {}
         load_assignment:
           cluster_name: listings_service
           endpoints:
@@ -219,7 +180,7 @@ data:
           name: envoy.transport_sockets.tls
           typed_config:
             "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
-            sni: listings-service.off-campus-housing-tracker.svc.cluster.local
+            sni: off-campus-housing.test
             common_tls_context:
               tls_certificates:
               - certificate_chain:
@@ -230,10 +191,16 @@ data:
                 trusted_ca:
                   filename: /etc/certs/ca/dev-root.pem
       - name: booking_service
-        connect_timeout: 5s
+        connect_timeout: 15s
         type: LOGICAL_DNS
         lb_policy: ROUND_ROBIN
         http2_protocol_options: {}
+        health_checks:
+        - timeout: 2s
+          interval: 5s
+          unhealthy_threshold: 2
+          healthy_threshold: 2
+          grpc_health_check: {}
         load_assignment:
           cluster_name: booking_service
           endpoints:
@@ -258,10 +225,16 @@ data:
                 trusted_ca:
                   filename: /etc/certs/ca/dev-root.pem
       - name: notification_service
-        connect_timeout: 5s
+        connect_timeout: 15s
         type: LOGICAL_DNS
         lb_policy: ROUND_ROBIN
         http2_protocol_options: {}
+        health_checks:
+        - timeout: 2s
+          interval: 5s
+          unhealthy_threshold: 2
+          healthy_threshold: 2
+          grpc_health_check: {}
         load_assignment:
           cluster_name: notification_service
           endpoints:
@@ -286,10 +259,16 @@ data:
                 trusted_ca:
                   filename: /etc/certs/ca/dev-root.pem
       - name: trust_service
-        connect_timeout: 5s
+        connect_timeout: 15s
         type: LOGICAL_DNS
         lb_policy: ROUND_ROBIN
         http2_protocol_options: {}
+        health_checks:
+        - timeout: 2s
+          interval: 5s
+          unhealthy_threshold: 2
+          healthy_threshold: 2
+          grpc_health_check: {}
         load_assignment:
           cluster_name: trust_service
           endpoints:
@@ -314,10 +293,16 @@ data:
                 trusted_ca:
                   filename: /etc/certs/ca/dev-root.pem
       - name: analytics_service
-        connect_timeout: 5s
+        connect_timeout: 15s
         type: LOGICAL_DNS
         lb_policy: ROUND_ROBIN
         http2_protocol_options: {}
+        health_checks:
+        - timeout: 2s
+          interval: 5s
+          unhealthy_threshold: 2
+          healthy_threshold: 2
+          grpc_health_check: {}
         load_assignment:
           cluster_name: analytics_service
           endpoints:
@@ -331,91 +316,7 @@ data:
           name: envoy.transport_sockets.tls
           typed_config:
             "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
-            sni: analytics-service.off-campus-housing-tracker.svc.cluster.local
-            common_tls_context:
-              tls_certificates:
-              - certificate_chain:
-                  filename: /etc/certs/client/envoy.crt
-                private_key:
-                  filename: /etc/certs/client/envoy.key
-              validation_context:
-                trusted_ca:
-                  filename: /etc/certs/ca/dev-root.pem
-      - name: shopping_service
-        connect_timeout: 5s
-        type: LOGICAL_DNS
-        lb_policy: ROUND_ROBIN
-        http2_protocol_options: {}
-        load_assignment:
-          cluster_name: shopping_service
-          endpoints:
-          - lb_endpoints:
-            - endpoint:
-                address:
-                  socket_address:
-                    address: shopping-service.off-campus-housing-tracker.svc.cluster.local
-                    port_value: 50058
-        transport_socket:
-          name: envoy.transport_sockets.tls
-          typed_config:
-            "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
-            sni: shopping-service.off-campus-housing-tracker.svc.cluster.local
-            common_tls_context:
-              tls_certificates:
-              - certificate_chain:
-                  filename: /etc/certs/client/envoy.crt
-                private_key:
-                  filename: /etc/certs/client/envoy.key
-              validation_context:
-                trusted_ca:
-                  filename: /etc/certs/ca/dev-root.pem
-      - name: auction_monitor_service
-        connect_timeout: 5s
-        type: LOGICAL_DNS
-        lb_policy: ROUND_ROBIN
-        http2_protocol_options: {}
-        load_assignment:
-          cluster_name: auction_monitor_service
-          endpoints:
-          - lb_endpoints:
-            - endpoint:
-                address:
-                  socket_address:
-                    address: auction-monitor.off-campus-housing-tracker.svc.cluster.local
-                    port_value: 50059
-        transport_socket:
-          name: envoy.transport_sockets.tls
-          typed_config:
-            "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
             sni: off-campus-housing.test
-            common_tls_context:
-              tls_certificates:
-              - certificate_chain:
-                  filename: /etc/certs/client/envoy.crt
-                private_key:
-                  filename: /etc/certs/client/envoy.key
-              validation_context:
-                trusted_ca:
-                  filename: /etc/certs/ca/dev-root.pem
-      - name: python_ai_service
-        connect_timeout: 5s
-        type: LOGICAL_DNS
-        lb_policy: ROUND_ROBIN
-        http2_protocol_options: {}
-        load_assignment:
-          cluster_name: python_ai_service
-          endpoints:
-          - lb_endpoints:
-            - endpoint:
-                address:
-                  socket_address:
-                    address: python-ai-service.off-campus-housing-tracker.svc.cluster.local
-                    port_value: 50060
-        transport_socket:
-          name: envoy.transport_sockets.tls
-          typed_config:
-            "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
-            sni: python-ai-service.off-campus-housing-tracker.svc.cluster.local
             common_tls_context:
               tls_certificates:
               - certificate_chain:

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   listSearchHistory,
@@ -47,12 +47,19 @@ export default function DashboardPage() {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  /** Ignore stale responses when multiple refreshAll() calls overlap (initial load vs post-save). */
+  const refreshGen = useRef(0);
 
   useEffect(() => {
     const t = getStoredToken();
     const em = getStoredEmail();
     if (!t) {
-      router.replace("/login");
+      // Hard navigation is more reliable than client router in Playwright / strict edge cases.
+      if (typeof window !== "undefined" && window.location.pathname.startsWith("/dashboard")) {
+        window.location.replace(`${window.location.origin}/login`);
+        return;
+      }
+      void router.replace("/login");
       return;
     }
     setToken(t);
@@ -62,6 +69,7 @@ export default function DashboardPage() {
 
   const refreshAll = useCallback(async () => {
     if (!token) return;
+    const gen = ++refreshGen.current;
     setLoading(true);
     setErr(null);
     try {
@@ -69,12 +77,14 @@ export default function DashboardPage() {
         listSearchHistory(token, 50),
         watchlistList(token),
       ]);
+      if (gen !== refreshGen.current) return;
       setHistory(h as SearchRow[]);
       setWatchlist(w as WatchRow[]);
     } catch (e: unknown) {
+      if (gen !== refreshGen.current) return;
       setErr(e instanceof Error ? e.message : "Failed to load data");
     } finally {
-      setLoading(false);
+      if (gen === refreshGen.current) setLoading(false);
     }
   }, [token]);
 

@@ -6,13 +6,146 @@ metadata:
   namespace: ingress-nginx
 data:
   Caddyfile: |
+    # -----------------------------------------------------------------------------
+    # Off-Campus-Housing-Tracker — production-grade Caddy (network spine lock)
+    # SNI: off-campus-housing.test only. No record-local; no protocol ambiguity.
+    # Data path: Caddy → services directly (no ingress-nginx in path).
+    # -----------------------------------------------------------------------------
     {
+      admin 0.0.0.0:2019
+      grace_period 15s
+      shutdown_delay 10s
+      log {
+        output stdout
+        format json
+        level INFO
+      }
       servers {
         protocols h1 h2 h3
+        timeouts {
+          idle 2m
+          read_body 2m
+          write 2m
+        }
+        enable_full_duplex
       }
     }
-    off-campus-housing.test {
-      tls /etc/caddy/certs/tls.crt /etc/caddy/certs/tls.key
-      respond /_caddy/healthz 200
-      respond "ok" 200
+
+    https://off-campus-housing.test {
+      tls /etc/caddy/certs/tls.crt /etc/caddy/certs/tls.key {
+        protocols tls1.2 tls1.3
+        ciphers TLS_AES_128_GCM_SHA256 TLS_AES_256_GCM_SHA384 TLS_CHACHA20_POLY1305_SHA256
+      }
+
+      log request_access {
+        output stdout
+        format json
+        level INFO
+      }
+
+      @wrong_host not host off-campus-housing.test
+      handle @wrong_host {
+        respond "Invalid Host" 421
+      }
+
+      handle_path /_caddy/healthz {
+        header {
+          alt-svc "h3=\":443\"; ma=2592000"
+        }
+        respond "ok" 200
+      }
+
+      @privacy path /privacy
+      handle @privacy {
+        reverse_proxy http://auth-service.off-campus-housing-tracker.svc.cluster.local:4011 {
+          header_up Host {http.request.host}
+          header_up X-Request-Id {http.request.id}
+          header_up Traceparent {http.request.header.Traceparent}
+          header_up Tracestate {http.request.header.Tracestate}
+        }
+      }
+
+      @terms path /terms
+      handle @terms {
+        reverse_proxy http://auth-service.off-campus-housing-tracker.svc.cluster.local:4011 {
+          header_up Host {http.request.host}
+          header_up X-Request-Id {http.request.id}
+          header_up Traceparent {http.request.header.Traceparent}
+          header_up Tracestate {http.request.header.Tracestate}
+        }
+      }
+
+      @grpc header Content-Type application/grpc*
+      handle @grpc {
+        reverse_proxy envoy-test.envoy-test.svc.cluster.local:10000 {
+          header_up Host {http.request.host}
+          header_up X-Request-Id {http.request.id}
+          header_up Traceparent {http.request.header.Traceparent}
+          header_up Tracestate {http.request.header.Tracestate}
+          transport http {
+            versions h2c
+          }
+        }
+      }
+
+      @api {
+        path /api/* /auth/* /listings/* /booking/* /messaging/* /analytics/* /trust/* /media/* /notification/*
+        not header Content-Type application/grpc*
+      }
+      handle @api {
+        reverse_proxy http://api-gateway.off-campus-housing-tracker.svc.cluster.local:4020 {
+          header_up Host {http.request.host}
+          header_up X-Forwarded-Proto https
+          header_up X-Request-Id {http.request.id}
+          header_up Traceparent {http.request.header.Traceparent}
+          header_up Tracestate {http.request.header.Tracestate}
+          transport http {
+            versions h1 h2
+            dial_timeout 10s
+            response_header_timeout 30s
+            expect_continue_timeout 5s
+          }
+          lb_policy round_robin
+          health_uri /healthz
+          health_interval 30s
+          health_timeout 5s
+          fail_duration 30s
+          max_fails 3
+        }
+      }
+
+      # Web / static: explicit catch-all to web frontend via nginx.
+      @web path /*
+      handle @web {
+        reverse_proxy http://nginx.off-campus-housing-tracker.svc.cluster.local:8080 {
+          header_up Host {http.request.host}
+          header_up X-Forwarded-Proto https
+          header_up X-Request-Id {http.request.id}
+          header_up Traceparent {http.request.header.Traceparent}
+          header_up Tracestate {http.request.header.Tracestate}
+          transport http {
+            versions h1 h2
+            dial_timeout 10s
+            response_header_timeout 30s
+          }
+        }
+      }
+    }
+
+    :443 {
+      tls /etc/caddy/certs/tls.crt /etc/caddy/certs/tls.key {
+        protocols tls1.2 tls1.3
+        ciphers TLS_AES_128_GCM_SHA256 TLS_AES_256_GCM_SHA384 TLS_CHACHA20_POLY1305_SHA256
+      }
+
+      handle_path /_caddy/healthz {
+        header {
+          alt-svc "h3=\":443\"; ma=2592000"
+        }
+        respond "ok" 200
+      }
+
+      handle {
+        respond "Misdirected Request" 421
+      }
     }

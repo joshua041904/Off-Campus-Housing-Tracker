@@ -16,6 +16,9 @@ export default function Home() {
             <Link href="/trust" className="text-stone-300 hover:text-amber-200">
               Trust
             </Link>
+            <Link href="/analytics" className="text-stone-300 hover:text-amber-200">
+              Analytics
+            </Link>
             <Link href="/login" className="text-stone-300 hover:text-amber-200">
               Log in
             </Link>

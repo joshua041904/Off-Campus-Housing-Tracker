@@ -4,7 +4,7 @@ import { Rate } from 'k6/metrics';
 import { mergeEdgeTls, strictEdgeTlsOptions } from './k6-strict-edge-tls.js';
 
 // -------- env --------
-const RAW_BASE = (__ENV.BASE_URL || 'http://nginx:8080').replace(/\/$/, '');
+const RAW_BASE = (__ENV.BASE_URL || 'https://off-campus-housing.test').replace(/\/$/, '');
 const HAS_API  = RAW_BASE.endsWith('/api');
 const BASE     = RAW_BASE;
 const TOKEN    = __ENV.TOKEN || '';

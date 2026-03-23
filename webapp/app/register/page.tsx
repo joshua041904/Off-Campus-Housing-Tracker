@@ -69,7 +69,11 @@ export default function RegisterPage() {
               required
             />
           </div>
-          {err && <p className="text-sm text-red-400">{err}</p>}
+          {err && (
+            <p data-testid="register-error" className="text-sm text-red-400">
+              {err}
+            </p>
+          )}
           <button
             type="submit"
             disabled={loading}

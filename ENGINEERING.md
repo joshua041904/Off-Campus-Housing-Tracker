@@ -465,7 +465,17 @@ The full test pipeline is structured as **preflight** followed by **eight suites
 
 **Why 8+ suites and a command center:** We run 8 core suites plus optional k6 and pgbench (15+ scripts when counting limit-finding, service-specific k6, and DB verification). The platform spans multiple protocols (HTTP/1.1, HTTP/2, HTTP/3, gRPC), strict TLS/mTLS, zero-downtime rotation, and 8 databases. A single entry point (`run-all-test-suites.sh` or `run-preflight-scale-and-all-suites.sh`) orchestrates order, preflight, and DB/cache verification. See `scripts/load/LOAD_TESTS_CATALOG.md` for the full catalog.
 
-**Strict TLS for k6:** All k6 runs use strict TLS (no `-k`). The runner sets `SSL_CERT_FILE` to the dev-root CA (from K8s secret or `certs/dev-root.pem`) so `off-campus-housing.test` x509 verification succeeds. If you see `x509: certificate is not trusted`, set `K6_CA_CERT=/path/to/dev-root.pem` or run after preflight.
+### Playwright E2E and k6 edge smoke (no port-forward)
+
+- **Playwright E2E** uses **`use.baseURL = E2E_API_BASE`** (default **`https://off-campus-housing.test`**) with **`ignoreHTTPSErrors: true`** so Chromium accepts the dev CA without importing **`dev-root.pem`** into the OS trust store (curl/k6 remain strict). **`extraHTTPHeaders`** sends **`x-e2e-test: 1`**; **api-gateway** skips the global **express-rate-limit** only when **`x-e2e-test: 1`** is present (not via **`NODE_ENV=test`**, so env cannot accidentally disable limits for all traffic). **k6** and production traffic stay rate-limited. CORS allows **`https://off-campus-housing.test`** and the **`x-e2e-test`** header. No local **`webServer`**, no **`http://127.0.0.1:4020`**. Preflight **`run-playwright-e2e-preflight.sh`** uses **`curl --cacert … /api/readyz`**. **`kubectl port-forward` to api-gateway is not supported** for integrated E2E.
+
+- **`scripts/run-housing-k6-edge-smoke.sh`** uses the same model: **`BASE_URL`** must be **`https://…`** (default `https://off-campus-housing.test`), **`K6_INSECURE_SKIP_TLS=0`**, **`SSL_CERT_FILE`** must point at **`certs/dev-root.pem`**. No **`K6_LB_IP`**, no **`K6_RESOLVE`** / IP dialing, no Host-header hacks, no insecure skip, no Docker k6 wrapper in that script. **macOS host `k6`:** Go may use the system trust store — trust **`dev-root`** in Keychain or run k6 on Linux/CI where **`SSL_CERT_FILE`** is honored.
+
+- **gRPC health (`scripts/lib/grpc-http3-health.sh`, housing HTTP suite):** **`grpcurl`** targets **only `${TARGET_IP}:443`** with **`-authority`** = edge hostname (do not also pass **`-servername`** — duplicate flags confuse some grpcurl builds) and **`-cacert`** = dev chain. **No `127.0.0.1`**, **no port-forward**, **no NodePort 30000/30001** dialing from test scripts. **`TARGET_IP`** must be the MetalLB (or LB) IP from **`kubectl get svc -n ingress-nginx caddy-h3`**.
+
+- **Standalone packet capture + strict QUIC:** **`scripts/test-packet-capture-standalone.sh`** defaults **`STRICT_QUIC_VALIDATION=1`**, requires **`TARGET_IP`** and a non-IP **`HOST`**, uses **`strict_curl` / `strict_http3_curl`** without **`-k`**. Set **`SSLKEYLOGFILE`** (e.g. `/tmp/sslkeys.log`) for tshark QUIC decode when using **packet-capture-v2**.
+
+**Strict TLS for k6 (general):** Load scripts and other runners still set **`SSL_CERT_FILE`** to the dev-root CA so hostname verification succeeds. If you see **`x509: certificate is not trusted`**, sync **`certs/dev-root.pem`** from preflight or set the CA path explicitly. Advanced grids (e.g. **`run-k6-phases.sh`**) may still document **`K6_RESOLVE`** for MetalLB-only environments; the **housing edge smoke** script does not.
 
 **HTTP/1.1, HTTP/2, and HTTP/3 (xk6-http3 and HOLB):**
 - **HTTP/2:** Standard k6 uses HTTP/2 by default over TLS; we use it for baseline and limit tests.
@@ -697,6 +707,7 @@ Auction Monitor Service (4008)
 More broadly:
 
 1. **API Gateway → Backend Services (housing)**: **Either** gRPC client calls **or** HTTP proxy to `http://<service>:<http-port>` depending on route implementation in `services/api-gateway/src/server.ts`.
+   - **JWT boundary:** After public mounts (gateway `/healthz`, gRPC-backed register/login, etc.), a single guard runs before proxies. **Public** traffic is `OPEN_ROUTES` in `server.ts` (e.g. `GET /api/listings/search`, `GET /api/auth/healthz`, `GET /api/analytics/daily-metrics`, trust reputation) **plus** any **`GET` whose path ends in `/healthz`** (per-service liveness). Everything else needs `Authorization: Bearer` so the gateway can inject `x-user-id`.
 2. **Service-to-Service**: Often direct gRPC (strict mTLS) on `5xxxx` ports; some flows also use Kafka (see **Event contracts** below).
 3. **Envoy gRPC Routing**: Where deployed, Envoy handles gRPC with first-class support (e.g. port 10000)
    - **Never routes through HTTP handlers**: Envoy has native gRPC awareness

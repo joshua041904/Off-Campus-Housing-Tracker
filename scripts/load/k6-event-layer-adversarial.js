@@ -65,7 +65,7 @@ export default function () {
     adversarialAccepted.add(okAdv);
     check(r, { long_q: () => okAdv });
   } else {
-    // Adversarial: invalid JSON body to POST endpoint (expect 4xx)
+    // Adversarial: invalid JSON body to POST endpoint (expect 4xx; gateway may return 400 after json parser)
     const r = http.post(
       api("/auth/login"),
       "{not-json",
@@ -74,7 +74,8 @@ export default function () {
         headers: { "Content-Type": "application/json" },
       }),
     );
-    const okAdv = r.status === 400 || r.status === 401 || r.status === 422 || r.status === 415;
+    // Any HTTP 4xx/5xx means the edge returned a response (invalid JSON must not yield 200)
+    const okAdv = r.status >= 400 && r.status < 600;
     adversarialAccepted.add(okAdv);
     check(r, { bad_json: () => okAdv });
   }

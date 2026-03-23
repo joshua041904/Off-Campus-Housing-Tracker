@@ -60,16 +60,25 @@ export default function ListingsPage() {
   );
 
   useEffect(() => {
+    let cancelled = false;
     void (async () => {
       setLoading(true);
+      setErr(null);
       try {
-        setItems(await searchListings({}));
-      } catch {
-        setItems([]);
+        const list = await searchListings({});
+        if (!cancelled) setItems(list);
+      } catch (e: unknown) {
+        if (!cancelled) {
+          setErr(e instanceof Error ? e.message : "Could not load listings");
+          setItems([]);
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   async function onLoadDetail(e: React.FormEvent) {
@@ -188,7 +197,12 @@ export default function ListingsPage() {
           </div>
         </form>
 
-        <div data-testid="listings-results" className="mt-8 space-y-3">
+        {/* min-height: avoid 0-height while loading; aria-busy lets e2e wait for initial fetch to finish. */}
+        <div
+          data-testid="listings-results"
+          className="mt-8 min-h-[3rem] space-y-3"
+          aria-busy={loading}
+        >
           {items.length === 0 && !loading && <p className="text-sm text-stone-500">No listings match (or empty index).</p>}
           {items.map((row) => (
             <div
@@ -298,7 +312,11 @@ export default function ListingsPage() {
         )}
 
         {msg && <p className="mt-6 text-sm text-emerald-400">{msg}</p>}
-        {err && <p className="mt-2 text-sm text-red-400">{err}</p>}
+        {err && (
+          <p data-testid="listings-api-error" className="mt-2 text-sm text-red-400">
+            {err}
+          </p>
+        )}
       </main>
     </div>
   );

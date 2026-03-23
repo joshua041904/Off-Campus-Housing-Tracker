@@ -36,6 +36,8 @@ This codebase sits at the intersection of off-campus housing needs and a focus o
 
 For detailed technical documentation, system design, and architectural decisions, see [**ENGINEERING.md**](ENGINEERING.md). **Implementing gRPC handlers:** [**docs/GRPC_ONBOARDING.md**](docs/GRPC_ONBOARDING.md); **PR comment templates (tracked):** [`docs/PR_REVIEW_GRPC_HANDLER_PASTE.example.txt`](docs/PR_REVIEW_GRPC_HANDLER_PASTE.example.txt) — optional local copy `docs/PR_REVIEW_GRPC_HANDLER_PASTE.txt` is gitignored for private tweaks.
 
+**Testing note:** Playwright E2E and **`scripts/run-housing-k6-edge-smoke.sh`** target **`https://off-campus-housing.test`** (edge → gateway). Use **`/etc/hosts`** or DNS for the hostname. **`kubectl port-forward` to api-gateway is for debugging only**, not for integrated E2E or the housing k6 edge smoke script.
+
 ---
 
 ## System Architecture
@@ -569,7 +571,7 @@ After cluster + infra are up, you can run the full preflight (images, TLS, Caddy
 
 - Set `RUN_SUITES=0` to only bring up the cluster/infra and skip test suites.
 - **`PREFLIGHT_APP_SCOPE=core`** — preflight only **scales and waits** for `auth-service`, `api-gateway`, `messaging-service`, and `media-service` (avoids hanging on listings/booking/trust/analytics when you are not running them). Default is `full` (all app deployments in the wait list).
-- **`RUN_MESSAGING_LOAD=0`** — skip the short **k6** messaging + media health phase after Vitest + shell suites (default `1` when `k6` is on `PATH` and `certs/dev-root.pem` + LB IP exist).
+- **`RUN_MESSAGING_LOAD=0`** — skip the **k6** per-service edge smoke grid after Vitest + shell suites (default `1` when `k6` is on `PATH` and `certs/dev-root.pem` exists; edge hostname must resolve, e.g. via `/etc/hosts`).
 - Set `RUN_K6=1` inside **`run-all-test-suites.sh`** flows for heavier rotation/k6 (this preflight wrapper exits after housing suites; see script header).
 
 Preflight step **7a** runs, in order: **`pnpm -C services/messaging-service test`** and **`pnpm -C services/media-service test`** (Vitest, under each service’s `tests/`), **`scripts/test-microservices-http2-http3-housing.sh`** (auth + messaging + media health, gRPC, latency SVG), **`scripts/test-messaging-service-comprehensive.sh`** (messaging/forum via edge; `test-social-service-comprehensive.sh` is a deprecated wrapper), then optional **k6** `scripts/load/k6-messaging.js` + `scripts/load/k6-media-health.js` + **`scripts/load/k6-event-layer-adversarial.js`** (event-layer companion / adversarial edge load when using `run-k6-all-services.sh`).

@@ -128,6 +128,9 @@ run_one "listings-health" "$LOAD_DIR/k6-listings-health.js"
 run_one "booking-health" "$LOAD_DIR/k6-booking-health.js"
 run_one "trust-public" "$LOAD_DIR/k6-trust-public.js"
 run_one "analytics-public" "$LOAD_DIR/k6-analytics-public.js"
+if [[ "${SKIP_ANALYTICS_LISTING_FEEL:-0}" != "1" ]]; then
+  run_one "analytics-listing-feel" "$LOAD_DIR/k6-analytics-listing-feel.js"
+fi
 run_one "messaging" "$LOAD_DIR/k6-messaging.js"
 run_one "media-health" "$LOAD_DIR/k6-media-health.js"
 run_one "notification-health" "$LOAD_DIR/k6-notification-health.js"

@@ -36,7 +36,7 @@ const throughput = new Counter('throughput', true);
 
 // Configuration
 const HOST = __ENV.HOST || 'off-campus-housing.test';
-const BASE_URL = __ENV.BASE_URL || 'https://off-campus-housing.test:30443';
+const BASE_URL = __ENV.BASE_URL || 'https://off-campus-housing.test';
 const RAW_BASE = BASE_URL.replace(/\/$/, '');
 const ENDPOINT = __ENV.ENDPOINT || '/_caddy/healthz';
 

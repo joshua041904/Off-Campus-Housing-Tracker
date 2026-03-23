@@ -116,10 +116,10 @@ https://off-campus-housing.test {
 		}
 	}
 
-	# Web / static: explicit catch-all to api-gateway (housing port 4020 per README)
+	# Web / static: explicit catch-all to web frontend via nginx.
 	@web path /*
 	handle @web {
-		reverse_proxy http://api-gateway.off-campus-housing-tracker.svc.cluster.local:4020 {
+		reverse_proxy http://nginx.off-campus-housing-tracker.svc.cluster.local:8080 {
 			header_up Host {http.request.host}
 			header_up X-Forwarded-Proto https
 			header_up X-Request-Id {http.request.id}
@@ -130,9 +130,6 @@ https://off-campus-housing.test {
 				dial_timeout 10s
 				response_header_timeout 30s
 			}
-			health_uri /healthz
-			health_interval 30s
-			health_timeout 5s
 		}
 	}
 }

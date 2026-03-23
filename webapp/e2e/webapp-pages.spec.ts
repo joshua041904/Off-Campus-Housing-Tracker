@@ -14,11 +14,16 @@ test.describe("Webapp pages (guest)", () => {
 
   test("nav links: home → listings → trust → analytics", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("link", { name: "Listings", exact: true }).first().click();
-    await expect(page).toHaveURL(/\/listings$/);
-    await page.getByRole("link", { name: "Trust", exact: true }).first().click();
-    await expect(page).toHaveURL(/\/trust$/);
-    await page.getByRole("link", { name: "Analytics", exact: true }).first().click();
-    await expect(page).toHaveURL(/\/analytics$/);
+    await page.waitForLoadState("domcontentloaded");
+    for (const { name, path } of [
+      { name: "Listings", path: /\/listings$/ },
+      { name: "Trust", path: /\/trust$/ },
+      { name: "Analytics", path: /\/analytics$/ },
+    ] as const) {
+      await Promise.all([
+        page.waitForURL(path, { timeout: 20_000 }),
+        page.getByRole("link", { name, exact: true }).first().click(),
+      ]);
+    }
   });
 });

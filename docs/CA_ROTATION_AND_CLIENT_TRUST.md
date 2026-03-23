@@ -63,11 +63,11 @@ After **`dev-root-ca`** / **`service-tls`** change, **cluster** trust updates vi
 # macOS + Docker (Linux k6, SSL_CERT_FILE honored):
 K6_USE_DOCKER_K6=1 ./scripts/k6-exec-strict-edge.sh run scripts/load/k6-gateway-health.js
 
-# Preflight / grid (same rules — run-housing-k6-edge-smoke.sh runs trust on Darwin):
-./scripts/run-housing-k6-edge-smoke.sh
+# Housing per-service edge smoke (strict: https BASE_URL + SSL_CERT_FILE; no Docker/keychain automation in this script):
+SSL_CERT_FILE="$PWD/certs/dev-root.pem" ./scripts/run-housing-k6-edge-smoke.sh
 ```
 
-**Dev only:** `K6_INSECURE_SKIP_TLS=1`, global `--insecure-skip-tls-verify`, or HTTPS to a raw IP (scripts set **`insecureSkipTLSVerify` in `export const options`** for those cases).
+**Dev only (other scripts):** Some grids may still use `K6_INSECURE_SKIP_TLS=1` or `K6_RESOLVE`; **`run-housing-k6-edge-smoke.sh` does not** — it requires hostname `https://…` and a real CA file.
 
 **gRPC (`k6/grpc`)** does support `tls: { cacerts }`; **`k6/http`** does not — see `scripts/load/k6-strict-edge-tls.js`.
 

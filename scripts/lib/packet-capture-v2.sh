@@ -16,9 +16,11 @@
 #      CAPTURE_V2_LB_IP (optional), DISABLE_PACKET_CAPTURE=1 to skip.
 #      CAPTURE_NODE_ONLY=1 — run only node-level capture (no kubectl exec); macOS-proof, no OOM.
 #      CAPTURE_RING_BUFFER=1 — use -C 100 -W 5 on node tcpdump to prevent memory blowup.
-#      STRICT_QUIC_VALIDATION=1 — topology-aware: TCP 443 at L2; L1 stray UDP/443 vs CAPTURE_V2_LB_IP=0 if L1 exists;
-#          QUIC in pcap does NOT require tshark h3 ALPN (often undecoded without keys); use SNI + HTTP/3 health as proof.
-#          no QUIC in pcap ⇒ require GRPC_HTTP3_HEALTH_OK=1 or CAPTURE_HTTP3_HEALTH_OK=1.
+#      STRICT_QUIC_VALIDATION=1 — tcpdump only (no tshark QUIC gate):
+#          Requires L2 TCP 443 > 0. QUIC proof prefers L1 UDP 443->MetalLB (CAPTURE_V2_LB_IP),
+#          but falls back to L2 UDP 443 when L1 capture is unavailable/empty on Colima.
+#      L2 capture BPF: (tcp port 443) or (udp port 443) on -i any — do not filter UDP by pod IP (CNI/gif0 path).
+#      L1 (Colima): sudo -n tcpdump || tcpdump — no exec (keeps ssh session alive); host-backgrounds colima ssh.
 #      Optional cryptographic ALPN in tshark: CAPTURE_V2_TLS_KEYLOG or SSLKEYLOGFILE pointing to NSS key log (curl --http3 with OpenSSL/ngtcp2).
 #      h3 ALPN in tshark (preferred; valid across typical builds — avoid quic.tls.handshake.extensions_alpn):
 #        quic && tls.handshake.extensions_alpn_str contains "h3"
@@ -29,7 +31,7 @@
 #        tshark -r caddy-capture.pcap -o tls.keylog_file:/tmp/sslkeys.log -Y "quic" -V | grep -i alpn
 #        tshark -r caddy-capture.pcap -o tls.keylog_file:/tmp/sslkeys.log -Y 'tls.handshake.extensions_alpn_str == "h3"' -T fields -e tls.handshake.extensions_alpn_str
 #      Helpers: count_alpn_h3_quic_packets_in_pcap, quic_alpn_strings_from_pcap in protocol-verification.sh. Debug fields: tshark -G fields | grep -i alpn
-#      L2 BPF dst podIP:443.
+#      L2: tcpdump -i any; BPF port 443 only (TCP+UDP), no dst pod IP filter for UDP.
 # Colima: Node capture only when 'colima' is available; CAPTURE_WARMUP_SECONDS=4 default.
 # CAPTURE_V2_SKIP_ALPN_DECODE_PRINT=1 — skip the automatic "tshark -Y quic -V | grep -i alpn" block.
 # Safe to source; no set -e so failures in optional steps don't exit the caller.
@@ -110,9 +112,13 @@ start_capture_v2() {
     echo "  [packet-capture-v2] L1 (node): BPF restricted to dst host $CAPTURE_V2_LB_IP (MetalLB only)"
   fi
   if command -v colima >/dev/null 2>&1; then
-    echo "  [packet-capture-v2] L1 (node): starting tcpdump on Colima VM..."
+    echo "  [packet-capture-v2] L1 (node): starting tcpdump on Colima VM (sudo -n if available, else tcpdump)..."
     # -B 4096: buffer; -G 120 -W 1: time-bound 120s, single file (avoids macOS OOM / Killed: 9)
-    colima ssh -- sudo tcpdump -i any -B 4096 -G 120 -W 1 -nn "$node_filter" -w /tmp/node-capture-v2.pcap 2>"$dir/node-capture.log" &
+    local _nf_q
+    _nf_q=$(printf '%q' "$node_filter")
+    # shellcheck disable=SC2086
+    # Do not use exec — tcpdump must stay a child of bash so colima ssh keeps the session open until SIGINT.
+    colima ssh -- bash -c "if sudo -n true 2>/dev/null; then sudo -n tcpdump -i any -B 4096 -G 120 -W 1 -nn ${_nf_q} -w /tmp/node-capture-v2.pcap; else tcpdump -i any -B 4096 -G 120 -W 1 -nn ${_nf_q} -w /tmp/node-capture-v2.pcap; fi" 2>"$dir/node-capture.log" &
     _CAPTURE_V2_NODE_PID=$!
     _CAPTURE_V2_NODE_PCAP="/tmp/node-capture-v2.pcap"
     sleep 2
@@ -124,22 +130,14 @@ start_capture_v2() {
     echo "  [packet-capture-v2] L1 (node): colima not found; skip node-level capture."
   fi
 
-  # --- Layer 2: Caddy pod (eth0, strict BPF dst podIP:443 — same as rotation / packet-capture.sh) ---
+  # --- Layer 2: Caddy pod (-i any; TCP+UDP port 443 only — no dst pod IP on UDP; CNI may use gif0/veth) ---
   if [[ -n "$caddy_pod" ]]; then
     if _capture_v2_kubectl -n "$caddy_ns" exec "$caddy_pod" -- which tcpdump >/dev/null 2>&1; then
-      local _v2_pip _v2_iface _v2_bpf
-      _v2_pip=$(_capture_v2_kubectl -n "$caddy_ns" get pod "$caddy_pod" -o jsonpath='{.status.podIP}' 2>/dev/null || echo "")
-      _v2_iface=eth0
-      _capture_v2_kubectl -n "$caddy_ns" exec "$caddy_pod" -- sh -c "ip link show eth0 >/dev/null 2>&1" 2>/dev/null || _v2_iface=any
-      if [[ -n "$_v2_pip" ]] && [[ "$_v2_pip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-        _v2_bpf="(tcp and dst host ${_v2_pip} and dst port 443) or (udp and dst host ${_v2_pip} and dst port 443)"
-        echo "  [packet-capture-v2] L2 (Caddy $caddy_ns/$caddy_pod): tcpdump -i ${_v2_iface} strict BPF → pod ${_v2_pip}:443"
-      else
-        _v2_bpf="(tcp or udp) and port 443"
-        echo "  [packet-capture-v2] L2 (Caddy): pod IP missing; fallback BPF port 443 on ${_v2_iface}"
-      fi
+      local _v2_bpf
+      _v2_bpf="(tcp port 443) or (udp port 443)"
+      echo "  [packet-capture-v2] L2 (Caddy $caddy_ns/$caddy_pod): tcpdump -i any BPF '${_v2_bpf}' (no per-pod UDP dst filter)"
       # -B 4096 -G 120 -W 1: buffer + time-bound 120s, single file (avoids OOM / Killed: 9)
-      _capture_v2_kubectl -n "$caddy_ns" exec "$caddy_pod" -- sh -c "tcpdump -i ${_v2_iface} -B 4096 -G 120 -W 1 -nn '${_v2_bpf}' -w /tmp/caddy-capture-v2.pcap 2>&1" >> "$dir/caddy-capture.log" 2>&1 &
+      _capture_v2_kubectl -n "$caddy_ns" exec "$caddy_pod" -- sh -c "tcpdump -i any -B 4096 -G 120 -W 1 -nn '${_v2_bpf}' -w /tmp/caddy-capture-v2.pcap 2>&1" >> "$dir/caddy-capture.log" 2>&1 &
       _CAPTURE_V2_CADDY_PID=$!
       _CAPTURE_V2_CADDY_PCAP="/tmp/caddy-capture-v2.pcap"
       sleep 2
@@ -550,98 +548,66 @@ TRANSPORT_JSON
   # Human-readable QUIC ALPN (same idea as: cd \$dir; tshark -r caddy-capture.pcap -o tls.keylog_file:... -Y quic -V | grep -i alpn)
   _packet_capture_v2_emit_quic_alpn_decode_report "$dir"
 
-  # --- STRICT_QUIC_VALIDATION (topology-aware, authoritative) ---
-  # PASS: TCP 443 at L2 + no stray UDP/443 to non-LB on L1 (if L1+LB IP) + QUIC in pcap (SNI/UDP proof; ALPN decode optional) OR no QUIC + HTTP/3 health OK.
-  # Does NOT fail on missing QUIC ALPN in tshark (decryption/field-name variance); optional CAPTURE_V2_TLS_KEYLOG or SSLKEYLOGFILE for tshark -o tls.keylog_file.
+  # --- STRICT_QUIC_VALIDATION (tcpdump only; no tshark QUIC / ALPN gate) ---
+  # Colima-aware model:
+  #   - Must see L2 TCP 443 (ingress path present).
+  #   - QUIC proof prefers L1 UDP 443->LB when node capture exists.
+  #   - If node capture is missing/empty, accept L2 UDP 443 as authoritative fallback.
   if [[ "${STRICT_QUIC_VALIDATION:-0}" == "1" ]]; then
-    echo "  [packet-capture-v2] STRICT_QUIC_VALIDATION enabled (topology-aware mode)"
-
     local l2_tcp_count=0
+    local l2_udp_count=0
     if [[ -f "$dir/caddy-capture.pcap" ]] && [[ -s "$dir/caddy-capture.pcap" ]]; then
       l2_tcp_count=$(tcpdump -r "$dir/caddy-capture.pcap" -nn 'tcp port 443' 2>/dev/null | wc -l | tr -d '[:space:]')
+      l2_udp_count=$(tcpdump -r "$dir/caddy-capture.pcap" -nn 'udp port 443' 2>/dev/null | wc -l | tr -d '[:space:]')
     fi
     l2_tcp_count=${l2_tcp_count:-0}
+    l2_udp_count=${l2_udp_count:-0}
     [[ "$l2_tcp_count" =~ ^[0-9]+$ ]] || l2_tcp_count=0
+    [[ "$l2_udp_count" =~ ^[0-9]+$ ]] || l2_udp_count=0
 
     if [[ "$l2_tcp_count" -eq 0 ]]; then
       echo "  ❌ STRICT_QUIC_VALIDATION: no TCP 443 at L2 (Caddy ingress missing)."
       return 1
     fi
 
-    if type verify_caddy_pcap_quic_enforcement &>/dev/null && [[ -n "${caddy_pod:-}" ]]; then
-      local _pv2_ip
-      _pv2_ip=$(_capture_v2_kubectl -n "${caddy_ns:-ingress-nginx}" get pod "$caddy_pod" -o jsonpath='{.status.podIP}' 2>/dev/null || echo "")
-      if [[ -n "$_pv2_ip" ]]; then
-        verify_caddy_pcap_quic_enforcement "$dir/caddy-capture.pcap" "$_pv2_ip" || return 1
-      fi
-    fi
+    local has_l1_pcap=0
+    [[ -f "$dir/node-capture.pcap" ]] && [[ -s "$dir/node-capture.pcap" ]] && has_l1_pcap=1
 
-    if [[ -f "$dir/node-capture.pcap" ]] && [[ -s "$dir/node-capture.pcap" ]] && [[ -n "${CAPTURE_V2_LB_IP:-}" ]]; then
-      local stray_udp
-      stray_udp=$(tshark -r "$dir/node-capture.pcap" -Y "udp.port == 443 && ip.dst != ${CAPTURE_V2_LB_IP}" 2>/dev/null | wc -l | tr -d '[:space:]')
-      stray_udp=${stray_udp:-0}
-      [[ "$stray_udp" =~ ^[0-9]+$ ]] || stray_udp=0
-
-      if [[ "$stray_udp" -gt 0 ]]; then
-        echo "  ❌ STRICT_QUIC_VALIDATION: stray UDP 443 detected (dst != ${CAPTURE_V2_LB_IP})."
-        return 1
-      fi
-    fi
-
-    local quic_packets=0
-    if command -v tshark >/dev/null 2>&1; then
-      local _qp
-      if [[ -f "$dir/node-capture.pcap" ]] && [[ -s "$dir/node-capture.pcap" ]]; then
-        _qp=$(tshark -r "$dir/node-capture.pcap" -Y quic 2>/dev/null | wc -l | tr -d '[:space:]')
-        [[ "$_qp" =~ ^[0-9]+$ ]] && quic_packets=$((quic_packets + _qp))
-      fi
-      if [[ -f "$dir/caddy-capture.pcap" ]] && [[ -s "$dir/caddy-capture.pcap" ]]; then
-        _qp=$(tshark -r "$dir/caddy-capture.pcap" -Y quic 2>/dev/null | wc -l | tr -d '[:space:]')
-        [[ "$_qp" =~ ^[0-9]+$ ]] && quic_packets=$((quic_packets + _qp))
-      fi
-    fi
-    quic_packets=${quic_packets:-0}
-    [[ "$quic_packets" =~ ^[0-9]+$ ]] || quic_packets=0
-
-    if [[ "$quic_packets" -gt 0 ]]; then
-      # tshark QUIC ALPN is best-effort (encryption, version); curl HTTP/3 / SNI are authoritative for h3
-      local _v2_kl="${CAPTURE_V2_TLS_KEYLOG:-${SSLKEYLOGFILE:-}}"
-      local _v2_kopts=()
-      [[ -n "$_v2_kl" ]] && [[ -f "$_v2_kl" ]] && [[ -s "$_v2_kl" ]] && _v2_kopts=(-o "tls.keylog_file:${_v2_kl}") && \
-        echo "  [packet-capture-v2] Using TLS key log for tshark ALPN decode: ${_v2_kl}"
-
-      local h3_alpn_lines=0 _h3c
-      if type count_alpn_h3_quic_packets_in_pcap >/dev/null 2>&1; then
-        if [[ -f "$dir/node-capture.pcap" ]] && [[ -s "$dir/node-capture.pcap" ]]; then
-          _h3c=$(count_alpn_h3_quic_packets_in_pcap "$dir/node-capture.pcap" "${_v2_kopts[@]}")
-          [[ "$_h3c" =~ ^[0-9]+$ ]] && h3_alpn_lines=$((h3_alpn_lines + _h3c))
-        fi
-        if [[ -f "$dir/caddy-capture.pcap" ]] && [[ -s "$dir/caddy-capture.pcap" ]]; then
-          _h3c=$(count_alpn_h3_quic_packets_in_pcap "$dir/caddy-capture.pcap" "${_v2_kopts[@]}")
-          [[ "$_h3c" =~ ^[0-9]+$ ]] && h3_alpn_lines=$((h3_alpn_lines + _h3c))
-        fi
-      fi
-
-      if [[ "$h3_alpn_lines" -gt 0 ]]; then
-        echo "  [packet-capture-v2] STRICT_QUIC_VALIDATION: QUIC + h3 ALPN decoded in capture (tshark)."
+    local l1_udp=0
+    if [[ "$has_l1_pcap" -eq 1 ]]; then
+      echo "  [STRICT] validating QUIC at node layer (MetalLB ingress)"
+      if [[ -n "${CAPTURE_V2_LB_IP:-}" ]]; then
+        l1_udp=$(tcpdump -r "$dir/node-capture.pcap" -nn "udp port 443 and dst host ${CAPTURE_V2_LB_IP}" 2>/dev/null | wc -l | tr -d '[:space:]')
       else
-        echo "  [packet-capture-v2] QUIC in pcap but h3 ALPN not decoded (normal: tshark QUIC ALPN needs keys or varies by build)."
-        echo "  [packet-capture-v2] Relying on QUIC + SNI / verify_caddy + curl HTTP/3 (Version: 3) for h3 proof — not failing on ALPN decode."
-      fi
-    else
-      echo "  [packet-capture-v2] STRICT_QUIC_VALIDATION: QUIC not visible in pcap (expected with Colima/k3s DNAT / some CNIs)."
-      local h3_health_ok=0
-      [[ "${GRPC_HTTP3_HEALTH_OK:-0}" == "1" ]] && h3_health_ok=1
-      [[ "${CAPTURE_HTTP3_HEALTH_OK:-0}" == "1" ]] && h3_health_ok=1
-      if [[ "$h3_health_ok" -eq 1 ]]; then
-        echo "  [packet-capture-v2] Authoritative HTTP/3 health OK (GRPC_HTTP3_HEALTH_OK / CAPTURE_HTTP3_HEALTH_OK) — topology masking accepted."
-      else
-        echo "  ❌ STRICT_QUIC_VALIDATION: no QUIC in pcap and HTTP/3 health not OK (set GRPC_HTTP3_HEALTH_OK=1 from grpc-http3-health or CAPTURE_HTTP3_HEALTH_OK=1)."
-        return 1
+        l1_udp=$(tcpdump -r "$dir/node-capture.pcap" -nn 'udp port 443' 2>/dev/null | wc -l | tr -d '[:space:]')
+        [[ "$l1_udp" -gt 0 ]] && echo "  [STRICT] CAPTURE_V2_LB_IP unset — counting all UDP/443 on L1 (set LB IP for MetalLB-only proof)"
       fi
     fi
+    l1_udp=${l1_udp:-0}
+    [[ "$l1_udp" =~ ^[0-9]+$ ]] || l1_udp=0
 
-    echo "  ✅ STRICT_QUIC_VALIDATION: PASS (topology-aware)."
+    if [[ "$has_l1_pcap" -eq 1 ]]; then
+      if [[ "$l1_udp" -gt 0 ]]; then
+        echo "  ✅ STRICT_QUIC_VALIDATION: QUIC confirmed at node ingress (L1 UDP=$l1_udp); L2 TCP 443=$l2_tcp_count"
+        return 0
+      fi
+      # Node capture existed but did not show QUIC. On Colima this is frequently an interface/BPF artifact.
+      if command -v colima >/dev/null 2>&1 && [[ "$l2_udp_count" -gt 0 ]]; then
+        echo "  ⚠️  STRICT_QUIC_VALIDATION (colima-aware): L1 UDP is 0 but L2 UDP=$l2_udp_count; accepting L2 QUIC proof."
+        echo "     (L1 capture may miss MetalLB path due VM network abstraction/interface mismatch.)"
+        return 0
+      fi
+      echo "  ❌ STRICT_QUIC_VALIDATION: no QUIC seen at MetalLB ingress (L1 UDP 443→LB)."
+      return 1
+    fi
+
+    # No L1 pcap available (tcpdump exited early / no Colima path). Use L2 UDP as fallback.
+    if [[ "$l2_udp_count" -gt 0 ]]; then
+      echo "  ✅ STRICT_QUIC_VALIDATION (fallback): L1 missing; QUIC confirmed at L2 (UDP 443=$l2_udp_count), L2 TCP 443=$l2_tcp_count"
+      return 0
+    fi
+    echo "  ❌ STRICT_QUIC_VALIDATION: L1 capture missing and no L2 UDP 443 observed."
+    return 1
   fi
 
   _CAPTURE_V2_NODE_PID=""

@@ -5,6 +5,7 @@ metadata:
   namespace: off-campus-housing-tracker
 data:
   haproxy.cfg: |
+    # Off-Campus Housing Tracker: proxy to api-gateway only (Caddy → HAProxy → gateway :4020).
     global
       log stdout format raw local0
       maxconn 5000

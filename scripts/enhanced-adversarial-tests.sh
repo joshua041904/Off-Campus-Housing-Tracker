@@ -29,24 +29,22 @@ _kb() {
   fi
 }
 
-# Colima + MetalLB: lock HTTP/3 to LB IP only (NodePort not exposed to host). Derive TARGET_IP from caddy-h3 when missing.
-if [[ "$ctx" == *"colima"* ]] && [[ -z "${TARGET_IP:-}" ]]; then
-  _lb_ip=$(_kb -n ingress-nginx get svc caddy-h3 -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
-  if [[ -n "$_lb_ip" ]]; then
-    export TARGET_IP="$_lb_ip"
-    export USE_LB_FOR_TESTS=1
-    info "Colima: using MetalLB LB IP $_lb_ip for HTTP/3 (no NodePort fallback)"
-  fi
+# MetalLB on caddy-h3 — same edge model as grpc-http3-health.sh (no ClusterIP/127.0.0.1 for QUIC/gRPC).
+if [[ -z "${TARGET_IP:-}" ]]; then
+  _lb=$(_kb -n ingress-nginx get svc caddy-h3 -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+  [[ -z "$_lb" ]] && _lb=$(_kb -n ingress-nginx get svc caddy-h3 -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+  [[ -n "$_lb" ]] && export TARGET_IP="$_lb"
 fi
-
-# When TARGET_IP is set (MetalLB LB IP), use port 443 only — do NOT use NodePort (avoids HTTP 000 on Colima).
 if [[ -n "${TARGET_IP:-}" ]]; then
   PORT="${PORT:-443}"
   CURL_RESOLVE_IP="$TARGET_IP"
 else
   PORT="${PORT:-30443}"
-  CURL_RESOLVE_IP="127.0.0.1"
+  CURL_RESOLVE_IP=""
+  warn "TARGET_IP unset — edge tests use no --resolve (map $HOST in /etc/hosts) or expose caddy-h3 LoadBalancer"
 fi
+CURL_RESOLVE=()
+[[ -n "${CURL_RESOLVE_IP:-}" ]] && CURL_RESOLVE=(--resolve "${HOST}:${PORT}:${CURL_RESOLVE_IP}")
 CURL_BIN="${CURL_BIN:-/opt/homebrew/opt/curl/bin/curl}"
 
 # Get CA certificate for strict TLS (k6 and curl need this for off-campus-housing.test:30443; use absolute path for SSL_CERT_FILE)
@@ -82,22 +80,18 @@ strict_curl() {
 
 strict_http3_curl() {
   if [[ -n "$CA_CERT" ]] && [[ -f "$CA_CERT" ]]; then
-    http3_curl --cacert "$CA_CERT" "$@" 2>/dev/null || http3_curl -k "$@"
+    http3_curl --cacert "$CA_CERT" "$@"
   else
+    warn "CA not found; HTTP/3 curl using insecure TLS (dev only)"
     http3_curl -k "$@"
   fi
 }
 
-# HTTP/3 resolve: use LB IP when TARGET_IP set; else ClusterIP or 127.0.0.1
+# HTTP/3: MetalLB :443 only (grpc-http3-health.sh); no ClusterIP / 127.0.0.1
 if [[ -n "${TARGET_IP:-}" ]]; then
   HTTP3_RESOLVE="${HOST}:443:${TARGET_IP}"
 else
-  HTTP3_SVC_IP=$(_kb -n ingress-nginx get svc caddy-h3 -o jsonpath='{.spec.clusterIP}' 2>/dev/null || echo "")
-  if [[ -n "$HTTP3_SVC_IP" ]]; then
-    HTTP3_RESOLVE="${HOST}:443:${HTTP3_SVC_IP}"
-  else
-    HTTP3_RESOLVE="${HOST}:443:127.0.0.1"
-  fi
+  HTTP3_RESOLVE=""
 fi
 
 say "=== Enhanced Adversarial Tests ==="
@@ -121,7 +115,7 @@ test_db_disconnect() {
     
     for i in {1..3}; do
       local response
-      response=$(strict_curl -s --connect-timeout 5 --resolve "${HOST}:${PORT}:${CURL_RESOLVE_IP}" -H "Host: $HOST" "https://${HOST}:${PORT}/api/auth/healthz" 2>/dev/null || echo "TIMEOUT")
+      response=$(strict_curl -s --connect-timeout 5 "${CURL_RESOLVE[@]}" -H "Host: $HOST" "https://${HOST}:${PORT}/api/auth/healthz" 2>/dev/null || echo "TIMEOUT")
       echo "  DB disconnect test $i: ${response:0:50}"
     done
     
@@ -154,7 +148,7 @@ test_cache_behavior() {
       local start_time end_time duration response
       # Use nanoseconds and convert to milliseconds (strip 'N' suffix if present)
       start_time=$(date +%s%N | sed 's/N$//' || date +%s000)
-      response=$(strict_curl -s --connect-timeout 5 --resolve "${HOST}:${PORT}:${CURL_RESOLVE_IP}" -H "Host: $HOST" "https://${HOST}:${PORT}/api/records/healthz" 2>/dev/null || echo "TIMEOUT")
+      response=$(strict_curl -s --connect-timeout 5 "${CURL_RESOLVE[@]}" -H "Host: $HOST" "https://${HOST}:${PORT}/api/records/healthz" 2>/dev/null || echo "TIMEOUT")
       end_time=$(date +%s%N | sed 's/N$//' || date +%s000)
       # Calculate duration in milliseconds (divide nanoseconds by 1000000)
       duration=$(( (end_time - start_time) / 1000000 ))
@@ -182,10 +176,14 @@ test_packet_capture() {
   start_capture "ingress-nginx" "$caddy_pod" "port 443 or port 30443 or udp port 443"
   
   ok "Generating HTTP/2 traffic (strict TLS)"
-  strict_curl -s --http2 --max-time 5 --resolve "${HOST}:${PORT}:${CURL_RESOLVE_IP}" -H "Host: $HOST" "https://${HOST}:${PORT}/api/records/healthz" >/dev/null 2>&1 || true
+  strict_curl -s --http2 --max-time 5 "${CURL_RESOLVE[@]}" -H "Host: $HOST" "https://${HOST}:${PORT}/api/records/healthz" >/dev/null 2>&1 || true
   
   ok "Generating HTTP/3 traffic (strict TLS)"
-  strict_http3_curl -s --http3-only --max-time 5 -H "Host: $HOST" --resolve "$HTTP3_RESOLVE" "https://${HOST}/api/records/healthz" >/dev/null 2>&1 || true
+  if [[ -n "${HTTP3_RESOLVE:-}" ]]; then
+    strict_http3_curl -s --http3-only --max-time 5 -H "Host: $HOST" --resolve "$HTTP3_RESOLVE" "https://${HOST}/api/records/healthz" >/dev/null 2>&1 || true
+  else
+    info "  HTTP/3 capture traffic skipped (TARGET_IP / MetalLB required)"
+  fi
   
   sleep 3
   stop_and_analyze_captures 1
@@ -203,32 +201,35 @@ test_protocol_under_load() {
   
   # HTTP/2 load test
   for i in {1..10}; do
-    if strict_curl -s --http2 --max-time 10 --resolve "${HOST}:${PORT}:${CURL_RESOLVE_IP}" -H "Host: $HOST" "https://${HOST}:${PORT}/api/auth/healthz" >/dev/null 2>&1; then
+    if strict_curl -s --http2 --max-time 10 "${CURL_RESOLVE[@]}" -H "Host: $HOST" "https://${HOST}:${PORT}/api/auth/healthz" >/dev/null 2>&1; then
       h2_success=$((h2_success + 1))
     else
       h2_fail=$((h2_fail + 1))
     fi
   done
   
-  # HTTP/3 load test
-  for i in {1..10}; do
-    if strict_http3_curl -s --http3-only --max-time 10 -H "Host: $HOST" --resolve "$HTTP3_RESOLVE" "https://${HOST}/api/records/healthz" >/dev/null 2>&1; then
-      h3_success=$((h3_success + 1))
+  # HTTP/3 load test (MetalLB :443 only)
+  if [[ -n "${HTTP3_RESOLVE:-}" ]]; then
+    for i in {1..10}; do
+      if strict_http3_curl -s --http3-only --max-time 10 -H "Host: $HOST" --resolve "$HTTP3_RESOLVE" "https://${HOST}/api/records/healthz" >/dev/null 2>&1; then
+        h3_success=$((h3_success + 1))
+      else
+        h3_fail=$((h3_fail + 1))
+      fi
+    done
+    if [[ $h3_success -gt 7 ]]; then
+      ok "HTTP/3 load test: $h3_success/$((h3_success + h3_fail)) successful"
     else
-      h3_fail=$((h3_fail + 1))
+      warn "HTTP/3 load test: $h3_success/$((h3_success + h3_fail)) successful (may indicate HTTP/3 connectivity issues)"
     fi
-  done
+  else
+    info "  HTTP/3 load test skipped (TARGET_IP unset — MetalLB required)"
+  fi
   
   if [[ $h2_success -gt 7 ]]; then
     ok "HTTP/2 load test: $h2_success/$((h2_success + h2_fail)) successful"
   else
     warn "HTTP/2 load test: $h2_success/$((h2_success + h2_fail)) successful"
-  fi
-  
-  if [[ $h3_success -gt 7 ]]; then
-    ok "HTTP/3 load test: $h3_success/$((h3_success + h3_fail)) successful"
-  else
-    warn "HTTP/3 load test: $h3_success/$((h3_success + h3_fail)) successful (may indicate HTTP/3 connectivity issues)"
   fi
   
   ok "Protocol load test completed (HTTP/2 + HTTP/3)"
@@ -244,7 +245,7 @@ test_malformed_hardening() {
   local bigval
   bigval=$(python3 -c "print('X' * 8192)" 2>/dev/null || printf 'X%.0s' $(seq 1 8192))
   if strict_curl -s -o /dev/null -w "%{http_code}" --max-time 5 --http2 \
-    --resolve "${HOST}:${PORT}:${CURL_RESOLVE_IP}" -H "Host: $HOST" -H "X-Oversized: $bigval" \
+    "${CURL_RESOLVE[@]}" -H "Host: $HOST" -H "X-Oversized: $bigval" \
     "https://${HOST}:${PORT}/_caddy/healthz" 2>/dev/null | grep -qE '^(200|400|431|414)$'; then
     pass=$((pass + 1))
     ok "Oversized header: handled (200/400/431/414)"
@@ -256,7 +257,7 @@ test_malformed_hardening() {
   total=$((total + 1))
   local code
   code=$(strict_curl -s -o /dev/null -w "%{http_code}" --max-time 5 \
-    --resolve "${HOST}:${PORT}:${CURL_RESOLVE_IP}" -H "Host: $HOST" -X "INVALID_METHOD" \
+    "${CURL_RESOLVE[@]}" -H "Host: $HOST" -X "INVALID_METHOD" \
     "https://${HOST}:${PORT}/_caddy/healthz" 2>/dev/null || echo "000")
   if [[ "$code" =~ ^(200|400|405|501)$ ]]; then
     pass=$((pass + 1))
@@ -268,7 +269,7 @@ test_malformed_hardening() {
   # 5c: Garbage body on GET (some servers tolerate, others 400)
   total=$((total + 1))
   code=$(strict_curl -s -o /dev/null -w "%{http_code}" --max-time 5 --http2 -X GET \
-    --resolve "${HOST}:${PORT}:${CURL_RESOLVE_IP}" -H "Host: $HOST" -H "Content-Type: application/json" \
+    "${CURL_RESOLVE[@]}" -H "Host: $HOST" -H "Content-Type: application/json" \
     -d '{"garbage": "null"}' "https://${HOST}:${PORT}/_caddy/healthz" 2>/dev/null || echo "000")
   if [[ "$code" =~ ^(200|400|422)$ ]]; then
     pass=$((pass + 1))
@@ -376,14 +377,14 @@ test_connection_flood_k6() {
   fi
 }
 
-# Caddy HTTP/3 health + gRPC health (Envoy, Envoy strict TLS, port-forward) - must pass for adversarial
+# Caddy HTTP/3 + gRPC via MetalLB :443 (scripts/lib/grpc-http3-health.sh)
 test_grpc_http3_health() {
-  say "Test: gRPC + HTTP/3 health (Envoy, Envoy strict TLS, port-forward, Caddy HTTP/3)"
+  say "Test: gRPC + HTTP/3 health (MetalLB :443, strict TLS)"
   if [[ -f "$SCRIPT_DIR/lib/grpc-http3-health.sh" ]]; then
     . "$SCRIPT_DIR/lib/grpc-http3-health.sh"
     run_grpc_http3_health_checks
     if [[ "${GRPC_HTTP3_HEALTH_OK:-0}" != "1" ]]; then
-      warn "gRPC/HTTP/3 health checks did not all pass (Caddy H3, Envoy strict TLS, or port-forward failed)"
+      warn "gRPC/HTTP/3 health checks did not all pass (set TARGET_IP from caddy-h3 LoadBalancer; verify CA and Caddy→Envoy)"
       return 1
     fi
   else
@@ -402,8 +403,7 @@ main() {
   test_malformed_hardening
   test_connection_flood_k6
   if ! test_grpc_http3_health; then
-    warn "gRPC/HTTP/3 health checks did not all pass (Caddy H3 + Envoy strict TLS required; gRPC port-forward optional on Colima)"
-    info "Suite continues; re-run test when port-forward or NodePort is available for full gRPC coverage"
+    warn "gRPC/HTTP/3 health block failed or skipped (MetalLB TARGET_IP + CA required for strict edge checks)"
   fi
 
   say "=== All Enhanced Adversarial Tests Complete ==="

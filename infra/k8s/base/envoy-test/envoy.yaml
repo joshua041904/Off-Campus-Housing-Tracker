@@ -1,3 +1,4 @@
+# Reference Envoy static config (OCH gRPC services only). Live cluster uses ConfigMap in deploy.yaml.
 static_resources:
   listeners:
   - name: listener_0
@@ -18,15 +19,15 @@ static_resources:
             - name: local_service
               domains: ["*"]
               routes:
+              - match:
+                  prefix: "/grpc.health.v1.Health/"
+                route:
+                  cluster: auth_service
               # Route by gRPC path prefix (e.g. /auth.AuthService/Register, /booking.BookingService/GetBooking)
               - match:
                   prefix: "/auth."
                 route:
                   cluster: auth_service
-              - match:
-                  prefix: "/records."
-                route:
-                  cluster: records_service
               - match:
                   prefix: "/messaging."
                 route:
@@ -40,10 +41,6 @@ static_resources:
                 route:
                   cluster: analytics_service
               - match:
-                  prefix: "/shopping."
-                route:
-                  cluster: shopping_service
-              - match:
                   prefix: "/booking."
                 route:
                   cluster: booking_service
@@ -55,16 +52,6 @@ static_resources:
                   prefix: "/trust."
                 route:
                   cluster: trust_service
-              - match:
-                  safe_regex:
-                    regex: "^/(auction_monitor|auction-monitor)\\."
-                route:
-                  cluster: auction_monitor_service
-              - match:
-                  safe_regex:
-                    regex: "^/(python_ai|python-ai)\\."
-                route:
-                  cluster: python_ai_service
               # Default route (fallback to auth for backward compatibility)
               - match:
                   prefix: "/"
@@ -75,7 +62,7 @@ static_resources:
             typed_config:
               "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
   clusters:
-  # Auth Service (port 50051)
+  # Auth Service (gRPC port 50061 — must match auth-service K8s Service)
   - name: auth_service
     connect_timeout: 5s
     type: LOGICAL_DNS
@@ -89,32 +76,7 @@ static_resources:
             address:
               socket_address:
                 address: auth-service.off-campus-housing-tracker.svc.cluster.local
-                port_value: 50051
-    transport_socket:
-      name: envoy.transport_sockets.tls
-      typed_config:
-        "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
-        sni: off-campus-housing.test
-        common_tls_context:
-          validation_context:
-            trusted_ca:
-              filename: /etc/certs/ca/dev-root.pem
-  
-  # Records Service (port 50051)
-  - name: records_service
-    connect_timeout: 5s
-    type: LOGICAL_DNS
-    lb_policy: ROUND_ROBIN
-    http2_protocol_options: {}
-    load_assignment:
-      cluster_name: records_service
-      endpoints:
-      - lb_endpoints:
-        - endpoint:
-            address:
-              socket_address:
-                address: records-service.off-campus-housing-tracker.svc.cluster.local
-                port_value: 50051
+                port_value: 50061
     transport_socket:
       name: envoy.transport_sockets.tls
       typed_config:
@@ -150,7 +112,7 @@ static_resources:
             trusted_ca:
               filename: /etc/certs/ca/dev-root.pem
   
-  # Listings Service (port 50057)
+  # Listings Service (port 50062)
   - name: listings_service
     connect_timeout: 5s
     type: LOGICAL_DNS
@@ -200,31 +162,6 @@ static_resources:
             trusted_ca:
               filename: /etc/certs/ca/dev-root.pem
   
-  # Shopping Service (port 50058)
-  - name: shopping_service
-    connect_timeout: 5s
-    type: LOGICAL_DNS
-    lb_policy: ROUND_ROBIN
-    http2_protocol_options: {}
-    load_assignment:
-      cluster_name: shopping_service
-      endpoints:
-      - lb_endpoints:
-        - endpoint:
-            address:
-              socket_address:
-                address: shopping-service.off-campus-housing-tracker.svc.cluster.local
-                port_value: 50058
-    transport_socket:
-      name: envoy.transport_sockets.tls
-      typed_config:
-        "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
-        sni: off-campus-housing.test
-        common_tls_context:
-          validation_context:
-            trusted_ca:
-              filename: /etc/certs/ca/dev-root.pem
-
   # Booking Service (gRPC port 50063)
   - name: booking_service
     connect_timeout: 5s
@@ -290,56 +227,6 @@ static_resources:
               socket_address:
                 address: trust-service.off-campus-housing-tracker.svc.cluster.local
                 port_value: 50066
-    transport_socket:
-      name: envoy.transport_sockets.tls
-      typed_config:
-        "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
-        sni: off-campus-housing.test
-        common_tls_context:
-          validation_context:
-            trusted_ca:
-              filename: /etc/certs/ca/dev-root.pem
-  
-  # Auction Monitor Service (port 50059)
-  - name: auction_monitor_service
-    connect_timeout: 5s
-    type: LOGICAL_DNS
-    lb_policy: ROUND_ROBIN
-    http2_protocol_options: {}
-    load_assignment:
-      cluster_name: auction_monitor_service
-      endpoints:
-      - lb_endpoints:
-        - endpoint:
-            address:
-              socket_address:
-                address: auction-monitor.off-campus-housing-tracker.svc.cluster.local
-                port_value: 50059
-    transport_socket:
-      name: envoy.transport_sockets.tls
-      typed_config:
-        "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
-        sni: off-campus-housing.test
-        common_tls_context:
-          validation_context:
-            trusted_ca:
-              filename: /etc/certs/ca/dev-root.pem
-  
-  # Python AI Service (port 50060)
-  - name: python_ai_service
-    connect_timeout: 5s
-    type: LOGICAL_DNS
-    lb_policy: ROUND_ROBIN
-    http2_protocol_options: {}
-    load_assignment:
-      cluster_name: python_ai_service
-      endpoints:
-      - lb_endpoints:
-        - endpoint:
-            address:
-              socket_address:
-                address: python-ai-service.off-campus-housing-tracker.svc.cluster.local
-                port_value: 50060
     transport_socket:
       name: envoy.transport_sockets.tls
       typed_config:

@@ -28,6 +28,11 @@ export default function AnalyticsPage() {
   const [feel, setFeel] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [searchSummary, setSearchSummary] = useState<{
+    items: SearchSummaryItem[];
+    hint?: string;
+    notification_hook?: string;
+  } | null>(null);
 
   useEffect(() => {
     const t = getStoredToken();
@@ -222,7 +227,7 @@ export default function AnalyticsPage() {
 
         <section className="mt-8 rounded-xl border border-stone-800 bg-stone-900/40 p-6">
           <h2 className="text-lg font-medium text-amber-100">Listing assistant (landlord / renter)</h2>
-          <form onSubmit={runFeel} className="mt-4 space-y-3">
+          <form data-testid="analytics-listing-feel-form" onSubmit={runFeel} className="mt-4 space-y-3">
             <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
@@ -272,7 +277,10 @@ export default function AnalyticsPage() {
             </button>
           </form>
           {feel && (
-            <div className="mt-4 rounded-md border border-stone-800 bg-stone-950/80 p-4 text-sm text-stone-300 whitespace-pre-wrap">
+            <div
+              data-testid="analytics-feel-output"
+              className="mt-4 rounded-md border border-stone-800 bg-stone-950/80 p-4 text-sm text-stone-300 whitespace-pre-wrap"
+            >
               {feel}
             </div>
           )}

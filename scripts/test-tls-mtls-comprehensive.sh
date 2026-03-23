@@ -35,13 +35,14 @@ _kb() {
   fi
 }
 
-# Colima + MetalLB: use LB IP directly (TARGET_IP:443). Derive from caddy-h3 when missing.
-if [[ "$ctx" == *"colima"* ]] && [[ -z "${TARGET_IP:-}" ]]; then
+# MetalLB / LB hostname on caddy-h3 — required for strict gRPC/HTTP/3 (no NodePort, no port-forward, no 127.0.0.1).
+if [[ -z "${TARGET_IP:-}" ]]; then
   _lb=$(_kb -n "$NS_ING" get svc caddy-h3 -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
-  [[ -n "$_lb" ]] && { export TARGET_IP="$_lb"; export PORT=443; }
+  [[ -z "$_lb" ]] && _lb=$(_kb -n "$NS_ING" get svc caddy-h3 -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+  [[ -n "$_lb" ]] && export TARGET_IP="$_lb"
 fi
-[[ -n "${TARGET_IP:-}" ]] && PORT=443
-CURL_RESOLVE_IP="${TARGET_IP:-127.0.0.1}"
+[[ -n "${TARGET_IP:-}" ]] && export PORT=443
+CURL_RESOLVE_IP="${TARGET_IP:-}"
 
 FAILED=0
 PASSED=0
@@ -57,17 +58,6 @@ test_result() {
 }
 
 say "=== Comprehensive TLS/mTLS Test Suite ==="
-
-# Resolve host kubectl for port-forward (so 127.0.0.1:50051 is on host; Colima shim would listen inside VM)
-if [[ -n "${KUBECTL_PORT_FORWARD:-}" ]]; then
-  : # already set
-elif [[ -x /opt/homebrew/bin/kubectl ]]; then
-  export KUBECTL_PORT_FORWARD="/opt/homebrew/bin/kubectl --request-timeout=15s"
-elif [[ -x /usr/local/bin/kubectl ]]; then
-  export KUBECTL_PORT_FORWARD="/usr/local/bin/kubectl --request-timeout=15s"
-else
-  export KUBECTL_PORT_FORWARD="kubectl --request-timeout=15s"
-fi
 
 # Get CA certificate (prefer repo certs/dev-root.pem from preflight/rotation)
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd)"
@@ -105,20 +95,14 @@ if [[ -f "$GRPC_CERTS_DIR/tls.crt" ]] && [[ -f "$GRPC_CERTS_DIR/tls.key" ]] && [
 else
   warn "mTLS client certs missing after sync; gRPC via LB may use TLS-only or fail if Envoy requires client cert"
 fi
-# Pre-check: Colima uses port-forward + grpcurl inside VM (longer waits + retries)
-[[ "$ctx" == *"colima"* ]] && command -v colima >/dev/null 2>&1 && info "Colima detected — gRPC port-forward tests use 6s wait + retries"
-
 # Test 1: HTTP/3 Certificate Chain Verification
 say "Test 1: HTTP/3 Certificate Chain Verification"
 if [[ -n "$CA_CERT" ]] && [[ -f "$CA_CERT" ]]; then
   . "$SCRIPT_DIR/lib/http3.sh"
-  if [[ -n "${TARGET_IP:-}" ]]; then
-    HTTP3_RESOLVE="${HOST}:443:${TARGET_IP}"
+  if [[ -z "${TARGET_IP:-}" ]]; then
+    test_result 1 "HTTP/3 certificate verification: FAILED (TARGET_IP required — set MetalLB IP on caddy-h3 or export TARGET_IP)"
   else
-    HTTP3_SVC_IP=$(_kb -n "$NS_ING" get svc caddy-h3 -o jsonpath='{.spec.clusterIP}' 2>/dev/null || echo "")
-    [[ -n "$HTTP3_SVC_IP" ]] && HTTP3_RESOLVE="${HOST}:443:${HTTP3_SVC_IP}" || HTTP3_RESOLVE="${HOST}:443:127.0.0.1"
-  fi
-  
+    HTTP3_RESOLVE="${HOST}:443:${TARGET_IP}"
   HTTP3_TEST=$(http3_curl --cacert "$CA_CERT" -sS -w "\n%{http_code}" --http3-only --max-time 10 \
     -H "Host: $HOST" \
     --resolve "$HTTP3_RESOLVE" \
@@ -134,12 +118,14 @@ if [[ -n "$CA_CERT" ]] && [[ -f "$CA_CERT" ]]; then
       info "  This indicates certificate chain issue - CA may not be in chain"
     fi
   fi
+  fi
 else
   test_result 1 "HTTP/3 test skipped (CA certificate not available)"
 fi
 
-# Test 2: gRPC via Envoy (LB IP when TARGET_IP; else NodePort); fallback to port-forward when NodePort unreachable
-say "Test 2: gRPC via Envoy"
+# Test 2: gRPC via Caddy → Envoy at MetalLB :443 only (no NodePort, no port-forward, no 127.0.0.1)
+say "Test 2: gRPC via Envoy (edge ${TARGET_IP:-?}:443)"
+TLS_SUITE_GRPC_EDGE_OK=0
 PROTO_DIR=""
 RELATIVE_PROTO="${SCRIPT_DIR}/../proto"
 if [[ -d "$RELATIVE_PROTO" ]]; then
@@ -154,217 +140,40 @@ fi
 if [[ -n "$PROTO_DIR" ]] && command -v grpcurl >/dev/null 2>&1; then
   GRPC_ENVOY_SUCCESS=0
   grpc_authority="${HOST:-off-campus-housing.test}"
-  # LB IP primary: when TARGET_IP:443, gRPC via Caddy → Envoy (real production path)
-  if [[ -n "${TARGET_IP:-}" ]] && [[ "${PORT:-}" == "443" ]] && [[ -n "$CA_CERT" ]] && [[ -f "$CA_CERT" ]]; then
+  if [[ -n "${TARGET_IP:-}" ]] && [[ -n "$CA_CERT" ]] && [[ -f "$CA_CERT" ]]; then
     if [[ -n "$MTLS_CERT" ]] && [[ -n "$MTLS_KEY" ]] && [[ -f "$MTLS_CERT" ]] && [[ -f "$MTLS_KEY" ]]; then
-      GRPC_TEST=$(grpcurl -cacert "$CA_CERT" -cert "$MTLS_CERT" -key "$MTLS_KEY" -authority "$grpc_authority" -servername "$grpc_authority" -max-time 5 \
+      GRPC_TEST=$(grpcurl -cacert "$CA_CERT" -cert "$MTLS_CERT" -key "$MTLS_KEY" -authority "$grpc_authority" -max-time 8 \
         -import-path "$PROTO_DIR" -proto "$PROTO_DIR/health.proto" -d '{"service":""}' "${TARGET_IP}:443" grpc.health.v1.Health/Check 2>&1) || GRPC_RC=$?
     else
-      GRPC_TEST=$(grpcurl -cacert "$CA_CERT" -authority "$grpc_authority" -servername "$grpc_authority" -max-time 5 \
+      GRPC_TEST=$(grpcurl -cacert "$CA_CERT" -authority "$grpc_authority" -max-time 8 \
         -import-path "$PROTO_DIR" -proto "$PROTO_DIR/health.proto" -d '{"service":""}' "${TARGET_IP}:443" grpc.health.v1.Health/Check 2>&1) || GRPC_RC=$?
     fi
     GRPC_RC=${GRPC_RC:-0}
     if echo "$GRPC_TEST" | grep -q "SERVING"; then
       [[ -n "$MTLS_CERT" ]] && [[ -f "$MTLS_CERT" ]] && test_result 0 "gRPC via LB IP (Caddy→Envoy): PASSED (mTLS)" || test_result 0 "gRPC via LB IP (Caddy→Envoy): PASSED (strict TLS)"
       GRPC_ENVOY_SUCCESS=1
+      TLS_SUITE_GRPC_EDGE_OK=1
     fi
-  fi
-  # NodePort fallback when LB IP not used or failed
-  if [[ $GRPC_ENVOY_SUCCESS -eq 0 ]]; then
-  for port in 30000 30001; do
-    if [[ -n "$CA_CERT" ]] && [[ -f "$CA_CERT" ]]; then
-      if [[ -n "$MTLS_CERT" ]] && [[ -n "$MTLS_KEY" ]] && [[ -f "$MTLS_CERT" ]] && [[ -f "$MTLS_KEY" ]]; then
-        GRPC_TEST=$(grpcurl -cacert "$CA_CERT" -cert "$MTLS_CERT" -key "$MTLS_KEY" -authority "$grpc_authority" -max-time 5 \
-          -import-path "$PROTO_DIR" \
-          -proto "$PROTO_DIR/health.proto" \
-          -d '{"service":""}' \
-          "127.0.0.1:${port}" \
-          grpc.health.v1.Health/Check 2>&1) || GRPC_RC=$?
-      else
-        GRPC_TEST=$(grpcurl -cacert "$CA_CERT" -authority "$grpc_authority" -max-time 5 \
-          -import-path "$PROTO_DIR" \
-          -proto "$PROTO_DIR/health.proto" \
-          -d '{"service":""}' \
-          "127.0.0.1:${port}" \
-          grpc.health.v1.Health/Check 2>&1) || GRPC_RC=$?
-      fi
-    else
-      GRPC_TEST=$(grpcurl -plaintext -max-time 5 \
-        -import-path "$PROTO_DIR" \
-        -proto "$PROTO_DIR/health.proto" \
-        -d '{"service":""}' \
-        "127.0.0.1:${port}" \
-        grpc.health.v1.Health/Check 2>&1) || GRPC_RC=$?
-    fi
-    GRPC_RC=${GRPC_RC:-0}
-    
-    if echo "$GRPC_TEST" | grep -q "SERVING"; then
-      if [[ -n "$MTLS_CERT" ]] && [[ -f "$MTLS_CERT" ]]; then
-        test_result 0 "gRPC via Envoy NodePort $port: PASSED (mTLS)"
-      else
-        test_result 0 "gRPC via Envoy NodePort $port: PASSED (strict TLS)"
-      fi
-      GRPC_ENVOY_SUCCESS=1
-      break
-    fi
-  done
-  
-  # Fallback: when NodePort unreachable, use port-forward (skip when LB IP mode - LB IP is primary)
-  if [[ $GRPC_ENVOY_SUCCESS -eq 0 ]] && [[ -z "${TARGET_IP:-}" ]] && [[ -n "$CA_CERT" ]] && [[ -f "$CA_CERT" ]]; then
-    AUTH_POD_2=$(_kb -n "$NS" get pods -l app=auth-service -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
-    if [[ -n "$AUTH_POD_2" ]]; then
-      if [[ "$ctx" == *"colima"* ]] && command -v colima >/dev/null 2>&1; then
-        # Colima: copy CA into VM; run port-forward + grpcurl inside VM (kubectl in VM can reach API)
-        cat "$CA_CERT" | colima ssh -- sh -c "cat > /tmp/grpc-tls-ca.pem" 2>/dev/null || true
-        GRPC_FALLBACK=$(colima ssh -- bash -c "kubectl -n $NS port-forward pod/$AUTH_POD_2 50052:50051 --request-timeout=15s & PF=\$!; sleep 3; grpcurl -cacert /tmp/grpc-tls-ca.pem -max-time 5 -d '{\"service\":\"\"}' 127.0.0.1:50052 grpc.health.v1.Health/Check 2>&1; kill \$PF 2>/dev/null; wait \$PF 2>/dev/null" 2>&1) || true
-        if echo "$GRPC_FALLBACK" | grep -q "SERVING"; then
-          test_result 0 "gRPC via Envoy NodePort: PASSED (port-forward in Colima VM - NodePort unreachable on host)"
-          GRPC_ENVOY_SUCCESS=1
-        fi
-      else
-        PF2_KCTL="${KUBECTL_PORT_FORWARD:-}"
-        [[ -z "$PF2_KCTL" ]] && [[ -x /opt/homebrew/bin/kubectl ]] && PF2_KCTL="/opt/homebrew/bin/kubectl --request-timeout=15s"
-        [[ -z "$PF2_KCTL" ]] && [[ -x /usr/local/bin/kubectl ]] && PF2_KCTL="/usr/local/bin/kubectl --request-timeout=15s"
-        [[ -z "$PF2_KCTL" ]] && PF2_KCTL="kubectl --request-timeout=15s"
-        $PF2_KCTL -n "$NS" port-forward "pod/$AUTH_POD_2" 50052:50051 >/dev/null 2>&1 &
-        PF2_PID=$!
-        sleep 2
-        if kill -0 "$PF2_PID" 2>/dev/null; then
-          if [[ -n "$MTLS_CERT" ]] && [[ -f "$MTLS_CERT" ]]; then
-            GRPC_FALLBACK=$(grpcurl -cacert "$CA_CERT" -cert "$MTLS_CERT" -key "$MTLS_KEY" -max-time 5 \
-              -import-path "$PROTO_DIR" -proto "$PROTO_DIR/health.proto" -d '{"service":""}' "127.0.0.1:50052" grpc.health.v1.Health/Check 2>&1) || true
-          else
-            GRPC_FALLBACK=$(grpcurl -cacert "$CA_CERT" -max-time 5 \
-              -import-path "$PROTO_DIR" -proto "$PROTO_DIR/health.proto" -d '{"service":""}' "127.0.0.1:50052" grpc.health.v1.Health/Check 2>&1) || true
-          fi
-          kill "$PF2_PID" 2>/dev/null || true
-          wait "$PF2_PID" 2>/dev/null || true
-          if echo "$GRPC_FALLBACK" | grep -q "SERVING"; then
-            if [[ -n "$MTLS_CERT" ]] && [[ -f "$MTLS_CERT" ]]; then
-              test_result 0 "gRPC via Envoy NodePort: PASSED (port-forward fallback, mTLS - NodePort unreachable on host)"
-            else
-              test_result 0 "gRPC via Envoy NodePort: PASSED (port-forward fallback, strict TLS - NodePort unreachable on host)"
-            fi
-            GRPC_ENVOY_SUCCESS=1
-          fi
-        fi
-      fi
-    fi
-  fi
-
   fi
   if [[ $GRPC_ENVOY_SUCCESS -eq 0 ]]; then
-    if [[ -n "${TARGET_IP:-}" ]] && [[ "${PORT:-}" == "443" ]]; then
-      test_result 1 "gRPC via LB IP: FAILED (check CA_CERT and ${TARGET_IP}:443 reachability)"
-    elif [[ "$ctx" == *"colima"* ]]; then
-      test_result 0 "gRPC via Envoy: SKIPPED (Colima - NodePort not on host; LB IP primary path)"
+    if [[ -n "${TARGET_IP:-}" ]]; then
+      test_result 1 "gRPC via LB IP: FAILED (check CA_CERT and ${TARGET_IP}:443 reachability, -authority=$grpc_authority)"
     else
-      test_result 1 "gRPC via Envoy NodePort: FAILED (both ports failed)"
+      test_result 1 "gRPC via edge: FAILED (TARGET_IP unset — expose caddy-h3 LoadBalancer or export TARGET_IP)"
     fi
   fi
 else
   test_result 1 "gRPC Envoy test skipped (grpcurl or proto directory not found)"
 fi
 
-# Test 3: gRPC via Direct Port-Forward with TLS
-# On Colima: port-forward runs inside VM via _kb; run grpcurl inside VM. On host: use KUBECTL_PORT_FORWARD.
-# If port-forward is unavailable but Test 2 (Envoy/port-forward fallback) passed, treat as pass.
-say "Test 3: gRPC via Direct Port-Forward with TLS"
-if [[ -n "$PROTO_DIR" ]] && [[ -n "$CA_CERT" ]] && command -v grpcurl >/dev/null 2>&1; then
-  AUTH_POD=$(_kb -n "$NS" get pods -l app=auth-service -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
-  if [[ -n "$AUTH_POD" ]]; then
-    pkill -f "port-forward.*50051:50051" 2>/dev/null || true
-    sleep 1
-    port_ready=false
-    pf_exited=false
-    PF_PID=""
-
-    if [[ "$ctx" == *"colima"* ]] && command -v colima >/dev/null 2>&1; then
-      # Colima: copy CA into VM; run port-forward + grpcurl inside VM (longer wait + retries for VM latency)
-      cat "$CA_CERT" | colima ssh -- sh -c "cat > /tmp/grpc-tls-ca.pem" 2>/dev/null || true
-      GRPC_TLS_TEST=$(colima ssh -- bash -c "
-        kubectl -n $NS port-forward pod/$AUTH_POD 50051:50051 --request-timeout=15s & PF=\$!;
-        sleep 6;
-        out=\$(grpcurl -cacert /tmp/grpc-tls-ca.pem -max-time 5 -d '{\"service\":\"\"}' 127.0.0.1:50051 grpc.health.v1.Health/Check 2>\&1);
-        for try in 2 3; do
-          echo \"\$out\" | grep -q SERVING && break;
-          sleep 2;
-          out=\$(grpcurl -cacert /tmp/grpc-tls-ca.pem -max-time 5 -d '{\"service\":\"\"}' 127.0.0.1:50051 grpc.health.v1.Health/Check 2>\&1);
-        done;
-        kill \$PF 2>/dev/null; wait \$PF 2>/dev/null;
-        echo \"\$out\"
-      " 2>&1) || true
-      if echo "$GRPC_TLS_TEST" | grep -q "SERVING"; then
-        test_result 0 "gRPC via direct port-forward with TLS: PASSED (Colima VM)"
-        port_ready=true
-      fi
-    else
-      KUBECTL_PF="${KUBECTL_PORT_FORWARD:-}"
-      [[ -z "$KUBECTL_PF" ]] && [[ -x /opt/homebrew/bin/kubectl ]] && KUBECTL_PF="/opt/homebrew/bin/kubectl --request-timeout=15s"
-      [[ -z "$KUBECTL_PF" ]] && [[ -x /usr/local/bin/kubectl ]] && KUBECTL_PF="/usr/local/bin/kubectl --request-timeout=15s"
-      [[ -z "$KUBECTL_PF" ]] && KUBECTL_PF="kubectl --request-timeout=15s"
-      $KUBECTL_PF -n "$NS" port-forward "pod/$AUTH_POD" 50051:50051 >/dev/null 2>&1 &
-      PF_PID=$!
-      retries=0
-      max_retries=15
-      while [[ $retries -lt $max_retries ]]; do
-        sleep 1
-        if ! kill -0 "$PF_PID" 2>/dev/null; then
-          wait "$PF_PID" 2>/dev/null || true
-          warn "Port-forward process exited (PID: $PF_PID)"
-          pf_exited=true
-          break
-        fi
-        if (command -v nc >/dev/null 2>&1 && nc -z 127.0.0.1 50051 2>/dev/null) || \
-           (command -v lsof >/dev/null 2>&1 && lsof -i :50051 >/dev/null 2>&1) || \
-           (command -v ss >/dev/null 2>&1 && ss -ln 2>/dev/null | grep -q ":50051"); then
-          port_ready=true
-          break
-        fi
-        retries=$((retries + 1))
-      done
-
-      if [[ "$port_ready" == "true" ]]; then
-        if [[ -n "$MTLS_CERT" ]] && [[ -f "$MTLS_CERT" ]]; then
-          GRPC_TLS_TEST=$(grpcurl -cacert "$CA_CERT" -cert "$MTLS_CERT" -key "$MTLS_KEY" -max-time 5 \
-            -import-path "$PROTO_DIR" -proto "$PROTO_DIR/health.proto" -d '{"service":""}' "127.0.0.1:50051" grpc.health.v1.Health/Check 2>&1) || GRPC_TLS_RC=$?
-        else
-          GRPC_TLS_TEST=$(grpcurl -cacert "$CA_CERT" -max-time 5 \
-            -import-path "$PROTO_DIR" -proto "$PROTO_DIR/health.proto" -d '{"service":""}' "127.0.0.1:50051" grpc.health.v1.Health/Check 2>&1) || GRPC_TLS_RC=$?
-        fi
-        GRPC_TLS_RC=${GRPC_TLS_RC:-0}
-        if echo "$GRPC_TLS_TEST" | grep -q "SERVING"; then
-          if [[ -n "$MTLS_CERT" ]] && [[ -f "$MTLS_CERT" ]]; then
-            test_result 0 "gRPC via direct port-forward with mTLS: PASSED"
-          else
-            test_result 0 "gRPC via direct port-forward with TLS: PASSED"
-          fi
-        else
-          test_result 1 "gRPC via direct port-forward with TLS: FAILED"
-          echo "$GRPC_TLS_TEST" | head -5
-        fi
-        kill "$PF_PID" 2>/dev/null || true
-        wait "$PF_PID" 2>/dev/null || true
-      fi
-    fi
-
-    if [[ "$port_ready" != "true" ]]; then
-      if [[ "${GRPC_ENVOY_SUCCESS:-0}" -eq 1 ]]; then
-        test_result 0 "gRPC port-forward: SKIPPED (LB IP or Envoy passed; port-forward optional)"
-      elif [[ -n "${TARGET_IP:-}" ]] && [[ "${PORT:-}" == "443" ]]; then
-        test_result 0 "gRPC port-forward: SKIPPED (LB IP mode — Caddy→Envoy is primary path)"
-      elif [[ "$ctx" == *"colima"* ]]; then
-        test_result 0 "gRPC port-forward: SKIPPED (Colima — LB IP or NodePort is primary)"
-      else
-        test_result 1 "gRPC port-forward test: FAILED (port-forward not ready)"
-      fi
-    fi
-    pkill -f "port-forward.*50051:50051" 2>/dev/null || true
-  else
-    test_result 1 "gRPC port-forward test skipped (auth-service pod not found)"
-  fi
+# Test 3: direct pod gRPC — removed; strict suite validates only through edge :443 (Test 2).
+say "Test 3: Direct pod gRPC (superseded by edge path)"
+if [[ "${TLS_SUITE_GRPC_EDGE_OK:-0}" -eq 1 ]]; then
+  test_result 0 "Test 3: N/A — auth health validated via Caddy/Envoy at ${TARGET_IP}:443 (no port-forward)"
+elif [[ -n "${TARGET_IP:-}" ]]; then
+  test_result 1 "Test 3: Edge gRPC did not pass in Test 2 — not attempting localhost/port-forward"
 else
-  test_result 1 "gRPC port-forward test skipped (prerequisites not met)"
+  test_result 1 "Test 3: TARGET_IP required for strict TLS suite"
 fi
 
 # Test 4: gRPC Authenticate Method (transport-aware)
@@ -396,7 +205,7 @@ if [[ -n "$PROTO_DIR" ]] && command -v grpcurl >/dev/null 2>&1; then
 
   # Prefer grpcurl for Register (avoids curl timeout when auth route is gRPC or REST is slow). Fallback to curl REST.
   _do_register_grpc() {
-    if [[ -n "${TARGET_IP:-}" ]] && [[ "${PORT:-}" == "443" ]] && [[ -n "$CA_CERT" ]] && [[ -f "$CA_CERT" ]]; then
+    if [[ -n "${TARGET_IP:-}" ]] && [[ -n "$CA_CERT" ]] && [[ -f "$CA_CERT" ]]; then
       grpcurl -cacert "$CA_CERT" -authority "$HOST" -max-time 10 \
         -import-path "$PROTO_DIR" -proto "$PROTO_DIR/auth.proto" \
         -d "{\"email\":\"$TEST_EMAIL\",\"password\":\"$TEST_PASSWORD\"}" \
@@ -563,9 +372,9 @@ if [[ -n "$PROTO_DIR" ]] && command -v grpcurl >/dev/null 2>&1; then
 
   if [[ "$REG_OK" == "true" ]]; then
     GRPC_AUTH_OK=0
-    # LB IP first when TARGET_IP:443 (Caddy → Envoy → auth-service)
-    if [[ -n "${TARGET_IP:-}" ]] && [[ "${PORT:-}" == "443" ]] && [[ -n "$CA_CERT" ]] && [[ -f "$CA_CERT" ]]; then
-      GRPC_AUTH_TEST=$(grpcurl -cacert "$CA_CERT" -authority "$HOST" -max-time 5 \
+    # gRPC Authenticate: MetalLB :443 only (same as Test 2 — no NodePort / port-forward / 127.0.0.1)
+    if [[ -n "${TARGET_IP:-}" ]] && [[ -n "$CA_CERT" ]] && [[ -f "$CA_CERT" ]]; then
+      GRPC_AUTH_TEST=$(grpcurl -cacert "$CA_CERT" -authority "$HOST" -max-time 10 \
         -import-path "$PROTO_DIR" -proto "$PROTO_DIR/auth.proto" \
         -d "{\"email\":\"$TEST_EMAIL\",\"password\":\"$TEST_PASSWORD\"}" \
         "${TARGET_IP}:443" auth.AuthService/Authenticate 2>&1) || GRPC_AUTH_RC=$?
@@ -574,96 +383,11 @@ if [[ -n "$PROTO_DIR" ]] && command -v grpcurl >/dev/null 2>&1; then
         GRPC_AUTH_OK=1
       fi
     fi
-    # NodePort fallback
     if [[ $GRPC_AUTH_OK -eq 0 ]]; then
-    for auth_port in 30000 30001; do
-      if [[ -n "$CA_CERT" ]] && [[ -f "$CA_CERT" ]]; then
-        GRPC_AUTH_TEST=$(grpcurl -cacert "$CA_CERT" -max-time 5 \
-          -import-path "$PROTO_DIR" \
-          -proto "$PROTO_DIR/auth.proto" \
-          -d "{\"email\":\"$TEST_EMAIL\",\"password\":\"$TEST_PASSWORD\"}" \
-          "127.0.0.1:${auth_port}" \
-          auth.AuthService/Authenticate 2>&1) || GRPC_AUTH_RC=$?
-      elif [[ "${TLS_SUITE_ALLOW_PLAINTEXT_GRPC:-0}" == "1" ]]; then
-        GRPC_AUTH_TEST=$(grpcurl -plaintext -max-time 5 \
-          -import-path "$PROTO_DIR" \
-          -proto "$PROTO_DIR/auth.proto" \
-          -d "{\"email\":\"$TEST_EMAIL\",\"password\":\"$TEST_PASSWORD\"}" \
-          "127.0.0.1:${auth_port}" \
-          auth.AuthService/Authenticate 2>&1) || GRPC_AUTH_RC=$?
+      if [[ -n "${TARGET_IP:-}" ]] && [[ -n "$CA_CERT" ]] && [[ -f "$CA_CERT" ]]; then
+        test_result 1 "gRPC Authenticate via LB IP: FAILED (check Caddy→Envoy auth route)"
       else
-        GRPC_AUTH_TEST=""; GRPC_AUTH_RC=1
-      fi
-      GRPC_AUTH_RC=${GRPC_AUTH_RC:-0}
-      if echo "$GRPC_AUTH_TEST" | grep -q "token"; then
-        test_result 0 "gRPC Authenticate via Envoy: PASSED (strict TLS, port $auth_port)"
-        GRPC_AUTH_OK=1
-        break
-      fi
-    done
-    if [[ $GRPC_AUTH_OK -eq 0 ]]; then
-      # Fallback: port-forward (skip when LB IP mode — LB IP is primary)
-      if [[ -z "${TARGET_IP:-}" ]]; then
-      AUTH_POD_4=$(_kb -n "$NS" get pods -l app=auth-service -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
-      if [[ -n "$AUTH_POD_4" ]] && [[ -n "$CA_CERT" ]] && [[ -f "$CA_CERT" ]]; then
-        if [[ "$ctx" == *"colima"* ]] && command -v colima >/dev/null 2>&1; then
-          cat "$CA_CERT" | colima ssh -- sh -c "cat > /tmp/grpc-tls-ca.pem" 2>/dev/null || true
-          GRPC_AUTH_FB=$(colima ssh -- bash -c "
-            kubectl -n $NS port-forward pod/$AUTH_POD_4 50053:50051 --request-timeout=15s & PF=\$!;
-            sleep 6;
-            for try in 1 2 3; do
-              out=\$(grpcurl -cacert /tmp/grpc-tls-ca.pem -max-time 10 -d '{\"email\":\"$TEST_EMAIL\",\"password\":\"$TEST_PASSWORD\"}' 127.0.0.1:50053 auth.AuthService/Authenticate 2>&1);
-              echo \"\$out\" | grep -q token && { echo \"\$out\"; kill \$PF 2>/dev/null; exit 0; };
-              sleep 2;
-            done;
-            kill \$PF 2>/dev/null; wait \$PF 2>/dev/null;
-            echo \"\$out\"
-          " 2>&1) || true
-          if echo "$GRPC_AUTH_FB" | grep -q "token"; then
-            test_result 0 "gRPC Authenticate: PASSED (port-forward in Colima VM)"
-          else
-            test_result 0 "gRPC Authenticate: SKIPPED (Colima — LB IP or port-forward primary)"
-          fi
-        else
-          _kb -n "$NS" port-forward "pod/$AUTH_POD_4" 50053:50051 >/dev/null 2>&1 &
-          PF4_PID=$!
-          sleep 2
-          if kill -0 "$PF4_PID" 2>/dev/null; then
-            GRPC_AUTH_FB=$(grpcurl -cacert "$CA_CERT" -max-time 10 \
-              -import-path "$PROTO_DIR" \
-              -proto "$PROTO_DIR/auth.proto" \
-              -d "{\"email\":\"$TEST_EMAIL\",\"password\":\"$TEST_PASSWORD\"}" \
-              "127.0.0.1:50053" \
-              auth.AuthService/Authenticate 2>&1) || true
-            kill "$PF4_PID" 2>/dev/null || true
-            wait "$PF4_PID" 2>/dev/null || true
-            if echo "$GRPC_AUTH_FB" | grep -q "token"; then
-              test_result 0 "gRPC Authenticate via Envoy: PASSED (port-forward fallback, strict TLS)"
-            else
-              test_result 1 "gRPC Authenticate via Envoy: FAILED"
-              echo "$GRPC_AUTH_TEST" | head -5
-            fi
-          else
-            test_result 1 "gRPC Authenticate via Envoy: FAILED"
-            echo "$GRPC_AUTH_TEST" | head -5
-          fi
-        fi
-      else
-        if [[ "$ctx" == *"colima"* ]]; then
-          test_result 0 "gRPC Authenticate: SKIPPED (Colima - NodePort not on host)"
-        else
-          test_result 1 "gRPC Authenticate via Envoy: FAILED"
-          echo "$GRPC_AUTH_TEST" | head -5
-        fi
-      fi
-    fi
-      fi  # end TARGET_IP check (skip port-forward when LB IP mode)
-    fi
-    if [[ $GRPC_AUTH_OK -eq 0 ]]; then
-      if [[ -n "${TARGET_IP:-}" ]] && [[ "${PORT:-}" == "443" ]]; then
-        test_result 0 "gRPC Authenticate: SKIPPED (LB IP path failed; check Caddy→Envoy auth route)"
-      elif [[ "$ctx" == *"colima"* ]]; then
-        test_result 0 "gRPC Authenticate: SKIPPED (Colima — LB IP or NodePort primary)"
+        test_result 1 "gRPC Authenticate: FAILED (TARGET_IP + CA_CERT required; no localhost fallbacks)"
       fi
     fi
   else
@@ -777,19 +501,11 @@ fi
 
 info "  mTLS enabled: $MTLS_ENABLED/${#SERVICES[@]} services (dev mode: disabled by default)"
 
-# Unified health: Caddy HTTP/3 + gRPC (LB IP when TARGET_IP; else Envoy NodePort/port-forward)
-say "Unified health: Caddy HTTP/3 + gRPC (LB IP when TARGET_IP; else Envoy)"
-if [[ -z "${HTTP3_RESOLVE:-}" ]]; then
-  if [[ -n "${TARGET_IP:-}" ]]; then
-    HTTP3_RESOLVE="${HOST}:443:${TARGET_IP}"
-  else
-    HTTP3_SVC_IP=$(_kb -n "$NS_ING" get svc caddy-h3 -o jsonpath='{.spec.clusterIP}' 2>/dev/null || echo "")
-    [[ -n "$HTTP3_SVC_IP" ]] && HTTP3_RESOLVE="${HOST}:443:${HTTP3_SVC_IP}" || HTTP3_RESOLVE="${HOST}:443:127.0.0.1"
-  fi
-fi
-export CA_CERT NS HOST PORT TARGET_IP HTTP3_RESOLVE SCRIPT_DIR
+# Unified health: scripts/lib/grpc-http3-health.sh — MetalLB :443 only (no ClusterIP / 127.0.0.1 / port-forward)
+say "Unified health: Caddy HTTP/3 + gRPC (MetalLB :443)"
+export CA_CERT NS HOST PORT TARGET_IP SCRIPT_DIR
 [[ -f "$SCRIPT_DIR/lib/http3.sh" ]] && . "$SCRIPT_DIR/lib/http3.sh"
-strict_http3_curl() { if [[ -n "${CA_CERT:-}" ]] && [[ -f "${CA_CERT:-}" ]]; then http3_curl --cacert "$CA_CERT" "$@" 2>/dev/null; else http3_curl -k "$@"; fi; }
+strict_http3_curl() { http3_curl --cacert "$CA_CERT" "$@"; }
 if [[ -f "$SCRIPT_DIR/lib/grpc-http3-health.sh" ]]; then
   . "$SCRIPT_DIR/lib/grpc-http3-health.sh"
   run_grpc_http3_health_checks

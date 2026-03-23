@@ -15,7 +15,7 @@ try {
 import { check } from 'k6';
 
 const HOST = __ENV.HOST || 'off-campus-housing.test';
-const BASE = (__ENV.BASE_URL || 'https://off-campus-housing.test:30443').replace(/\/$/, '');
+const BASE = (__ENV.BASE_URL || 'https://off-campus-housing.test').replace(/\/$/, '');
 const RATE = Number(__ENV.RATE || 25);
 const DURATION = __ENV.DURATION || '20s';
 const VUS = Number(__ENV.VUS || 10);

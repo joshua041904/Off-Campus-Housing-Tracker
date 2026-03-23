@@ -1,0 +1,13 @@
+Backup all 8 DBs (5441–5448) — 20260323-144500
+Host: 127.0.0.1
+Started: 2026-03-23T14:45:00-04:00
+
+ok 5441-auth /Users/tom/Off-Campus-Housing-Tracker/backups/all-8-20260323-144500/5441-auth.dump /Users/tom/Off-Campus-Housing-Tracker/backups/all-8-20260323-144500/5441-auth.sql.gz
+ok 5442-listings /Users/tom/Off-Campus-Housing-Tracker/backups/all-8-20260323-144500/5442-listings.dump /Users/tom/Off-Campus-Housing-Tracker/backups/all-8-20260323-144500/5442-listings.sql.gz
+ok 5443-bookings /Users/tom/Off-Campus-Housing-Tracker/backups/all-8-20260323-144500/5443-bookings.dump /Users/tom/Off-Campus-Housing-Tracker/backups/all-8-20260323-144500/5443-bookings.sql.gz
+ok 5444-messaging /Users/tom/Off-Campus-Housing-Tracker/backups/all-8-20260323-144500/5444-messaging.dump /Users/tom/Off-Campus-Housing-Tracker/backups/all-8-20260323-144500/5444-messaging.sql.gz
+ok 5445-notification /Users/tom/Off-Campus-Housing-Tracker/backups/all-8-20260323-144500/5445-notification.dump /Users/tom/Off-Campus-Housing-Tracker/backups/all-8-20260323-144500/5445-notification.sql.gz
+ok 5446-trust /Users/tom/Off-Campus-Housing-Tracker/backups/all-8-20260323-144500/5446-trust.dump /Users/tom/Off-Campus-Housing-Tracker/backups/all-8-20260323-144500/5446-trust.sql.gz
+ok 5447-analytics /Users/tom/Off-Campus-Housing-Tracker/backups/all-8-20260323-144500/5447-analytics.dump /Users/tom/Off-Campus-Housing-Tracker/backups/all-8-20260323-144500/5447-analytics.sql.gz
+ok 5448-media /Users/tom/Off-Campus-Housing-Tracker/backups/all-8-20260323-144500/5448-media.dump /Users/tom/Off-Campus-Housing-Tracker/backups/all-8-20260323-144500/5448-media.sql.gz
+Finished: 2026-03-23T14:45:07-04:00

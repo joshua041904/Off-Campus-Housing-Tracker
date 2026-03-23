@@ -65,7 +65,7 @@ if [[ -f "$GRPC_SYNC_DIR/tls.crt" ]] && [[ -f "$GRPC_SYNC_DIR/tls.key" ]] && [[ 
 fi
 
 # gRPC health via Caddy (Content-Type: application/grpc → Envoy)
-OUT=$(grpcurl -cacert "$CA_CERT" "${MTLS_EXTRA[@]}" -authority "$HOST" -servername "$HOST" -max-time 10 -d '{}' "${TARGET_IP}:${PORT}" grpc.health.v1.Health/Check 2>&1) || true
+OUT=$(grpcurl -cacert "$CA_CERT" "${MTLS_EXTRA[@]}" -authority "$HOST" -max-time 10 -d '{}' "${TARGET_IP}:${PORT}" grpc.health.v1.Health/Check 2>&1) || true
 if echo "$OUT" | grep -qE '"status":"SERVING"|SERVING'; then
   ok "gRPC routing OK (Caddy → Envoy; Content-Type matcher)"
   exit 0

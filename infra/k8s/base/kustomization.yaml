@@ -13,6 +13,7 @@ resources:
   - observability
   - monitoring
   - exporters
+  - webapp
   - api-gateway
   - auth-service
   - listings-service

@@ -4,7 +4,7 @@
 # Build + rollout helper: ./scripts/rebuild-och-images-and-rollout.sh (or pnpm run rebuild:och:rollout).
 #
 # Usage: ./scripts/build-housing-images-k3s.sh
-#   SERVICES="auth-service api-gateway"  — space-separated subset (default: all HTTP/gRPC app services)
+#   SERVICES="auth-service api-gateway"  — space- or comma-separated subset (default: all HTTP/gRPC app services)
 #   SKIP_LOAD=1           — build only, do not colima load
 #   DOCKER_DEFAULT_PLATFORM — default linux/amd64 (Colima/k3s often amd64)
 set -euo pipefail
@@ -15,6 +15,8 @@ cd "$REPO_ROOT"
 
 DEFAULT_SERVICES="auth-service listings-service booking-service messaging-service trust-service analytics-service media-service notification-service api-gateway"
 SERVICES="${SERVICES:-$DEFAULT_SERVICES}"
+# Allow SERVICES=api-gateway,listings-service (commas → spaces)
+SERVICES="${SERVICES//,/ }"
 
 PLAT="${DOCKER_DEFAULT_PLATFORM:-linux/amd64}"
 IMAGE_TAG="${IMAGE_TAG:-dev}"

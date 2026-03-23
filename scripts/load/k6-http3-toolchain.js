@@ -55,7 +55,7 @@ const h3Latency = new Trend('http3_latency_ms', true);
 const h3Errors = new Rate('http3_errors');
 
 // Configuration
-const BASE_URL = (__ENV.BASE_URL || 'https://off-campus-housing.test:30443').replace(/\/$/, '');
+const BASE_URL = (__ENV.BASE_URL || 'https://off-campus-housing.test').replace(/\/$/, '');
 const RAW_BASE = BASE_URL;
 const HOST = __ENV.HOST || 'off-campus-housing.test';
 

@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Standalone packet-capture test: generates gRPC, HTTP/2, HTTP/3 traffic, captures, analyzes.
 # Use to verify capture + comparison without running full smoke tests.
+#
+# Strict QUIC (default STRICT_QUIC_VALIDATION=1): requires MetalLB TARGET_IP, hostname HOST (never https://IP),
+# curl --cacert certs/dev-root.pem, curl --resolve HOST:443:TARGET_IP. No curl -k.
+# Optional decode: export SSLKEYLOGFILE=/tmp/sslkeys.log before running (tshark ALPN / QUIC decode).
 
 set -euo pipefail
 
@@ -21,10 +25,26 @@ NS="off-campus-housing-tracker"
 HOST="${HOST:-off-campus-housing.test}"
 export PORT="${PORT:-30443}"
 export HOST
+export STRICT_QUIC_VALIDATION="${STRICT_QUIC_VALIDATION:-1}"
+
 # When run from run-all: TARGET_IP + PORT=443 (MetalLB). Use for --resolve so traffic hits Caddy.
 [[ -z "${TARGET_IP:-}" ]] && [[ -f "$SCRIPT_DIR/lib/resolve-lb-ip.sh" ]] && { source "$SCRIPT_DIR/lib/resolve-lb-ip.sh" 2>/dev/null || true; }
-CURL_RESOLVE_IP="${TARGET_IP:-127.0.0.1}"
-[[ -n "${TARGET_IP:-}" ]] && [[ "${PORT:-}" == "443" ]] && export PORT=443
+
+if [[ "${STRICT_QUIC_VALIDATION:-0}" == "1" ]]; then
+  if [[ -z "${TARGET_IP:-}" ]]; then
+    echo "❌ STRICT_QUIC_VALIDATION=1 requires TARGET_IP (MetalLB). Run: kubectl get svc -n ingress-nginx caddy-h3" >&2
+    exit 1
+  fi
+  if [[ "$HOST" =~ ^[0-9.]+$ ]] || [[ "$HOST" =~ ^[0-9a-fA-F:]+$ ]]; then
+    echo "❌ HOST must be a TLS SNI hostname, not an IP (got: $HOST)" >&2
+    exit 1
+  fi
+  CURL_RESOLVE_IP="$TARGET_IP"
+  export PORT=443
+else
+  CURL_RESOLVE_IP="${TARGET_IP:-127.0.0.1}"
+  [[ -n "${TARGET_IP:-}" ]] && [[ "${PORT:-}" == "443" ]] && export PORT=443
+fi
 
 # kubectl helper (for grpc-http3-health lib)
 ctx=$(kubectl config current-context 2>/dev/null || echo "")
@@ -51,18 +71,18 @@ if [[ -z "${CA_CERT:-}" ]] || [[ ! -f "$CA_CERT" ]] || [[ ! -s "$CA_CERT" ]]; th
 fi
 [[ -z "$CA_CERT" ]] && command -v mkcert >/dev/null 2>&1 && [[ -f "$(mkcert -CAROOT)/rootCA.pem" ]] && CA_CERT="$(mkcert -CAROOT)/rootCA.pem"
 strict_curl() {
-  if [[ -n "$CA_CERT" ]] && [[ -f "$CA_CERT" ]]; then
-    curl --cacert "$CA_CERT" "$@"
-  else
-    curl -k "$@"
+  if [[ -z "${CA_CERT:-}" ]] || [[ ! -f "$CA_CERT" ]]; then
+    echo "❌ strict_curl: CA_CERT required (no --insecure)" >&2
+    return 1
   fi
+  curl --cacert "$CA_CERT" "$@"
 }
 strict_http3_curl() {
-  if [[ -n "$CA_CERT" ]] && [[ -f "$CA_CERT" ]]; then
-    http3_curl --cacert "$CA_CERT" "$@" 2>/dev/null || http3_curl -k "$@"
-  else
-    http3_curl -k "$@"
+  if [[ -z "${CA_CERT:-}" ]] || [[ ! -f "$CA_CERT" ]]; then
+    echo "❌ strict_http3_curl: CA_CERT required (no -k)" >&2
+    return 1
   fi
+  http3_curl --cacert "$CA_CERT" "$@"
 }
 # HTTP3_RESOLVE: same IP as curl MetalLB/--resolve (CURL_RESOLVE_IP), not ClusterIP — matches strict capture + grpc-http3-health
 HTTP3_RESOLVE="${HOST}:${PORT:-443}:${CURL_RESOLVE_IP}"
@@ -100,7 +120,7 @@ if [[ -n "${TARGET_IP:-}" ]] && [[ "${PORT:-}" == "443" ]] && [[ "$ctx" == *"col
   export CAPTURE_V2_LB_IP="$TARGET_IP"
   export CAPTURE_DRAIN_SECONDS=5
   export CAPTURE_RUN_TYPE="standalone"
-  info "Using packet-capture-v2 (BPF dst host $TARGET_IP:443, tshark validation); STRICT_QUIC_VALIDATION=${STRICT_QUIC_VALIDATION:-0}"
+  info "Using packet-capture-v2 (BPF dst host $TARGET_IP:443; STRICT uses tcpdump L2/L1 UDP 443, optional tshark stray); STRICT_QUIC_VALIDATION=${STRICT_QUIC_VALIDATION:-0}"
 fi
 
 if [[ "${USE_CAPTURE_V2}" == "1" ]]; then
@@ -180,40 +200,28 @@ ok "Generating gRPC traffic (grpcurl)…"
 if command -v grpcurl >/dev/null 2>&1; then
   REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
   # Primary: gRPC via Caddy (TARGET_IP:443) — the real production path; generates traffic Caddy→Envoy
-  if [[ -n "${TARGET_IP:-}" ]] && [[ "${PORT:-}" == "443" ]] && [[ -n "${CA_CERT:-}" ]] && [[ -f "${CA_CERT:-}" ]]; then
+  if [[ -n "${TARGET_IP:-}" ]] && [[ -n "${CA_CERT:-}" ]] && [[ -f "${CA_CERT:-}" ]]; then
     PROTO_DIR="${PROTO_DIR:-$REPO_ROOT/proto}"
     for _ in 1 2 3 4 5; do
-      # Dial LB IP but TLS SNI + cert verify name = HOST (grpcurl: -authority; -servername same value is allowed)
-      grpcurl -cacert "$CA_CERT" -authority "$HOST" -servername "$HOST" -max-time 5 "${TARGET_IP}:443" grpc.health.v1.Health/Check 2>/dev/null || true
+      # Dial LB IP; TLS SNI / :authority = HOST (grpcurl: use -authority only; duplicate -servername confuses some builds)
+      grpcurl -cacert "$CA_CERT" -authority "$HOST" -max-time 5 "${TARGET_IP}:443" grpc.health.v1.Health/Check 2>/dev/null || true
       if [[ -f "$PROTO_DIR/listings.proto" ]]; then
-        grpcurl -cacert "$CA_CERT" -authority "$HOST" -servername "$HOST" -import-path "$PROTO_DIR" -proto "$PROTO_DIR/listings.proto" \
+        grpcurl -cacert "$CA_CERT" -authority "$HOST" -import-path "$PROTO_DIR" -proto "$PROTO_DIR/listings.proto" \
           -max-time 5 -d '{"query":"capture","min_price":0,"max_price":999999999,"smoke_free":false,"pet_friendly":false}' \
           "${TARGET_IP}:443" listings.ListingsService/SearchListings 2>/dev/null || true
       fi
       if [[ -f "$PROTO_DIR/trust.proto" ]]; then
-        grpcurl -cacert "$CA_CERT" -authority "$HOST" -servername "$HOST" -import-path "$PROTO_DIR" -proto "$PROTO_DIR/trust.proto" \
+        grpcurl -cacert "$CA_CERT" -authority "$HOST" -import-path "$PROTO_DIR" -proto "$PROTO_DIR/trust.proto" \
           -max-time 5 -d '{"user_id":"00000000-0000-0000-0000-000000000001"}' \
           "${TARGET_IP}:443" trust.TrustService/GetReputation 2>/dev/null || true
       fi
     done
   fi
-  # NodePort: strict TLS only (no -plaintext). Requires CA_CERT (repo certs/dev-root.pem or dev-root-ca secret).
-  if [[ -n "${CA_CERT:-}" ]] && [[ -f "${CA_CERT:-}" ]]; then
-    PROTO_DIR="${PROTO_DIR:-$REPO_ROOT/proto}"
-    if [[ -d "$PROTO_DIR" ]] && [[ -f "$PROTO_DIR/health.proto" ]]; then
-      for grpc_addr in "127.0.0.1:30000" "127.0.0.1:30001"; do
-        grpcurl -cacert "$CA_CERT" -authority "$HOST" -servername "$HOST" -import-path "$PROTO_DIR" -proto "$PROTO_DIR/health.proto" \
-          -max-time 3 -d '{"service":""}' "$grpc_addr" grpc.health.v1.Health/Check 2>/dev/null || true
-      done
-    fi
-  else
-    warn "Skipping NodePort gRPC probes (no CA_CERT — add certs/dev-root.pem or cluster dev-root-ca)"
-  fi
 else
   warn "grpcurl not found; skipping gRPC traffic"
 fi
 
-# Health verification: Caddy HTTP/3 + gRPC (Envoy, Envoy strict TLS, port-forward) - strict TLS for all suites
+# Health verification: Caddy HTTP/3 + gRPC via MetalLB :443 (strict TLS; no port-forward)
 if [[ -f "$SCRIPT_DIR/lib/grpc-http3-health.sh" ]]; then
   say "Health verification (Caddy HTTP/3 + gRPC 3 ways)"
   . "$SCRIPT_DIR/lib/grpc-http3-health.sh"
@@ -226,10 +234,10 @@ say "Stopping captures and analyzing…"
 LOG="/tmp/standalone-capture-$$.log"
 if [[ "${USE_CAPTURE_V2:-0}" == "1" ]]; then
   if ! stop_and_analyze_captures_v2 2>&1 | tee "$LOG"; then
-    warn "Packet capture v2: tshark validation failed (stray UDP 443 or STRICT_QUIC_VALIDATION=1). QUIC must be to MetalLB IP only."
+    warn "Packet capture v2: analysis failed (STRICT_QUIC_VALIDATION transport gate, verify_caddy stray, or copy errors). See log above."
     [[ "${STRICT_QUIC_VALIDATION:-0}" == "1" ]] && exit 1
   fi
-  ok "Capture v2: BPF dst host ${CAPTURE_V2_LB_IP:-}:443; tshark verified QUIC to MetalLB only."
+  ok "Capture v2: BPF dst host ${CAPTURE_V2_LB_IP:-}:443; STRICT transport checks passed (ALPN/tshark decode is informational)."
 else
   stop_and_analyze_captures 1 2>&1 | tee "$LOG"
   if ! verify_protocol_counts "$LOG" 2>/dev/null; then

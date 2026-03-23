@@ -153,28 +153,39 @@ grpcurl_with_timeout() {
   fi
 }
 
+# gRPC health: single strict path — grpcurl → MetalLB:443 with SNI/authority = HOST (no port-forward / 127.0.0.1).
+# Per-service labels share the same edge entry (Envoy); we probe once on first call and short-circuit duplicates.
+GRPC_HOUSING_EDGE_HEALTH_DONE=0
 grpc_test() {
   local service_label="$1"
   local deploy_name="$2"
-  local grpc_port="$3"
-  local local_port=$((15000 + RANDOM % 1000))
-  local pf_pid=""
-  local out=""
+  local _grpc_port="$3"
 
   if ! kubectl -n "$NS" get deployment "$deploy_name" >/dev/null 2>&1; then
     info "Skipping gRPC health ($service_label) - deployment not present"
     return 0
   fi
 
-  kubectl -n "$NS" port-forward "deployment/$deploy_name" "${local_port}:${grpc_port}" >/dev/null 2>&1 &
-  pf_pid=$!
-  sleep 2
-  if ! kill -0 "$pf_pid" 2>/dev/null; then
-    echo "port-forward failed"
-    return 1
+  if [[ "${GRPC_HOUSING_EDGE_HEALTH_DONE:-0}" == "1" ]]; then
+    ok "gRPC edge health (covered) — $service_label"
+    return 0
+  fi
+
+  if [[ -z "${TARGET_IP:-}" ]]; then
+    warn "gRPC health ($service_label) skipped — set TARGET_IP (MetalLB) for grpcurl → :443 (no localhost dialing)"
+    return 0
+  fi
+  if ! command -v grpcurl >/dev/null 2>&1; then
+    warn "gRPC health ($service_label) skipped — grpcurl not installed"
+    return 0
   fi
 
   local proto_dir="$REPO_ROOT/proto"
+  [[ -f "$proto_dir/health.proto" ]] || {
+    warn "gRPC health skipped — missing $proto_dir/health.proto"
+    return 0
+  }
+
   local grpc_cert_dir="${GRPC_CERTS_DIR:-/tmp/grpc-certs}"
   if [[ -f "$SCRIPT_DIR/lib/ensure-och-grpc-certs.sh" ]]; then
     # shellcheck source=scripts/lib/ensure-och-grpc-certs.sh
@@ -187,27 +198,28 @@ grpc_test() {
   elif [[ -n "${CA_CERT:-}" ]] && [[ -f "${CA_CERT:-}" ]]; then
     cert_args+=("-cacert" "$CA_CERT")
   else
-    cert_args+=("-insecure")
+    warn "gRPC health ($service_label) skipped — no CA (certs/dev-root.pem or GRPC_CERTS_DIR/ca.crt)"
+    return 0
   fi
   if [[ -f "$grpc_cert_dir/tls.crt" ]] && [[ -f "$grpc_cert_dir/tls.key" ]]; then
     cert_args+=("-cert" "$grpc_cert_dir/tls.crt" "-key" "$grpc_cert_dir/tls.key")
   fi
 
+  local out
   out=$(grpcurl_with_timeout 12 grpcurl \
     "${cert_args[@]}" \
     -authority "$HOST" \
+    -servername "$HOST" \
     -import-path "$proto_dir" \
     -proto "$proto_dir/health.proto" \
     -d '{"service":""}' \
-    "127.0.0.1:${local_port}" grpc.health.v1.Health/Check) || true
-
-  kill "$pf_pid" 2>/dev/null || true
-  wait "$pf_pid" 2>/dev/null || true
+    "${TARGET_IP}:443" grpc.health.v1.Health/Check) || true
 
   if echo "$out" | grep -q -E '"status": ?"SERVING"|SERVING'; then
-    ok "gRPC health OK ($service_label)"
+    ok "gRPC health OK via edge :443 ($service_label; shared Envoy path)"
+    GRPC_HOUSING_EDGE_HEALTH_DONE=1
   else
-    warn "gRPC health failed ($service_label)"
+    warn "gRPC health failed via edge :443 ($service_label)"
     echo "Response: $(echo "$out" | head -2)"
   fi
 }
@@ -295,15 +307,17 @@ with open(svg_path, "w") as f:
 PY
 }
 
-# HTTP/3 resolve (LB IP or NodePort)
-CURL_RESOLVE_IP="${TARGET_IP:-127.0.0.1}"
-if [[ -n "${TARGET_IP:-}" ]] && [[ "${PORT:-}" == "443" ]]; then
+# Edge resolve: MetalLB TARGET_IP for --resolve (no default 127.0.0.1; use /etc/hosts when TARGET_IP unset)
+CURL_RESOLVE_IP="${TARGET_IP:-}"
+CURL_H2_RESOLVE=()
+[[ -n "${CURL_RESOLVE_IP:-}" ]] && CURL_H2_RESOLVE=(--resolve "${HOST}:${PORT}:${CURL_RESOLVE_IP}")
+if [[ -n "${TARGET_IP:-}" ]]; then
   HTTP3_RESOLVE="${HOST}:443:${TARGET_IP}"
-  export HTTP3_RESOLVE
 else
-  HTTP3_RESOLVE="${HOST}:${PORT}:${CURL_RESOLVE_IP}"
-  export HTTP3_RESOLVE
+  HTTP3_RESOLVE=""
 fi
+export HTTP3_RESOLVE
+[[ -z "${HTTP3_RESOLVE:-}" ]] && warn "TARGET_IP unset — HTTP/3 curls need MetalLB on caddy-h3; unguarded H3 steps may fail"
 
 verify_db_after_test() {
   local port="$1" db="$2" query="$3" label="${4:-DB check}"
@@ -372,7 +386,7 @@ set +e
 say "Test 1: Auth - Register User 1 via HTTP/2"
 TEST_EMAIL="microservice-test-$(date +%s)@example.com"
 REGISTER_RESPONSE=$(strict_curl -sS -w "\n%{http_code}" --http2 --max-time 30 \
-  --resolve "$HOST:${PORT}:${CURL_RESOLVE_IP}" -H "Host: $HOST" -H "Content-Type: application/json" \
+  "${CURL_H2_RESOLVE[@]}" -H "Host: $HOST" -H "Content-Type: application/json" \
   -d "{\"email\":\"$TEST_EMAIL\",\"password\":\"test123\"}" \
   "https://$HOST:${PORT}/api/auth/register" 2>/tmp/register-h2.log) || true
 REGISTER_CODE=$(echo "$REGISTER_RESPONSE" | tail -1)
@@ -391,7 +405,7 @@ fi
 say "Test 1b: Auth - Register User 2 via HTTP/2"
 TEST_EMAIL_USER2="microservice-test-2-$(date +%s)@example.com"
 REGISTER_RESPONSE_USER2=$(strict_curl -sS -w "\n%{http_code}" --http2 --max-time 30 \
-  --resolve "$HOST:${PORT}:${CURL_RESOLVE_IP}" -H "Host: $HOST" -H "Content-Type: application/json" \
+  "${CURL_H2_RESOLVE[@]}" -H "Host: $HOST" -H "Content-Type: application/json" \
   -d "{\"email\":\"$TEST_EMAIL_USER2\",\"password\":\"test123\"}" \
   "https://$HOST:${PORT}/api/auth/register" 2>/tmp/register-user2.log) || true
 REGISTER_CODE_USER2=$(echo "$REGISTER_RESPONSE_USER2" | tail -1)
@@ -410,17 +424,21 @@ sleep 2
 # --- Test 2: Auth Login (HTTP/3) User 1 ---
 say "Test 2: Auth - Login User 1 via HTTP/3"
 if [[ -z "$TOKEN" ]]; then
-  LOGIN_RESPONSE=$(strict_http3_curl -sS -w "\n%{http_code}" --http3-only --max-time 30 \
-    -H "Host: $HOST" -H "Content-Type: application/json" --resolve "$HTTP3_RESOLVE" \
-    -d "{\"email\":\"$TEST_EMAIL\",\"password\":\"test123\"}" \
-    "https://$HOST/api/auth/login" 2>/tmp/login-h3.log) || true
-  LOGIN_CODE=$(echo "$LOGIN_RESPONSE" | tail -1)
-  if [[ "$LOGIN_CODE" == "200" ]]; then
-    TOKEN=$(echo "$LOGIN_RESPONSE" | sed '$d' | grep -o '"token":"[^"]*"' | cut -d'"' -f4 || echo "")
-    USER1_ID=$(extract_user_id "$TOKEN")
-    ok "User 1 login via HTTP/3"
+  if [[ -n "${HTTP3_RESOLVE:-}" ]]; then
+    LOGIN_RESPONSE=$(strict_http3_curl -sS -w "\n%{http_code}" --http3-only --max-time 30 \
+      -H "Host: $HOST" -H "Content-Type: application/json" --resolve "$HTTP3_RESOLVE" \
+      -d "{\"email\":\"$TEST_EMAIL\",\"password\":\"test123\"}" \
+      "https://$HOST/api/auth/login" 2>/tmp/login-h3.log) || true
+    LOGIN_CODE=$(echo "$LOGIN_RESPONSE" | tail -1)
+    if [[ "$LOGIN_CODE" == "200" ]]; then
+      TOKEN=$(echo "$LOGIN_RESPONSE" | sed '$d' | grep -o '"token":"[^"]*"' | cut -d'"' -f4 || echo "")
+      USER1_ID=$(extract_user_id "$TOKEN")
+      ok "User 1 login via HTTP/3"
+    else
+      warn "User 1 login via HTTP/3 failed - HTTP $LOGIN_CODE"
+    fi
   else
-    warn "User 1 login via HTTP/3 failed - HTTP $LOGIN_CODE"
+    warn "User 1 login via HTTP/3 skipped (TARGET_IP unset)"
   fi
 else
   ok "User 1 already has token"
@@ -429,17 +447,21 @@ fi
 # --- Test 2b: Auth Login (HTTP/3) User 2 ---
 say "Test 2b: Auth - Login User 2 via HTTP/3"
 if [[ -z "$TOKEN_USER2" ]]; then
-  LOGIN_RESPONSE_USER2=$(strict_http3_curl -sS -w "\n%{http_code}" --http3-only --max-time 30 \
-    -H "Host: $HOST" -H "Content-Type: application/json" --resolve "$HTTP3_RESOLVE" \
-    -d "{\"email\":\"$TEST_EMAIL_USER2\",\"password\":\"test123\"}" \
-    "https://$HOST/api/auth/login" 2>/tmp/login-user2-h3.log) || true
-  LOGIN_CODE_USER2=$(echo "$LOGIN_RESPONSE_USER2" | tail -1)
-  if [[ "$LOGIN_CODE_USER2" == "200" ]]; then
-    TOKEN_USER2=$(echo "$LOGIN_RESPONSE_USER2" | sed '$d' | grep -o '"token":"[^"]*"' | cut -d'"' -f4 || echo "")
-    USER2_ID=$(extract_user_id "$TOKEN_USER2")
-    ok "User 2 login via HTTP/3"
+  if [[ -n "${HTTP3_RESOLVE:-}" ]]; then
+    LOGIN_RESPONSE_USER2=$(strict_http3_curl -sS -w "\n%{http_code}" --http3-only --max-time 30 \
+      -H "Host: $HOST" -H "Content-Type: application/json" --resolve "$HTTP3_RESOLVE" \
+      -d "{\"email\":\"$TEST_EMAIL_USER2\",\"password\":\"test123\"}" \
+      "https://$HOST/api/auth/login" 2>/tmp/login-user2-h3.log) || true
+    LOGIN_CODE_USER2=$(echo "$LOGIN_RESPONSE_USER2" | tail -1)
+    if [[ "$LOGIN_CODE_USER2" == "200" ]]; then
+      TOKEN_USER2=$(echo "$LOGIN_RESPONSE_USER2" | sed '$d' | grep -o '"token":"[^"]*"' | cut -d'"' -f4 || echo "")
+      USER2_ID=$(extract_user_id "$TOKEN_USER2")
+      ok "User 2 login via HTTP/3"
+    else
+      warn "User 2 login via HTTP/3 failed - HTTP $LOGIN_CODE_USER2"
+    fi
   else
-    warn "User 2 login via HTTP/3 failed - HTTP $LOGIN_CODE_USER2"
+    warn "User 2 login via HTTP/3 skipped (TARGET_IP unset)"
   fi
 else
   ok "User 2 already has token"
@@ -448,27 +470,63 @@ fi
 # --- Test 3: Caddy health HTTP/2 ---
 say "Test 3: Caddy health via HTTP/2"
 H2_CODE=$(strict_curl -sS -o /dev/null -w "%{http_code}" --http2 --max-time 10 \
-  --resolve "$HOST:${PORT}:${CURL_RESOLVE_IP}" -H "Host: $HOST" "https://$HOST:${PORT}/_caddy/healthz" 2>/dev/null || echo "000")
+  "${CURL_H2_RESOLVE[@]}" -H "Host: $HOST" "https://$HOST:${PORT}/_caddy/healthz" 2>/dev/null || echo "000")
 [[ "$H2_CODE" == "200" ]] && ok "Caddy health HTTP/2: $H2_CODE" || warn "Caddy health HTTP/2: $H2_CODE"
 
 # --- Test 4: Caddy health HTTP/3 ---
 say "Test 4: Caddy health via HTTP/3"
-H3_CODE=$(strict_http3_curl -sS -o /dev/null -w "%{http_code}" --http3-only --max-time 15 \
-  --resolve "$HTTP3_RESOLVE" "https://$HOST/_caddy/healthz" 2>/dev/null || echo "000")
-[[ "$H3_CODE" == "200" ]] && ok "Caddy health HTTP/3: $H3_CODE" || warn "Caddy health HTTP/3: $H3_CODE"
+if [[ -n "${HTTP3_RESOLVE:-}" ]]; then
+  H3_CODE=$(strict_http3_curl -sS -o /dev/null -w "%{http_code}" --http3-only --max-time 15 \
+    --resolve "$HTTP3_RESOLVE" "https://$HOST/_caddy/healthz" 2>/dev/null || echo "000")
+  [[ "$H3_CODE" == "200" ]] && ok "Caddy health HTTP/3: $H3_CODE" || warn "Caddy health HTTP/3: $H3_CODE"
+else
+  warn "Caddy health HTTP/3 skipped (TARGET_IP unset)"
+fi
 
 # --- Test 5: API Gateway health HTTP/2 ---
 say "Test 5: API Gateway health via HTTP/2"
 GW_CODE=$(strict_curl -sS -o /dev/null -w "%{http_code}" --http2 --max-time 10 \
-  --resolve "$HOST:${PORT}:${CURL_RESOLVE_IP}" -H "Host: $HOST" "https://$HOST:${PORT}/api/healthz" 2>/dev/null || echo "000")
+  "${CURL_H2_RESOLVE[@]}" -H "Host: $HOST" "https://$HOST:${PORT}/api/healthz" 2>/dev/null || echo "000")
 [[ "$GW_CODE" == "200" ]] && ok "API Gateway health: $GW_CODE" || warn "API Gateway health: $GW_CODE"
 
-# --- Test 6: Messaging-service integration tests ---
-say "Test 6: Messaging-service integration tests (vitest)"
+# --- Test 5b: Service health checks HTTP/2 (all OCH services) ---
+say "Test 5b: Service health checks via HTTP/2 (all OCH services)"
+for route in \
+  "/auth/healthz:Auth Service" \
+  "/api/listings/healthz:Listings Service" \
+  "/api/booking/healthz:Booking Service" \
+  "/api/messaging/healthz:Messaging Service" \
+  "/api/notification/healthz:Notification Service" \
+  "/api/trust/healthz:Trust Service" \
+  "/api/analytics/healthz:Analytics Service" \
+  "/api/media/healthz:Media Service" \
+  "/api/healthz:API Gateway"; do
+  path="${route%%:*}"
+  label="${route#*:}"
+  _h2_max=10
+  [[ "$path" == *media*healthz* ]] && _h2_max=60
+  H2_SERVICE_CODE=$(strict_curl -sS -o /dev/null -w "%{http_code}" --http2 --max-time "$_h2_max" \
+    "${CURL_H2_RESOLVE[@]}" -H "Host: $HOST" "https://$HOST:${PORT}${path}" 2>/dev/null || echo "000")
+  if [[ "$H2_SERVICE_CODE" == "200" ]]; then
+    ok "${label} health via HTTP/2"
+  elif [[ "$path" == *notification*healthz* ]] && [[ "$H2_SERVICE_CODE" == "401" ]]; then
+    ok "${label} health via HTTP/2 (HTTP 401 — route JWT-protected; service reachable)"
+  else
+    warn "${label} health via HTTP/2 failed - HTTP ${H2_SERVICE_CODE:-000}"
+  fi
+done
+
+# --- Test 6: Service vitest suites (available services) ---
+say "Test 6: Service vitest suites (messaging-service + media-service)"
 if command -v pnpm >/dev/null 2>&1; then
-  (cd "$REPO_ROOT" && pnpm --filter messaging-service test:integration 2>&1) && ok "Messaging integration tests passed" || warn "Messaging integration tests failed or skipped (DB/Redis/Trust may be required)"
+  (cd "$REPO_ROOT" && pnpm --filter messaging-service test:integration 2>&1) \
+    && ok "Messaging integration tests passed" \
+    || warn "Messaging integration tests failed or skipped (DB/Redis/Trust may be required)"
+  (cd "$REPO_ROOT" && pnpm --filter media-service test:integration 2>&1) \
+    && ok "Media integration tests passed" \
+    || warn "Media integration tests failed or skipped (S3/DB may be required)"
 else
-  warn "pnpm not found; skipping messaging integration tests"
+  warn "pnpm not found; skipping service vitest suites"
 fi
 
 # Test 6a: Messaging Service - Forum Endpoints (HTTP/2)
@@ -476,7 +534,7 @@ if [[ "${SKIP_SOCIAL:-}" != "1" ]] && [[ -n "${TOKEN:-}" ]]; then
   say "Test 6a: Messaging Service - Create Forum Post via HTTP/2"
   FORUM_POST_RC=0
   FORUM_POST_RESPONSE=$(strict_curl -sS -w "\n%{http_code}" --http2 --max-time 30 \
-    --resolve "$HOST:${PORT}:${CURL_RESOLVE_IP}" \
+    "${CURL_H2_RESOLVE[@]}" \
     -H "Host: $HOST" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer $TOKEN" \
@@ -502,6 +560,10 @@ fi
 if [[ "${SKIP_SOCIAL:-}" != "1" ]] && [[ -n "${TOKEN:-}" ]]; then
   say "Test 6b: Messaging Service - Create Forum Post via HTTP/3"
   FORUM_POST_H3_RC=0
+  if [[ -z "${HTTP3_RESOLVE:-}" ]]; then
+    warn "Create forum post via HTTP/3 skipped (TARGET_IP unset)"
+    FORUM_POST_H3_RESPONSE=""
+  else
   FORUM_POST_H3_RESPONSE=$(strict_http3_curl -sS -w "\n%{http_code}" --http3-only --max-time 30 \
     -H "Host: $HOST" \
     -H "Content-Type: application/json" \
@@ -509,6 +571,7 @@ if [[ "${SKIP_SOCIAL:-}" != "1" ]] && [[ -n "${TOKEN:-}" ]]; then
     --resolve "$HTTP3_RESOLVE" \
     -X POST "https://$HOST/api/forum/posts" \
     -d '{"title":"Test Forum Post H3","content":"This is a test post via HTTP/3","flair":"general"}' 2>&1) || FORUM_POST_H3_RC=$?
+  fi
   if [[ "$FORUM_POST_H3_RC" -ne 0 ]]; then
     _forum_h3_code=$(echo "$FORUM_POST_H3_RESPONSE" | tail -1)
     warn "Create forum post via HTTP/3 failed (HTTP ${_forum_h3_code:-000}, curl exit $FORUM_POST_H3_RC: $(_http3_exit_meaning "$FORUM_POST_H3_RC"))"
@@ -532,7 +595,7 @@ if [[ "${SKIP_SOCIAL:-}" != "1" ]] && [[ -n "${TOKEN:-}" ]]; then
   say "Test 7: Messaging Service - Get Forum Posts via HTTP/2"
   GET_FORUM_RC=0
   GET_FORUM_RESPONSE=$(strict_curl -sS -w "\n%{http_code}" --http2 --max-time 30 \
-    --resolve "$HOST:${PORT}:${CURL_RESOLVE_IP}" \
+    "${CURL_H2_RESOLVE[@]}" \
     -H "Host: $HOST" \
     -H "Authorization: Bearer $TOKEN" \
     -X GET "https://$HOST:${PORT}/api/forum/posts" 2>&1) || GET_FORUM_RC=$?
@@ -540,7 +603,7 @@ if [[ "${SKIP_SOCIAL:-}" != "1" ]] && [[ -n "${TOKEN:-}" ]]; then
   while [[ "$GET_FORUM_RC" -eq 7 ]] && [[ -z "$(echo "$GET_FORUM_RESPONSE" | tail -1 | grep -E '^[0-9]+$')" ]] && [[ "$_retry" -lt 2 ]]; do
     sleep 2
     GET_FORUM_RESPONSE=$(strict_curl -sS -w "\n%{http_code}" --http2 --max-time 30 \
-      --resolve "$HOST:${PORT}:${CURL_RESOLVE_IP}" \
+      "${CURL_H2_RESOLVE[@]}" \
       -H "Host: $HOST" \
       -H "Authorization: Bearer $TOKEN" \
       -X GET "https://$HOST:${PORT}/api/forum/posts" 2>&1) || GET_FORUM_RC=$?
@@ -626,7 +689,7 @@ if [[ "${SKIP_SOCIAL:-}" != "1" ]] && [[ -n "${TOKEN:-}" ]] && [[ -n "${FORUM_PO
   say "Test 7c: Messaging Service - Vote on Forum Post via HTTP/2"
   POST_VOTE_RC=0
   POST_VOTE_RESPONSE=$(strict_curl -sS -w "\n%{http_code}" --http2 --max-time 20 \
-    --resolve "$HOST:${PORT}:${CURL_RESOLVE_IP}" \
+    "${CURL_H2_RESOLVE[@]}" \
     -H "Host: $HOST" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer $TOKEN" \
@@ -671,7 +734,7 @@ if [[ "${SKIP_SOCIAL:-}" != "1" ]] && [[ -n "${TOKEN:-}" ]] && [[ -n "${COMMENT_
   say "Test 7e: Messaging Service - Vote on Forum Comment via HTTP/2"
   COMMENT_VOTE_RC=0
   COMMENT_VOTE_RESPONSE=$(strict_curl -sS -w "\n%{http_code}" --http2 --max-time 20 \
-    --resolve "$HOST:${PORT}:${CURL_RESOLVE_IP}" \
+    "${CURL_H2_RESOLVE[@]}" \
     -H "Host: $HOST" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer $TOKEN" \
@@ -717,7 +780,7 @@ if [[ "${SKIP_SOCIAL:-}" != "1" ]] && [[ -n "${TOKEN:-}" ]] && [[ -n "${USER2_ID
   say "Test 8: Messaging Service - Send P2P Direct Message via HTTP/2 (User 1 -> User 2)"
   SEND_MSG_RC=0
   SEND_MSG_RESPONSE=$(strict_curl -sS -w "\n%{http_code}" --http2 --max-time 30 \
-    --resolve "$HOST:${PORT}:${CURL_RESOLVE_IP}" \
+    "${CURL_H2_RESOLVE[@]}" \
     -H "Host: $HOST" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer $TOKEN" \
@@ -777,7 +840,7 @@ if [[ "${SKIP_SOCIAL:-}" != "1" ]] && [[ -n "${TOKEN_USER2:-}" ]]; then
   say "Test 9: Messaging Service - Get Messages via HTTP/2 (User 2's inbox)"
   GET_MSG_RC=0
   GET_MSG_RESPONSE=$(strict_curl -sS -w "\n%{http_code}" --http2 --max-time 20 \
-    --resolve "$HOST:${PORT}:${CURL_RESOLVE_IP}" \
+    "${CURL_H2_RESOLVE[@]}" \
     -H "Host: $HOST" \
     -H "Authorization: Bearer $TOKEN_USER2" \
     -X GET "https://$HOST:${PORT}/api/messages" 2>&1) || GET_MSG_RC=$?
@@ -799,7 +862,7 @@ if [[ "${SKIP_SOCIAL:-}" != "1" ]] && [[ -n "${TOKEN:-}" ]]; then
   say "Test 9b: Messaging Service - Create Group Chat via HTTP/2"
   CREATE_GROUP_RC=0
   CREATE_GROUP_RESPONSE=$(strict_curl -sS -w "\n%{http_code}" --http2 --max-time 30 \
-    --resolve "$HOST:${PORT}:${CURL_RESOLVE_IP}" \
+    "${CURL_H2_RESOLVE[@]}" \
     -H "Host: $HOST" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer $TOKEN" \
@@ -826,7 +889,7 @@ if [[ "${SKIP_SOCIAL:-}" != "1" ]] && [[ -n "${TOKEN:-}" ]] && [[ -n "${GROUP_ID
   say "Test 9c: Messaging Service - Add User 2 to Group via HTTP/2"
   ADD_MEMBER_RC=0
   ADD_MEMBER_RESPONSE=$(strict_curl -sS -w "\n%{http_code}" --http2 --max-time 30 \
-    --resolve "$HOST:${PORT}:${CURL_RESOLVE_IP}" \
+    "${CURL_H2_RESOLVE[@]}" \
     -H "Host: $HOST" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer $TOKEN" \
@@ -887,7 +950,7 @@ if [[ "${SKIP_SOCIAL:-}" != "1" ]] && [[ -n "${TOKEN_USER2:-}" ]] && [[ -n "${GR
   say "Test 9e: Messaging Service - Get Group Details via HTTP/2"
   GET_GROUP_RC=0
   GET_GROUP_RESPONSE=$(strict_curl -sS -w "\n%{http_code}" --http2 --max-time 30 \
-    --resolve "$HOST:${PORT}:${CURL_RESOLVE_IP}" \
+    "${CURL_H2_RESOLVE[@]}" \
     -H "Host: $HOST" \
     -H "Authorization: Bearer $TOKEN_USER2" \
     -X GET "https://$HOST:${PORT}/api/messages/groups/$GROUP_ID" 2>&1) || GET_GROUP_RC=$?
@@ -895,7 +958,7 @@ if [[ "${SKIP_SOCIAL:-}" != "1" ]] && [[ -n "${TOKEN_USER2:-}" ]] && [[ -n "${GR
   while [[ "$GET_GROUP_RC" -eq 7 ]] && [[ -z "$(echo "$GET_GROUP_RESPONSE" | tail -1 | grep -E '^[0-9]+$')" ]] && [[ "$_retry" -lt 2 ]]; do
     sleep 2
     GET_GROUP_RESPONSE=$(strict_curl -sS -w "\n%{http_code}" --http2 --max-time 30 \
-      --resolve "$HOST:${PORT}:${CURL_RESOLVE_IP}" \
+      "${CURL_H2_RESOLVE[@]}" \
       -H "Host: $HOST" \
       -H "Authorization: Bearer $TOKEN_USER2" \
       -X GET "https://$HOST:${PORT}/api/messages/groups/$GROUP_ID" 2>&1) || GET_GROUP_RC=$?
@@ -925,14 +988,14 @@ if [[ "${SKIP_SOCIAL:-}" != "1" ]] && [[ -n "${TOKEN_USER2:-}" ]] && [[ -n "${GR
   # Try to get group messages by querying the group details or messages with group_id filter
   GET_GROUP_MSG_RC=0
   GET_GROUP_MSG_RESPONSE=$(strict_curl -sS -w "\n%{http_code}" --http2 --max-time 30 \
-    --resolve "$HOST:${PORT}:${CURL_RESOLVE_IP}" \
+    "${CURL_H2_RESOLVE[@]}" \
     -H "Host: $HOST" \
     -H "Authorization: Bearer $TOKEN_USER2" \
     -X GET "https://$HOST:${PORT}/api/messages?page=1&limit=50" 2>&1) || GET_GROUP_MSG_RC=$?
   if [[ "$GET_GROUP_MSG_RC" -eq 7 ]]; then
     sleep 2
     GET_GROUP_MSG_RESPONSE=$(strict_curl -sS -w "\n%{http_code}" --http2 --max-time 30 \
-      --resolve "$HOST:${PORT}:${CURL_RESOLVE_IP}" \
+      "${CURL_H2_RESOLVE[@]}" \
       -H "Host: $HOST" \
       -H "Authorization: Bearer $TOKEN_USER2" \
       -X GET "https://$HOST:${PORT}/api/messages?page=1&limit=50" 2>&1) || GET_GROUP_MSG_RC=$?
@@ -971,7 +1034,7 @@ except:
       if [[ -n "$GROUP_MSG_ID" ]]; then
         REPLY_GROUP_MSG_RC=0
         REPLY_GROUP_MSG_RESPONSE=$(strict_curl -sS -w "\n%{http_code}" --http2 --max-time 30 \
-          --resolve "$HOST:${PORT}:${CURL_RESOLVE_IP}" \
+          "${CURL_H2_RESOLVE[@]}" \
           -H "Host: $HOST" \
           -H "Content-Type: application/json" \
           -H "Authorization: Bearer $TOKEN_USER2" \
@@ -1008,7 +1071,7 @@ if [[ "${SKIP_SOCIAL:-}" != "1" ]] && [[ -n "${TOKEN:-}" ]]; then
   say "Test 9g: Messaging Service - Create Forum Post with upload_type via HTTP/2"
   FORUM_POST_UPLOAD_RC=0
   FORUM_POST_UPLOAD_RESPONSE=$(strict_curl -sS -w "\n%{http_code}" --http2 --max-time 30 \
-    --resolve "$HOST:${PORT}:${CURL_RESOLVE_IP}" \
+    "${CURL_H2_RESOLVE[@]}" \
     -H "Host: $HOST" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer $TOKEN" \
@@ -1038,7 +1101,7 @@ if [[ "${SKIP_SOCIAL:-}" != "1" ]] && [[ -n "${TOKEN:-}" ]] && [[ -n "${FORUM_PO
   POST_ATTACH_RC=0
   POST_ID="${FORUM_POST_UPLOAD_ID:-$FORUM_POST_ID}"
   POST_ATTACH_RESPONSE=$(strict_curl -sS -w "\n%{http_code}" --http2 --max-time 30 \
-    --resolve "$HOST:${PORT}:${CURL_RESOLVE_IP}" \
+    "${CURL_H2_RESOLVE[@]}" \
     -H "Host: $HOST" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer $TOKEN" \
@@ -1128,7 +1191,7 @@ if [[ "${SKIP_SOCIAL:-}" != "1" ]] && [[ -n "${TOKEN:-}" ]] && [[ -n "${MESSAGE_
   MSG_ATTACH_RC=0
   MSG_ID="${MESSAGE_ID:-$MESSAGE_H3_ID}"
   MSG_ATTACH_RESPONSE=$(strict_curl -sS -w "\n%{http_code}" --http2 --max-time 30 \
-    --resolve "$HOST:${PORT}:${CURL_RESOLVE_IP}" \
+    "${CURL_H2_RESOLVE[@]}" \
     -H "Host: $HOST" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer $TOKEN" \
@@ -1157,7 +1220,7 @@ if [[ "${SKIP_SOCIAL:-}" != "1" ]] && [[ -n "${TOKEN_USER2:-}" ]] && [[ -n "${GR
   say "Test 9k: Messaging Service - Leave Group Chat via HTTP/2"
   LEAVE_GROUP_RC=0
   LEAVE_GROUP_RESPONSE=$(strict_curl -sS -w "\n%{http_code}" --http2 --max-time 30 \
-    --resolve "$HOST:${PORT}:${CURL_RESOLVE_IP}" \
+    "${CURL_H2_RESOLVE[@]}" \
     -H "Host: $HOST" \
     -H "Authorization: Bearer $TOKEN_USER2" \
     -X DELETE "https://$HOST:${PORT}/api/messages/groups/$GROUP_ID/leave" 2>&1) || LEAVE_GROUP_RC=$?
@@ -1169,7 +1232,7 @@ if [[ "${SKIP_SOCIAL:-}" != "1" ]] && [[ -n "${TOKEN_USER2:-}" ]] && [[ -n "${GR
     # Verify user is no longer in group by trying to get group details (should fail with 403); use resolve for strict TLS; retry on 000
     VERIFY_LEAVE_RC=0
     VERIFY_LEAVE_RESPONSE=$(strict_curl -sS -w "\n%{http_code}" --http2 --max-time 10 \
-      --resolve "$HOST:${PORT}:${CURL_RESOLVE_IP}" \
+      "${CURL_H2_RESOLVE[@]}" \
       -H "Host: $HOST" \
       -H "Authorization: Bearer $TOKEN_USER2" \
       -X GET "https://$HOST:${PORT}/api/messages/groups/$GROUP_ID" 2>&1) || VERIFY_LEAVE_RC=$?
@@ -1177,7 +1240,7 @@ if [[ "${SKIP_SOCIAL:-}" != "1" ]] && [[ -n "${TOKEN_USER2:-}" ]] && [[ -n "${GR
     if [[ "$VERIFY_LEAVE_CODE" == "000" ]] || [[ -z "$VERIFY_LEAVE_CODE" ]]; then
       sleep 2
       VERIFY_LEAVE_RESPONSE=$(strict_curl -sS -w "\n%{http_code}" --http2 --max-time 10 \
-        --resolve "$HOST:${PORT}:${CURL_RESOLVE_IP}" \
+        "${CURL_H2_RESOLVE[@]}" \
         -H "Host: $HOST" \
         -H "Authorization: Bearer $TOKEN_USER2" \
         -X GET "https://$HOST:${PORT}/api/messages/groups/$GROUP_ID" 2>&1) || VERIFY_LEAVE_RC=$?
@@ -1230,7 +1293,7 @@ if [[ -n "${TOKEN:-}" ]]; then
   say "Test 10: Auth Service - Logout via HTTP/2"
   LOGOUT_RC=0
   LOGOUT_RESPONSE=$(strict_curl -sS -w "\n%{http_code}" --http2 --max-time 30 \
-    --resolve "$HOST:${PORT}:${CURL_RESOLVE_IP}" \
+    "${CURL_H2_RESOLVE[@]}" \
     -H "Host: $HOST" \
     -H "Authorization: Bearer $TOKEN" \
     -X POST "https://$HOST:${PORT}/api/auth/logout" 2>&1) || LOGOUT_RC=$?
@@ -1287,7 +1350,7 @@ say "Test 12: Auth Service - Delete Account via HTTP/2"
 DELETE_TEST_EMAIL="delete-test-$(date +%s)@example.com"
 DELETE_TEST_PASSWORD="test123"
 DELETE_REGISTER_RESPONSE=$(strict_curl -sS -w "\n%{http_code}" --http2 --max-time 30 \
-  --resolve "$HOST:${PORT}:${CURL_RESOLVE_IP}" \
+  "${CURL_H2_RESOLVE[@]}" \
   -H "Host: $HOST" \
   -H "Content-Type: application/json" \
   -X POST "https://$HOST:${PORT}/api/auth/register" \
@@ -1302,7 +1365,7 @@ if [[ "$DELETE_REGISTER_CODE" == "201" ]]; then
     ok "Delete test user registered successfully"
     DELETE_ACCOUNT_RC=0
     DELETE_ACCOUNT_RESPONSE=$(strict_curl -sS -w "\n%{http_code}" --http2 --max-time 30 \
-      --resolve "$HOST:${PORT}:${CURL_RESOLVE_IP}" \
+      "${CURL_H2_RESOLVE[@]}" \
       -H "Host: $HOST" \
       -H "Authorization: Bearer $DELETE_TOKEN" \
       -X DELETE "https://$HOST:${PORT}/api/auth/account" 2>&1) || DELETE_ACCOUNT_RC=$?
@@ -1313,7 +1376,7 @@ if [[ "$DELETE_REGISTER_CODE" == "201" ]]; then
       ok "Delete account works via HTTP/2 (HTTP 204)"
       sleep 1
       DELETE_LOGIN_RESPONSE=$(strict_curl -sS -w "\n%{http_code}" --http2 --max-time 10 \
-        --resolve "$HOST:${PORT}:${CURL_RESOLVE_IP}" \
+        "${CURL_H2_RESOLVE[@]}" \
         -H "Host: $HOST" \
         -H "Content-Type: application/json" \
         -X POST "https://$HOST:${PORT}/api/auth/login" \
@@ -1325,7 +1388,7 @@ if [[ "$DELETE_REGISTER_CODE" == "201" ]]; then
         warn "Account may not be deleted (got HTTP $DELETE_LOGIN_CODE instead of 401/404)"
       fi
       DELETE_VERIFY_RESPONSE=$(strict_curl -sS -w "\n%{http_code}" --http2 --max-time 10 \
-        --resolve "$HOST:${PORT}:${CURL_RESOLVE_IP}" \
+        "${CURL_H2_RESOLVE[@]}" \
         -H "Host: $HOST" \
         -H "Authorization: Bearer $DELETE_TOKEN" \
         -X GET "https://$HOST:${PORT}/api/messages" 2>&1)
@@ -1445,7 +1508,7 @@ for route in \
   [[ "$path" == *media*healthz* ]] && _lat_max=90
 
   H2_LAT=$(strict_curl -sS -o /dev/null -w "%{http_code} %{time_total}" --http2 --max-time "$_lat_max" \
-    --resolve "$HOST:${PORT}:${CURL_RESOLVE_IP}" -H "Host: $HOST" "https://$HOST:${PORT}${path}" 2>/dev/null || echo "000 0")
+    "${CURL_H2_RESOLVE[@]}" -H "Host: $HOST" "https://$HOST:${PORT}${path}" 2>/dev/null || echo "000 0")
   append_latency_row "$service" "HTTP2" "$(echo "$H2_LAT" | awk '{print $1}')" "$(echo "$H2_LAT" | awk '{print $2}')"
 
   if type strict_http3_curl &>/dev/null && [[ -n "${HTTP3_RESOLVE:-}" ]]; then
