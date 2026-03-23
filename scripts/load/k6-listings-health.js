@@ -9,7 +9,20 @@ import {
   strictEdgeTlsOptions,
 } from "./k6-strict-edge-tls.js";
 
-const RAW_BASE = defaultRawBase();
+/** Same as defaultRawBase(); try/catch so this script runs if an older k6-strict-edge-tls.js still throws when BASE_URL is unset. */
+function rawBaseOrDefault() {
+  try {
+    return defaultRawBase();
+  } catch {
+    const b =
+      typeof __ENV.BASE_URL === "string" && __ENV.BASE_URL.startsWith("https://")
+        ? __ENV.BASE_URL
+        : "https://off-campus-housing.test";
+    return b.replace(/\/$/, "");
+  }
+}
+
+const RAW_BASE = rawBaseOrDefault();
 const BASE = RAW_BASE;
 const DUR = __ENV.DURATION || "20s";
 const VUS = Number(__ENV.VUS || 6);

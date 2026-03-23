@@ -23,6 +23,13 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 export REPO_ROOT
 cd "$REPO_ROOT"
 
+if [[ -f "$SCRIPT_DIR/lib/k6-suite-resource-hooks.sh" ]]; then
+  # shellcheck source=lib/k6-suite-resource-hooks.sh
+  source "$SCRIPT_DIR/lib/k6-suite-resource-hooks.sh"
+else
+  k6_suite_after_k6_block() { return 0; }
+fi
+
 ctx=$(kubectl config current-context 2>/dev/null || true)
 REQUIRE_COLIMA="${REQUIRE_COLIMA:-1}"
 
@@ -678,6 +685,7 @@ if [[ "${RUN_K6:-0}" == "1" ]] && command -v k6 >/dev/null 2>&1; then
       [[ -n "${K6_RESOLVE:-}" ]] && _k6_resolve=(--resolve "$K6_RESOLVE") || true
       ( env SSL_CERT_FILE="$K6_CA_ABSOLUTE" BASE_URL="$_k6_base" MODE=rate RATE=50 DURATION="$K6_DURATION" VUS="$K6_VUS" \
         k6 run "${_k6_resolve[@]}" "$K6_SCRIPT" 2>&1 | tee "$SUITE_LOG_DIR/k6-load.log" ) || warn "k6 load had issues"
+      k6_suite_after_k6_block "k6-post-rotation-single" 1 || warn "k6 suite resource hook failed (node CPU ≥ threshold or cooldown)"
       ok "k6 load complete after rotation (log: $SUITE_LOG_DIR/k6-load.log)"
     fi
   else

@@ -1,0 +1,368 @@
+
+# First PR — full description (team review + how to run)
+
+**Purpose:** Single file the author pastes into the PR. It explains **what we did end-to-end**, **how to run** every path, and **who should review what** (3 teammates).
+
+---
+
+## Review breakdown — assign to 3 teammates
+
+Split the diff so review is parallel and nothing is missed. Each person signs off their section in the PR thread.
+
+### Teammate 1 — Listings service + Kubernetes + perf docs
+
+**Owns:** runtime behavior of listings, cluster config for diagnostics, operator docs.
+
+| Action | Path(s) |
+|--------|---------|
+| Read code | `services/listings-service/src/http-server.ts` — `attachListingsHttpDiagnostics`, startup log, pool interval, search DB logging |
+| Read YAML | `infra/k8s/base/listings-service/deploy.yaml` — `LISTINGS_HTTP_TIMING*`, `LISTINGS_HTTP_POOL_STATS_MS` |
+| Read docs | `docs/perf/LISTINGS_HTTP_TIMING.md`, `docs/perf/LISTINGS_SEARCH.md`, `docs/perf/README.md` |
+
+**Verify (pick one):**
+- [ ] `LISTINGS_HTTP_TIMING` defaults keep prod quiet unless explicitly enabled.
+- [ ] Follow §5.4 in this file: build → `docker save … | colima ssh -- docker load` → rollout → `kubectl set env` → see `[listings-http-timing] enabled` in logs.
+
+---
+
+### Teammate 2 — k6 + suite orchestration + preflight wiring
+
+**Owns:** all host-side load scripts, hooks between tests, phase runner, preflight mentions.
+
+| Action | Path(s) |
+|--------|---------|
+| Read NEW lib | `scripts/lib/k6-suite-resource-hooks.sh` — cooldown, `kubectl top`, CPU% gate, optional Envoy restart |
+| Read smoke runner | `scripts/run-housing-k6-edge-smoke.sh` — triple `name:file:car`, hooks after JWT scripts |
+| Read phases | `scripts/load/run-k6-phases.sh` — `run_phase` third arg `is_car`, hooks after HTTP3 / comparison / max-RPS |
+| Read suites | `scripts/run-all-test-suites.sh` — hook after single post-rotation k6 |
+| Read preflight | `scripts/run-preflight-scale-and-all-suites.sh` — header `K6_SUITE_*` docs, hook after step 7c in-cluster k6 |
+| Read k6 JS | `scripts/load/k6-strict-edge-tls.js`, `scripts/load/k6-listings-health.js`, other `scripts/load/k6-*.js` touched (x-loadtest, thresholds) |
+
+**Verify (pick one):**
+- [ ] `SSL_CERT_FILE=$PWD/certs/dev-root.pem ./scripts/run-housing-k6-edge-smoke.sh` completes (or fails only on real infra issues).
+- [ ] Between scripts you see pauses + `kubectl top` blocks (unless `K6_SUITE_LOG_TOP=0`).
+- [ ] `K6_SUITE_FAIL_ON_NODE_CPU=0` avoids CPU gate when metrics-server is missing or laptop is noisy.
+
+---
+
+### Teammate 3 — API gateway + transport capture + housing HTTP suite + perf automation
+
+**Owns:** gateway correctness, packet capture strictness, broader housing health script, SQL/report scripts.
+
+| Action | Path(s) |
+|--------|---------|
+| Read gateway | `services/api-gateway/src/server.ts` — JSON parse / body-parser **4xx** preserved vs 500 `internal` |
+| Read capture | `scripts/lib/packet-capture-v2.sh` — Colima QUIC / L1 vs L2 fallback behavior |
+| Read housing suite | `scripts/test-microservices-http2-http3-housing.sh` — HTTP/2 routes, optional Vitest |
+| Read perf automation | `scripts/perf/run-perf-full-report.sh`, `run-all-explain.sh`, `run-all-k6-load-report.sh`, `scripts/perf/sql/explain-*.sql` |
+
+**Verify (pick one):**
+- [ ] After **rebuilt gateway** image in cluster: invalid JSON to login returns **400** (not generic 500) where applicable.
+- [ ] `bash -n scripts/lib/packet-capture-v2.sh` and housing script OK.
+- [ ] If DBs on 5441–5448 reachable: `./scripts/perf/run-perf-full-report.sh` produces `bench_logs/perf-report-*/` (or document skip).
+
+---
+
+### Everyone — shared checklist before merge
+
+- [ ] `commit_message.txt` at repo root matches what landed in git / release notes intent.
+- [ ] No secrets committed; only env *names* in docs/YAML.
+- [ ] At least one person ran **edge k6 grid** + one person confirmed **listings diagnostics** or **preflight** path per §9.
+
+---
+
+## Table of contents
+
+1. Welcome / how to use this doc  
+2. Executive summary  
+3. Prerequisites (one-time)  
+4. How to run — quick decision tree  
+5. How to run — copy/paste recipes  
+6. What changed — by subsystem  
+7. Environment variables reference  
+8. Troubleshooting (FAQ)  
+9. Verify before merging  
+10. Review checklist (quick)  
+
+---
+
+## 1. Welcome / how to use this doc
+
+- **Only run one thing?** → §5 copy/paste recipes.  
+- **Reviewing?** → **Review breakdown (3 teammates)** above, then §6 and §9.  
+- **Something failed?** → §8 FAQ, then logs under `bench_logs/` or paths printed by scripts.
+
+**Repo root:** every command assumes `cd` to **Off-Campus-Housing-Tracker** root.
+
+---
+
+## 2. Executive summary
+
+We hardened the **load lab** and **observability** story for **Off-Campus Housing (OCH)**:
+
+| Theme | What we did | Why it matters |
+|--------|-------------|----------------|
+| **Listings diagnostics** | Env-driven HTTP timing + optional pg pool stats + startup confirmation log | Separates **in-process** vs **upstream** vs **DB pool** when k6 is bad in a **suite** but fine **alone**. |
+| **k6 edge ergonomics** | Default `BASE_URL` + defensive fallback in listings health | Fewer missing `-e BASE_URL` failures; tolerates stale `k6-strict-edge-tls.js` briefly. |
+| **Suite orchestration** | After each k6 block: `kubectl top`, cooldowns, optional **node CPU% fail** | Surfaces **cluster contention**; reduces back-to-back k6 poisoning (Colima/k3s). |
+| **Gateway / transport / suites** | `x-loadtest` on k6, gateway **400** on bad JSON, QUIC capture fallbacks, broader housing HTTP/2 checks | Fewer **false reds** on real edge paths. |
+| **Perf reporting** | `scripts/perf/*` EXPLAIN + k6 report aggregation | One command for DB plans + load narrative. |
+
+**Mental model:** *A service can be healthy while the **full preflight** is red because load stacks. This PR adds **visibility** (top, cooldowns, listings logs) so we do not confuse the two.*
+
+---
+
+## 3. Prerequisites (one-time)
+
+- Kubernetes context (e.g. **Colima + k3s** or **k3d**), namespace **`off-campus-housing-tracker`**.  
+- **Docker**, **kubectl**, **k6** (`brew install k6` on macOS).  
+- **`certs/dev-root.pem`** at repo root.  
+- **`/etc/hosts`:** `off-campus-housing.test` → edge IP.  
+- **metrics-server** (recommended): enables `kubectl top` in hooks; without it, CPU check is skipped with a warning.
+
+---
+
+## 4. How to run — quick decision tree
+
+```
+Edge + all services from host?     → §5.1 k6 edge smoke grid
+Only listings health?              → §5.2 k6 listings health
+Full pipeline?                     → §5.3 Preflight
+Listings logs in cluster?          → §5.4 Listings diagnostics
+EXPLAIN + k6 report?               → §5.5 Perf scripts
+Relax CPU gate / faster cooldowns? → §5.6 Suite hooks
+```
+
+---
+
+## 5. How to run — copy/paste recipes
+
+### 5.1 k6 edge smoke grid
+
+```bash
+cd /path/to/Off-Campus-Housing-Tracker
+SSL_CERT_FILE="$PWD/certs/dev-root.pem" ./scripts/run-housing-k6-edge-smoke.sh
+```
+
+Strict:
+
+```bash
+K6_GRID_STRICT=1 SSL_CERT_FILE="$PWD/certs/dev-root.pem" ./scripts/run-housing-k6-edge-smoke.sh
+```
+
+Skip optional:
+
+```bash
+SKIP_K6_ANALYTICS_LISTING_FEEL=1 SKIP_K6_BOOKING_SEARCH=1 \
+  SSL_CERT_FILE="$PWD/certs/dev-root.pem" ./scripts/run-housing-k6-edge-smoke.sh
+```
+
+**Note:** Expect **cooldowns** and **`kubectl top`** between scripts (`scripts/lib/k6-suite-resource-hooks.sh`).
+
+### 5.2 k6 listings health only
+
+```bash
+cd /path/to/Off-Campus-Housing-Tracker
+SSL_CERT_FILE="$PWD/certs/dev-root.pem" k6 run scripts/load/k6-listings-health.js
+```
+
+### 5.3 Preflight + suites (main orchestrator)
+
+See header of `scripts/run-preflight-scale-and-all-suites.sh` for full flags.
+
+```bash
+RUN_PGBENCH=0 ./scripts/run-preflight-scale-and-all-suites.sh
+```
+
+Example MetalLB:
+
+```bash
+METALLB_ENABLED=1 RUN_PGBENCH=0 ./scripts/run-preflight-scale-and-all-suites.sh
+```
+
+Stop after housing + Playwright:
+
+```bash
+PREFLIGHT_EXIT_AFTER_HOUSING_SUITES=1 ./scripts/run-preflight-scale-and-all-suites.sh
+```
+
+Skip k6 grid inside preflight:
+
+```bash
+RUN_K6_SERVICE_GRID=0 RUN_PGBENCH=0 ./scripts/run-preflight-scale-and-all-suites.sh
+```
+
+### 5.4 Listings HTTP diagnostics in Kubernetes
+
+1. Build:
+
+```bash
+docker build -f services/listings-service/Dockerfile -t listings-service:dev .
+```
+
+2. Load (Colima pattern when `ctr` import fails):
+
+```bash
+docker save listings-service:dev | colima ssh -- docker load
+```
+
+3. Rollout:
+
+```bash
+kubectl rollout restart deployment/listings-service -n off-campus-housing-tracker
+kubectl rollout status deployment/listings-service -n off-campus-housing-tracker --timeout=180s
+```
+
+4. Enable:
+
+```bash
+kubectl set env deployment/listings-service -n off-campus-housing-tracker \
+  LISTINGS_HTTP_TIMING=1 \
+  LISTINGS_HTTP_POOL_STATS_MS=2000
+kubectl rollout status deployment/listings-service -n off-campus-housing-tracker --timeout=180s
+```
+
+5. Confirm:
+
+```bash
+kubectl exec -n off-campus-housing-tracker deploy/listings-service -c app -- printenv LISTINGS_HTTP_TIMING
+kubectl logs -n off-campus-housing-tracker deployment/listings-service -c app --tail=200 | grep listings-http-timing
+```
+
+Log every request:
+
+```bash
+kubectl set env deployment/listings-service -n off-campus-housing-tracker \
+  LISTINGS_HTTP_TIMING=1 LISTINGS_HTTP_TIMING_MIN_MS=0
+```
+
+More detail: `docs/perf/LISTINGS_HTTP_TIMING.md`
+
+### 5.5 Perf report (EXPLAIN + k6)
+
+```bash
+./scripts/perf/run-perf-full-report.sh
+```
+
+À la carte: `./scripts/perf/run-all-explain.sh`, `./scripts/perf/run-all-k6-load-report.sh`  
+Output: `bench_logs/perf-report-*/`
+
+### 5.6 Suite hooks tuning
+
+Defaults: **15s** cooldown, **+20s** after constant-arrival-rate blocks, **85%** node CPU fail.
+
+Friendly:
+
+```bash
+export K6_SUITE_FAIL_ON_NODE_CPU=0
+export K6_SUITE_LOG_TOP=1
+```
+
+Faster local iteration (less realistic):
+
+```bash
+export K6_SUITE_COOLDOWN_SEC=3
+export K6_SUITE_CAR_EXTRA_SEC=5
+```
+
+Optional Envoy restart after CAR tests:
+
+```bash
+export K6_SUITE_RESTART_ENVOY_AFTER_CAR=1
+```
+
+---
+
+## 6. What changed — by subsystem
+
+- **listings-service:** `http-server.ts` — timing middleware, pool stats, startup log, search DB logs when enabled.  
+- **k8s:** `infra/k8s/base/listings-service/deploy.yaml` — diagnostic env placeholders.  
+- **k6:** `k6-strict-edge-tls.js`, `k6-listings-health.js`, plus x-loadtest / thresholds on other scripts as in branch.  
+- **api-gateway:** `server.ts` — preserve 4xx from JSON parse.  
+- **transport:** `packet-capture-v2.sh` — Colima QUIC fallbacks.  
+- **housing suite:** `test-microservices-http2-http3-housing.sh` — broader checks + optional Vitest.  
+- **orchestration:** `k6-suite-resource-hooks.sh`, `run-housing-k6-edge-smoke.sh`, `run-k6-phases.sh`, `run-all-test-suites.sh`, `run-preflight-scale-and-all-suites.sh`.  
+- **perf:** `docs/perf/*`, `scripts/perf/*`.
+
+---
+
+## 7. Environment variables reference
+
+### Listings (pod)
+
+| Variable | Example | Meaning |
+|----------|---------|---------|
+| `LISTINGS_HTTP_TIMING` | `1` | Enable diagnostics |
+| `LISTINGS_HTTP_TIMING_MIN_MS` | `1000` / `0` | Min ms to log; `0` = all |
+| `LISTINGS_HTTP_POOL_STATS_MS` | `2000` | Pool log interval; `0` = off |
+| `LISTINGS_HTTP_SEARCH_DB_MIN_MS` | `50` | Log search DB phase threshold |
+
+### k6 suite hooks
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `K6_SUITE_COOLDOWN_SEC` | `15` | Sleep after each k6 block |
+| `K6_SUITE_CAR_EXTRA_SEC` | `20` | Extra after CAR-style tests |
+| `K6_SUITE_LOG_TOP` | `1` | Print `kubectl top` |
+| `K6_SUITE_FAIL_ON_NODE_CPU` | `1` | Fail if node CPU% too high |
+| `K6_SUITE_NODE_CPU_MAX` | `85` | Threshold |
+| `K6_SUITE_TOP_NS` | `off-campus-housing-tracker` | Pod top namespace |
+| `K6_SUITE_TOP_ENVOY_NS` | `envoy-test` | Second namespace (empty = skip) |
+| `K6_SUITE_RESTART_ENVOY_AFTER_CAR` | `0` | `1` = rollout envoy after CAR |
+
+---
+
+## 8. Troubleshooting (FAQ)
+
+**No `[listings-http-timing]` after set env?** Rebuild image, load into VM, rollout — env does not patch old binaries. Look for startup line `enabled minMs=...`.
+
+**`BASE_URL must be https`?** Update `k6-strict-edge-tls.js` or pass `-e BASE_URL=https://off-campus-housing.test`.
+
+**Preflight slower?** Cooldowns by design; lower `K6_SUITE_COOLDOWN_SEC` locally only.
+
+**CPU gate failed?** `K6_SUITE_FAIL_ON_NODE_CPU=0` or raise `K6_SUITE_NODE_CPU_MAX`.
+
+**`kubectl top` errors?** Install metrics-server or ignore CPU gate.
+
+**`k3s ctr import` failed on Colima?** Use `docker save ... | colima ssh -- docker load`.
+
+---
+
+## 9. Verify before merging
+
+```bash
+cd /path/to/Off-Campus-Housing-Tracker
+
+bash -n scripts/lib/k6-suite-resource-hooks.sh
+bash -n scripts/load/run-k6-phases.sh
+bash -n scripts/run-housing-k6-edge-smoke.sh
+bash -n scripts/lib/packet-capture-v2.sh
+bash -n scripts/test-microservices-http2-http3-housing.sh
+
+SSL_CERT_FILE="$PWD/certs/dev-root.pem" ./scripts/run-housing-k6-edge-smoke.sh
+
+K6_SUITE_FAIL_ON_NODE_CPU=0 RUN_PGBENCH=0 ./scripts/run-preflight-scale-and-all-suites.sh
+```
+
+Rebuild **api-gateway** in-cluster to validate JSON **400** behavior.
+
+---
+
+## 10. Review checklist (quick)
+
+- [ ] Listings diagnostics off by default in base YAML.  
+- [ ] k6 default `BASE_URL` OK for all dev envs (override documented).  
+- [ ] Team OK with default CPU fail or CI sets `K6_SUITE_FAIL_ON_NODE_CPU=0`.  
+- [ ] Gateway rolled out before claiming adversarial k6 paths fixed.  
+- [ ] Perf scripts only when DB ports/creds available.
+
+---
+
+## Suggested PR title
+
+`perf(observability,load): listings diagnostics, k6 suite hooks, edge/gateway hardening`
+
+================================================================================
+END OF FILE — Select all from the first # heading (or skip the banner) through
+Suggested PR title, paste into GitHub PR description, Preview tab to confirm tables.
+================================================================================

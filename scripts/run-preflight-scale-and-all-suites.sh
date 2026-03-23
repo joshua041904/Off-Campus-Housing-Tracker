@@ -47,6 +47,10 @@ fi
 #   Preflight does not apply DB migrations or infra/db/*.sql; run scripts/setup-*-db.sh or scripts/ensure-*.sh manually when schema changes.
 #   CAPTURE_STOP_TIMEOUT=30 (default when running suites) — bounds packet capture stop phase so it never blocks; set higher for full pcap copy/analyze.
 #   PREFLIGHT_TELEMETRY=1 (default) capture control-plane telemetry during run (apiserver metrics every 8s) and post-run snapshot; set 0 to disable. TELEMETRY_PERF=1 / TELEMETRY_HTOP=1 for optional perf/htop. run-preflight-with-telemetry.sh is a thin wrapper that sets PREFLIGHT_MAIN_LOG and RUN_FULL_LOAD=0.
+#   k6 suite stability (orchestration — reduces cross-test contention on Colima/k3s; see scripts/lib/k6-suite-resource-hooks.sh):
+#     K6_SUITE_COOLDOWN_SEC=15 — sleep after every k6 block; K6_SUITE_CAR_EXTRA_SEC=20 — extra after constant-arrival-rate scripts.
+#     K6_SUITE_LOG_TOP=1 — kubectl top nodes + pods after each block; K6_SUITE_FAIL_ON_NODE_CPU=1 — exit hook code 3 if any node CPU% ≥ K6_SUITE_NODE_CPU_MAX (default 85). Set K6_SUITE_FAIL_ON_NODE_CPU=0 to only log.
+#     K6_SUITE_RESTART_ENVOY_AFTER_CAR=0 — set 1 to rollout restart deployment/envoy-test in envoy-test after each CAR test (+ K6_SUITE_ENVOY_RESTART_SLEEP_SEC=10).
 #   RUN_FULL_LOAD=1 (default) run pgbench (all DBs, deep) + k6 + xk6 HTTP/3 phases + all suites (full control plane). Set RUN_FULL_LOAD=0 for suites only.
 #   RUN_K6=1 run k6 load phase; RUN_PGBENCH=1 run pgbench sweeps before suites (set by RUN_FULL_LOAD=1).
 #   When RUN_FULL_LOAD=1: K6_PHASES=read,soak,limit,max, K6_HTTP3=1, K6_HTTP3_PHASES=1 (run-k6-phases.sh runs xk6-http3 phases). Step 6d builds xk6-http3 if missing; SKIP_XK6_BUILD=1 to skip.
@@ -2276,6 +2280,11 @@ if [[ "${RUN_K6:-0}" == "1" ]] && [[ "${RUN_K6_IN_CLUSTER:-1}" == "1" ]] && [[ -
   say "7c. In-cluster k6 (transport isolation: Pod → Caddy ClusterIP)"
   info "  Ensures k6-ca-cert ConfigMap; runs k6 Job with no LB IP (ClusterIP only). See docs/ROTATION_RUNBOOK_CA_LEAF.md."
   ( set +e; DURATION="${K6_IN_CLUSTER_DURATION:-30s}" "$SCRIPT_DIR/run-k6-in-cluster.sh" ) || warn "In-cluster k6 had issues (check k6-custom image and k6-load namespace)"
+  if [[ -f "$SCRIPT_DIR/lib/k6-suite-resource-hooks.sh" ]]; then
+    # shellcheck source=lib/k6-suite-resource-hooks.sh
+    source "$SCRIPT_DIR/lib/k6-suite-resource-hooks.sh"
+    k6_suite_after_k6_block "k6-in-cluster" 0 || warn "k6 suite resource hook after in-cluster k6 (node CPU ≥ threshold or cooldown)"
+  fi
 else
   [[ "${RUN_K6_IN_CLUSTER:-1}" == "0" ]] && info "7c. In-cluster k6 skipped (RUN_K6_IN_CLUSTER=0)"
 fi

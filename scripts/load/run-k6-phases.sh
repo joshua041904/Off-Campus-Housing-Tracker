@@ -14,6 +14,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 LOAD_DIR="$SCRIPT_DIR"
 
+if [[ -f "$SCRIPT_DIR/../lib/k6-suite-resource-hooks.sh" ]]; then
+  # shellcheck source=../lib/k6-suite-resource-hooks.sh
+  source "$SCRIPT_DIR/../lib/k6-suite-resource-hooks.sh"
+else
+  k6_suite_after_k6_block() { return 0; }
+fi
+
 SUITE_LOG_DIR="${SUITE_LOG_DIR:-/tmp/k6-phases}"
 K6_CA_ABSOLUTE="${K6_CA_ABSOLUTE:-$REPO_ROOT/certs/dev-root.pem}"
 HOST="${HOST:-off-campus-housing.test}"
@@ -101,10 +108,12 @@ command -v k6 >/dev/null 2>&1 || { echo "k6 not installed"; exit 1; }
 # k6 has no --resolve flag (that's curl). Ensure off-campus-housing.test resolves: add to /etc/hosts or use route (e.g. Colima).
 # K6_RESOLVE is for logging; pass via -e to script if needed: k6 reads BASE_URL, script may use different endpoint.
 
+# Args: phase, script, is_constant_arrival (1 = extra cooldown; k6 constant-arrival-rate), then KEY=value env pairs
 run_phase() {
   local phase="$1"
   local script="$2"
-  shift 2
+  local is_car="${3:-0}"
+  shift 3
   local log="$SUITE_LOG_DIR/k6-${phase}.log"
   echo "  → k6 phase: $phase (log: $log)"
   if [[ -f "$script" ]]; then
@@ -126,6 +135,8 @@ run_phase() {
   else
     echo "  ⚠️  script not found: $script" >> "$log"
   fi
+  k6_suite_after_k6_block "k6-phase-${phase}" "$is_car" || return $?
+  return 0
 }
 
 # Resolve xk6-http3 binary
@@ -149,6 +160,7 @@ run_http3_phase() {
   else
     echo "  ⚠️  xk6-http3 not found (build with ./scripts/build-k6-http3.sh) or k6-http3-complete.js missing" >> "$log"
   fi
+  k6_suite_after_k6_block "k6-phase-http3-xk6" 0 || return $?
 }
 
 # Run requested phases (comma-separated or "all")
@@ -165,22 +177,22 @@ run_all_phases() {
     p=$(echo "$p" | tr -d ' ')
     case "$p" in
       read)
-        run_phase read "$LOAD_DIR/k6-reads.js" MODE=rate RATE="$K6_RATE" DURATION="$K6_DURATION" VUS="$K6_VUS"
+        run_phase read "$LOAD_DIR/k6-reads.js" 1 MODE=rate RATE="$K6_RATE" DURATION="$K6_DURATION" VUS="$K6_VUS"
         ;;
       soak)
-        run_phase soak "$LOAD_DIR/k6-reads.js" MODE=soak DURATION="${K6_SOAK_DURATION}" VUS="$K6_VUS"
+        run_phase soak "$LOAD_DIR/k6-reads.js" 0 MODE=soak DURATION="${K6_SOAK_DURATION}" VUS="$K6_VUS"
         ;;
       sweep)
-        run_phase sweep "$LOAD_DIR/k6-reads.js" MODE=sweep RATE_START=25 RATE_STEP=25 STEPS=5 STEP_DUR=30s
+        run_phase sweep "$LOAD_DIR/k6-reads.js" 0 MODE=sweep RATE_START=25 RATE_STEP=25 STEPS=5 STEP_DUR=30s
         ;;
       limit)
-        run_phase limit "$LOAD_DIR/k6-limit-test-comprehensive.js" MODE=persistence DURATION=300s
+        run_phase limit "$LOAD_DIR/k6-limit-test-comprehensive.js" 1 MODE=persistence DURATION=300s
         ;;
       max)
-        run_phase max "$LOAD_DIR/k6-limit-test-comprehensive.js" MODE=limit DURATION=180s
+        run_phase max "$LOAD_DIR/k6-limit-test-comprehensive.js" 1 MODE=limit DURATION=180s
         ;;
       messaging)
-        run_phase messaging "$LOAD_DIR/k6-messaging.js" DURATION="${K6_DURATION}" RATE="${K6_RATE:-20}" VUS="${K6_VUS:-10}"
+        run_phase messaging "$LOAD_DIR/k6-messaging.js" 1 DURATION="${K6_DURATION}" RATE="${K6_RATE:-20}" VUS="${K6_VUS:-10}"
         ;;
       *)
         echo "  ⚠️  unknown phase: $p (skip)"
@@ -192,6 +204,7 @@ run_all_phases() {
     if [[ "${K6_HTTP3_PHASES:-0}" == "1" ]] && [[ -f "$LOAD_DIR/run-k6-http3-phases.sh" ]]; then
       ( export SUITE_LOG_DIR BASE_URL K6_CA_ABSOLUTE K6_DURATION K6_SOAK_DURATION K6_INSECURE_SKIP_TLS HOST PORT K6_RESOLVE
         "$LOAD_DIR/run-k6-http3-phases.sh" ) || echo "  ⚠️  xk6 HTTP/3 phases had issues"
+      k6_suite_after_k6_block "k6-http3-phases-bundle" 0 || return $?
     else
       run_http3_phase
     fi
@@ -203,6 +216,7 @@ run_all_phases() {
   if [[ "${K6_PROTOCOL_COMPARISON:-0}" == "1" ]] && [[ "${SKIP_HOST_HTTP3:-0}" != "1" ]] && [[ -f "$LOAD_DIR/run-k6-protocol-comparison.sh" ]]; then
     ( export SUITE_LOG_DIR BASE_URL K6_CA_ABSOLUTE K6_HTTP3_NO_REUSE="${K6_HTTP3_NO_REUSE:-1}"
       "$LOAD_DIR/run-k6-protocol-comparison.sh" ) || echo "  ⚠️  Protocol comparison had issues"
+    k6_suite_after_k6_block "k6-protocol-comparison" 0 || return $?
   elif [[ "${K6_PROTOCOL_COMPARISON:-0}" == "1" ]] && [[ "${SKIP_HOST_HTTP3:-0}" == "1" ]]; then
     echo "  ℹ️  Protocol comparison (host) skipped on Colima; in-cluster k6 is authoritative."
   fi
@@ -210,6 +224,7 @@ run_all_phases() {
   if [[ "${K6_MAX_RPS_NO_ERRORS:-0}" == "1" ]] && [[ -f "$LOAD_DIR/run-k6-max-rps-no-errors.sh" ]]; then
     ( export SUITE_LOG_DIR BASE_URL K6_CA_ABSOLUTE RPS_STEP RPS_MAX STEP_DURATION
       "$LOAD_DIR/run-k6-max-rps-no-errors.sh" ) || echo "  ⚠️  Max RPS (no errors) suite had issues"
+    k6_suite_after_k6_block "k6-max-rps-no-errors" 1 || return $?
   fi
 }
 
@@ -217,14 +232,17 @@ run_all_phases() {
 run_all_phases
 
 # Optional: HTTP/2 vs HTTP/3 protocol comparison (host); skipped when SKIP_HOST_HTTP3=1 (Colima).
+# (Legacy second pass — kept for backward compat; run_all_phases above may already have run these.)
 if [[ "${K6_PROTOCOL_COMPARISON:-0}" == "1" ]] && [[ "${SKIP_HOST_HTTP3:-0}" != "1" ]] && [[ -f "$LOAD_DIR/run-k6-protocol-comparison.sh" ]]; then
   ( export SUITE_LOG_DIR BASE_URL K6_CA_ABSOLUTE K6_INSECURE_SKIP_TLS K6_HTTP3_NO_REUSE="${K6_HTTP3_NO_REUSE:-1}"
     "$LOAD_DIR/run-k6-protocol-comparison.sh" ) || true
+  k6_suite_after_k6_block "k6-protocol-comparison-legacy-pass" 0 || exit $?
 fi
 # Optional: max RPS with no errors (HTTP/2 and HTTP/3; stop when protocol under test errors; 5 charts)
 if [[ "${K6_MAX_RPS_NO_ERRORS:-0}" == "1" ]] && [[ -f "$LOAD_DIR/run-k6-max-rps-no-errors.sh" ]]; then
   ( export SUITE_LOG_DIR BASE_URL K6_CA_ABSOLUTE K6_INSECURE_SKIP_TLS
     "$LOAD_DIR/run-k6-max-rps-no-errors.sh" ) || true
+  k6_suite_after_k6_block "k6-max-rps-no-errors-legacy-pass" 1 || exit $?
 fi
 
 if [[ -f "$SUITE_LOG_DIR/k6-read.log" ]]; then

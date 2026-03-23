@@ -1,86 +1,95 @@
-fix(tests,transport,k6,gateway): Colima QUIC strict fallback, housing suite coverage, k6 edge semantics
+perf(observability,load): listings diagnostics, k6 hooks, edge/gateway + suite pacing
 
-Summary
--------
-Harden observability and load tests for Colima + MetalLB + Caddy without false failures when L1
-node capture is empty; expand the housing HTTP/2/3 suite; fix k6 edge smoke (rate limit + JSON
-errors + thresholds); preserve 400 from invalid JSON at the API gateway.
+First integrated PR: load-lab visibility, safer k6 defaults, preflight pacing, and edge fixes.
 
-What we changed (this commit)
-------------------------------
+WHY
+---
+- Listings can look perfect under isolated k6 but degrade inside the full suite → cluster
+  contention vs service bug. We add listings-side logs + between-test kubectl top/cooldowns.
+- k6 should run without forgetting -e BASE_URL; stale checkouts should not hard-fail listings health.
+- Colima QUIC capture and gateway JSON errors were causing false reds; housing HTTP checks were
+  narrower than the HTTP/3 loop.
 
-### Transport / STRICT_QUIC_VALIDATION (scripts/lib/packet-capture-v2.sh)
-- **Colima-aware strict mode:** Still requires L2 TCP 443 on Caddy; QUIC proof prefers L1 UDP 443→
-  MetalLB when node pcap exists.
-- **Fallback:** If L1 pcap is missing/empty (common on Colima VM networking), accept **L2 UDP 443**
-  as authoritative QUIC proof instead of failing the whole run.
-- **If L1 exists but shows 0 UDP:** On Colima, allow L2 UDP proof (interface/BPF mismatch vs bare
-  metal).
+WHERE TO READ EVERYTHING (paste for GitHub PR)
+---------------------------------------------
+Canonical PR body (plain .txt — paste entire file into GitHub/GitLab PR description; Markdown inside renders in GitHub):
 
-Rationale: QUIC can be cryptographically confirmed at Caddy (ALPN h3) while node-level tcpdump
-never sees the same path — not a stack bug, a capture-geometry limitation.
+  GITHUB_PR_DESCRIPTION.txt   (repo root)
 
-### Housing microservices script (scripts/test-microservices-http2-http3-housing.sh)
-- **Test 5b:** HTTP/2 health pass over **all** OCH routes (auth, listings, booking, messaging,
-  notification, trust, analytics, media, gateway) — aligns edge checks with the HTTP/3 loop.
-- **Test 6:** Run **messaging-service** + **media-service** `test:integration` Vitest when `pnpm`
-  is available (skips gracefully if DB/S3 deps missing).
+Includes: 3-teammate review breakdown, copy/paste run recipes, env tables, FAQ, verify commands.
 
-### k6 edge smoke (scripts/load/*)
-- **k6-strict-edge-tls.js:** `mergeEdgeTls` now adds **`x-loadtest: 1`** on every request so traffic
-  matches api-gateway’s rate-limit **skip** (avoids flaky 429 under concurrent VUs).
-- **k6-event-layer-adversarial.js:** Malformed JSON POST to `/api/auth/login` now treats any **HTTP
-  4xx–5xx** as “edge responded” for the adversarial Rate metric (invalid JSON must not return 200).
-- **k6-gateway-health.js:** Relaxed **p50/p95/p99** latency thresholds — sub-80 ms p50 on a real
-  edge/Colima path was unrealistically tight and caused threshold-only failures.
+HOW TO RUN (minimal cheat sheet)
+--------------------------------
+Repo root = Off-Campus-Housing-Tracker.
 
-### API gateway (services/api-gateway/src/server.ts)
-- **Error handler:** Preserve **4xx** from **express.json** / body-parser (e.g. invalid JSON body →
-  **400**) instead of collapsing everything to **500** `{ error: "internal" }`.
-- Fixes k6 adversarial and any client expecting proper **400** on bad JSON; keeps load-test semantics
-  honest.
+  # Edge k6 grid (all services through Caddy hostname)
+  SSL_CERT_FILE="$PWD/certs/dev-root.pem" ./scripts/run-housing-k6-edge-smoke.sh
 
-**Deploy note:** Rebuild/redeploy **api-gateway** so the error-handler change is live in-cluster
-before treating k6 + manual curl as authoritative.
+  # Single listings health
+  SSL_CERT_FILE="$PWD/certs/dev-root.pem" k6 run scripts/load/k6-listings-health.js
 
-How this fits the wider stack (recent work, context)
------------------------------------------------------
-- **Edge:** Caddy → nginx → webapp for `/`; `/api/*` → gateway; Playwright **ignoreHTTPSErrors** for
-  dev CA; Envoy **prefix:** matchers for gRPC (not exact **path:**).
-- **Infra:** OCH-only Envoy/HAProxy comments; webapp Deployment/Service + image build; nginx FQDN
-  resolver for `webapp.off-campus-housing-tracker.svc.cluster.local`.
-- **Preflight:** `scripts/run-preflight-scale-and-all-suites.sh` step **7a** already runs Vitest
-  (messaging, media, event-layer), `test-microservices-http2-http3-housing.sh`, comprehensive
-  messaging script, **k6** (`run-housing-k6-edge-smoke.sh`), Playwright — this commit aligns those
-  layers with Colima reality and gateway behavior.
+  # Big preflight, no pgbench (CPU gate off if metrics noisy)
+  K6_SUITE_FAIL_ON_NODE_CPU=0 RUN_PGBENCH=0 ./scripts/run-preflight-scale-and-all-suites.sh
 
-What we are doing next (performance tuning & ops)
---------------------------------------------------
-- **k6:** Tune VUs/duration per script if p95 still spikes; optional **K6_GRID_STRICT=1** only after
-  smoke is stable; consider Docker k6 on macOS if keychain trust is painful.
-- **Gateway:** Monitor error-handler logs for unexpected 5xx after JSON parse fix; adjust
-  **DISABLE_RATE_LIMIT** only in dev if needed (prefer **x-loadtest** for automation).
-- **Transport:** Transport study (**7b**) may still warn on L3 Envoy pcap — informational if
-  STRICT QUIC + app health are green.
-- **DB / load:** pgbench sweeps (step 8) and in-cluster k6 — run when **RUN_FULL_LOAD=1** / not
-  **PREFLIGHT_EXIT_AFTER_HOUSING_SUITES=1**.
-- **Analytics listing-feel k6:** Ollama cold start — keep **SKIP_K6_ANALYTICS_LISTING_FEEL=1** in CI
-  if LLM is optional.
+  # Listings diagnostics: build → load (Colima) → restart → env
+  docker build -f services/listings-service/Dockerfile -t listings-service:dev .
+  docker save listings-service:dev | colima ssh -- docker load
+  kubectl rollout restart deployment/listings-service -n off-campus-housing-tracker
+  kubectl set env deployment/listings-service -n off-campus-housing-tracker \
+    LISTINGS_HTTP_TIMING=1 LISTINGS_HTTP_POOL_STATS_MS=2000
+  kubectl logs -n off-campus-housing-tracker deployment/listings-service -c app --tail=200 | grep listings-http-timing
 
-Verify before push
+  # Perf report (when host can reach housing Postgres ports)
+  ./scripts/perf/run-perf-full-report.sh
+
+WHAT CHANGED (files / areas)
+----------------------------
+Listings
+  - services/listings-service/src/http-server.ts — LISTINGS_HTTP_TIMING*, pool stats, startup log
+  - infra/k8s/base/listings-service/deploy.yaml — diagnostic env placeholders
+  - docs/perf/LISTINGS_HTTP_TIMING.md, LISTINGS_SEARCH.md, README.md
+
+k6
+  - scripts/load/k6-strict-edge-tls.js — default BASE_URL https://off-campus-housing.test
+  - scripts/load/k6-listings-health.js — try/catch if defaultRawBase throws (stale helper)
+  - scripts/load/* — x-loadtest header, adversarial + gateway-health thresholds (edge-realistic)
+
+Gateway
+  - services/api-gateway/src/server.ts — preserve 4xx from JSON parse (e.g. 400), not only 500
+
+Transport / suites
+  - scripts/lib/packet-capture-v2.sh — Colima QUIC strict fallbacks when L1 pcap empty
+  - scripts/test-microservices-http2-http3-housing.sh — broader HTTP/2 health + optional Vitest
+
+Suite orchestration (contention visibility)
+  - scripts/lib/k6-suite-resource-hooks.sh — NEW: kubectl top, cooldowns, optional CPU% fail (85)
+  - scripts/run-housing-k6-edge-smoke.sh — hooks per script; CAR extra sleep for messaging/media
+  - scripts/load/run-k6-phases.sh — hooks per phase + optional bundles
+  - scripts/run-all-test-suites.sh — hook after single post-rotation k6
+  - scripts/run-preflight-scale-and-all-suites.sh — K6_SUITE_* docs; hook after in-cluster k6
+
+Perf automation
+  - scripts/perf/run-perf-full-report.sh, run-all-explain.sh, run-all-k6-load-report.sh, sql/explain-*.sql
+
+HOOK ENV (suite scripts)
+------------------------
+  K6_SUITE_COOLDOWN_SEC=15 K6_SUITE_CAR_EXTRA_SEC=20
+  K6_SUITE_LOG_TOP=1 K6_SUITE_FAIL_ON_NODE_CPU=1 K6_SUITE_NODE_CPU_MAX=85
+  K6_SUITE_RESTART_ENVOY_AFTER_CAR=0  # set 1 to rollout envoy-test after CAR tests
+
+VERIFY BEFORE PUSH
 ------------------
-```bash
-# syntax
-bash -n scripts/lib/packet-capture-v2.sh
-bash -n scripts/test-microservices-http2-http3-housing.sh
+  bash -n scripts/lib/k6-suite-resource-hooks.sh
+  bash -n scripts/load/run-k6-phases.sh
+  bash -n scripts/run-housing-k6-edge-smoke.sh
+  bash -n scripts/lib/packet-capture-v2.sh
+  SSL_CERT_FILE="$PWD/certs/dev-root.pem" ./scripts/run-housing-k6-edge-smoke.sh
 
-# after gateway image rollout
-SSL_CERT_FILE="$PWD/certs/dev-root.pem" ./scripts/run-housing-k6-edge-smoke.sh
+DEPLOY NOTES
+------------
+- Rebuild + rollout api-gateway for JSON 400 behavior in-cluster.
+- Rebuild + load + rollout listings-service for HTTP timing logs (env alone is not enough).
 
-# optional full housing step (no pgbench)
-RUN_PGBENCH=0 ./scripts/run-preflight-scale-and-all-suites.sh
-```
-
-Suggested short subject (first line only)
+Suggested one-line subject (if you amend)
 -----------------------------------------
-fix(tests,transport,k6,gateway): Colima QUIC strict fallback, housing health coverage, k6 x-loadtest, gateway JSON 400
+perf(observability,load): listings diagnostics, k6 suite hooks, edge/gateway hardening

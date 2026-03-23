@@ -4,6 +4,43 @@ import { pool } from "./db.js";
 
 type AuthedRequest = Request & { userId?: string };
 
+/** Request timing + optional pool stats (diagnose k6 tail latency / ~5s stalls). */
+function attachListingsHttpDiagnostics(app: ReturnType<typeof express>): void {
+  const timingEnabled = process.env.LISTINGS_HTTP_TIMING === "1" || process.env.LISTINGS_HTTP_TIMING === "true";
+  const minMs = Number(process.env.LISTINGS_HTTP_TIMING_MIN_MS ?? "1000");
+  const poolStatsMs = Number(process.env.LISTINGS_HTTP_POOL_STATS_MS ?? "0");
+
+  if (timingEnabled) {
+    console.log(
+      `[listings-http-timing] enabled minMs=${minMs} poolStatsMs=${poolStatsMs} (slow requests + SLOW_TIMEOUT_CLASS >=5000ms)`,
+    );
+    app.use((req, res, next) => {
+      const started = Date.now();
+      res.on("finish", () => {
+        const ms = Date.now() - started;
+        const path = req.originalUrl || req.url || req.path;
+        const logAll = minMs <= 0;
+        const slow = ms >= minMs;
+        if (logAll || slow) {
+          const tag = ms >= 5000 ? "SLOW_TIMEOUT_CLASS" : slow ? "SLOW" : "req";
+          console.log(
+            `[listings-http-timing] ${tag} ms=${ms} method=${req.method} status=${res.statusCode} path=${path}`,
+          );
+        }
+      });
+      next();
+    });
+  }
+
+  if (poolStatsMs > 0 && timingEnabled) {
+    setInterval(() => {
+      console.log(
+        `[listings-pool] total=${pool.totalCount} idle=${pool.idleCount} waiting=${pool.waitingCount}`,
+      );
+    }, poolStatsMs).unref?.();
+  }
+}
+
 function requireUser(req: AuthedRequest, res: Response, next: NextFunction): void {
   const userId = (req.get("x-user-id") || "").trim();
   if (!userId) {
@@ -39,6 +76,7 @@ function rowToJson(row: Record<string, unknown>) {
 export function createListingsHttpApp() {
   const app = express();
   app.use(express.json({ limit: "1mb" }));
+  attachListingsHttpDiagnostics(app);
   app.use((req, res, next) => {
     res.on("finish", () =>
       httpCounter.inc({ service: "listings", route: req.path, method: req.method, code: res.statusCode })
@@ -63,6 +101,7 @@ export function createListingsHttpApp() {
   /** Public browse + search (gateway strips /api/listings → GET / or GET /search). */
   const searchListingsPublic = async (req: Request, res: Response) => {
     try {
+      const searchT0 = Date.now();
       const q = String(req.query.q || "").trim();
       const minP = req.query.min_price != null ? Number(req.query.min_price) : null;
       const maxP = req.query.max_price != null ? Number(req.query.max_price) : null;
@@ -98,6 +137,15 @@ export function createListingsHttpApp() {
         LIMIT 50
       `;
       const result = await pool.query(sql, params);
+      const dbMs = Date.now() - searchT0;
+      if (process.env.LISTINGS_HTTP_TIMING === "1" || process.env.LISTINGS_HTTP_TIMING === "true") {
+        const dbMin = Number(process.env.LISTINGS_HTTP_SEARCH_DB_MIN_MS ?? "50");
+        if (dbMs >= dbMin) {
+          console.log(
+            `[listings-http-search-db] ms=${dbMs} rows=${result.rowCount} has_q=${q ? "1" : "0"}`,
+          );
+        }
+      }
       res.json({ items: result.rows.map((r) => rowToJson(r)) });
     } catch (e) {
       console.error("[listings HTTP search]", e);

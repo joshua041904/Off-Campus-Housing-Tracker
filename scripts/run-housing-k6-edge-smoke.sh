@@ -22,6 +22,13 @@ LOAD="$SCRIPT_DIR/load"
 # shellcheck source=lib/edge-test-url.sh
 source "$SCRIPT_DIR/lib/edge-test-url.sh"
 
+if [[ -f "$SCRIPT_DIR/lib/k6-suite-resource-hooks.sh" ]]; then
+  # shellcheck source=lib/k6-suite-resource-hooks.sh
+  source "$SCRIPT_DIR/lib/k6-suite-resource-hooks.sh"
+else
+  k6_suite_after_k6_block() { return 0; }
+fi
+
 [[ "${SKIP_K6_GRID:-0}" == "1" ]] && { echo "SKIP_K6_GRID=1 — skipping"; exit 0; }
 
 command -v k6 >/dev/null 2>&1 || { echo "k6 not installed"; exit 1; }
@@ -57,33 +64,42 @@ _k6_run() {
     "$@"
 }
 
+# $3: 1 = constant-arrival-rate script (extra cooldown + optional envoy restart); 0 = default VU/duration
 _run() {
   local name="$1"
   local file="$2"
-  shift 2
+  local is_car="${3:-0}"
+  shift 3
   echo ""
   echo "━━ k6 smoke: $name ━━"
   export DURATION="$DUR" VUS="$VUS"
-  _k6_run "$@" "$LOAD/$file" || return 1
+  local _k6_rc=0
+  _k6_run "$LOAD/$file" || _k6_rc=$?
+  k6_suite_after_k6_block "k6-smoke-${name}" "$is_car" || return $?
+  [[ "$_k6_rc" -ne 0 ]] && return "$_k6_rc"
+  return 0
 }
 
 say() { printf "\n\033[1m%s\033[0m\n" "$*"; }
 
 say "run-housing-k6-edge-smoke (BASE_URL=$BASE_URL, SSL_CERT_FILE=$SSL_CERT_FILE)"
 
-for pair in \
-  "gateway-health:k6-gateway-health.js" \
-  "auth-health:k6-auth-service-health.js" \
-  "listings-health:k6-listings-health.js" \
-  "booking-health:k6-booking-health.js" \
-  "trust-public:k6-trust-public.js" \
-  "analytics-public:k6-analytics-public.js" \
-  "messaging:k6-messaging.js" \
-  "media-health:k6-media-health.js" \
-  "event-layer-adversarial:k6-event-layer-adversarial.js"; do
-  name="${pair%%:*}"
-  file="${pair#*:}"
-  _run "$name" "$file" || {
+# Third field: 1 after k6 constant-arrival-rate scripts (see scripts/load/*.js)
+for triple in \
+  "gateway-health:k6-gateway-health.js:0" \
+  "auth-health:k6-auth-service-health.js:0" \
+  "listings-health:k6-listings-health.js:0" \
+  "booking-health:k6-booking-health.js:0" \
+  "trust-public:k6-trust-public.js:0" \
+  "analytics-public:k6-analytics-public.js:0" \
+  "messaging:k6-messaging.js:1" \
+  "media-health:k6-media-health.js:1" \
+  "event-layer-adversarial:k6-event-layer-adversarial.js:0"; do
+  name="${triple%%:*}"
+  rest="${triple#*:}"
+  is_car="${rest##*:}"
+  file="${rest%:*}"
+  _run "$name" "$file" "$is_car" || {
     echo "⚠️  $name failed"
     [[ "${K6_GRID_STRICT:-0}" == "1" ]] && exit 1
     true
@@ -92,7 +108,7 @@ done
 
 if [[ "${SKIP_K6_ANALYTICS_LISTING_FEEL:-0}" != "1" ]]; then
   export DURATION="${K6_ANALYTICS_FEEL_DURATION:-45s}" VUS="${K6_ANALYTICS_FEEL_VUS:-2}"
-  _run "analytics-listing-feel" "k6-analytics-listing-feel.js" || {
+  _run "analytics-listing-feel" "k6-analytics-listing-feel.js" 0 || {
     echo "⚠️  analytics-listing-feel failed (Ollama cold/down? SKIP_K6_ANALYTICS_LISTING_FEEL=1 to skip)"
     [[ "${K6_GRID_STRICT:-0}" == "1" ]] && exit 1
     true
@@ -107,9 +123,19 @@ if [[ "${SKIP_K6_BOOKING_SEARCH:-0}" != "1" ]]; then
     [[ "${K6_GRID_STRICT:-0}" == "1" ]] && exit 1
     true
   }
+  k6_suite_after_k6_block "k6-smoke-booking-jwt" 0 || {
+    echo "⚠️  k6 suite hook failed after booking"
+    [[ "${K6_GRID_STRICT:-0}" == "1" ]] && exit 1
+    true
+  }
   export DURATION="${K6_SEARCH_DURATION:-25s}" VUS="${K6_SEARCH_VUS:-6}"
   _k6_run "$LOAD/k6-search-watchlist.js" || {
     echo "⚠️  k6-search-watchlist failed"
+    [[ "${K6_GRID_STRICT:-0}" == "1" ]] && exit 1
+    true
+  }
+  k6_suite_after_k6_block "k6-smoke-search-watchlist" 0 || {
+    echo "⚠️  k6 suite hook failed after search-watchlist"
     [[ "${K6_GRID_STRICT:-0}" == "1" ]] && exit 1
     true
   }

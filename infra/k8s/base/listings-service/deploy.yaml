@@ -51,6 +51,13 @@ spec:
               value: "dev"
             - name: LISTING_EVENTS_TOPIC
               value: "dev.listing.events"
+            # Diagnostics: set to 1 to log slow HTTP requests + optional pool stats (docs/perf/LISTINGS_HTTP_TIMING.md)
+            - name: LISTINGS_HTTP_TIMING
+              value: "0"
+            - name: LISTINGS_HTTP_TIMING_MIN_MS
+              value: "1000"
+            - name: LISTINGS_HTTP_POOL_STATS_MS
+              value: "0"
             - name: GRPC_REQUIRE_CLIENT_CERT
               value: "true"
             - name: TLS_CA_PATH
