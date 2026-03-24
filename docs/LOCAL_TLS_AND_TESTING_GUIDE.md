@@ -1,4 +1,4 @@
-# Certs & testing — step-by-step (Off-Campus Housing Tracker)
+# Local TLS and testing guide (Off-Campus Housing Tracker)
 
 This is the **checklist order** that matches what the cluster and scripts expect. Do not skip steps unless you know why.
 

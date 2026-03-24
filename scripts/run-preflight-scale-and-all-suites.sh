@@ -47,6 +47,7 @@ fi
 #   RUN_MESSAGING_LOAD=1 (default) — after Vitest + housing scripts, run k6 edge smoke grid (run-housing-k6-edge-smoke.sh) if k6 is installed.
 #   RUN_K6_SERVICE_GRID=0 — skip the full k6 per-service smoke (gateway, auth, listings, booking health, trust, analytics, messaging, media, event-layer + booking/search JWT).
 #   RUN_PREFLIGHT_PLAYWRIGHT=0 — skip Playwright E2E (https edge /api/readyz wait + tests against E2E_API_BASE).
+#   PREFLIGHT_VERBOSE_HOUSING_MESSAGING_SUITE=1 — step 7a: show "Housing HTTP/2 + HTTP/3 suite done" and run ensure-messaging-schema.psql (noisy DDL). Default: quieter preflight (schema already applied by bring-up / migrations; re-run manually if needed: ./scripts/ensure-messaging-schema.sh).
 #   PREFLIGHT_EXIT_AFTER_HOUSING_SUITES=1 — exit after step 7a (Vitest + housing HTTP suite + k6 grid + Playwright); skip transport study / in-cluster k6 / step 8 pgbench. make demo sets this to 1; make demo-full sets 0.
 #     Set RUN_MESSAGING_LOAD=0 to skip. Tune: K6_MESSAGING_DURATION, K6_MESSAGING_RATE, K6_MESSAGING_VUS, K6_MEDIA_*.
 #   Preflight does not apply DB migrations or infra/db/*.sql; run scripts/setup-*-db.sh or scripts/ensure-*.sh manually when schema changes.
@@ -2255,8 +2256,16 @@ _run_all_suites() {
   say "7a. Running service Vitest suites (messaging-service + media-service tests/)..."
   pnpm -C "$REPO_ROOT/services/messaging-service" test || return 1
   pnpm -C "$REPO_ROOT/services/media-service" test || return 1
-  "$SCRIPT_DIR/test-microservices-http2-http3-housing.sh" || return 1
-  "$SCRIPT_DIR/test-messaging-service-comprehensive.sh" || return 1
+  # Housing + messaging edge suites: by default skip redundant banner + ensure-messaging-schema (psql spam every preflight).
+  if [[ "${PREFLIGHT_VERBOSE_HOUSING_MESSAGING_SUITE:-0}" == "1" ]]; then
+    "$SCRIPT_DIR/test-microservices-http2-http3-housing.sh" || return 1
+    "$SCRIPT_DIR/test-messaging-service-comprehensive.sh" || return 1
+  else
+    ( export SKIP_HOUSING_HTTP_SUITE_DONE_BANNER=1
+      "$SCRIPT_DIR/test-microservices-http2-http3-housing.sh" ) || return 1
+    ( export SKIP_ENSURE_MESSAGING_SCHEMA=1
+      "$SCRIPT_DIR/test-messaging-service-comprehensive.sh" ) || return 1
+  fi
   # k6: full per-service edge grid (health + public + messaging + media + event-layer + booking/search JWT flows).
   if [[ "${RUN_MESSAGING_LOAD:-1}" != "0" ]] && [[ "${RUN_K6_SERVICE_GRID:-1}" != "0" ]] && command -v k6 >/dev/null 2>&1; then
     _k6_ca="$REPO_ROOT/certs/dev-root.pem"
@@ -2295,7 +2304,7 @@ _run_all_suites() {
     info "7a3 k6 skipped: k6 not on PATH (install: brew install k6; or RUN_MESSAGING_LOAD=0 / RUN_K6_SERVICE_GRID=0)"
   fi
   if [[ "${RUN_PREFLIGHT_PLAYWRIGHT:-1}" != "0" ]]; then
-    say "7a8. Playwright E2E (webapp via edge; no port-forward)…"
+    say '7a8. Playwright E2E (webapp via edge; no port-forward)...'
     chmod +x "$SCRIPT_DIR/run-playwright-e2e-preflight.sh" 2>/dev/null || true
     "$SCRIPT_DIR/run-playwright-e2e-preflight.sh" || warn "Playwright E2E had failures (see log; set RUN_PREFLIGHT_PLAYWRIGHT=0 to skip)"
   fi
@@ -2323,7 +2332,7 @@ fi
 # --- Step 7c: In-cluster k6 (transport isolation — Pod → Caddy ClusterIP, no host/VM in path) ---
 # RUN_K6_IN_CLUSTER=1 when RUN_K6=1 (default); set RUN_K6_IN_CLUSTER=0 to skip. Requires k6-custom image in cluster (build-k6-image.sh).
 if [[ "${RUN_K6:-0}" == "1" ]] && [[ "${RUN_K6_IN_CLUSTER:-1}" == "1" ]] && [[ -f "$SCRIPT_DIR/run-k6-in-cluster.sh" ]]; then
-  say "7c. In-cluster k6 (transport isolation: Pod → Caddy ClusterIP)"
+  say '7c. In-cluster k6 (transport isolation: Pod → Caddy ClusterIP)'
   info "  Ensures k6-ca-cert ConfigMap; runs k6 Job with no LB IP (ClusterIP only). See docs/ROTATION_RUNBOOK_CA_LEAF.md."
   ( set +e; DURATION="${K6_IN_CLUSTER_DURATION:-30s}" "$SCRIPT_DIR/run-k6-in-cluster.sh" ) || warn "In-cluster k6 had issues (check k6-custom image and k6-load namespace)"
   if [[ -f "$SCRIPT_DIR/lib/k6-suite-resource-hooks.sh" ]]; then

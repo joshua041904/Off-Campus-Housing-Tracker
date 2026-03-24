@@ -1545,4 +1545,5 @@ else
   info "Test 18 skipped (SKIP_BOOKING_IN_HOUSING_SUITE=1)"
 fi
 
-say "=== Housing HTTP/2 + HTTP/3 suite done ==="
+# Preflight sets SKIP_HOUSING_HTTP_SUITE_DONE_BANNER=1 to avoid redundant footer line every run.
+[[ "${SKIP_HOUSING_HTTP_SUITE_DONE_BANNER:-0}" != "1" ]] && say "=== Housing HTTP/2 + HTTP/3 suite done ==="

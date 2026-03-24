@@ -1,2 +1,0 @@
-Appending kubectl top every 8s → /Users/tom/Off-Campus-Housing-Tracker/bench_logs/cluster-contention-watch-harsh-20260323-194715.log
-Ctrl+C to stop (or set CONTENTION_WATCH_MAX_ITER for batch mode)

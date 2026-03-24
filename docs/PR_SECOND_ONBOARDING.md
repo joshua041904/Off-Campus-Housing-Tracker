@@ -146,7 +146,7 @@ KAFKA_SSL=1 ./scripts/reissue-ca-and-leaf-load-all-services.sh
 
 ### `/etc/hosts`
 
-Point the edge hostname at your **MetalLB** (or test) IP as documented in **`docs/CERTS_AND_TESTING_FOR_MORTALS.md`** / **`RUN-PREFLIGHT.md`**.
+Point the edge hostname at your **MetalLB** (or test) IP as documented in **`docs/LOCAL_TLS_AND_TESTING_GUIDE.md`** / **`RUN-PREFLIGHT.md`**.
 
 ---
 
@@ -236,7 +236,7 @@ More detail: **`docs/RUN-PREFLIGHT.md`**, script header in **`scripts/run-prefli
 
 - **`docs/CERT_GENERATION_STRICT_TLS_MTLS.md`** — CA, JKS, secrets table  
 - **`docs/RUN-PREFLIGHT.md`** — preflight env vars and steps  
-- **`docs/CERTS_AND_TESTING_FOR_MORTALS.md`** — edge hostname, trust, smoke curls  
+- **`docs/LOCAL_TLS_AND_TESTING_GUIDE.md`** — edge hostname, trust, smoke curls  
 - **`backups/README.md`** — backup / restore  
 - **`scripts/bring-up-cluster-and-infra.sh`** — single entrypoint  
 - **`docs/perf/CLUSTER_CONTENTION_WATCH.md`** — optional contention logging  

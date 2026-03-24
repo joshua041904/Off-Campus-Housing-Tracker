@@ -20,7 +20,7 @@
 
 **Schema inspection (90):** OCH auth schema may omit RP-only tables; keep `scripts/inspect-external-db-schemas.sh` expectations in sync with `bench_logs/schema-report-*.md` for this repo.
 
-**Readable checklist for humans:** `docs/CERTS_AND_TESTING_FOR_MORTALS.md`.
+**Local TLS and testing (step-by-step):** `docs/LOCAL_TLS_AND_TESTING_GUIDE.md`.
 
 # Runbook: Kubernetes Cluster Stabilization Issues & Solutions
 

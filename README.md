@@ -469,9 +469,9 @@ Ensure manifests and Caddy/Envoy route to the gateway at **4020** and to these h
 
 **MetalLB:** The pool must be on the **same L2 subnet as your node** (Colima often uses `192.168.64.x`). If the pool is wrong (e.g. `192.168.5.x` while the node is `192.168.64.x`), the Mac will see **HTTP 000** / timeouts to the LoadBalancer IP — fix with `./scripts/apply-metallb-pool-colima.sh` or set `METALLB_POOL` accordingly, then recreate `caddy-h3` if needed. For two clusters on one Mac, use a **different L2 pool** per cluster (e.g. `192.168.64.240-192.168.64.250` vs `251-260`). This project’s docker-compose uses Redis **6380**, Kafka **29094**, and Zookeeper **2182** by default. Use `CADDY_NODEPORT=30444` when deploying Caddy on a conflicting NodePort.
 
-### Certs, secrets, and how to run tests (readable checklist)
+### Certs, secrets, and how to run tests
 
-**Full walkthrough:** **[docs/CERTS_AND_TESTING_FOR_MORTALS.md](docs/CERTS_AND_TESTING_FOR_MORTALS.md)** — generates every artifact the cluster expects (dev CA, edge leaf, service mTLS, Envoy client, Kafka files), loads K8s secrets, `/etc/hosts` + `--resolve` for curl/k6, messaging Vitest + Redis, and which scripts to run in order.
+**Guide:** **[docs/LOCAL_TLS_AND_TESTING_GUIDE.md](docs/LOCAL_TLS_AND_TESTING_GUIDE.md)** — generates the artifacts the cluster expects (dev CA, edge leaf, service mTLS, Envoy client, Kafka files), loads K8s secrets, `/etc/hosts` + `--resolve` for curl/k6, messaging Vitest + Redis, and which scripts to run in order.
 
 **After CA rotation:** **[docs/CA_ROTATION_AND_CLIENT_TRUST.md](docs/CA_ROTATION_AND_CLIENT_TRUST.md)** — gRPC probe tuning, Kafka external + Colima, ordered rollout, **k6 `--tls-ca-cert`**, dual-CA workflow.
 
@@ -576,7 +576,7 @@ After cluster + infra are up, you can run the full preflight (images, TLS, Caddy
 
 Preflight step **7a** runs, in order: **`pnpm -C services/messaging-service test`** and **`pnpm -C services/media-service test`** (Vitest, under each service’s `tests/`), **`scripts/test-microservices-http2-http3-housing.sh`** (auth + messaging + media health, gRPC, latency SVG), **`scripts/test-messaging-service-comprehensive.sh`** (messaging/forum via edge; `test-social-service-comprehensive.sh` is a deprecated wrapper), then optional **k6** `scripts/load/k6-messaging.js` + `scripts/load/k6-media-health.js` + **`scripts/load/k6-event-layer-adversarial.js`** (event-layer companion / adversarial edge load when using `run-k6-all-services.sh`).
 
-For a **housing-only** HTTP/2 + HTTP/3 smoke (auth register/login, messaging, media checks), run **`./scripts/test-microservices-http2-http3-housing.sh`**. For more detail see **Runbook.md**, **`docs/CERTS_AND_TESTING_FOR_MORTALS.md`**, and the comments in `scripts/run-preflight-scale-and-all-suites.sh`.
+For a **housing-only** HTTP/2 + HTTP/3 smoke (auth register/login, messaging, media checks), run **`./scripts/test-microservices-http2-http3-housing.sh`**. For more detail see **Runbook.md**, **`docs/LOCAL_TLS_AND_TESTING_GUIDE.md`**, and the comments in `scripts/run-preflight-scale-and-all-suites.sh`.
 
 ### Strict TLS k6 and HTTP/3 (xk6-http3)
 

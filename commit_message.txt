@@ -32,7 +32,8 @@ OTHER CHANGES IN THIS INTEGRATED PR
   • **Gateway / transport / housing** — **api-gateway/server.ts** (JSON **4xx** vs 500), **packet-capture-v2.sh**, **test-microservices-http2-http3-housing.sh**.
   • **Perf** — **scripts/perf/** EXPLAIN + k6 report scripts, **run-k6-cross-service-isolation.sh**, **watch-cluster-contention.sh**, **CLUSTER_CONTENTION_WATCH.md**.
   • **Docs / PR body** — **GITHUB_PR_DESCRIPTION.txt** (review split Joshua/Franco/Arkar; **§3 cross-platform** prerequisites; **§4 green team**: **setup-new-colima-cluster.sh**, **bring-up-external-infra.sh**, **bring-up-cluster-and-infra.sh**, MetalLB, TLS order). **docs/PR_SECOND_ONBOARDING.md** aligned. **GITHUB_PR_DESCRIPTION_SECOND.txt** points to §4 when single PR.
-  • **Shell** — **run-preflight-scale-and-all-suites.sh** Phase **A/C** closing fix (no stacked **fi** parse issue); **_phase_a_only** exit uses **&& { … }** group.
+  • **Docs rename** — **`docs/CERTS_AND_TESTING_FOR_MORTALS.md`** → **`docs/LOCAL_TLS_AND_TESTING_GUIDE.md`** (neutral title); README, Runbook, **FIRST_TIME_TEAM_SETUP**, **RUN_PIPELINE_ORDER**, **PR_SECOND_ONBOARDING**, PR body links updated.
+  • **Shell** — **run-preflight-scale-and-all-suites.sh** Phase **A/C** closing fix (no stacked **fi** parse issue); **_phase_a_only** exit uses **&& { … }** group; **say** lines with parentheses use **single-quoted** messages + ASCII **`...`** (avoids subshell/parse edge cases around **`(`** / Unicode ellipsis on some setups).
 
 WHERE TO READ / PASTE
 ---------------------
