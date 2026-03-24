@@ -8,6 +8,12 @@
     "start": "next start",
     "lint": "next lint",
     "test:e2e": "NODE_EXTRA_CA_CERTS=$PWD/../certs/dev-root.pem playwright test",
+    "test:e2e:01-guest-shell": "NODE_EXTRA_CA_CERTS=$PWD/../certs/dev-root.pem playwright test --project=01-guest-shell",
+    "test:e2e:02-auth-booking": "NODE_EXTRA_CA_CERTS=$PWD/../certs/dev-root.pem playwright test --project=02-auth-booking",
+    "test:e2e:03-listings": "NODE_EXTRA_CA_CERTS=$PWD/../certs/dev-root.pem playwright test --project=03-listings",
+    "test:e2e:04-analytics": "NODE_EXTRA_CA_CERTS=$PWD/../certs/dev-root.pem playwright test --project=04-analytics",
+    "test:e2e:05-screenshots": "E2E_SCREENSHOTS=1 NODE_EXTRA_CA_CERTS=$PWD/../certs/dev-root.pem playwright test --project=05-optional-screenshots",
+    "test:e2e:smoke": "NODE_EXTRA_CA_CERTS=$PWD/../certs/dev-root.pem playwright test --project=01-guest-shell --project=04-analytics",
     "test:e2e:strict-edge": "sh ../scripts/webapp-playwright-strict-edge.sh",
     "test:e2e:ui": "NODE_EXTRA_CA_CERTS=$PWD/../certs/dev-root.pem playwright test --ui",
     "test:e2e:headed": "NODE_EXTRA_CA_CERTS=$PWD/../certs/dev-root.pem playwright test --headed"

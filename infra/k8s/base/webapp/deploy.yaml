@@ -29,6 +29,15 @@ spec:
               value: "1"
             - name: NEXT_PUBLIC_API_BASE
               value: "https://off-campus-housing.test"
+            # Optional: Maps Embed API key (browser-only; see docs/WEBAPP_GOOGLE_MAPS_AND_DEPLOY.txt).
+            # Create: kubectl create secret generic webapp-runtime-secrets -n off-campus-housing-tracker \
+            #   --from-literal=NEXT_PUBLIC_GOOGLE_MAPS_API_KEY='YOUR_KEY' --dry-run=client -o yaml | kubectl apply -f -
+            - name: NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: webapp-runtime-secrets
+                  key: NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+                  optional: true
           command:
             - pnpm
             - --filter

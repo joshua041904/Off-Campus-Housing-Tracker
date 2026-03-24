@@ -128,92 +128,93 @@ export default function AnalyticsPage() {
   }, [date]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-stone-950 via-stone-900 to-stone-950 text-stone-100">
+    <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-emerald-50/50 text-slate-900">
       <Nav email={email} />
       <main className="mx-auto max-w-3xl px-4 py-10">
-        <h1 className="font-serif text-3xl text-amber-50" data-testid="analytics-heading">
+        <h1 className="font-serif text-3xl text-slate-900" data-testid="analytics-heading">
           Analytics &amp; insights
         </h1>
-        <p className="mt-2 text-sm text-stone-400">
+        <p className="mt-2 text-sm text-slate-600">
           Read-only aggregates from analytics-service. Listing “feel” uses Ollama when the cluster has{" "}
-          <code className="rounded bg-stone-800 px-1">OLLAMA_BASE_URL</code>.
+          <code className="rounded bg-slate-200 px-1 text-xs text-slate-800">OLLAMA_BASE_URL</code>.
         </p>
 
-        <section className="mt-8 rounded-xl border border-stone-800 bg-stone-900/40 p-6">
-          <h2 className="text-lg font-medium text-amber-100">Daily metrics</h2>
+        <section className="mt-8 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
+          <h2 className="text-lg font-medium text-slate-900">Daily metrics</h2>
           <form onSubmit={loadMetrics} className="mt-4 flex flex-wrap items-end gap-3">
             <input
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
-              className="rounded-md border border-stone-700 bg-stone-950 px-3 py-2"
+              className="rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 shadow-sm"
             />
             <button
               type="submit"
               disabled={loading}
-              className="rounded-md bg-amber-600 px-4 py-2 font-medium text-stone-950 hover:bg-amber-500 disabled:opacity-50"
+              className="rounded-md bg-teal-600 px-4 py-2 font-medium text-white hover:bg-teal-500 disabled:opacity-50"
             >
               Load
             </button>
           </form>
           {metrics && (
-            <pre className="mt-4 overflow-x-auto rounded-md bg-stone-950 p-4 text-xs text-stone-300">
+            <pre className="mt-4 overflow-x-auto rounded-xl border border-slate-200 bg-slate-900 p-4 text-xs text-teal-100/95">
               {JSON.stringify(metrics, null, 2)}
             </pre>
           )}
         </section>
 
         {token && sub && (
-          <section className="mt-8 rounded-xl border border-stone-800 bg-stone-900/40 p-6">
-            <h2 className="text-lg font-medium text-amber-100">Watchlist funnel (30d)</h2>
+          <section className="mt-8 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
+            <h2 className="text-lg font-medium text-slate-900">Watchlist funnel (30d)</h2>
             <form onSubmit={loadInsights} className="mt-4">
               <button
                 type="submit"
                 disabled={loading}
-                className="rounded-md border border-stone-600 px-4 py-2 text-stone-200 hover:bg-stone-800 disabled:opacity-50"
+                className="rounded-md border border-slate-300 bg-white px-4 py-2 font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
               >
                 Load my stats
               </button>
             </form>
             {insights && (
-              <p className="mt-4 text-sm text-stone-300">
-                Adds (30d): <strong>{insights.watchlist_adds_30d ?? 0}</strong>
-                {insights.notes && <span className="block text-xs text-stone-500">{insights.notes}</span>}
+              <p className="mt-4 text-sm text-slate-600">
+                Adds (30d): <strong className="text-slate-900">{insights.watchlist_adds_30d ?? 0}</strong>
+                {insights.notes && <span className="mt-1 block text-xs text-slate-500">{insights.notes}</span>}
               </p>
             )}
           </section>
         )}
 
         {token && sub && (
-          <section className="mt-8 rounded-xl border border-stone-800 bg-stone-900/40 p-6">
-            <h2 className="text-lg font-medium text-amber-100">Past searches (analytics → booking read)</h2>
-            <p className="mt-1 text-xs text-stone-500">
-              Same rows as booking history, via analytics when <code className="rounded bg-stone-800 px-1">POSTGRES_URL_BOOKINGS</code>{" "}
-              is set on analytics-service. Feeds digest / notification work later.
+          <section className="mt-8 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
+            <h2 className="text-lg font-medium text-slate-900">Past searches (analytics → booking read)</h2>
+            <p className="mt-1 text-xs text-slate-600">
+              Same rows as booking history, via analytics when{" "}
+              <code className="rounded bg-slate-200 px-1 text-slate-800">POSTGRES_URL_BOOKINGS</code> is set on
+              analytics-service. Feeds digest / notification work later.
             </p>
             <form onSubmit={loadSearchSummary} className="mt-4">
               <button
                 type="submit"
                 disabled={loading}
-                className="rounded-md border border-stone-600 px-4 py-2 text-stone-200 hover:bg-stone-800 disabled:opacity-50"
+                className="rounded-md border border-slate-300 bg-white px-4 py-2 font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
               >
                 Load my search summary
               </button>
             </form>
             {searchSummary && (
-              <div className="mt-4 space-y-2 text-sm text-stone-300">
-                {searchSummary.hint && <p className="text-xs text-amber-200/90">{searchSummary.hint}</p>}
+              <div className="mt-4 space-y-2 text-sm text-slate-700">
+                {searchSummary.hint && <p className="text-xs font-medium text-teal-800">{searchSummary.hint}</p>}
                 {searchSummary.notification_hook && (
-                  <p className="text-xs text-stone-500">{searchSummary.notification_hook}</p>
+                  <p className="text-xs text-slate-500">{searchSummary.notification_hook}</p>
                 )}
                 {searchSummary.items.length === 0 ? (
-                  <p className="text-stone-500">No rows (or booking DB not wired).</p>
+                  <p className="text-slate-500">No rows (or booking DB not wired).</p>
                 ) : (
                   <ul className="max-h-48 list-disc space-y-1 overflow-y-auto pl-5 text-xs">
                     {searchSummary.items.slice(0, 10).map((it, i) => (
                       <li key={i}>
                         {(it.query || "—") as string}{" "}
-                        <span className="text-stone-500">
+                        <span className="text-slate-500">
                           {it.created_at ? new Date(it.created_at).toLocaleString() : ""}
                         </span>
                       </li>
@@ -225,22 +226,22 @@ export default function AnalyticsPage() {
           </section>
         )}
 
-        <section className="mt-8 rounded-xl border border-stone-800 bg-stone-900/40 p-6">
-          <h2 className="text-lg font-medium text-amber-100">Listing assistant (landlord / renter)</h2>
+        <section className="mt-8 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
+          <h2 className="text-lg font-medium text-slate-900">Listing assistant (landlord / renter)</h2>
           <form data-testid="analytics-listing-feel-form" onSubmit={runFeel} className="mt-4 space-y-3">
             <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="w-full rounded-md border border-stone-700 bg-stone-950 px-3 py-2"
+              className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 shadow-sm"
               placeholder="Title"
             />
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
-              className="w-full rounded-md border border-stone-700 bg-stone-950 px-3 py-2"
+              className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 shadow-sm"
             />
-            <div className="flex flex-wrap gap-4">
+            <div className="flex flex-wrap gap-4 text-slate-700">
               <label className="text-sm">
                 Price (USD)
                 <input
@@ -248,11 +249,12 @@ export default function AnalyticsPage() {
                   step="0.01"
                   value={priceUsd}
                   onChange={(e) => setPriceUsd(e.target.value)}
-                  className="ml-2 rounded-md border border-stone-700 bg-stone-950 px-2 py-1"
+                  className="ml-2 rounded-md border border-slate-300 bg-white px-2 py-1 text-slate-900 shadow-sm"
                 />
               </label>
               <label className="flex items-center gap-2 text-sm">
                 <input
+                  data-testid="analytics-audience-renter"
                   type="radio"
                   checked={audience === "renter"}
                   onChange={() => setAudience("renter")}
@@ -261,6 +263,7 @@ export default function AnalyticsPage() {
               </label>
               <label className="flex items-center gap-2 text-sm">
                 <input
+                  data-testid="analytics-audience-landlord"
                   type="radio"
                   checked={audience === "landlord"}
                   onChange={() => setAudience("landlord")}
@@ -271,7 +274,7 @@ export default function AnalyticsPage() {
             <button
               type="submit"
               disabled={loading}
-              className="rounded-md bg-amber-700/90 px-4 py-2 font-medium text-stone-950 hover:bg-amber-600 disabled:opacity-50"
+              className="rounded-md bg-teal-600 px-4 py-2 font-medium text-white hover:bg-teal-500 disabled:opacity-50"
             >
               Analyze
             </button>
@@ -279,21 +282,21 @@ export default function AnalyticsPage() {
           {feel && (
             <div
               data-testid="analytics-feel-output"
-              className="mt-4 rounded-md border border-stone-800 bg-stone-950/80 p-4 text-sm text-stone-300 whitespace-pre-wrap"
+              className="mt-4 rounded-md border border-teal-100 bg-teal-50/60 p-4 text-sm text-slate-800 whitespace-pre-wrap"
             >
               {feel}
             </div>
           )}
         </section>
 
-        {err && <p className="mt-6 text-sm text-red-400">{err}</p>}
+        {err && <p className="mt-6 text-sm text-red-600">{err}</p>}
 
-        <p className="mt-8 text-sm text-stone-500">
-          <Link href="/dashboard" className="text-amber-400 hover:underline">
+        <p className="mt-8 text-sm text-slate-600">
+          <Link href="/dashboard" className="font-medium text-teal-700 hover:underline">
             Dashboard
           </Link>{" "}
           ·{" "}
-          <Link href="/listings" className="text-amber-400 hover:underline">
+          <Link href="/listings" className="font-medium text-teal-700 hover:underline">
             Listings
           </Link>
         </p>

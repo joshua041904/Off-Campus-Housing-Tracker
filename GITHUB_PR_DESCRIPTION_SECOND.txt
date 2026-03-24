@@ -1,9 +1,19 @@
-# Use `GITHUB_PR_DESCRIPTION.txt` only
+# Which PR description to paste
 
-**Deprecated split PR paste.** Onboarding (green team), **Ollama**, k6 hooks, **`scripts/perf/`**, and the full testing map are all in **`GITHUB_PR_DESCRIPTION.txt`**. Paste that file into your PR description.
+| PR scope | Paste this file into GitHub |
+|----------|----------------------------|
+| **Main platform** (Colima/k3s, preflight, k6, Ollama, listings diagnostics, gateway, perf) | **`GITHUB_PR_DESCRIPTION.txt`** |
+| **Second PR: webapp visuals + full Playwright command matrix + listings browser coverage** | **`GITHUB_PR_DESCRIPTION_LISTINGS_E2E.txt`** |
 
-| Doc | Role |
-|-----|------|
-| **`GITHUB_PR_DESCRIPTION.txt`** | Single canonical PR body (review split + **§4** first-time / green team + **§4.7** Ollama + §6 testing map + §7 recipes) |
-| **`docs/PR_SECOND_ONBOARDING.md`** | Editable deep-dive runbook — keep in sync with bring-up / certs |
-| **`docs/PR_FIRST_CONTRIBUTION.md`** | First-contribution pointer |
+Supporting docs (plain text where noted):
+
+- `docs/WEBAPP_GOOGLE_MAPS_AND_DEPLOY.txt` — Google Cloud, Docker build-arg, kubectl, listings rollout, E2E.
+- `docs/WEBAPP_E2E_ARCHITECTURE.txt` — E2E edge, listings query params, risks.
+- `docs/PR_SECOND_ONBOARDING.md` — Deep-dive bring-up (Markdown); keep in sync with infra changes.
+
+Merge order:
+
+1. **PR1 first** → `GITHUB_PR_DESCRIPTION.txt`
+2. **PR2 second** → `GITHUB_PR_DESCRIPTION_LISTINGS_E2E.txt`
+
+The old “deprecated split” note is superseded: use the two rows above with this merge order.

@@ -102,29 +102,29 @@ export default function TrustPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-stone-950 via-stone-900 to-stone-950 text-stone-100">
+    <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-emerald-50/50 text-slate-900">
       <Nav email={email} />
       <main className="mx-auto max-w-3xl px-4 py-10">
-        <h1 className="font-serif text-3xl text-amber-50">Trust &amp; safety</h1>
-        <p className="mt-2 text-sm text-stone-400">
+        <h1 className="font-serif text-3xl text-slate-900">Trust &amp; safety</h1>
+        <p className="mt-2 text-sm text-slate-600">
           Report abuse and submit peer reviews via gateway → trust-service. Reputation lookup is public.
         </p>
 
-        <section className="mt-10 rounded-xl border border-stone-800 bg-stone-900/40 p-6">
-          <h2 className="text-lg font-medium text-amber-100">Reputation</h2>
+        <section className="mt-10 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
+          <h2 className="text-lg font-medium text-slate-900">Reputation</h2>
           <form data-testid="trust-reputation-form" onSubmit={onReputation} className="mt-4 flex flex-col gap-3 sm:flex-row">
             <input
               data-testid="trust-reputation-user-id"
               value={repUserId}
               onChange={(e) => setRepUserId(e.target.value)}
               placeholder="user UUID"
-              className="flex-1 rounded-md border border-stone-700 bg-stone-950 px-3 py-2 font-mono text-sm"
+              className="flex-1 rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 shadow-sm"
             />
             <button
               type="submit"
               disabled={loading}
               data-testid="trust-reputation-submit"
-              className="rounded-md bg-amber-600 px-4 py-2 font-medium text-stone-950 hover:bg-amber-500 disabled:opacity-50"
+              className="rounded-md bg-teal-600 px-4 py-2 font-medium text-white hover:bg-teal-500 disabled:opacity-50"
             >
               Look up
             </button>
@@ -132,25 +132,25 @@ export default function TrustPage() {
           {mySub && (
             <button
               type="button"
-              className="mt-2 text-xs text-amber-400/90 hover:underline"
+              className="mt-2 text-xs font-medium text-teal-700 hover:underline"
               onClick={() => setRepUserId(mySub)}
             >
               Use my account id
             </button>
           )}
           {repScore != null && (
-            <p data-testid="trust-reputation-score" className="mt-4 text-sm text-stone-300">
-              Score: <strong className="text-amber-200">{repScore}</strong>
+            <p data-testid="trust-reputation-score" className="mt-4 text-sm text-slate-600">
+              Score: <strong className="text-teal-800">{repScore}</strong>
             </p>
           )}
         </section>
 
         {token ? (
           <>
-            <section className="mt-8 rounded-xl border border-stone-800 bg-stone-900/40 p-6">
-              <h2 className="text-lg font-medium text-amber-100">Report abuse</h2>
+            <section className="mt-8 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
+              <h2 className="text-lg font-medium text-slate-900">Report abuse</h2>
               <form onSubmit={onReport} className="mt-4 space-y-3">
-                <div className="flex gap-4 text-sm">
+                <div className="flex gap-4 text-sm text-slate-700">
                   <label className="flex items-center gap-2">
                     <input
                       type="radio"
@@ -174,65 +174,67 @@ export default function TrustPage() {
                   value={abuseTarget}
                   onChange={(e) => setAbuseTarget(e.target.value)}
                   placeholder="target UUID"
-                  className="w-full rounded-md border border-stone-700 bg-stone-950 px-3 py-2 font-mono text-sm"
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 shadow-sm"
                   required
                 />
                 <input
                   value={abuseCategory}
                   onChange={(e) => setAbuseCategory(e.target.value)}
                   placeholder="category"
-                  className="w-full rounded-md border border-stone-700 bg-stone-950 px-3 py-2 text-sm"
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm"
                 />
                 <textarea
                   value={abuseDetails}
                   onChange={(e) => setAbuseDetails(e.target.value)}
                   placeholder="details (optional)"
                   rows={3}
-                  className="w-full rounded-md border border-stone-700 bg-stone-950 px-3 py-2 text-sm"
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm"
                 />
                 <button
                   type="submit"
                   disabled={loading}
-                  className="rounded-md border border-red-900/60 bg-red-950/40 px-4 py-2 text-red-100 hover:bg-red-900/30 disabled:opacity-50"
+                  className="rounded-md border border-red-200 bg-red-50 px-4 py-2 font-medium text-red-800 hover:bg-red-100 disabled:opacity-50"
                 >
                   Submit report
                 </button>
               </form>
             </section>
 
-            <section className="mt-8 rounded-xl border border-stone-800 bg-stone-900/40 p-6">
-              <h2 className="text-lg font-medium text-amber-100">Peer review</h2>
-              <p className="mt-1 text-xs text-stone-500">After a booking — both sides can leave a review (unique per booking/reviewer).</p>
+            <section className="mt-8 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
+              <h2 className="text-lg font-medium text-slate-900">Peer review</h2>
+              <p className="mt-1 text-xs text-slate-600">
+                After a booking — both sides can leave a review (unique per booking/reviewer).
+              </p>
               <form onSubmit={onPeerReview} className="mt-4 space-y-3">
                 <input
                   value={bookingId}
                   onChange={(e) => setBookingId(e.target.value)}
                   placeholder="booking UUID"
-                  className="w-full rounded-md border border-stone-700 bg-stone-950 px-3 py-2 font-mono text-sm"
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 shadow-sm"
                   required
                 />
                 <input
                   value={revieweeId}
                   onChange={(e) => setRevieweeId(e.target.value)}
                   placeholder="reviewee user UUID"
-                  className="w-full rounded-md border border-stone-700 bg-stone-950 px-3 py-2 font-mono text-sm"
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 shadow-sm"
                   required
                 />
                 <input
                   value={side}
                   onChange={(e) => setSide(e.target.value)}
                   placeholder="side label e.g. guest | host"
-                  className="w-full rounded-md border border-stone-700 bg-stone-950 px-3 py-2 text-sm"
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm"
                 />
                 <div>
-                  <label className="text-xs text-stone-500">Rating 1–5</label>
+                  <label className="text-xs text-slate-600">Rating 1–5</label>
                   <input
                     type="number"
                     min={1}
                     max={5}
                     value={rating}
                     onChange={(e) => setRating(Number(e.target.value))}
-                    className="mt-1 w-full rounded-md border border-stone-700 bg-stone-950 px-3 py-2"
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 shadow-sm"
                   />
                 </div>
                 <textarea
@@ -240,12 +242,12 @@ export default function TrustPage() {
                   onChange={(e) => setComment(e.target.value)}
                   placeholder="comment"
                   rows={2}
-                  className="w-full rounded-md border border-stone-700 bg-stone-950 px-3 py-2 text-sm"
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm"
                 />
                 <button
                   type="submit"
                   disabled={loading}
-                  className="rounded-md bg-stone-700 px-4 py-2 text-stone-100 hover:bg-stone-600 disabled:opacity-50"
+                  className="rounded-md bg-slate-700 px-4 py-2 font-medium text-white hover:bg-slate-600 disabled:opacity-50"
                 >
                   Submit review
                 </button>
@@ -253,16 +255,16 @@ export default function TrustPage() {
             </section>
           </>
         ) : (
-          <p className="mt-8 text-sm text-stone-500">
-            <Link href="/login" className="text-amber-400 hover:underline">
+          <p className="mt-8 text-sm text-slate-600">
+            <Link href="/login" className="font-medium text-teal-700 hover:underline">
               Log in
             </Link>{" "}
             to report abuse or submit peer reviews.
           </p>
         )}
 
-        {msg && <p className="mt-6 text-sm text-emerald-400">{msg}</p>}
-        {err && <p className="mt-2 text-sm text-red-400">{err}</p>}
+        {msg && <p className="mt-6 text-sm font-medium text-emerald-700">{msg}</p>}
+        {err && <p className="mt-2 text-sm text-red-600">{err}</p>}
       </main>
     </div>
   );

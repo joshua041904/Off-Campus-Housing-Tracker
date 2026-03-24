@@ -20,6 +20,35 @@ function normalizeE2eApiBase(): string {
 
 const baseURL = normalizeE2eApiBase();
 
+const chrome = { ...devices["Desktop Chrome"] };
+
+/**
+ * Logical groups for reports and targeted runs (`pnpm exec playwright test --project=03-listings`).
+ * Every *.spec.ts under e2e/ belongs to exactly one project so no test runs twice.
+ */
+const suiteProjects = [
+  {
+    name: "01-guest-shell",
+    testMatch: ["guest.spec.ts", "webapp-pages.spec.ts", "messaging-mentioned.spec.ts"],
+  },
+  {
+    name: "02-auth-booking",
+    testMatch: ["auth-cycle.spec.ts", "flows.spec.ts"],
+  },
+  {
+    name: "03-listings",
+    testMatch: ["listing-and-analytics-journey.spec.ts", "listings-filters-maps.spec.ts"],
+  },
+  {
+    name: "04-analytics",
+    testMatch: ["analytics-api.spec.ts", "analytics-ui.spec.ts"],
+  },
+  {
+    name: "05-optional-screenshots",
+    testMatch: ["ui-screenshots.spec.ts"],
+  },
+] as const;
+
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
@@ -36,5 +65,9 @@ export default defineConfig({
     },
     trace: "on-first-retry",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: suiteProjects.map((p) => ({
+    name: p.name,
+    use: { ...chrome },
+    testMatch: [...p.testMatch],
+  })),
 });

@@ -149,29 +149,31 @@ export default function DashboardPage() {
 
   if (!ready) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-stone-950 text-stone-400">
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-sky-50 via-white to-emerald-50/50 text-slate-500">
         Loading…
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-stone-950 via-stone-900 to-stone-950 text-stone-100">
+    <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-emerald-50/50 text-slate-900">
       <Nav email={email} />
       <main className="mx-auto max-w-5xl px-4 py-10">
-        <h1 className="font-serif text-3xl text-amber-50">Housing search</h1>
-        <p className="mt-2 max-w-2xl text-sm text-stone-400">
-          Search preferences are stored as <strong>search history</strong> (booking-service). Listings you care about go to
-          your <strong>watchlist</strong> (UUIDs). Browse and post listings on the{" "}
-          <a href="/listings" className="text-amber-400 hover:underline">
+        <h1 className="font-serif text-3xl text-slate-900">Housing search</h1>
+        <p className="mt-2 max-w-2xl text-sm text-slate-600">
+          Search preferences are stored as <strong className="text-slate-800">search history</strong> (booking-service).
+          Listings you care about go to your <strong className="text-slate-800">watchlist</strong> (UUIDs). Browse and post
+          listings on the{" "}
+          <a href="/listings" className="font-medium text-teal-700 hover:underline">
             listings
           </a>{" "}
           page; trust tools on{" "}
-          <a href="/trust" className="text-amber-400 hover:underline">
+          <a href="/trust" className="font-medium text-teal-700 hover:underline">
             trust &amp; safety
           </a>
           . Map preview uses Google Maps Embed when{" "}
-          <code className="rounded bg-stone-800 px-1">NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> is set (same as listings).
+          <code className="rounded bg-slate-200 px-1 text-xs text-slate-800">NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> is set
+          (same as listings).
         </p>
 
         <div className="mt-6 max-w-xl">
@@ -179,96 +181,96 @@ export default function DashboardPage() {
         </div>
 
         <div className="mt-10 grid gap-10 lg:grid-cols-2">
-          <section className="rounded-xl border border-stone-800 bg-stone-900/40 p-6">
-            <h2 className="text-lg font-medium text-amber-100">Save search</h2>
+          <section className="rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
+            <h2 className="text-lg font-medium text-slate-900">Save search</h2>
             <form data-testid="search-form" onSubmit={onSaveSearch} className="mt-4 space-y-3">
               <div>
-                <label className="text-xs uppercase tracking-wide text-stone-500">Query</label>
+                <label className="text-xs font-medium uppercase tracking-wide text-slate-500">Query</label>
                 <input
                   data-testid="search-query"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-stone-700 bg-stone-950 px-3 py-2"
+                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 shadow-sm"
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs uppercase tracking-wide text-stone-500">Min price (USD)</label>
+                  <label className="text-xs font-medium uppercase tracking-wide text-slate-500">Min price (USD)</label>
                   <input
                     type="number"
                     step="0.01"
                     value={minPrice}
                     onChange={(e) => setMinPrice(e.target.value)}
                     placeholder="900"
-                    className="mt-1 w-full rounded-md border border-stone-700 bg-stone-950 px-3 py-2"
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 shadow-sm"
                   />
                 </div>
                 <div>
-                  <label className="text-xs uppercase tracking-wide text-stone-500">Max price (USD)</label>
+                  <label className="text-xs font-medium uppercase tracking-wide text-slate-500">Max price (USD)</label>
                   <input
                     type="number"
                     step="0.01"
                     value={maxPrice}
                     onChange={(e) => setMaxPrice(e.target.value)}
                     placeholder="2000"
-                    className="mt-1 w-full rounded-md border border-stone-700 bg-stone-950 px-3 py-2"
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 shadow-sm"
                   />
                 </div>
               </div>
               <div>
-                <label className="text-xs uppercase tracking-wide text-stone-500">Max distance (km)</label>
+                <label className="text-xs font-medium uppercase tracking-wide text-slate-500">Max distance (km)</label>
                 <input
                   data-testid="search-max-km"
                   type="number"
                   step="0.1"
                   value={maxKm}
                   onChange={(e) => setMaxKm(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-stone-700 bg-stone-950 px-3 py-2"
+                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 shadow-sm"
                 />
               </div>
               <button
                 type="submit"
                 disabled={loading}
                 data-testid="search-submit"
-                className="rounded-md bg-amber-600 px-4 py-2 font-medium text-stone-950 hover:bg-amber-500 disabled:opacity-50"
+                className="rounded-md bg-teal-600 px-4 py-2 font-medium text-white hover:bg-teal-500 disabled:opacity-50"
               >
                 Save to history
               </button>
             </form>
           </section>
 
-          <section className="rounded-xl border border-stone-800 bg-stone-900/40 p-6">
-            <h2 className="text-lg font-medium text-amber-100">Watchlist</h2>
-            <p className="mt-1 text-sm text-stone-500">Add a listing UUID (from listings or seed data).</p>
+          <section className="rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
+            <h2 className="text-lg font-medium text-slate-900">Watchlist</h2>
+            <p className="mt-1 text-sm text-slate-600">Add a listing UUID (from listings or seed data).</p>
             <form data-testid="watchlist-form" onSubmit={onAddWatch} className="mt-4 flex flex-col gap-2 sm:flex-row">
               <input
                 data-testid="watchlist-listing-id"
                 value={listingId}
                 onChange={(e) => setListingId(e.target.value)}
                 placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                className="flex-1 rounded-md border border-stone-700 bg-stone-950 px-3 py-2 font-mono text-sm"
+                className="flex-1 rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 shadow-sm"
               />
               <button
                 type="submit"
                 disabled={loading}
                 data-testid="watchlist-add"
-                className="rounded-md border border-amber-700/80 bg-amber-950/40 px-4 py-2 text-amber-100 hover:bg-amber-900/50 disabled:opacity-50"
+                className="rounded-md border border-teal-200 bg-teal-50 px-4 py-2 font-medium text-teal-900 hover:bg-teal-100 disabled:opacity-50"
               >
                 Add
               </button>
             </form>
             <ul data-testid="watchlist-items" className="mt-6 space-y-2">
-              {watchlist.length === 0 && <li className="text-sm text-stone-500">No items yet.</li>}
+              {watchlist.length === 0 && <li className="text-sm text-slate-500">No items yet.</li>}
               {watchlist.map((w) => (
                 <li
                   key={w.listingId}
-                  className="flex items-center justify-between gap-2 rounded-md border border-stone-800 bg-stone-950/80 px-3 py-2 font-mono text-sm"
+                  className="flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-sm text-slate-800"
                 >
                   <span className="truncate">{w.listingId}</span>
                   <button
                     type="button"
                     data-testid={`watchlist-remove-${w.listingId}`}
-                    className="shrink-0 text-xs text-red-400 hover:underline"
+                    className="shrink-0 text-xs text-red-600 hover:underline"
                     onClick={() => w.listingId && onRemoveListing(w.listingId)}
                   >
                     Remove
@@ -279,13 +281,13 @@ export default function DashboardPage() {
           </section>
         </div>
 
-        <section className="mt-10 rounded-xl border border-stone-800 bg-stone-900/40 p-6">
+        <section className="mt-10 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
           <div className="flex items-center justify-between gap-4">
-            <h2 className="text-lg font-medium text-amber-100">Search history</h2>
+            <h2 className="text-lg font-medium text-slate-900">Search history</h2>
             <button
               type="button"
               onClick={() => refreshAll()}
-              className="text-sm text-amber-400/90 hover:underline"
+              className="text-sm font-medium text-teal-700 hover:underline"
             >
               Refresh
             </button>
@@ -293,7 +295,7 @@ export default function DashboardPage() {
           <div data-testid="search-history" className="mt-4 overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead>
-                <tr className="border-b border-stone-800 text-stone-500">
+                <tr className="border-b border-slate-200 text-slate-500">
                   <th className="py-2 pr-4">Query</th>
                   <th className="py-2 pr-4">Min $</th>
                   <th className="py-2 pr-4">Max $</th>
@@ -304,13 +306,13 @@ export default function DashboardPage() {
               <tbody>
                 {history.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="py-4 text-stone-500">
+                    <td colSpan={5} className="py-4 text-slate-500">
                       No history yet — save a search above.
                     </td>
                   </tr>
                 )}
                 {history.map((row) => (
-                  <tr key={row.id ?? `${row.query}-${row.createdAt}`} className="border-b border-stone-800/80">
+                  <tr key={row.id ?? `${row.query}-${row.createdAt}`} className="border-b border-slate-100">
                     <td className="py-2 pr-4">{row.query ?? "—"}</td>
                     <td className="py-2 pr-4">
                       {row.minPriceCents != null ? (row.minPriceCents / 100).toFixed(2) : "—"}
@@ -319,7 +321,7 @@ export default function DashboardPage() {
                       {row.maxPriceCents != null ? (row.maxPriceCents / 100).toFixed(2) : "—"}
                     </td>
                     <td className="py-2 pr-4">{row.maxDistanceKm ?? "—"}</td>
-                    <td className="py-2 text-stone-500">
+                    <td className="py-2 text-slate-500">
                       {row.createdAt ? new Date(row.createdAt).toLocaleString() : "—"}
                     </td>
                   </tr>
@@ -334,15 +336,17 @@ export default function DashboardPage() {
             if (!withGeo) return null;
             return (
               <div className="mt-6 max-w-lg">
-                <p className="mb-2 text-xs uppercase tracking-wide text-stone-500">Latest search with location</p>
+                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Latest search with location
+                </p>
                 <GoogleMapEmbed latitude={withGeo.latitude} longitude={withGeo.longitude} height={200} zoom={13} />
               </div>
             );
           })()}
         </section>
 
-        {msg && <p className="mt-6 text-sm text-emerald-400">{msg}</p>}
-        {err && <p className="mt-2 text-sm text-red-400">{err}</p>}
+        {msg && <p className="mt-6 text-sm font-medium text-emerald-700">{msg}</p>}
+        {err && <p className="mt-2 text-sm text-red-600">{err}</p>}
       </main>
     </div>
   );

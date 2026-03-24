@@ -1546,4 +1546,8 @@ else
 fi
 
 # Preflight sets SKIP_HOUSING_HTTP_SUITE_DONE_BANNER=1 to avoid redundant footer line every run.
-[[ "${SKIP_HOUSING_HTTP_SUITE_DONE_BANNER:-0}" != "1" ]] && say "=== Housing HTTP/2 + HTTP/3 suite done ==="
+# Use if/fi (not [[ ... ]] && say): when the banner is skipped, [[ false ]] && … would make the
+# script's last command exit 1 and preflight would think the whole suite failed (skips k6 + Playwright).
+if [[ "${SKIP_HOUSING_HTTP_SUITE_DONE_BANNER:-0}" != "1" ]]; then
+  say "=== Housing HTTP/2 + HTTP/3 suite done ==="
+fi

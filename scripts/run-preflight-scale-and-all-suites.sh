@@ -11,7 +11,9 @@ fi
 #   2. Phase 1A: Read-only API and cluster checks. Phase 1B: Reissue CA+leaf, Kafka SSL, remove in-cluster DB/Kafka, scale to baseline (1 replica per app, 2 Caddy).
 #   3. Caddy strict TLS: On k3d/REQUIRE_COLIMA=0 uses verify-caddy-strict-tls-in-cluster.sh (curl from a pod). On Colima may use NodePort or port-forward.
 #   4. Strict TLS/mTLS preflight: ensure-strict-tls-mtls-preflight.sh (service-tls + dev-root-ca chain).
-#   5. Optional: run-all-test-suites.sh runs auth, baseline, enhanced, adversarial, rotation, then k6 (after CA/leaf rotation, strict TLS), then standalone, tls-mtls, social; then pgbench.
+#   5. Optional pgbench: step 8 when RUN_PGBENCH=1. Step 7a runs verify pods → Vitest (event-layer + messaging + media) →
+#      test-microservices-http2-http3-housing.sh + test-messaging-service-comprehensive.sh → k6 edge grid → Playwright (see _run_all_suites).
+#      For a separate full rotation/load matrix (auth, rotation, run-k6-phases, etc.), run ./scripts/run-all-test-suites.sh manually.
 #
 # Green team / first machine: read docs/PR_SECOND_ONBOARDING.md — Colima + DB restore (RESTORE_BACKUP_DIR=latest),
 # CA bundle + Kafka JKS (docs/CERT_GENERATION_STRICT_TLS_MTLS.md), curl 8.19+ on PATH, then this script.
@@ -58,6 +60,7 @@ fi
 #   RUN_MESSAGING_LOAD=1 (default) — after Vitest + housing scripts, run k6 edge smoke grid (run-housing-k6-edge-smoke.sh) if k6 is installed.
 #   RUN_K6_SERVICE_GRID=0 — skip the full k6 per-service smoke (gateway, auth, listings, booking health, trust, analytics, messaging, media, event-layer + booking/search JWT).
 #   RUN_PREFLIGHT_PLAYWRIGHT=0 — skip Playwright E2E (https edge /api/readyz wait + tests against E2E_API_BASE).
+#   PREFLIGHT_K6_MESSAGING_LIMIT_FINDER=0 — set 1 to run scripts/load/k6-messaging-limit-finder.js after the edge grid (long ramping-arrival-rate; uses k6-strict-edge-tls.js). Default off.
 #   PREFLIGHT_VERBOSE_HOUSING_MESSAGING_SUITE=1 — step 7a: show "Housing HTTP/2 + HTTP/3 suite done" and run ensure-messaging-schema.psql (noisy DDL). Default: quieter preflight (schema already applied by bring-up / migrations; re-run manually if needed: ./scripts/ensure-messaging-schema.sh).
 #   PREFLIGHT_EXIT_AFTER_HOUSING_SUITES=1 — exit after step 7a (Vitest + housing HTTP suite + k6 grid + Playwright); skip transport study / in-cluster k6 / step 8 pgbench. make demo sets this to 1; make demo-full sets 0.
 #     Set RUN_MESSAGING_LOAD=0 to skip. Tune: K6_MESSAGING_DURATION, K6_MESSAGING_RATE, K6_MESSAGING_VUS, K6_MEDIA_*.
@@ -125,6 +128,24 @@ fi
 #   "Load-lab orchestration" block above. Preflight 7a sets K6_SUITE_RESOURCE_LOG_AUTO=1 →
 #   bench_logs/k6-suite-resources-*.log unless disabled.
 #
+#   --- Step 7a — testing matrix (edge + services; what preflight runs vs run manually) ---
+#   Playwright E2E (7a8): run-playwright-e2e-preflight.sh → waits for E2E_API_BASE/api/readyz, then
+#     scripts/webapp-playwright-strict-edge.sh → pnpm exec playwright test (webapp/playwright.config.ts).
+#     Current inventory: 23 Playwright tests in 10 spec files, grouped into 5 projects (01-guest-shell,
+#     02-auth-booking, 03-listings, 04-analytics, 05-optional-screenshots). 22 run by default; ui-screenshots
+#     skips unless E2E_SCREENSHOTS=1. See GITHUB_PR_DESCRIPTION_LISTINGS_E2E.txt for commands and matrix.
+#   k6 shared module: scripts/load/k6-strict-edge-tls.js — imported by all edge k6 scripts (BASE_URL, TLS CA, tags).
+#   k6 in default preflight grid: run-housing-k6-edge-smoke.sh → gateway/auth/listings/booking/trust/analytics/
+#     messaging/media/event-layer + optional analytics-listing-feel + JWT booking/search (see script triples).
+#   k6 NOT in default preflight (run ad hoc or enable limit-finder env): k6-messaging-limit-finder.js (envelope),
+#     k6-limit-test-comprehensive.js + k6-find-max-rps-http3.js (run-k6-phases / perf), k6-messaging-e2e.js,
+#     k6-messaging-flow.js, k6-reads.js phases, service-specific ramps (k6-*-ramp.js), k6-notification-health.js, etc.
+#   scripts/perf/: watch-cluster-contention.sh, run-k6-cross-service-isolation.sh, run-perf-full-report.sh,
+#     run-all-explain.sh, explain-listings-search.sh — not auto-invoked; use second terminal or after preflight.
+#   Service coverage goal: each app should have Vitest/unit where applicable, bash integration (housing suite),
+#     k6 health via edge grid, and Playwright for webapp surfaces — extend k6/e2e when new routes ship.
+#   Certs / GitGuardian: never commit keys under certs/ — docs/SECURITY_CERTS_REPOSITORY.md, scripts/check-certs-not-in-git.sh
+#
 #   RUN_FULL_LOAD=1 (default) run pgbench (all DBs, deep) + k6 + xk6 HTTP/3 phases + all suites (full control plane). Set RUN_FULL_LOAD=0 for suites only.
 #   RUN_K6=1 run k6 load phase; RUN_PGBENCH=1 run pgbench sweeps before suites (set by RUN_FULL_LOAD=1).
 #   When RUN_FULL_LOAD=1: K6_PHASES=read,soak,limit,max, K6_HTTP3=1, K6_HTTP3_PHASES=1 (run-k6-phases.sh runs xk6-http3 phases). Step 6d builds xk6-http3 if missing; SKIP_XK6_BUILD=1 to skip.
@@ -181,7 +202,7 @@ fi
 #   6     6a1–6a2: Force deployments, ensure Kafka. 6b: wait-for-all-services-ready (PREFLIGHT_READY_MAX_WAIT default 900s, INITIAL_WAIT 90s).
 #         6d: build xk6-http3 if RUN_K6=1. 6e: ensure-tcpdump-in-capture-pods (before suites).
 #   7     7a (Colima): ROTATION_USE_BBR=1 switches TCP congestion to BBR before suites. Run all test suites via run-all-test-suites.sh (auth, baseline, enhanced, adversarial, rotation, k6, standalone, tls-mtls, social). ROTATION_UDP_STATS=1 (Colima default) captures UDP stats pre/post k6. All 8 suites run to completion even if one fails; step 8 runs when RUN_PGBENCH=1. Step 5b inside run-all = k6 phases (HTTP/2 + xk6 HTTP/3 when K6_HTTP3=1). HTTP/3 on k3d: see docs/HTTP3-CURL-EXIT-CODES.md if baseline/enhanced hit exit 7/28/55.
-#         7a3–7a7: run-housing-k6-edge-smoke.sh — k6 hooks + gateway drain + ramping messaging/media (see "k6 suite stability" + "Step 7a k6 edge grid" above). Optional perf helpers: scripts/perf/* (watch-cluster-contention.sh during long runs).
+#         7a3–7a7: run-housing-k6-edge-smoke.sh — k6 hooks + gateway drain + ramping messaging/media (see "k6 suite stability" + "Step 7a k6 edge grid" above). Optional 7a7b: PREFLIGHT_K6_MESSAGING_LIMIT_FINDER=1 → k6-messaging-limit-finder.js. 7a8: Playwright full edge suite (23 tests / 10 specs / 5 projects; 22 executed by default) via run-playwright-e2e-preflight.sh. Optional perf: scripts/perf/* (not auto).
 #   7b    Transport-layer study experiments (UDP drops, QUIC cwnd, BBR, NodePort, Caddy native, in-cluster k6). TRANSPORT_STUDY=1.
 #   7c    In-cluster k6 (Pod → Caddy ClusterIP; no host/VM). RUN_K6=1 and RUN_K6_IN_CLUSTER=1 (default). K6_IN_CLUSTER_DURATION=30s. Set RUN_K6_IN_CLUSTER=0 to skip.
 #   8     All 7 housing pgbench sweeps (ports 5441–5447; media 5448 optional), EXPLAIN, observation-deck summary. RUN_PGBENCH=1.
@@ -2366,8 +2387,28 @@ _run_all_suites() {
   elif [[ "${RUN_MESSAGING_LOAD:-1}" != "0" ]] && [[ "${RUN_K6_SERVICE_GRID:-1}" != "0" ]]; then
     info "7a3 k6 skipped: k6 not on PATH (install: brew install k6; or RUN_MESSAGING_LOAD=0 / RUN_K6_SERVICE_GRID=0)"
   fi
+  # Optional: messaging capacity envelope (long; ramping-arrival-rate). Uses k6-strict-edge-tls.js. Default off.
+  if [[ "${RUN_MESSAGING_LOAD:-1}" != "0" ]] && [[ "${PREFLIGHT_K6_MESSAGING_LIMIT_FINDER:-0}" == "1" ]] && command -v k6 >/dev/null 2>&1; then
+    _lf_ca="$REPO_ROOT/certs/dev-root.pem"
+    if [[ -f "$_lf_ca" ]] && [[ -s "$_lf_ca" ]]; then
+      say "7a7b. k6 messaging limit-finder (PREFLIGHT_K6_MESSAGING_LIMIT_FINDER=1; scripts/load/k6-messaging-limit-finder.js)…"
+      export SSL_CERT_FILE="$_lf_ca" K6_TLS_CA_CERT="$_lf_ca" K6_CA_ABSOLUTE="$_lf_ca"
+      export BASE_URL="${BASE_URL:-https://off-campus-housing.test}"
+      if declare -F k6_suite_before_k6_block >/dev/null 2>&1; then
+        k6_suite_before_k6_block "preflight-k6-limit-finder" 2>/dev/null || true
+      fi
+      _lf_rc=0
+      k6 run "$REPO_ROOT/scripts/load/k6-messaging-limit-finder.js" || _lf_rc=$?
+      if declare -F k6_suite_after_k6_block >/dev/null 2>&1; then
+        k6_suite_after_k6_block "preflight-after-k6-limit-finder" 0 || true
+      fi
+      [[ "$_lf_rc" -ne 0 ]] && warn "k6 messaging limit-finder exited $_lf_rc (non-fatal; set K6_GRID_STRICT=1 elsewhere if you need hard fail)"
+    else
+      warn "7a7b limit-finder skipped: missing certs/dev-root.pem"
+    fi
+  fi
   if [[ "${RUN_PREFLIGHT_PLAYWRIGHT:-1}" != "0" ]]; then
-    say '7a8. Playwright E2E (webapp via edge; no port-forward)...'
+    say '7a8. Playwright E2E — full webapp suite (23 tests, 5 projects; see GITHUB_PR_DESCRIPTION_LISTINGS_E2E.txt)...'
     chmod +x "$SCRIPT_DIR/run-playwright-e2e-preflight.sh" 2>/dev/null || true
     "$SCRIPT_DIR/run-playwright-e2e-preflight.sh" || warn "Playwright E2E had failures (see log; set RUN_PREFLIGHT_PLAYWRIGHT=0 to skip)"
   fi

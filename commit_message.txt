@@ -38,8 +38,16 @@ OTHER CHANGES IN THIS INTEGRATED PR
 WHERE TO READ / PASTE
 ---------------------
   • Narrative: **docs/perf/TAIL_LATENCY_AND_CROSS_SERVICE_ANALYSIS.md**, **docs/perf/CLUSTER_CONTENTION_WATCH.md**
-  • GitHub PR: **GITHUB_PR_DESCRIPTION.txt**
+  • GitHub PR (first / team body — green team, reviewers, k6, full testing map): **GITHUB_PR_DESCRIPTION.txt**
+  • Webapp Playwright E2E (23 tests, 5 projects, copy-paste commands, preflight **7a8**): **GITHUB_PR_DESCRIPTION_LISTINGS_E2E.txt**
   • Listings operator: **docs/perf/LISTINGS_HTTP_TIMING.md**
+
+WEBAPP PLAYWRIGHT + PREFLIGHT WIRING (browser edge suite)
+----------------------------------------------------------
+  • **PR dependency / order** — this webapp Playwright follow-up is **PR2** and depends on **PR1** (`GITHUB_PR_DESCRIPTION.txt`) being merged first; PR2 assumes cluster bring-up, TLS, preflight, and baseline service wiring from PR1.
+  • **webapp/playwright.config.ts** — projects **01-guest-shell** … **05-optional-screenshots**; **23** listed tests, **22** executed by default (screenshot spec skips unless **E2E_SCREENSHOTS=1**).
+  • **webapp/package.json** / root **package.json** — **test:e2e:01-guest-shell** … **test:e2e:04-analytics**, **test:e2e:05-screenshots**, **test:e2e:smoke**, **test:webapp:e2e:*** shortcuts (see **GITHUB_PR_DESCRIPTION_LISTINGS_E2E.txt**).
+  • **scripts/run-preflight-scale-and-all-suites.sh** — header comments + step **7a8** **`say`** line document the full Playwright inventory; **7a8** still invokes **run-playwright-e2e-preflight.sh** (set **RUN_PREFLIGHT_PLAYWRIGHT=0** to skip).
 
 HOW TO RUN (cheat sheet)
 ------------------------

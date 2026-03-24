@@ -14,6 +14,12 @@ build/
 .env
 .env.*
 !.env.example
+# Google Maps / Next.js local overrides (never commit real keys)
+webapp/.env.local
+webapp/.env.development.local
+webapp/.env.production.local
+.env.maps.local
+**/local.keys.env
 
 # TLS / Kafka material under certs/ — generated locally (dev-generate-certs.sh, kafka-ssl-from-dev-root.sh, etc.).
 # Never commit private keys, keystores, or password files (GitGuardian / secret scanners).

@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Wait for the public edge (/api/readyz) and run Playwright E2E (strict TLS, hostname only).
+# Invokes scripts/webapp-playwright-strict-edge.sh → playwright test (webapp/e2e — multiple spec files).
+# Optional: E2E_SCREENSHOTS=1 ./scripts/webapp-playwright-strict-edge.sh e2e/ui-screenshots.spec.ts → webapp/e2e/screenshots/*.png
 # No kubectl port-forward; no http://127.0.0.1:4020 — legacy E2E_API_BASE values are ignored.
 #
 # Usage: ./scripts/run-playwright-e2e-preflight.sh
@@ -56,6 +58,8 @@ if [[ "$EDGE_OK" != "1" ]]; then
   exit 1
 fi
 
-say "Running: pnpm --filter webapp test:e2e"
-pnpm --filter webapp test:e2e
+# Same suite as `pnpm --filter webapp test:e2e` — all Playwright projects in webapp/playwright.config.ts (10 spec files, 22 runnable tests + 1 skipped screenshot test unless E2E_SCREENSHOTS=1).
+say "Running: webapp-playwright-strict-edge.sh → playwright test (full edge suite)"
+chmod +x "$SCRIPT_DIR/webapp-playwright-strict-edge.sh" 2>/dev/null || true
+"$SCRIPT_DIR/webapp-playwright-strict-edge.sh"
 ok "Playwright E2E finished"

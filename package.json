@@ -23,6 +23,7 @@
     "run-full-pipeline": "bash scripts/run-full-pipeline.sh",
     "reissue": "bash scripts/reissue-ca-and-leaf-load-all-services.sh",
     "rebuild:och:rollout": "bash scripts/rebuild-och-images-and-rollout.sh",
+    "rebuild:webapp-listings:colima": "bash scripts/rebuild-webapp-listings-colima.sh",
     "rebuild:gateway:rollout": "SERVICES=api-gateway bash scripts/rebuild-och-images-and-rollout.sh",
     "kafka-ssl": "bash scripts/kafka-ssl-from-dev-root.sh",
     "verify-tls": "bash scripts/verify-caddy-strict-tls.sh",
@@ -37,6 +38,9 @@
     "test:e2e:integrated": "bash scripts/run-playwright-e2e-preflight.sh",
     "bench:redis-lua": "bash scripts/benchmark-redis-lua-vs-plain.sh",
     "test:webapp:e2e": "NODE_EXTRA_CA_CERTS=$PWD/certs/dev-root.pem pnpm --filter webapp exec playwright test",
+    "test:webapp:e2e:smoke": "NODE_EXTRA_CA_CERTS=$PWD/certs/dev-root.pem pnpm --filter webapp exec playwright test --project=01-guest-shell --project=04-analytics",
+    "test:webapp:e2e:listings": "NODE_EXTRA_CA_CERTS=$PWD/certs/dev-root.pem pnpm --filter webapp exec playwright test --project=03-listings",
+    "test:webapp:e2e:auth-booking": "NODE_EXTRA_CA_CERTS=$PWD/certs/dev-root.pem pnpm --filter webapp exec playwright test --project=02-auth-booking",
     "test:housing-wiring": "bash scripts/test-housing-stack-wiring.sh"
   },
   "devDependencies": {

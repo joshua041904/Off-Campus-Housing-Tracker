@@ -127,6 +127,8 @@ export type ListingJson = {
   furnished?: boolean | null;
   status?: string;
   created_at?: string;
+  /** ISO date (YYYY-MM-DD) from listings.listings.listed_at */
+  listed_at?: string | null;
   /** When listings-service stores geo (optional). */
   latitude?: number | null;
   longitude?: number | null;
@@ -138,6 +140,12 @@ export async function searchListings(params: {
   max_price?: number;
   smoke_free?: boolean;
   pet_friendly?: boolean;
+  furnished?: boolean;
+  /** Comma-separated amenity slugs (e.g. garage,parking) — JSON array containment on listings.amenities */
+  amenities?: string;
+  new_within_days?: number;
+  /** created_desc | listed_desc | price_asc | price_desc */
+  sort?: string;
 }) {
   const sp = new URLSearchParams();
   if (params.q) sp.set("q", params.q);
@@ -145,6 +153,12 @@ export async function searchListings(params: {
   if (params.max_price != null && !Number.isNaN(params.max_price)) sp.set("max_price", String(params.max_price));
   if (params.smoke_free) sp.set("smoke_free", "1");
   if (params.pet_friendly) sp.set("pet_friendly", "1");
+  if (params.furnished) sp.set("furnished", "1");
+  if (params.amenities?.trim()) sp.set("amenities", params.amenities.trim());
+  if (params.new_within_days != null && params.new_within_days > 0) {
+    sp.set("new_within_days", String(Math.floor(params.new_within_days)));
+  }
+  if (params.sort?.trim()) sp.set("sort", params.sort.trim());
   const q = sp.toString();
   const res = await apiFetch(`/api/listings/search${q ? `?${q}` : ""}`);
   const data = (await parseJson(res)) as { items?: ListingJson[]; error?: string };
@@ -171,6 +185,8 @@ export async function createListing(
     smoke_free?: boolean;
     pet_friendly?: boolean;
     furnished?: boolean;
+    latitude?: number | null;
+    longitude?: number | null;
   }
 ) {
   const res = await apiFetch("/api/listings/create", {

@@ -1,0 +1,107 @@
+WEBAPP: GOOGLE MAPS (EMBED API), REDEPLOY LISTINGS + WEBAPP
+==========================================================
+Plain text. Do this after the cluster and edge hostname work; maps are optional (coordinates still save without a key).
+
+Never commit API keys
+---------------------
+  - Do not paste keys into tracked files, PR descriptions, or screenshots.
+  - Local Next.js: put secrets only in `webapp/.env.local` (gitignored; see repo root `.gitignore` and `webapp/.env.example`).
+  - If a key was exposed (chat, ticket, CI log), regenerate it in Google Cloud Console → Credentials.
+
+Part A — Google Cloud Console (one-time)
+----------------------------------------
+1. Open https://console.cloud.google.com/ and pick or create a project.
+
+2. Enable the API:
+   APIs & Services → Library → search "Maps Embed API" → Enable.
+   (Do not confuse with Maps JavaScript API unless you add JS SDK later; the webapp uses iframe embed only.)
+
+3. Create a key:
+   APIs & Services → Credentials → Create credentials → API key.
+   Copy the key string (you will paste it only into kubectl / CI secrets, never into git).
+
+4. Restrict the key (strongly recommended):
+   Edit the key → Application restrictions → HTTP referrers (web sites).
+   Add referrers your users actually use, for example:
+     https://off-campus-housing.test/*
+     https://*.off-campus-housing.test/*
+   For local Next.js dev (optional):
+     http://localhost:3000/*
+     http://127.0.0.1:3000/*
+   Under API restrictions → Restrict key → select "Maps Embed API" only → Save.
+
+5. Billing: Google may require a billing account on the project for Maps products; keep quotas and alerts configured in Cloud Console.
+
+Part B — Kubernetes / Colima (after webapp Deployment is running)
+-----------------------------------------------------------------
+NEXT_PUBLIC_* variables are inlined at Next.js build time in a typical Docker image build. If your image is built WITHOUT the key, adding the env var at runtime does nothing until you rebuild the image with:
+
+  ARG NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+  ENV NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=$NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+
+and pass --build-arg at docker build. If your pipeline already bakes NEXT_PUBLIC_API_BASE at build, add the maps key the same way.
+
+If you run a dev-style image that compiles on start, runtime env can work; for production `next start`, prefer build-time injection.
+
+Paste key locally (tracked template, gitignored target)
+-------------------------------------------------------
+  cp webapp/env.local.template webapp/.env.local
+  Edit webapp/.env.local: set NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=... (one line). Never commit .env.local.
+
+One-shot Colima: webapp + listings-service rebuild, load, fresh pods
+--------------------------------------------------------------------
+  ./scripts/rebuild-webapp-listings-colima.sh
+  Or: pnpm run rebuild:webapp-listings:colima
+
+  Reads the key from webapp/.env.local (or from env NEXT_PUBLIC_GOOGLE_MAPS_API_KEY). Bakes it into the webapp image at docker build; then docker save | colima ssh docker load for webapp:dev, builds/loads listings-service:dev, deletes webapp pods and rollout restart for webapp + listings-service.
+
+Manual path (repository root, webapp/Dockerfile):
+
+  docker build -f webapp/Dockerfile -t webapp:dev \
+    --build-arg NEXT_PUBLIC_GOOGLE_MAPS_API_KEY="YOUR_KEY_HERE" .
+
+  Then load/tag/push per your Colima or k3d workflow and rollout deployment/webapp.
+  NEXT_PUBLIC_API_BASE is still set in the Deployment YAML; maps key is optional at build time.
+
+  B) Load image into Colima / k3s and rollout restart deployment/webapp.
+
+  C) Alternatively store the key only in-cluster for templates that support runtime public env (uncommon for Next); then create the Secret:
+
+       kubectl create secret generic webapp-runtime-secrets \
+         -n off-campus-housing-tracker \
+         --from-literal=NEXT_PUBLIC_GOOGLE_MAPS_API_KEY='YOUR_KEY'
+
+     The base Deployment wires optional secretKeyRef optional: true so the pod still starts if the Secret is missing.
+
+  D) Restart pods after Secret changes:
+       kubectl rollout restart deployment/webapp -n off-campus-housing-tracker
+
+Part C — Verify in the browser
+-------------------------------
+1. Open https://off-campus-housing.test/listings (or your edge URL).
+
+2. A listing with latitude and longitude should show an embedded map iframe when the key is valid and referrers match.
+
+3. If the key is missing or blocked, you see the inline note about NEXT_PUBLIC_GOOGLE_MAPS_API_KEY (Embed API + referrer restrictions).
+
+Part D — Redeploy listings-service (API filters + geo columns)
+--------------------------------------------------------------
+After pulling changes that touch listings HTTP/gRPC and DB usage:
+
+1. Rebuild listings-service image and load into the cluster (same workflow you use for other services).
+
+2. Rollout:
+     kubectl rollout restart deployment/listings-service -n off-campus-housing-tracker
+
+3. Database: latitude/longitude already exist in infra/db/01-listings-schema-and-tuning.sql (ALTER IF NOT EXISTS). If your DB predates that, apply the SQL against the listings database (port 5442) once.
+
+4. Smoke from host:
+     curl -sS "https://off-campus-housing.test/api/listings/search?furnished=1&sort=price_asc" | head -c 400
+
+Part E — Playwright against the live edge
+-----------------------------------------
+E2E uses E2E_API_BASE (default https://off-campus-housing.test). After redeploying webapp + listings:
+
+  ./scripts/run-playwright-e2e-preflight.sh
+
+Tests that depend on new UI may skip until the live image includes the new build (see e2e/*.spec.ts skip messages). Rebuild and redeploy webapp to clear those skips.

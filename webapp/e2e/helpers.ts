@@ -41,6 +41,20 @@ export async function apiGatewayReady(request: APIRequestContext): Promise<boole
   }
 }
 
+/** First listing id from public search, or null (empty index / error). */
+export async function firstListingIdFromSearch(request: APIRequestContext): Promise<string | null> {
+  const base = e2eApiBase();
+  try {
+    const r = await request.get(`${base}/api/listings/search`, { timeout: 15_000 });
+    if (!r.ok()) return null;
+    const data = (await r.json()) as { items?: { id: string }[] };
+    const id = data.items?.[0]?.id;
+    return typeof id === "string" && id.length > 0 ? id : null;
+  } catch {
+    return null;
+  }
+}
+
 export function uniqueE2eEmail(prefix: string, workerIndex: number): string {
   return `${prefix}-w${workerIndex}-${Date.now()}-${randomUUID().slice(0, 10)}@example.com`;
 }

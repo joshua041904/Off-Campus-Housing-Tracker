@@ -1,0 +1,179 @@
+## Summary
+
+This PR description covers the **entire webapp Playwright suite** (all edge E2E specs), not only listings. The suite exercises **guest shell**, **auth + booking flows**, **listings + maps/filters**, **analytics** (API + UI), and an **optional screenshot** job.
+
+`webapp/playwright.config.ts` now defines **five named projects** so you can run or review by area; every `e2e/*.spec.ts` file belongs to exactly one project (no duplicate runs). Listings-focused work lives under project **`03-listings`**.
+
+### Related: first / team PR narrative
+
+Use **`GITHUB_PR_DESCRIPTION.txt`** for the **primary** long-form PR body: green-team bring-up (Colima, MetalLB, TLS, Ollama, DB restore), **three-reviewer split** (Joshua / Franco / Arkar), k6 and preflight orchestration, and the full testing map inside that document.
+
+**This file (`GITHUB_PR_DESCRIPTION_LISTINGS_E2E.txt`)** is the **companion** for **browser E2E only**: the five Playwright projects, the **23** tests, copy-paste **Commands** below, and what reviewers should verify on the webapp + edge.
+
+## PR dependency and merge order (important)
+
+This is the **second PR** and it **depends on PR1** (`GITHUB_PR_DESCRIPTION.txt`) being applied first.
+
+- **PR1 first:** cluster/bootstrap, cert/TLS flow, preflight orchestration, service wiring, base scripts.
+- **PR2 second (this file):** webapp visual consistency updates, Playwright project matrix/commands, listings-focused browser coverage, and step-7a8 browser verification details.
+
+If PR1 is not present, PR2 checks can fail for setup reasons (missing edge readiness, stale scripts, or incomplete preflight wiring) rather than code regressions.
+
+## Inventory: spec files → services / behavior
+
+| Project | File | What it stresses |
+|---------|------|------------------|
+| **01-guest-shell** | `guest.spec.ts` | Auth redirects, home CTA, guest access to listings/trust |
+| | `webapp-pages.spec.ts` | Mission / analytics shells, primary nav paths |
+| | `messaging-mentioned.spec.ts` | Mission copy (architecture / messaging) |
+| **02-auth-booking** | `auth-cycle.spec.ts` | **auth-service** (via gateway): register → sign out → login |
+| | `flows.spec.ts` | **auth**, **booking** (search history, watchlist) end-to-end |
+| **03-listings** | `listing-and-analytics-journey.spec.ts` | Register → create listing → search → **analytics** listing-feel (renter/landlord) |
+| | `listings-filters-maps.spec.ts` | **listings-service** + webapp: filters, sort, geo, map embed/placeholder, detail by ID, pet-friendly |
+| **04-analytics** | `analytics-api.spec.ts` | **analytics-service** via gateway: daily-metrics, listing-feel POST |
+| | `analytics-ui.spec.ts` | Browser → gateway analytics UI (Analyze) |
+| **05-optional-screenshots** | `ui-screenshots.spec.ts` | Full-page PNGs under `e2e/screenshots/` — **skipped** unless `E2E_SCREENSHOTS=1` |
+
+**Counts:** 10 spec files, **23** test entries; **22** run by default (screenshot test skips).
+
+**Not Playwright:** service unit/integration tests live under `pnpm test` / per-service `test:integration`; this document is only browser E2E against the **HTTPS edge**.
+
+## What to focus on when reviewing
+
+1. **Edge readiness** — Most tests need `GET /api/readyz` **200** (auth gRPC healthy). Guest-only cases may only need `/api/healthz` / reachable pages.
+2. **03-listings** — Requires **webapp** + **listings-service** images aligned with the branch (search params, create body, proto/HTTP parity). Skips in specs often mean **stale webapp** on the cluster.
+3. **02-auth-booking** — Touches **auth-service**, **booking-service**, **api-gateway** routing and JWT.
+4. **04-analytics** — Listing-feel may hit **Ollama** or a stub; test allows either success or surfaced API error.
+5. **Maps** — Embed iframe **or** placeholder is acceptable depending on whether `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` was baked at **docker build** time.
+
+## How to run the full process
+
+### Prerequisites
+
+- Hostname resolves (e.g. `off-campus-housing.test` → cluster ingress).
+- Trust dev CA: `certs/dev-root.pem` (used as `NODE_EXTRA_CA_CERTS`).
+- **`E2E_API_BASE`**: HTTPS only; `http://127.0.0.1:4020` is rejected by config (normalized to default edge).
+
+### Preflight / full pipeline (Playwright is step **7a8**)
+
+**`./scripts/run-preflight-scale-and-all-suites.sh`** runs the housing Vitest + HTTP suites + k6 edge grid, then invokes **`./scripts/run-playwright-e2e-preflight.sh`** (unless `RUN_PREFLIGHT_PLAYWRIGHT=0`). That runs the **same 23-test / 5-project** Playwright suite as a standalone edge check. See the header comments in `scripts/run-preflight-scale-and-all-suites.sh` (search for `7a8` and `Playwright`).
+
+---
+
+## Commands (copy-paste)
+
+### Webapp package (`cd webapp` **or** `pnpm --filter webapp run <script>`)
+
+Runs use **`NODE_EXTRA_CA_CERTS`** via the script definitions in `webapp/package.json`.
+
+```bash
+# Per-project (Chromium, one project each)
+pnpm run test:e2e:01-guest-shell
+pnpm run test:e2e:02-auth-booking
+pnpm run test:e2e:03-listings
+pnpm run test:e2e:04-analytics
+
+# Screenshots: sets E2E_SCREENSHOTS=1 and runs project 05 only
+pnpm run test:e2e:05-screenshots
+
+# Quick gate: guest shell + analytics (projects 01 + 04)
+pnpm run test:e2e:smoke
+
+# Entire suite (all projects — 23 listed, 22 executed by default)
+pnpm run test:e2e
+```
+
+From repo root without changing directory:
+
+```bash
+pnpm --filter webapp run test:e2e:01-guest-shell
+pnpm --filter webapp run test:e2e:02-auth-booking
+pnpm --filter webapp run test:e2e:03-listings
+pnpm --filter webapp run test:e2e:04-analytics
+pnpm --filter webapp run test:e2e:05-screenshots
+pnpm --filter webapp run test:e2e:smoke
+pnpm --filter webapp run test:e2e
+```
+
+### Repo root shortcuts (`package.json` at repository root)
+
+```bash
+pnpm run test:webapp:e2e:smoke
+pnpm run test:webapp:e2e:listings
+pnpm run test:webapp:e2e:auth-booking
+pnpm run test:webapp:e2e
+```
+
+### Full edge run (wait for `/api/readyz`, then all Playwright tests)
+
+```bash
+./scripts/run-playwright-e2e-preflight.sh
+```
+
+Same as:
+
+```bash
+pnpm run test:e2e:preflight
+pnpm run test:e2e:integrated
+```
+
+### Full edge run without readyz wait (stack already green)
+
+```bash
+./scripts/webapp-playwright-strict-edge.sh
+pnpm run test:webapp:e2e
+```
+
+### Optional: screenshots only (from repo root)
+
+```bash
+E2E_SCREENSHOTS=1 ./scripts/webapp-playwright-strict-edge.sh --project=05-optional-screenshots
+```
+
+### Playwright CLI helpers (from `webapp/`)
+
+```bash
+pnpm exec playwright test --project=03-listings
+pnpm exec playwright test --list
+```
+
+## Listings-specific coverage (project 03)
+
+Stable `data-testid` hooks on `webapp/app/listings/page.tsx` (amenity filters, detail panel). Helper `firstListingIdFromSearch()` in `e2e/helpers.ts` for “load by ID”.
+
+| Area | Asserts |
+|------|---------|
+| Guest CTA | Browse + search; **Log in** in `main`; no create form |
+| Filters / sort / recency | Submit without `listings-api-error` |
+| Amenities | Laundry + dishwasher (testid or label fallback) |
+| Load by ID | Requires ≥1 listing in search index |
+| Pet-friendly | Create + filter finds title |
+| Geo / map | Coordinates + iframe **or** key placeholder |
+
+**Note:** “Load listing by ID” skips on an empty index. Seed data or run create tests first.
+
+## Deploy alignment (Colima / k3s)
+
+After changing webapp or listings-service:
+
+```bash
+./scripts/rebuild-webapp-listings-colima.sh
+```
+
+Maps key: bake at **image build** via `webapp/.env.local` or build-arg (see `docs/WEBAPP_GOOGLE_MAPS_AND_DEPLOY.txt`).
+
+## Reviewer checklist
+
+- [ ] **`./scripts/run-preflight-scale-and-all-suites.sh`** reaches **7a8** and Playwright completes (or run **`./scripts/run-playwright-e2e-preflight.sh`** alone). Set **`RUN_PREFLIGHT_PLAYWRIGHT=0`** only to skip browser E2E intentionally.
+- [ ] **`./scripts/run-playwright-e2e-preflight.sh`** completes (or **`pnpm run test:webapp:e2e`** if **`/api/readyz`** is already green).
+- [ ] From **`webapp/`**, **`pnpm exec playwright test --list`** shows **23** tests across **5** projects.
+- [ ] If **03-listings** skips, roll out **webapp** + **listings-service** with this branch.
+- [ ] Optional quick gate: **`pnpm run test:webapp:e2e:smoke`** (projects **01** + **04**).
+
+## Files touched (reference)
+
+- `webapp/playwright.config.ts` — suite projects `01`–`05`.
+- `webapp/package.json` — `test:e2e:*` project aliases + `test:e2e:smoke`.
+- Root `package.json` — `test:webapp:e2e:smoke`, `test:webapp:e2e:listings`, `test:webapp:e2e:auth-booking`.
+- `scripts/run-preflight-scale-and-all-suites.sh` — comments + step **7a8** banner reference **23** tests / **5** projects and this doc.
+- `webapp/app/listings/page.tsx`, `webapp/e2e/helpers.ts`, `webapp/e2e/listings-filters-maps.spec.ts` — listings depth + helpers.

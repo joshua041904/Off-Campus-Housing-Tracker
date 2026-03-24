@@ -8,6 +8,7 @@ import {
   createOchStrictMtlsServerCredentials,
 } from "@common/utils";
 import { pool } from "./db.js";
+import { buildListingsSearchQuery, parseAmenitySlugs } from "./search-listings-query.js";
 
 const LISTINGS_PROTO = resolveProtoPath("listings.proto");
 const packageDefinition = protoLoader.loadSync(LISTINGS_PROTO, {
@@ -103,6 +104,11 @@ const listingsService = {
       return;
     }
 
+    const lat =
+      req.latitude != null && Number.isFinite(Number(req.latitude)) ? Number(req.latitude) : null;
+    const lng =
+      req.longitude != null && Number.isFinite(Number(req.longitude)) ? Number(req.longitude) : null;
+
     const query = `
     INSERT INTO listings.listings (
       user_id,
@@ -115,7 +121,9 @@ const listingsService = {
       furnished,
       effective_from,
       effective_until,
-      listed_at
+      listed_at,
+      latitude,
+      longitude
     )
     VALUES (
       $1::uuid,
@@ -128,7 +136,9 @@ const listingsService = {
       $8,
       $9::date,
       NULLIF($10, '')::date,
-      CURRENT_DATE
+      CURRENT_DATE,
+      $11,
+      $12
     )
     RETURNING
       id,
@@ -141,7 +151,10 @@ const listingsService = {
       pet_friendly,
       furnished,
       status,
-      created_at
+      created_at,
+      listed_at,
+      latitude,
+      longitude
   `;
 
     const values = [
@@ -155,6 +168,8 @@ const listingsService = {
       req.furnished,
       req.effective_from,
       req.effective_until || "",
+      lat,
+      lng,
     ];
 
     pool
@@ -210,39 +225,24 @@ const listingsService = {
     const maxP = req.max_price != null && req.max_price !== "" ? Number(req.max_price) : null;
     const smoke = Boolean(req.smoke_free);
     const pets = Boolean(req.pet_friendly);
+    const furnished = Boolean(req.furnished);
+    const amenitySlugs = parseAmenitySlugs(String(req.amenities_contains || ""));
+    const nwdRaw = req.new_within_days != null && req.new_within_days !== "" ? Number(req.new_within_days) : null;
+    const newWithin =
+      nwdRaw != null && Number.isFinite(nwdRaw) && nwdRaw > 0 && nwdRaw <= 365 ? Math.floor(nwdRaw) : null;
+    const sort = String(req.sort || "created_desc").trim();
 
-    const params: unknown[] = [];
-    let i = 1;
-    const where: string[] = [`status::text = 'active'`, `(deleted_at IS NULL)`];
-    if (q) {
-      where.push(`(title ILIKE $${i} OR description ILIKE $${i})`);
-      params.push(`%${q.replace(/%/g, "\\%").replace(/_/g, "\\_")}%`);
-      i++;
-    }
-    if (minP != null && !Number.isNaN(minP)) {
-      where.push(`price_cents >= $${i}`);
-      params.push(minP);
-      i++;
-    }
-    if (maxP != null && !Number.isNaN(maxP)) {
-      where.push(`price_cents <= $${i}`);
-      params.push(maxP);
-      i++;
-    }
-    if (smoke) {
-      where.push(`smoke_free = true`);
-    }
-    if (pets) {
-      where.push(`pet_friendly = true`);
-    }
-
-    const sql = `
-      SELECT id, user_id, title, description, price_cents, amenities, smoke_free, pet_friendly, furnished, status::text AS status, created_at
-      FROM listings.listings
-      WHERE ${where.join(" AND ")}
-      ORDER BY created_at DESC
-      LIMIT 50
-    `;
+    const { sql, params } = buildListingsSearchQuery({
+      q,
+      minP: minP != null && !Number.isNaN(minP) ? minP : null,
+      maxP: maxP != null && !Number.isNaN(maxP) ? maxP : null,
+      smoke,
+      pets,
+      furnished,
+      amenitySlugs,
+      newWithin,
+      sort,
+    });
 
     pool
       .query(sql, params)

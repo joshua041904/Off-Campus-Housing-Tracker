@@ -1,6 +1,7 @@
 import express, { type NextFunction, type Request, type Response } from "express";
 import { httpCounter, register } from "@common/utils";
 import { pool } from "./db.js";
+import { buildListingsSearchQuery, parseAmenitySlugs } from "./search-listings-query.js";
 
 type AuthedRequest = Request & { userId?: string };
 
@@ -57,6 +58,13 @@ function amenitiesToStrings(raw: unknown): string[] {
   return [];
 }
 
+function formatListedAt(row: Record<string, unknown>): string | null {
+  const v = row.listed_at;
+  if (v == null) return null;
+  if (typeof v === "string") return v.slice(0, 10);
+  return new Date(v as Date).toISOString().slice(0, 10);
+}
+
 function rowToJson(row: Record<string, unknown>) {
   return {
     id: row.id,
@@ -70,8 +78,12 @@ function rowToJson(row: Record<string, unknown>) {
     furnished: row.furnished,
     status: row.status,
     created_at: row.created_at,
+    latitude: row.latitude != null && Number.isFinite(Number(row.latitude)) ? Number(row.latitude) : null,
+    longitude: row.longitude != null && Number.isFinite(Number(row.longitude)) ? Number(row.longitude) : null,
+    listed_at: formatListedAt(row),
   };
 }
+
 
 export function createListingsHttpApp() {
   const app = express();
@@ -102,47 +114,35 @@ export function createListingsHttpApp() {
   const searchListingsPublic = async (req: Request, res: Response) => {
     try {
       const searchT0 = Date.now();
-      const q = String(req.query.q || "").trim();
       const minP = req.query.min_price != null ? Number(req.query.min_price) : null;
       const maxP = req.query.max_price != null ? Number(req.query.max_price) : null;
-      const smoke = req.query.smoke_free === "1" || req.query.smoke_free === "true";
-      const pets = req.query.pet_friendly === "1" || req.query.pet_friendly === "true";
-
-      const params: unknown[] = [];
-      let i = 1;
-      const where: string[] = [`status::text = 'active'`, `(deleted_at IS NULL)`];
-      if (q) {
-        where.push(`(title ILIKE $${i} OR description ILIKE $${i})`);
-        params.push(`%${q.replace(/%/g, "\\%")}%`);
-        i++;
-      }
-      if (minP != null && !Number.isNaN(minP)) {
-        where.push(`price_cents >= $${i}`);
-        params.push(minP);
-        i++;
-      }
-      if (maxP != null && !Number.isNaN(maxP)) {
-        where.push(`price_cents <= $${i}`);
-        params.push(maxP);
-        i++;
-      }
-      if (smoke) where.push(`smoke_free = true`);
-      if (pets) where.push(`pet_friendly = true`);
-
-      const sql = `
-        SELECT id, user_id, title, description, price_cents, amenities, smoke_free, pet_friendly, furnished, status::text AS status, created_at
-        FROM listings.listings
-        WHERE ${where.join(" AND ")}
-        ORDER BY created_at DESC
-        LIMIT 50
-      `;
+      const newWithinRaw = req.query.new_within_days != null ? Number(req.query.new_within_days) : null;
+      const newWithin =
+        newWithinRaw != null && Number.isFinite(newWithinRaw) && newWithinRaw > 0 && newWithinRaw <= 365
+          ? Math.floor(newWithinRaw)
+          : null;
+      const amenityRaw = [String(req.query.amenity || ""), String(req.query.amenities || "")]
+        .filter(Boolean)
+        .join(",");
+      const qStr = String(req.query.q || "").trim();
+      const { sql, params } = buildListingsSearchQuery({
+        q: qStr,
+        minP: minP != null && !Number.isNaN(minP) ? minP : null,
+        maxP: maxP != null && !Number.isNaN(maxP) ? maxP : null,
+        smoke: req.query.smoke_free === "1" || req.query.smoke_free === "true",
+        pets: req.query.pet_friendly === "1" || req.query.pet_friendly === "true",
+        furnished: req.query.furnished === "1" || req.query.furnished === "true" || req.query.furnished === "yes",
+        amenitySlugs: parseAmenitySlugs(amenityRaw),
+        newWithin,
+        sort: String(req.query.sort || "created_desc").trim(),
+      });
       const result = await pool.query(sql, params);
       const dbMs = Date.now() - searchT0;
       if (process.env.LISTINGS_HTTP_TIMING === "1" || process.env.LISTINGS_HTTP_TIMING === "true") {
         const dbMin = Number(process.env.LISTINGS_HTTP_SEARCH_DB_MIN_MS ?? "50");
         if (dbMs >= dbMin) {
           console.log(
-            `[listings-http-search-db] ms=${dbMs} rows=${result.rowCount} has_q=${q ? "1" : "0"}`,
+            `[listings-http-search-db] ms=${dbMs} rows=${result.rowCount} has_q=${qStr ? "1" : "0"}`,
           );
         }
       }
@@ -159,7 +159,8 @@ export function createListingsHttpApp() {
   app.get("/listings/:id", async (req, res) => {
     try {
       const result = await pool.query(
-        `SELECT id, user_id, title, description, price_cents, amenities, smoke_free, pet_friendly, furnished, status::text AS status, created_at
+        `SELECT id, user_id, title, description, price_cents, amenities, smoke_free, pet_friendly, furnished,
+                status::text AS status, created_at, listed_at, latitude, longitude
          FROM listings.listings WHERE id = $1::uuid AND (deleted_at IS NULL)`,
         [req.params.id]
       );
@@ -184,13 +185,21 @@ export function createListingsHttpApp() {
         res.status(400).json({ error: "title, effective_from, price_cents required" });
         return;
       }
+      const latRaw = body.latitude;
+      const lngRaw = body.longitude;
+      const lat =
+        latRaw != null && latRaw !== "" && Number.isFinite(Number(latRaw)) ? Number(latRaw) : null;
+      const lng =
+        lngRaw != null && lngRaw !== "" && Number.isFinite(Number(lngRaw)) ? Number(lngRaw) : null;
+
       const r = await pool.query(
         `INSERT INTO listings.listings (
           user_id, title, description, price_cents, amenities, smoke_free, pet_friendly, furnished,
-          effective_from, effective_until, listed_at
+          effective_from, effective_until, listed_at, latitude, longitude
         ) VALUES (
-          $1::uuid, $2, $3, $4, $5::jsonb, $6, $7, $8, $9::date, NULLIF($10,'')::date, CURRENT_DATE
-        ) RETURNING id, user_id, title, description, price_cents, amenities, smoke_free, pet_friendly, furnished, status::text AS status, created_at`,
+          $1::uuid, $2, $3, $4, $5::jsonb, $6, $7, $8, $9::date, NULLIF($10,'')::date, CURRENT_DATE, $11, $12
+        ) RETURNING id, user_id, title, description, price_cents, amenities, smoke_free, pet_friendly, furnished,
+                    status::text AS status, created_at, listed_at, latitude, longitude`,
         [
           req.userId,
           title,
@@ -202,6 +211,8 @@ export function createListingsHttpApp() {
           body.furnished != null ? Boolean(body.furnished) : null,
           effective_from,
           String(body.effective_until || ""),
+          lat,
+          lng,
         ]
       );
       res.status(201).json(rowToJson(r.rows[0]));

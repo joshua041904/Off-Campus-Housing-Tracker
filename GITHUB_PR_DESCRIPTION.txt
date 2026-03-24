@@ -362,7 +362,8 @@ Relax CPU gate / cooldowns / gateway drain? → §7.6 suite hooks + §9 env tabl
 | **7a** | `scripts/test-messaging-service-comprehensive.sh`. Default: `SKIP_ENSURE_MESSAGING_SCHEMA=1`. Verbose: `PREFLIGHT_VERBOSE_HOUSING_MESSAGING_SUITE=1`. |
 | **7a3–7a7** | `scripts/run-housing-k6-edge-smoke.sh` → **§6.3** |
 | **7a** (post-grid) | `k6_suite_after_k6_block` (extra top + cooldown before Playwright) |
-| **7a8** | `scripts/run-playwright-e2e-preflight.sh` → `pnpm --filter webapp test:e2e` |
+| **7a8** | `scripts/run-playwright-e2e-preflight.sh` → `scripts/webapp-playwright-strict-edge.sh` → **11** Playwright tests (`webapp/e2e/*.spec.ts`) |
+| **7a7b** *(opt)* | `PREFLIGHT_K6_MESSAGING_LIMIT_FINDER=1` → `scripts/load/k6-messaging-limit-finder.js` (after grid; uses `k6-strict-edge-tls.js`) |
 | **7b** | `scripts/run-transport-study-experiments.sh` |
 | **7c** | `scripts/run-k6-in-cluster.sh` (when `RUN_K6=1`, `RUN_K6_IN_CLUSTER=1`) + hook |
 | **8** | `scripts/run_pgbench_sweep.sh` ×7 DBs → `scripts/apply-tune-and-explain-all-dbs.sh` → `scripts/write-preflight-summary-md.sh` |
@@ -476,7 +477,7 @@ Between every script: **`k6-suite-resource-hooks.sh`** — `kubectl top`, option
 | **messaging-service** | `pnpm -C services/messaging-service test` | `tests/integration/messaging-flow.integration.test.ts` (also `pnpm run test:integration`) |
 | **media-service** | `pnpm -C services/media-service test` | `test/objectKey.test.ts`, `tests/integration/media-upload.integration.test.ts` |
 | **common** | `pnpm -C services/common test` | Vitest — **not** run in preflight **7a** by default |
-| **webapp** | `pnpm --filter webapp test:e2e` | `webapp/e2e/auth-cycle.spec.ts`, `analytics-api.spec.ts`, `analytics-ui.spec.ts`, `flows.spec.ts`, `guest.spec.ts`, `webapp-pages.spec.ts`, `helpers.ts` |
+| **webapp** | `pnpm --filter webapp test:e2e` or `scripts/webapp-playwright-strict-edge.sh` (preflight uses the latter) | **11** tests / **6** specs: `auth-cycle`, `analytics-api`, `analytics-ui`, `flows`, `guest`, `webapp-pages` (+ `helpers.ts`) |
 
 ---
 
@@ -659,7 +660,15 @@ export K6_SUITE_KILL_K6_AFTER_BLOCK=1
 | `K6_SUITE_COLIMA_DROP_CACHES` | `0` | `1` = Colima VM `drop_caches` before each k6 (lab) |
 | `K6_SUITE_LOG_TOP_BEFORE` | `0` | `1` = snapshot before each k6 |
 
+### Preflight k6 / Playwright (step 7a)
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `PREFLIGHT_K6_MESSAGING_LIMIT_FINDER` | `0` | `1` = after edge grid, run **`k6-messaging-limit-finder.js`** (long; **`k6-strict-edge-tls.js`**) |
+
 **Second terminal:** `./scripts/perf/watch-cluster-contention.sh` → [`docs/perf/CLUSTER_CONTENTION_WATCH.md`](docs/perf/CLUSTER_CONTENTION_WATCH.md)
+
+**TLS in git:** do not commit **`certs/*.key`** / **`.jks`** — [`docs/SECURITY_CERTS_REPOSITORY.md`](docs/SECURITY_CERTS_REPOSITORY.md), [`scripts/check-certs-not-in-git.sh`](scripts/check-certs-not-in-git.sh)
 
 ---
 
