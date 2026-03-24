@@ -25,6 +25,7 @@
 |--------|---------|
 | `scripts/perf/run-all-explain.sh` | `EXPLAIN (ANALYZE, BUFFERS, VERBOSE)` for **auth, listings, bookings, messaging, notification, trust, analytics, media** |
 | `scripts/perf/run-all-k6-load-report.sh` | k6 health grid + optional ramps → Markdown |
+| `scripts/perf/run-k6-cross-service-isolation.sh` | **Cross-service analysis:** each edge k6 script **alone** + `kubectl top` snapshots + summaries → `bench_logs/k6-cross-service-*` ([TAIL_LATENCY_AND_CROSS_SERVICE_ANALYSIS.md](./TAIL_LATENCY_AND_CROSS_SERVICE_ANALYSIS.md)) |
 | `scripts/perf/sql/explain-*.sql` | One file per database |
 | `scripts/perf/explain-listings-search.sh` | Listings-only (legacy helper) |
 
@@ -36,6 +37,8 @@
 
 | Doc | Purpose |
 |-----|---------|
+| [TAIL_LATENCY_AND_CROSS_SERVICE_ANALYSIS.md](./TAIL_LATENCY_AND_CROSS_SERVICE_ANALYSIS.md) | **Team focus:** tail latency (advanced) + cross-service / suite contention — evidence, hypotheses, hooks (`K6_SUITE_*`), next steps |
+| [CLUSTER_CONTENTION_WATCH.md](./CLUSTER_CONTENTION_WATCH.md) | **Prove contention:** second-terminal `watch-cluster-contention.sh` → file; `K6_SUITE_RESOURCE_LOG` auto-append; Envoy restart + drop_caches knobs |
 | [LISTINGS_SEARCH.md](./LISTINGS_SEARCH.md) | Exact SQL for listings browse/search + `search_norm` vs `ILIKE` |
 | [LISTINGS_HTTP_TIMING.md](./LISTINGS_HTTP_TIMING.md) | **Request timing + pg pool logs** in listings-service (`LISTINGS_HTTP_TIMING=1`) to debug k6 tails vs DB |
 

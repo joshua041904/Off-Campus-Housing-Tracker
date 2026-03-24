@@ -1,5 +1,7 @@
 # Running the full preflight (k6 phases + pgbench + suites)
 
+**New to the repo?** Start with **`docs/PR_SECOND_ONBOARDING.md`** (cluster + latest DB backup + TLS/JKS + **curl 8.19+** + this script). Second PR paste: **`GITHUB_PR_DESCRIPTION_SECOND.txt`**.
+
 **Colima k3s only.** The script automatically sets up **127.0.0.1:6443** (tunnel + kubeconfig); you don't need to run `colima-forward-6443.sh` manually.
 
 ## Prerequisites: Colima + externalized infra (Docker, 7 Postgres housing DBs, Redis, Kafka)

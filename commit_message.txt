@@ -1,95 +1,93 @@
-perf(observability,load): listings diagnostics, k6 hooks, edge/gateway + suite pacing
+perf(perf-lab): cluster contention story, k6 pacing hooks, listings diagnostics, green-team docs, preflight hardening
 
-First integrated PR: load-lab visibility, safer k6 defaults, preflight pacing, and edge fixes.
+WHY (cluster-level resource contention — not “fix listings replicas”)
+----------------------------------------------------------------------
+Messaging / analytics / listings can look “sick” in a **long suite** while the **same paths are fine in isolation**:
+  • Back-to-back k6 (especially **constant-arrival-rate**), high VUs, shared Colima/k3s CPU, virtiofs + hypervisor scheduling.
+  • **Envoy** retains connection state; **Postgres** spikes when many services load together.
+  • **Listings “got better” after enabling HTTP timing** partly because **rollout restart** reset pools / memory / event-loop state — stability signal, not proof the code was wrong.
 
-WHY
----
-- Listings can look perfect under isolated k6 but degrade inside the full suite → cluster
-  contention vs service bug. We add listings-side logs + between-test kubectl top/cooldowns.
-- k6 should run without forgetting -e BASE_URL; stale checkouts should not hard-fail listings health.
-- Colima QUIC capture and gateway JSON errors were causing false reds; housing HTTP checks were
-  narrower than the HTTP/3 loop.
+**Prove it (second terminal while preflight or edge smoke runs):**
+  kubectl top pods -n off-campus-housing-tracker
+  kubectl top nodes
+Watch: CPU or memory **> ~80%**, any pod **≥ ~1 core** sustained, Postgres- or Envoy-shaped spikes. Hooks also **warn** at 80% (K6_SUITE_WARN_*) and can **fail** at **85%** node CPU (K6_SUITE_NODE_CPU_MAX).
 
-WHERE TO READ EVERYTHING (paste for GitHub PR)
----------------------------------------------
-Canonical PR body (plain .txt — paste entire file into GitHub/GitLab PR description; Markdown inside renders in GitHub):
+WHAT WE DO (orchestration + visibility — maps to “do this properly”)
+--------------------------------------------------------------------
+Implemented in **scripts/lib/k6-suite-resource-hooks.sh** and wired into **run-housing-k6-edge-smoke.sh**, **load/run-k6-phases.sh**, **run-all-test-suites.sh**, **run-preflight-scale-and-all-suites.sh**:
 
-  GITHUB_PR_DESCRIPTION.txt   (repo root)
+  1) **Cooldown after every k6 block** — default **K6_SUITE_COOLDOWN_SEC=15** (GC, pools, sockets).
+  2) **Extra settle after CAR-style tests** — **K6_SUITE_CAR_EXTRA_SEC=20**; optional **K6_SUITE_RESTART_ENVOY_AFTER_CAR=1** (+ sleep, disruptive) or **K6_SUITE_STABILITY_AGGRESSIVE=1**.
+  3) **Log kubectl top nodes + pods** after each block — **K6_SUITE_LOG_TOP=1**; optional **K6_SUITE_LOG_TOP_BEFORE=1**; append to **bench_logs/k6-suite-resources-*.log** via **K6_SUITE_RESOURCE_LOG** / **K6_SUITE_RESOURCE_LOG_AUTO** (preflight 7a enables AUTO).
+  4) **Fail when node CPU too high** — **K6_SUITE_FAIL_ON_NODE_CPU=1**, **K6_SUITE_NODE_CPU_MAX=85**; hook **exit code 3**. Preflight **fails the run** on rc=3 after service grid / after full grid hook / after 7c in-cluster k6 (not only warn). Set **K6_SUITE_FAIL_ON_NODE_CPU=0** for noisy labs or missing metrics-server.
 
-Includes: review split for Joshua / Franco / Arkar, copy/paste run recipes, env tables, FAQ, verify commands.
+**Optional harsh lab (Colima VM):** **K6_SUITE_COLIMA_DROP_CACHES=1** — before each k6 block, **colima ssh** runs **sync** + **drop_caches** (same idea as manual sync; sudo inside VM). Not for production.
 
-HOW TO RUN (minimal cheat sheet)
---------------------------------
-Repo root = Off-Campus-Housing-Tracker.
+**Preflight-specific:** Sources hooks at start of **7a**; after **run-housing-k6-edge-smoke.sh** runs **k6_suite_after_k6_block preflight-after-k6-service-grid** (extra top + cooldown before Playwright).
 
-  # Edge k6 grid (all services through Caddy hostname)
+OTHER CHANGES IN THIS INTEGRATED PR
+-----------------------------------
+  • **Listings HTTP diagnostics** — **services/listings-service/src/http-server.ts**, **infra/k8s/base/listings-service/deploy.yaml**, **docs/perf/LISTINGS_*.md**, **TAIL_LATENCY_AND_CROSS_SERVICE_ANALYSIS.md**.
+  • **k6** — **k6-strict-edge-tls.js**, **k6-listings-health.js**, thresholds / **x-loadtest** on touched scripts.
+  • **Gateway / transport / housing** — **api-gateway/server.ts** (JSON **4xx** vs 500), **packet-capture-v2.sh**, **test-microservices-http2-http3-housing.sh**.
+  • **Perf** — **scripts/perf/** EXPLAIN + k6 report scripts, **run-k6-cross-service-isolation.sh**, **watch-cluster-contention.sh**, **CLUSTER_CONTENTION_WATCH.md**.
+  • **Docs / PR body** — **GITHUB_PR_DESCRIPTION.txt** (review split Joshua/Franco/Arkar; **§3 cross-platform** prerequisites; **§4 green team**: **setup-new-colima-cluster.sh**, **bring-up-external-infra.sh**, **bring-up-cluster-and-infra.sh**, MetalLB, TLS order). **docs/PR_SECOND_ONBOARDING.md** aligned. **GITHUB_PR_DESCRIPTION_SECOND.txt** points to §4 when single PR.
+  • **Shell** — **run-preflight-scale-and-all-suites.sh** Phase **A/C** closing fix (no stacked **fi** parse issue); **_phase_a_only** exit uses **&& { … }** group.
+
+WHERE TO READ / PASTE
+---------------------
+  • Narrative: **docs/perf/TAIL_LATENCY_AND_CROSS_SERVICE_ANALYSIS.md**, **docs/perf/CLUSTER_CONTENTION_WATCH.md**
+  • GitHub PR: **GITHUB_PR_DESCRIPTION.txt**
+  • Listings operator: **docs/perf/LISTINGS_HTTP_TIMING.md**
+
+HOW TO RUN (cheat sheet)
+------------------------
+  # Second terminal — prove contention
+  kubectl top nodes
+  kubectl top pods -n off-campus-housing-tracker
+
+  # Continuous top → file
+  ./scripts/perf/watch-cluster-contention.sh
+
+  # Edge k6 grid (hooks between scripts)
   SSL_CERT_FILE="$PWD/certs/dev-root.pem" ./scripts/run-housing-k6-edge-smoke.sh
 
-  # Single listings health
-  SSL_CERT_FILE="$PWD/certs/dev-root.pem" k6 run scripts/load/k6-listings-health.js
-
-  # Big preflight, no pgbench (CPU gate off if metrics noisy)
+  # Preflight (relax CPU gate if Colima too noisy)
   K6_SUITE_FAIL_ON_NODE_CPU=0 RUN_PGBENCH=0 ./scripts/run-preflight-scale-and-all-suites.sh
 
-  # Listings diagnostics: build → load (Colima) → restart → env
-  docker build -f services/listings-service/Dockerfile -t listings-service:dev .
-  docker save listings-service:dev | colima ssh -- docker load
-  kubectl rollout restart deployment/listings-service -n off-campus-housing-tracker
-  kubectl set env deployment/listings-service -n off-campus-housing-tracker \
-    LISTINGS_HTTP_TIMING=1 LISTINGS_HTTP_POOL_STATS_MS=2000
-  kubectl logs -n off-campus-housing-tracker deployment/listings-service -c app --tail=200 | grep listings-http-timing
+  # Green team first machine — see GITHUB_PR_DESCRIPTION §4.1–4.8
+  ./scripts/setup-new-colima-cluster.sh
+  RESTORE_BACKUP_DIR=latest ./scripts/bring-up-external-infra.sh
+  # … TLS §4.6, then bring-up-cluster-and-infra / preflight
 
-  # Perf report (when host can reach housing Postgres ports)
-  ./scripts/perf/run-perf-full-report.sh
-
-WHAT CHANGED (files / areas)
-----------------------------
-Listings
-  - services/listings-service/src/http-server.ts — LISTINGS_HTTP_TIMING*, pool stats, startup log
-  - infra/k8s/base/listings-service/deploy.yaml — diagnostic env placeholders
-  - docs/perf/LISTINGS_HTTP_TIMING.md, LISTINGS_SEARCH.md, README.md
-
-k6
-  - scripts/load/k6-strict-edge-tls.js — default BASE_URL https://off-campus-housing.test
-  - scripts/load/k6-listings-health.js — try/catch if defaultRawBase throws (stale helper)
-  - scripts/load/* — x-loadtest header, adversarial + gateway-health thresholds (edge-realistic)
-
-Gateway
-  - services/api-gateway/src/server.ts — preserve 4xx from JSON parse (e.g. 400), not only 500
-
-Transport / suites
-  - scripts/lib/packet-capture-v2.sh — Colima QUIC strict fallbacks when L1 pcap empty
-  - scripts/test-microservices-http2-http3-housing.sh — broader HTTP/2 health + optional Vitest
-
-Suite orchestration (contention visibility)
-  - scripts/lib/k6-suite-resource-hooks.sh — NEW: kubectl top, cooldowns, optional CPU% fail (85)
-  - scripts/run-housing-k6-edge-smoke.sh — hooks per script; CAR extra sleep for messaging/media
-  - scripts/load/run-k6-phases.sh — hooks per phase + optional bundles
-  - scripts/run-all-test-suites.sh — hook after single post-rotation k6
-  - scripts/run-preflight-scale-and-all-suites.sh — K6_SUITE_* docs; hook after in-cluster k6
-
-Perf automation
-  - scripts/perf/run-perf-full-report.sh, run-all-explain.sh, run-all-k6-load-report.sh, sql/explain-*.sql
-
-HOOK ENV (suite scripts)
-------------------------
+HOOK ENV (reference)
+--------------------
   K6_SUITE_COOLDOWN_SEC=15 K6_SUITE_CAR_EXTRA_SEC=20
   K6_SUITE_LOG_TOP=1 K6_SUITE_FAIL_ON_NODE_CPU=1 K6_SUITE_NODE_CPU_MAX=85
-  K6_SUITE_RESTART_ENVOY_AFTER_CAR=0  # set 1 to rollout envoy-test after CAR tests
+  K6_SUITE_WARN_HOT_RESOURCES=1 K6_SUITE_WARN_NODE_CPU=80 K6_SUITE_WARN_NODE_MEM=80
+  K6_SUITE_RESTART_ENVOY_AFTER_CAR=0 K6_SUITE_ENVOY_RESTART_SLEEP_SEC=10
+  K6_SUITE_STABILITY_AGGRESSIVE=0 K6_SUITE_COLIMA_DROP_CACHES=0
+  K6_SUITE_LOG_TOP_BEFORE=0 K6_SUITE_RESOURCE_LOG_AUTO=1
+
+NEXT (backlog)
+--------------
+  • Isolation matrix: which prior k6 script poisons the next (cross-service order).
+  • Tune CAR / VUs to sustainable RPS on Colima 12c/16Gi.
+  • Correlate **K6_SUITE_RESTART_ENVOY_AFTER_CAR** with improved tails when enabled.
 
 VERIFY BEFORE PUSH
 ------------------
   bash -n scripts/lib/k6-suite-resource-hooks.sh
   bash -n scripts/load/run-k6-phases.sh
   bash -n scripts/run-housing-k6-edge-smoke.sh
-  bash -n scripts/lib/packet-capture-v2.sh
+  bash -n scripts/run-preflight-scale-and-all-suites.sh
   SSL_CERT_FILE="$PWD/certs/dev-root.pem" ./scripts/run-housing-k6-edge-smoke.sh
 
 DEPLOY NOTES
 ------------
-- Rebuild + rollout api-gateway for JSON 400 behavior in-cluster.
-- Rebuild + load + rollout listings-service for HTTP timing logs (env alone is not enough).
+  • Rebuild + rollout **api-gateway** if JSON 4xx behavior was validated in-cluster.
+  • Rebuild + load + rollout **listings-service** for HTTP timing logs (env alone insufficient).
 
-Suggested one-line subject (if you amend)
------------------------------------------
-perf(observability,load): listings diagnostics, k6 suite hooks, edge/gateway hardening
+Suggested subject
+-----------------
+perf(perf-lab): k6 suite contention hooks, preflight CPU fail + post-grid settle, listings diagnostics, green-team PR doc

@@ -72,6 +72,7 @@ _run() {
   shift 3
   echo ""
   echo "━━ k6 smoke: $name ━━"
+  k6_suite_before_k6_block "smoke-${name}"
   export DURATION="$DUR" VUS="$VUS"
   local _k6_rc=0
   _k6_run "$LOAD/$file" || _k6_rc=$?
@@ -118,6 +119,7 @@ fi
 if [[ "${SKIP_K6_BOOKING_SEARCH:-0}" != "1" ]]; then
   say "k6 JWT flows (booking + search/watchlist) via edge $BASE_URL"
   export DURATION="${K6_BOOKING_DURATION:-25s}" VUS="${K6_BOOKING_VUS:-3}"
+  k6_suite_before_k6_block "smoke-booking-jwt"
   _k6_run "$LOAD/k6-booking.js" || {
     echo "⚠️  k6-booking failed"
     [[ "${K6_GRID_STRICT:-0}" == "1" ]] && exit 1
@@ -129,6 +131,7 @@ if [[ "${SKIP_K6_BOOKING_SEARCH:-0}" != "1" ]]; then
     true
   }
   export DURATION="${K6_SEARCH_DURATION:-25s}" VUS="${K6_SEARCH_VUS:-6}"
+  k6_suite_before_k6_block "smoke-search-watchlist"
   _k6_run "$LOAD/k6-search-watchlist.js" || {
     echo "⚠️  k6-search-watchlist failed"
     [[ "${K6_GRID_STRICT:-0}" == "1" ]] && exit 1

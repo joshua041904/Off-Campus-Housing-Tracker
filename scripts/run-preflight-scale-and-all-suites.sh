@@ -13,6 +13,11 @@ fi
 #   4. Strict TLS/mTLS preflight: ensure-strict-tls-mtls-preflight.sh (service-tls + dev-root-ca chain).
 #   5. Optional: run-all-test-suites.sh runs auth, baseline, enhanced, adversarial, rotation, then k6 (after CA/leaf rotation, strict TLS), then standalone, tls-mtls, social; then pgbench.
 #
+# Green team / first machine: read docs/PR_SECOND_ONBOARDING.md — Colima + DB restore (RESTORE_BACKUP_DIR=latest),
+# CA bundle + Kafka JKS (docs/CERT_GENERATION_STRICT_TLS_MTLS.md), curl 8.19+ on PATH, then this script.
+# Preflight already runs ensure-housing-cluster-secrets + ensure-strict-tls-mtls-preflight when needed; you still
+# need certs/kafka-ssl on disk before bringing up Docker Kafka (see bring-up-external-infra.sh).
+#
 # Use: ./scripts/run-preflight-scale-and-all-suites.sh
 #   REQUIRE_COLIMA=0  use k3d (default for preflight). REQUIRE_COLIMA=1  use Colima + k3s (primary). With REQUIRE_COLIMA=1 and METALLB_ENABLED=1 preflight uses install-metallb-colima.sh, caddy-h3-service-loadbalancer.yaml, and ensures :dev images (no k3d registry/3c0/3c0a/3c0b). Colima only used optionally for L2 verification when REQUIRE_COLIMA=0 (METALLB_VERIFY_COLIMA_L2=1).
 # Get ready first: ./scripts/ensure-ready-for-preflight.sh
@@ -51,6 +56,12 @@ fi
 #     K6_SUITE_COOLDOWN_SEC=15 — sleep after every k6 block; K6_SUITE_CAR_EXTRA_SEC=20 — extra after constant-arrival-rate scripts.
 #     K6_SUITE_LOG_TOP=1 — kubectl top nodes + pods after each block; K6_SUITE_FAIL_ON_NODE_CPU=1 — exit hook code 3 if any node CPU% ≥ K6_SUITE_NODE_CPU_MAX (default 85). Set K6_SUITE_FAIL_ON_NODE_CPU=0 to only log.
 #     K6_SUITE_RESTART_ENVOY_AFTER_CAR=0 — set 1 to rollout restart deployment/envoy-test in envoy-test after each CAR test (+ K6_SUITE_ENVOY_RESTART_SLEEP_SEC=10).
+#     K6_SUITE_RESOURCE_LOG / K6_SUITE_RESOURCE_LOG_AUTO=1 — append kubectl top snapshots to bench_logs/k6-suite-resources-*.log (AUTO on in step 7a; proves contention offline).
+#     K6_SUITE_STABILITY_AGGRESSIVE=1 — enables Envoy restart after CAR by default (clears connection state; disruptive).
+#     K6_SUITE_LOG_TOP_BEFORE=1 — snapshot before each k6 run; K6_SUITE_COLIMA_DROP_CACHES=1 — colima ssh sync+drop_caches before each k6 (harsh lab; Colima VM only).
+#     K6_SUITE_WARN_HOT_RESOURCES=1 (default) — stderr warnings when node CPU%/MEM% ≥ K6_SUITE_WARN_NODE_CPU / _MEM (default 80); fail still at K6_SUITE_NODE_CPU_MAX (85).
+#     Second terminal (prove contention): kubectl top pods -n off-campus-housing-tracker; kubectl top nodes — watch CPU/mem >80%, Postgres/Envoy spikes.
+#     Continuous log: scripts/perf/watch-cluster-contention.sh → bench_logs/cluster-contention-watch-*.log (docs/perf/CLUSTER_CONTENTION_WATCH.md).
 #   RUN_FULL_LOAD=1 (default) run pgbench (all DBs, deep) + k6 + xk6 HTTP/3 phases + all suites (full control plane). Set RUN_FULL_LOAD=0 for suites only.
 #   RUN_K6=1 run k6 load phase; RUN_PGBENCH=1 run pgbench sweeps before suites (set by RUN_FULL_LOAD=1).
 #   When RUN_FULL_LOAD=1: K6_PHASES=read,soak,limit,max, K6_HTTP3=1, K6_HTTP3_PHASES=1 (run-k6-phases.sh runs xk6-http3 phases). Step 6d builds xk6-http3 if missing; SKIP_XK6_BUILD=1 to skip.
@@ -2030,11 +2041,12 @@ kubectl get pods -n ingress-nginx --no-headers 2>/dev/null | head -5
 kubectl get pods -n envoy-test --no-headers 2>/dev/null | head -5
 ok "6b2 cluster health and pod summary done"
 
-# End of 3a–6b block (Phase C skips above and runs only 7 and 8)
-if _phase_a_only; then
+# End of 3a–6b block (Phase C skips above and runs only 7 and 8).
+# Single fi closes if ! _phase_c_only (line ~926). Use && group so we do not stack two fi (some environments mis-parse).
+_phase_a_only && {
   ok "Phase A complete — control-plane sanity. Run Phase B for cert, then full or Phase C for load. See docs/PREFLIGHT_PHASES_README.md"
   exit 0
-fi
+}
 fi
 
 # 6c. (pgbench moved to step 8 so all 8 pgbench runs come after test suites and do not block or slow earlier steps.)
@@ -2204,6 +2216,24 @@ _preflight_ensure_macos_k6_keychain_trust() {
 # Do not skip strict TLS/mTLS preflight — always run ensure-strict-tls-mtls-preflight so all tests use strict TLS/mTLS
 _run_all_suites() {
   _preflight_ensure_macos_k6_keychain_trust || return 1
+  if [[ -z "${K6_SUITE_RESOURCE_LOG:-}" ]] && [[ "${K6_SUITE_RESOURCE_LOG_AUTO:-1}" == "1" ]]; then
+    export K6_SUITE_RESOURCE_LOG="$REPO_ROOT/bench_logs/k6-suite-resources-$(date +%Y%m%d-%H%M%S).log"
+    mkdir -p "$(dirname "$K6_SUITE_RESOURCE_LOG")"
+    {
+      echo "# k6 suite resource log — kubectl top snapshots (suite contention evidence)"
+      echo "# started $(date -Iseconds)"
+      echo "# PREFLIGHT_MAIN_LOG=${PREFLIGHT_MAIN_LOG:-}"
+    } >>"$K6_SUITE_RESOURCE_LOG"
+  fi
+  if [[ "${K6_SUITE_STABILITY_AGGRESSIVE:-0}" == "1" ]]; then
+    export K6_SUITE_RESTART_ENVOY_AFTER_CAR="${K6_SUITE_RESTART_ENVOY_AFTER_CAR:-1}"
+    info "K6_SUITE_STABILITY_AGGRESSIVE=1 → K6_SUITE_RESTART_ENVOY_AFTER_CAR=${K6_SUITE_RESTART_ENVOY_AFTER_CAR}"
+  fi
+  [[ -n "${K6_SUITE_RESOURCE_LOG:-}" ]] && info "k6 kubectl top snapshots also appended to: $K6_SUITE_RESOURCE_LOG"
+  if [[ -f "$SCRIPT_DIR/lib/k6-suite-resource-hooks.sh" ]]; then
+    # shellcheck source=lib/k6-suite-resource-hooks.sh
+    source "$SCRIPT_DIR/lib/k6-suite-resource-hooks.sh"
+  fi
   export SKIP_PREFLIGHT=1 SKIP_FULL_PREFLIGHT=1 RUN_K6="${RUN_K6:-0}" RUN_PGBENCH=0
   export SUITE_LOG_DIR DB_VERIFY_TIMING_LOG RUN_SHOPPING_SEQUENCE CAPTURE_STOP_TIMEOUT CAPTURE_MAX_STOP_SECONDS
   export SUITE_TIMEOUT DB_VERIFY_MAX_SECONDS DB_VERIFY_CONNECT_TIMEOUT DB_VERIFY_FAST
@@ -2238,10 +2268,26 @@ _run_all_suites() {
       export K6_CA_ABSOLUTE="$_k6_ca"
       export BASE_URL="${BASE_URL:-https://off-campus-housing.test}"
       chmod +x "$SCRIPT_DIR/run-housing-k6-edge-smoke.sh" 2>/dev/null || true
+      _smoke_rc=0
       K6_SMOKE_DURATION="${K6_SMOKE_DURATION:-${K6_MESSAGING_DURATION:-28s}}" K6_SMOKE_VUS="${K6_SMOKE_VUS:-${K6_MESSAGING_VUS:-6}}" \
         K6_BOOKING_DURATION="${K6_BOOKING_DURATION:-25s}" K6_BOOKING_VUS="${K6_BOOKING_VUS:-3}" \
         K6_SEARCH_DURATION="${K6_SEARCH_DURATION:-28s}" K6_SEARCH_VUS="${K6_SEARCH_VUS:-6}" \
-        "$SCRIPT_DIR/run-housing-k6-edge-smoke.sh" || warn "k6 edge smoke had failures (non-fatal unless K6_GRID_STRICT=1)"
+        "$SCRIPT_DIR/run-housing-k6-edge-smoke.sh" || _smoke_rc=$?
+      # Exit 3 = k6_suite_check_node_cpu (node CPU% ≥ K6_SUITE_NODE_CPU_MAX) — cluster contention, not a single-service code bug.
+      if [[ "$_smoke_rc" -eq 3 ]]; then
+        fail "Step 7a k6 service grid: node CPU ≥ ${K6_SUITE_NODE_CPU_MAX:-85}% after a k6 block (hooks). Second terminal: kubectl top nodes. Or K6_SUITE_FAIL_ON_NODE_CPU=0 for warn-only."
+      fi
+      [[ "$_smoke_rc" -ne 0 ]] && warn "k6 edge smoke had failures (rc=${_smoke_rc}; strict: K6_GRID_STRICT=1)"
+      # Full grid finished: extra kubectl top + 15s cooldown (+ CAR extras already inside smoke) so pools/Envoy settle before Playwright.
+      if declare -F k6_suite_after_k6_block >/dev/null 2>&1; then
+        k6_suite_after_k6_block "preflight-after-k6-service-grid" 0 || {
+          _grid_hook=$?
+          if [[ "$_grid_hook" -eq 3 ]]; then
+            fail "After full k6 service grid: node CPU ≥ ${K6_SUITE_NODE_CPU_MAX:-85}% — treat as cluster-level contention (Colima scheduling, socket/IO). K6_SUITE_FAIL_ON_NODE_CPU=0 to continue."
+          fi
+          return "$_grid_hook"
+        }
+      fi
     else
       warn "7a3 k6 grid skipped: need non-empty CA at certs/dev-root.pem (sync from preflight)"
     fi
@@ -2283,7 +2329,13 @@ if [[ "${RUN_K6:-0}" == "1" ]] && [[ "${RUN_K6_IN_CLUSTER:-1}" == "1" ]] && [[ -
   if [[ -f "$SCRIPT_DIR/lib/k6-suite-resource-hooks.sh" ]]; then
     # shellcheck source=lib/k6-suite-resource-hooks.sh
     source "$SCRIPT_DIR/lib/k6-suite-resource-hooks.sh"
-    k6_suite_after_k6_block "k6-in-cluster" 0 || warn "k6 suite resource hook after in-cluster k6 (node CPU ≥ threshold or cooldown)"
+    k6_suite_after_k6_block "k6-in-cluster" 0 || {
+      _ick=$?
+      if [[ "$_ick" -eq 3 ]]; then
+        fail "Step 7c in-cluster k6: node CPU ≥ ${K6_SUITE_NODE_CPU_MAX:-85}% after hook — same contention story as edge grid. K6_SUITE_FAIL_ON_NODE_CPU=0 for warn-only."
+      fi
+      warn "k6 suite hook after in-cluster k6 returned ${_ick}"
+    }
   fi
 else
   [[ "${RUN_K6_IN_CLUSTER:-1}" == "0" ]] && info "7c. In-cluster k6 skipped (RUN_K6_IN_CLUSTER=0)"
