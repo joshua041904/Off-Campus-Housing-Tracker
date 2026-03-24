@@ -1,0 +1,890 @@
+# GitHub Issues (Executable, Copy/Paste Ready)
+
+Goal: each issue is **DO -> RUN -> SEE -> DONE**.
+
+## Usage
+
+1. Create one GitHub issue per section below.
+2. Keep this scope guard in every issue:
+   - Do not change unrelated files.
+   - Keep changes minimal and testable.
+3. Use the exact title prefix rule.
+
+## Title Rule (All Issues)
+
+Prefix every issue title with:
+
+`After PR1 complete:`
+
+(PR1 = canonical setup + baseline behavior in `GITHUB_PR_DESCRIPTION.txt`.)
+
+## First-Time Run Once (Before Any Issue)
+
+From repo root:
+
+```bash
+./scripts/setup-new-colima-cluster.sh
+RESTORE_BACKUP_DIR=latest ./scripts/bring-up-external-infra.sh
+RESTORE_BACKUP_DIR=latest ./scripts/bring-up-cluster-and-infra.sh
+RUN_PGBENCH=0 ./scripts/run-preflight-scale-and-all-suites.sh
+```
+
+If this fails, start with:
+
+- `GITHUB_PR_DESCRIPTION.txt` -> section `10.1 Common error codes (curl/x509/503)`
+- preflight auto-bootstrap for cert/JKS in `scripts/run-preflight-scale-and-all-suites.sh`
+
+## Colima rebuild cheat sheet (which script?)
+
+Use this **after PR1 / first-time cluster is up** (see **First-Time Run Once** above). Run from **repo root** with **Colima running** and **`kubectl` pointed at your local k3s** so new images actually land in the cluster.
+
+### What “rebuild” means here (local dev)
+
+1. **`docker build`** the service image(s) (often tag `:dev`).
+2. **`docker save | colima ssh -- docker load`** so the k3s node can pull the image.
+3. **`kubectl rollout restart`** the matching Deployment(s) in namespace **`off-campus-housing-tracker`** (and optionally wait for rollout status).
+
+If you skip these steps after editing code, the browser will still hit **old** pods.
+
+### Two scripts — when to use which
+
+| Script | Builds | Use when |
+|--------|--------|----------|
+| **`scripts/rebuild-housing-colima.sh`** | **Webapp** (Next.js) **always**, then **selected backend(s)** | You changed anything under **`webapp/`**, or you need a new **Maps API key** baked into the client bundle. Also use if you changed **webapp + one or more backends** in one go. |
+| **`scripts/rebuild-och-images-and-rollout.sh`** | **Backend service image(s) only** | You changed **only** Go/Node services under **`services/`** (and **not** the Next.js app). Faster than the housing script because it skips the webapp image. |
+
+### Decision table (what to run)
+
+| You changed | Run | Notes |
+|-------------|-----|--------|
+| **Webapp** (Next.js), with default **listings-service** | `./scripts/rebuild-housing-colima.sh` **or** `pnpm run rebuild:housing:colima` | Reads **`NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`** from **`webapp/.env.local`** at **build** time (see **`webapp/env.local.template`**). Default backend is **`listings-service`**; override with **`SERVICES=...`**. |
+| **One** backend microservice (no webapp) | `SERVICES=<name> ./scripts/rebuild-och-images-and-rollout.sh` **or** `pnpm run rebuild:service:<name>` (see shortcuts below) | Builds **`:dev`** image, loads into Colima, restarts that Deployment. |
+| **Several** backend services (no webapp) | `SERVICES="svc-a svc-b" ./scripts/rebuild-och-images-and-rollout.sh` | List every service you modified so all images refresh. |
+| **Webapp + one or more backends** | `SERVICES="listings-service auth-service" ./scripts/rebuild-housing-colima.sh` | One entry point: new webapp image **and** listed backends. |
+
+### `pnpm` shortcuts (optional)
+
+From repo root:
+
+- **Webapp + default listings backend:** `pnpm run rebuild:housing:colima`
+- **Single backend (examples):** `pnpm run rebuild:service:auth` · `pnpm run rebuild:service:trust` · `pnpm run rebuild:service:listings` · `pnpm run rebuild:service:analytics` · `pnpm run rebuild:service:media` · `pnpm run rebuild:service:search`
+- **API gateway only:** `pnpm run rebuild:gateway:rollout`
+- **Generic backend script:** `pnpm run rebuild:och:rollout` (same as `rebuild-och-images-and-rollout.sh` with env you pass)
+
+### Copy/paste examples
+
+**A) Only touched the web UI (and maybe listings API) — most common**
+
+```bash
+./scripts/rebuild-housing-colima.sh
+```
+
+**B) Only touched `auth-service` (no `webapp/` edits)**
+
+```bash
+SERVICES=auth-service ./scripts/rebuild-och-images-and-rollout.sh
+# or: pnpm run rebuild:service:auth
+```
+
+**C) Touched `api-gateway` + `listings-service`, no webapp**
+
+```bash
+SERVICES="api-gateway listings-service" ./scripts/rebuild-och-images-and-rollout.sh
+```
+
+**D) Touched webapp and need `auth-service` + `listings-service` rebuilt too**
+
+```bash
+SERVICES="listings-service auth-service" ./scripts/rebuild-housing-colima.sh
+```
+
+### Useful flags (both scripts — see script headers for full list)
+
+```bash
+SKIP_LOAD=1 SERVICES=listings-service ./scripts/rebuild-och-images-and-rollout.sh   # build only, no load into Colima
+ROLLOUT=0 SERVICES=media-service ./scripts/rebuild-och-images-and-rollout.sh       # load image but skip kubectl restart
+WAIT_ROLLOUT=0 SERVICES=auth-service ./scripts/rebuild-och-images-and-rollout.sh     # do not wait on rollout status
+SKIP_ROLLOUT=1 ./scripts/rebuild-housing-colima.sh                                 # build+load webapp/backends, no restart
+```
+
+### Deprecated wrapper
+
+**`scripts/rebuild-webapp-listings-colima.sh`** is **deprecated** (prints a warning and runs **`rebuild-housing-colima.sh`**). Prefer **`rebuild-housing-colima.sh`** or **`pnpm run rebuild:housing:colima`**.
+
+### More reading
+
+- **`docs/WEBAPP_GOOGLE_MAPS_AND_DEPLOY.txt`** — Maps key, `.env.local`, Colima load/rollout
+- **`GITHUB_PR_DESCRIPTION.txt`** — full first-time setup, testing map, rollout context
+- Repo root **`README.md`** — same **Colima rebuild cheat sheet** table (kept in sync with this section)
+
+---
+
+## Issue 1: Expand k6 Test Coverage
+
+**Title**
+
+`After PR1 complete: add multi-service k6 coverage for login + listings flow`
+
+**Already Done (PR1 baseline)**
+
+- First-time cluster/TLS/preflight path is established (`GITHUB_PR_DESCRIPTION.txt`, section 4).
+- Canonical rebuild scripts are available (`scripts/rebuild-housing-colima.sh`, `scripts/rebuild-och-images-and-rollout.sh`).
+- Cert/JKS bootstrap is automated in preflight for first-time setup.
+
+**Scope**
+
+- `scripts/load/k6-auth-service-health.js`
+- `scripts/load/k6-listings-health.js`
+- `scripts/load/k6-search-watchlist.js`
+- (or one new k6 script under `scripts/load/`)
+
+**Rebuild after code changes (this issue)**
+
+Quick matrix (full detail: **Colima rebuild cheat sheet** at top of this file):
+
+- **webapp** (+ default `listings-service`) → `./scripts/rebuild-housing-colima.sh` or `pnpm run rebuild:housing:colima`
+- **one backend** only → `SERVICES=<name> ./scripts/rebuild-och-images-and-rollout.sh` or `pnpm run rebuild:service:<name>`
+- **several backends** (no webapp) → `SERVICES="..." ./scripts/rebuild-och-images-and-rollout.sh`
+- **webapp + multiple backends** → `SERVICES="..." ./scripts/rebuild-housing-colima.sh`
+
+**This issue:** You usually edit **`scripts/load/*.js` only** — **no Docker image rebuild**; run k6 from repo root with `SSL_CERT_FILE=...` (see **Steps**). Rebuild **only if** you also change a service under `services/` — then use the **one backend** or **several backends** row for whatever you touched.
+
+**Steps**
+
+1. Inspect existing edge-safe k6 scripts:
+   ```bash
+   ls scripts/load/k6-*.js
+   ```
+2. Implement/extend one script to include:
+   - auth login request (or auth health + token path)
+   - listings search/fetch request
+   - simple sequence: login -> fetch listings
+3. Use strict TLS helper pattern from:
+   - `scripts/load/k6-strict-edge-tls.js`
+4. Run:
+   ```bash
+   SSL_CERT_FILE="$PWD/certs/dev-root.pem" ./scripts/k6-exec-strict-edge.sh scripts/load/k6-search-watchlist.js
+   ```
+5. Record in issue comment:
+   - p50, p95, p99 latency
+   - error rate
+
+**Success Criteria**
+
+- Both auth + listings endpoints receive traffic.
+- Metrics are visible in output.
+- Unexpected errors <= 1%.
+
+**Done When**
+
+- Script is committed.
+- One sample run is pasted in the issue.
+
+---
+
+## Issue 2: Improve System Documentation
+
+**Title**
+
+`After PR1 complete: add architecture/request-flow docs for first-time contributors`
+
+**Already Done (PR1 baseline)**
+
+- First-time cluster/TLS/preflight path is established (`GITHUB_PR_DESCRIPTION.txt`, section 4).
+- Canonical rebuild scripts are available (`scripts/rebuild-housing-colima.sh`, `scripts/rebuild-och-images-and-rollout.sh`).
+- Cert/JKS bootstrap is automated in preflight for first-time setup.
+
+**Scope**
+
+- `README.md`
+- Optional references: `ENGINEERING.md`, `docs/WEBAPP_E2E_ARCHITECTURE.txt`
+
+**Rebuild after code changes (this issue)**
+
+Quick matrix (full detail: **Colima rebuild cheat sheet** at top of this file):
+
+- **webapp** (+ default `listings-service`) → `./scripts/rebuild-housing-colima.sh` or `pnpm run rebuild:housing:colima`
+- **one backend** only → `SERVICES=<name> ./scripts/rebuild-och-images-and-rollout.sh` or `pnpm run rebuild:service:<name>`
+- **several backends** (no webapp) → `SERVICES="..." ./scripts/rebuild-och-images-and-rollout.sh`
+- **webapp + multiple backends** → `SERVICES="..." ./scripts/rebuild-housing-colima.sh`
+
+**This issue:** Documentation / diagrams only — **no image rebuild** required for markdown edits.
+
+**Steps**
+
+1. Add one compact diagram showing:
+   - client -> edge/ingress -> api-gateway -> service -> database
+2. Explicitly label:
+   - auth, listings, trust, analytics, media
+3. Add short request examples:
+   - login request route
+   - listings search route
+4. Add "read this first" pointer:
+   - `GITHUB_PR_DESCRIPTION.txt` (sections 4 and 10.1)
+5. Validate readability:
+   - new teammate can understand flow in < 2 minutes
+
+**Success Criteria**
+
+- Diagram is readable in GitHub markdown.
+- Flow is understandable without opening service code.
+
+**Done When**
+
+- README update is committed and linked in issue.
+
+---
+
+## Issue 3: Optimize Search Query Performance
+
+**Title**
+
+`After PR1 complete: improve listings search query latency (target p95 reduction)`
+
+**Already Done (PR1 baseline)**
+
+- First-time cluster/TLS/preflight path is established (`GITHUB_PR_DESCRIPTION.txt`, section 4).
+- Canonical rebuild scripts are available (`scripts/rebuild-housing-colima.sh`, `scripts/rebuild-och-images-and-rollout.sh`).
+- Cert/JKS bootstrap is automated in preflight for first-time setup.
+
+**Scope**
+
+- `services/listings-service`
+- `infra/db` SQL/index changes as needed
+
+**Rebuild after code changes (this issue)**
+
+Quick matrix (full detail: **Colima rebuild cheat sheet** at top of this file):
+
+- **webapp** (+ default `listings-service`) → `./scripts/rebuild-housing-colima.sh` or `pnpm run rebuild:housing:colima`
+- **one backend** only → `SERVICES=<name> ./scripts/rebuild-och-images-and-rollout.sh` or `pnpm run rebuild:service:<name>`
+- **several backends** (no webapp) → `SERVICES="..." ./scripts/rebuild-och-images-and-rollout.sh`
+- **webapp + multiple backends** → `SERVICES="..." ./scripts/rebuild-housing-colima.sh`
+
+**This issue:** You change **`listings-service`** (no webapp) → use **one backend**: `pnpm run rebuild:service:listings` or `SERVICES=listings-service ./scripts/rebuild-och-images-and-rollout.sh`.
+
+**Steps**
+
+1. Baseline:
+   ```bash
+   SSL_CERT_FILE="$PWD/certs/dev-root.pem" ./scripts/k6-exec-strict-edge.sh scripts/load/k6-listings-health.js
+   ```
+2. Profile query path:
+   ```bash
+   ./scripts/perf/explain-listings-search.sh
+   ```
+3. Apply one optimization:
+   - add index, OR
+   - simplify/optimize query
+4. Re-run baseline command.
+5. Confirm no regressions for:
+   - empty results
+   - invalid filters
+
+**Success Criteria**
+
+- p95 latency reduced vs baseline.
+- No increase in error rate.
+
+**Done When**
+
+- Before/after numbers are posted in issue.
+
+---
+
+## Issue 4: Add Analytics Event Logging Validation
+
+**Title**
+
+`After PR1 complete: validate analytics event emission for key user actions`
+
+**Already Done (PR1 baseline)**
+
+- First-time cluster/TLS/preflight path is established (`GITHUB_PR_DESCRIPTION.txt`, section 4).
+- Canonical rebuild scripts are available (`scripts/rebuild-housing-colima.sh`, `scripts/rebuild-och-images-and-rollout.sh`).
+- Cert/JKS bootstrap is automated in preflight for first-time setup.
+
+**Scope**
+
+- `services/analytics-service`
+- event-layer verification flow
+
+**Rebuild after code changes (this issue)**
+
+Quick matrix (full detail: **Colima rebuild cheat sheet** at top of this file):
+
+- **webapp** (+ default `listings-service`) → `./scripts/rebuild-housing-colima.sh` or `pnpm run rebuild:housing:colima`
+- **one backend** only → `SERVICES=<name> ./scripts/rebuild-och-images-and-rollout.sh` or `pnpm run rebuild:service:<name>`
+- **several backends** (no webapp) → `SERVICES="..." ./scripts/rebuild-och-images-and-rollout.sh`
+- **webapp + multiple backends** → `SERVICES="..." ./scripts/rebuild-housing-colima.sh`
+
+**This issue:** You change **`analytics-service`** only → use **one backend**: `pnpm run rebuild:service:analytics` or `SERVICES=analytics-service ./scripts/rebuild-och-images-and-rollout.sh`.
+
+**Steps**
+
+1. Trigger actions:
+   - register/login
+   - create listing
+2. Run:
+   ```bash
+   ./scripts/run-event-layer-verification.sh
+   ```
+3. Validate emitted events include:
+   - event type
+   - timestamp
+   - actor/user id (when available)
+4. Add warning/error logs for missing/invalid payload shape.
+
+**Success Criteria**
+
+- Events appear for all tested actions.
+- Invalid/missing events are clearly detectable.
+
+**Done When**
+
+- Verification output is attached in issue.
+
+---
+
+## Issue 5: Improve Auth Service Stability and Logging
+
+**Title**
+
+`After PR1 complete: improve auth-service logging and edge-case response consistency`
+
+**Already Done (PR1 baseline)**
+
+- First-time cluster/TLS/preflight path is established (`GITHUB_PR_DESCRIPTION.txt`, section 4).
+- Canonical rebuild scripts are available (`scripts/rebuild-housing-colima.sh`, `scripts/rebuild-och-images-and-rollout.sh`).
+- Cert/JKS bootstrap is automated in preflight for first-time setup.
+
+**Scope**
+
+- `services/auth-service`
+- (gateway normalization only if needed)
+
+**Rebuild after code changes (this issue)**
+
+Quick matrix (full detail: **Colima rebuild cheat sheet** at top of this file):
+
+- **webapp** (+ default `listings-service`) → `./scripts/rebuild-housing-colima.sh` or `pnpm run rebuild:housing:colima`
+- **one backend** only → `SERVICES=<name> ./scripts/rebuild-och-images-and-rollout.sh` or `pnpm run rebuild:service:<name>`
+- **several backends** (no webapp) → `SERVICES="..." ./scripts/rebuild-och-images-and-rollout.sh`
+- **webapp + multiple backends** → `SERVICES="..." ./scripts/rebuild-housing-colima.sh`
+
+**This issue:** **`auth-service` only** → `pnpm run rebuild:service:auth`. If you also change **`api-gateway`**, use **several backends**: `SERVICES="auth-service api-gateway" ./scripts/rebuild-och-images-and-rollout.sh`.
+
+**Steps**
+
+1. Add logs for:
+   - login success
+   - login failure
+   - signup/register
+2. Test:
+   - invalid token
+   - expired session/token
+3. Improve error responses:
+   - consistent status behavior
+   - consistent JSON shape
+4. Run:
+   ```bash
+   ./scripts/test-auth-service.sh
+   ./scripts/test-housing-stack-wiring.sh
+   ```
+
+**Success Criteria**
+
+- Auth outcomes are clearly visible in logs.
+- Error responses are consistent and readable.
+
+**Done When**
+
+- Test output + sample error payload are included in issue.
+
+---
+
+## Issue 6: Stabilize Trust Moderation Workflow
+
+**Title**
+
+`After PR1 complete: stabilize trust moderation and listing flagging workflow`
+
+**Already Done (PR1 baseline)**
+
+- First-time cluster/TLS/preflight path is established (`GITHUB_PR_DESCRIPTION.txt`, section 4).
+- Canonical rebuild scripts are available (`scripts/rebuild-housing-colima.sh`, `scripts/rebuild-och-images-and-rollout.sh`).
+- Cert/JKS bootstrap is automated in preflight for first-time setup.
+
+**Scope**
+
+- `services/trust-service`
+- webapp trust UI only if response fields change
+
+**Rebuild after code changes (this issue)**
+
+Quick matrix (full detail: **Colima rebuild cheat sheet** at top of this file):
+
+- **webapp** (+ default `listings-service`) → `./scripts/rebuild-housing-colima.sh` or `pnpm run rebuild:housing:colima`
+- **one backend** only → `SERVICES=<name> ./scripts/rebuild-och-images-and-rollout.sh` or `pnpm run rebuild:service:<name>`
+- **several backends** (no webapp) → `SERVICES="..." ./scripts/rebuild-och-images-and-rollout.sh`
+- **webapp + multiple backends** → `SERVICES="..." ./scripts/rebuild-housing-colima.sh`
+
+**This issue:** **`trust-service` only** → `pnpm run rebuild:service:trust`. If you also edit **`webapp/`** (trust pages), use **webapp + backends** (include trust): `SERVICES=trust-service ./scripts/rebuild-housing-colima.sh` (add more services to `SERVICES=` if you touched them).
+
+**Steps**
+
+1. Test flagging flow:
+   - same item flagged multiple times
+   - invalid target id
+2. Ensure duplicate handling is idempotent/safe.
+3. Improve error response consistency.
+4. Validate trust API + webapp trust flow.
+
+**Success Criteria**
+
+- No duplicate flag state corruption.
+- Errors are predictable and consistent.
+
+**Done When**
+
+- Repro + fix notes are posted in issue.
+
+---
+
+## Issue 7: Add Request Latency Observability
+
+**Title**
+
+`After PR1 complete: add latency logging and slow-request markers (listings + trust)`
+
+**Already Done (PR1 baseline)**
+
+- First-time cluster/TLS/preflight path is established (`GITHUB_PR_DESCRIPTION.txt`, section 4).
+- Canonical rebuild scripts are available (`scripts/rebuild-housing-colima.sh`, `scripts/rebuild-och-images-and-rollout.sh`).
+- Cert/JKS bootstrap is automated in preflight for first-time setup.
+
+**Scope**
+
+- `services/listings-service`
+- `services/trust-service`
+
+**Rebuild after code changes (this issue)**
+
+Quick matrix (full detail: **Colima rebuild cheat sheet** at top of this file):
+
+- **webapp** (+ default `listings-service`) → `./scripts/rebuild-housing-colima.sh` or `pnpm run rebuild:housing:colima`
+- **one backend** only → `SERVICES=<name> ./scripts/rebuild-och-images-and-rollout.sh` or `pnpm run rebuild:service:<name>`
+- **several backends** (no webapp) → `SERVICES="..." ./scripts/rebuild-och-images-and-rollout.sh`
+- **webapp + multiple backends** → `SERVICES="..." ./scripts/rebuild-housing-colima.sh`
+
+**This issue:** You change **both** services, no webapp → use **several backends**: `SERVICES="listings-service trust-service" ./scripts/rebuild-och-images-and-rollout.sh`.
+
+**Steps**
+
+1. Add request timing logs:
+   - endpoint
+   - latency (ms)
+2. If latency > 100ms, include `SLOW REQUEST` marker.
+3. Run load:
+   ```bash
+   SSL_CERT_FILE="$PWD/certs/dev-root.pem" ./scripts/run-housing-k6-edge-smoke.sh
+   ```
+4. Capture sample logs showing normal + slow requests.
+
+**Success Criteria**
+
+- Logs show latency per request.
+- Slow requests are clearly marked.
+
+**Done When**
+
+- One load run summary + log snippet posted in issue.
+
+---
+
+## Issue 8: Improve Listings Validation and Responses
+
+**Title**
+
+`After PR1 complete: harden listings input validation and response consistency`
+
+**Already Done (PR1 baseline)**
+
+- First-time cluster/TLS/preflight path is established (`GITHUB_PR_DESCRIPTION.txt`, section 4).
+- Canonical rebuild scripts are available (`scripts/rebuild-housing-colima.sh`, `scripts/rebuild-och-images-and-rollout.sh`).
+- Cert/JKS bootstrap is automated in preflight for first-time setup.
+
+**Scope**
+
+- `services/listings-service`
+- webapp expectations if response shape changes
+
+**Rebuild after code changes (this issue)**
+
+Quick matrix (full detail: **Colima rebuild cheat sheet** at top of this file):
+
+- **webapp** (+ default `listings-service`) → `./scripts/rebuild-housing-colima.sh` or `pnpm run rebuild:housing:colima`
+- **one backend** only → `SERVICES=<name> ./scripts/rebuild-och-images-and-rollout.sh` or `pnpm run rebuild:service:<name>`
+- **several backends** (no webapp) → `SERVICES="..." ./scripts/rebuild-och-images-and-rollout.sh`
+- **webapp + multiple backends** → `SERVICES="..." ./scripts/rebuild-housing-colima.sh`
+
+**This issue:** **`listings-service` only** → `pnpm run rebuild:service:listings`. If you also change **`webapp/`** (new fields / UI), use **webapp + multiple backends**: `SERVICES=listings-service ./scripts/rebuild-housing-colima.sh` (add other services if needed).
+
+**Steps**
+
+1. Add validation for:
+   - missing fields
+   - invalid values/types
+2. Ensure response envelope consistency for:
+   - success
+   - validation error
+   - internal error
+3. Run:
+   ```bash
+   ./scripts/test-listings-http2-http3.sh
+   ./scripts/test-microservices-http2-http3-housing.sh
+   pnpm run test:webapp:e2e:listings
+   ```
+
+**Success Criteria**
+
+- Invalid inputs are rejected cleanly.
+- Responses are consistent across paths.
+
+**Done When**
+
+- Test evidence + sample payloads posted in issue.
+
+---
+
+
+## Issue 9: Tail Latency Optimization (Advanced)
+
+**Title**
+
+`After PR1 complete: optimize tail latency (p95/p99) under concurrent load`
+
+**Already Done (PR1 baseline)**
+
+- First-time cluster/TLS/preflight path is established (`GITHUB_PR_DESCRIPTION.txt`, section 4).
+- Canonical rebuild scripts are available (`scripts/rebuild-housing-colima.sh`, `scripts/rebuild-och-images-and-rollout.sh`).
+- Cert/JKS bootstrap is automated in preflight for first-time setup.
+
+**Scope**
+
+- Cross-service path via edge/gateway (`auth`, `listings`, `booking`, `trust`, `analytics`, `media`)
+- k6 orchestration + preflight hooks + service hot paths
+- observability artifacts under `bench_logs/`
+
+**Rebuild after code changes (this issue)**
+
+Quick matrix (full detail: **Colima rebuild cheat sheet** at top of this file):
+
+- **webapp** (+ default `listings-service`) → `./scripts/rebuild-housing-colima.sh` or `pnpm run rebuild:housing:colima`
+- **one backend** only → `SERVICES=<name> ./scripts/rebuild-och-images-and-rollout.sh` or `pnpm run rebuild:service:<name>`
+- **several backends** (no webapp) → `SERVICES="..." ./scripts/rebuild-och-images-and-rollout.sh`
+- **webapp + multiple backends** → `SERVICES="..." ./scripts/rebuild-housing-colima.sh`
+
+**This issue:** After each **code** change you are validating under load, rebuild **only the touched service(s)** — use **one backend** or **several backends** (or **webapp + backends** if you changed `webapp/`). Example: gateway + listings → `SERVICES="api-gateway listings-service" ./scripts/rebuild-och-images-and-rollout.sh`. Load tests (k6) alone do **not** require a rebuild.
+
+**Problem Statement**
+
+This issue targets high tail latency under concurrency (good p50, unstable p95/p99). Focus is system stability under realistic parallel load, not single-endpoint microbenchmarks.
+
+**Preconditions**
+
+1. PR1 baseline is merged and first-time setup is complete.
+2. Hostname/TLS path works (`off-campus-housing.test`, `certs/dev-root.pem`).
+3. Cluster ready (`kubectl get pods -n off-campus-housing-tracker`).
+
+**Execution Plan (deep, step-by-step)**
+
+1. **Capture baseline tail latency (edge grid)**
+   ```bash
+   SSL_CERT_FILE="$PWD/certs/dev-root.pem" ./scripts/run-housing-k6-edge-smoke.sh
+   ```
+   Save full output.
+
+2. **Capture resource contention during the same run (second terminal)**
+   ```bash
+   ./scripts/perf/watch-cluster-contention.sh
+   ```
+   Keep this running for the full test duration.
+
+3. **Run cross-service isolation to separate orchestration effects**
+   ```bash
+   SSL_CERT_FILE="$PWD/certs/dev-root.pem" ./scripts/perf/run-k6-cross-service-isolation.sh
+   ```
+   Compare per-script p95/p99 versus full-grid p95/p99.
+
+4. **Generate full perf report (DB plans + load summaries)**
+   ```bash
+   ./scripts/perf/run-perf-full-report.sh
+   ```
+   If DB access is constrained, run at minimum:
+   ```bash
+   ./scripts/perf/run-all-k6-load-report.sh
+   ```
+
+5. **Identify top 3 contention points**
+   Examples:
+   - gateway saturation / queueing
+   - specific service endpoint tail outliers
+   - DB query hotspot / missing index
+   - Envoy/Caddy reset patterns
+
+6. **Apply one change at a time** (no bundled mega-fixes)
+   Candidate categories:
+   - query/index tuning
+   - endpoint-side batching/caching
+   - reducing unnecessary sync calls
+   - k6 suite pacing/hook tuning (`K6_SUITE_*`)
+
+7. **Re-run identical load profile**
+   Repeat steps 1–4 after each change.
+
+8. **Document before/after deltas**
+   For each service path changed:
+   - p50 / p95 / p99
+   - error rate
+   - resource usage trend
+
+**Required Artifacts (attach to issue/PR)**
+
+- baseline vs after run summaries
+- `bench_logs/k6-suite-resources-*.log` excerpts
+- contention watcher log excerpts
+- perf report path(s) under `bench_logs/perf-report-*` concise root-cause notes for top bottlenecks
+
+**Success Criteria**
+
+- p95 and/or p99 improved materially on target path(s) (state exact delta).
+- No regression in error rate.
+- Improvements reproduce in at least 2 consecutive runs.
+- Bottleneck explanation is documented (not just metric change).
+
+**Done When**
+
+- One merged change set with reproducible before/after evidence.
+- Issue contains command transcript + artifact links + short conclusion.
+
+---
+
+## Issue 10: Cross-Service Performance Analysis (System-Wide)
+
+**Title**
+
+`After PR1 complete: perform cross-service performance analysis and bottleneck mapping`
+
+**Already Done (PR1 baseline)**
+
+- First-time cluster/TLS/preflight path is established (`GITHUB_PR_DESCRIPTION.txt`, section 4).
+- Canonical rebuild scripts are available (`scripts/rebuild-housing-colima.sh`, `scripts/rebuild-och-images-and-rollout.sh`).
+- Cert/JKS bootstrap is automated in preflight for first-time setup.
+
+**Scope**
+
+- Full stack service interaction analysis under load
+- k6 result correlation across services
+- system-wide bottleneck map + prioritized optimization plan
+
+**Rebuild after code changes (this issue)**
+
+Quick matrix (full detail: **Colima rebuild cheat sheet** at top of this file):
+
+- **webapp** (+ default `listings-service`) → `./scripts/rebuild-housing-colima.sh` or `pnpm run rebuild:housing:colima`
+- **one backend** only → `SERVICES=<name> ./scripts/rebuild-och-images-and-rollout.sh` or `pnpm run rebuild:service:<name>`
+- **several backends** (no webapp) → `SERVICES="..." ./scripts/rebuild-och-images-and-rollout.sh`
+- **webapp + multiple backends** → `SERVICES="..." ./scripts/rebuild-housing-colima.sh`
+
+**This issue:** Analysis / docs / k6-only runs — **no rebuild** unless you change service code to prove a fix; then list the services you touched and use the **several backends** or **webapp + backends** row as appropriate.
+
+**Objective**
+
+Produce a system-level performance analysis that explains where latency/error amplification happens across service boundaries and what should be optimized first.
+
+**Analysis Workflow (step-by-step)**
+
+1. **Run end-to-end load and collect primary outputs**
+   ```bash
+   RUN_PGBENCH=0 ./scripts/run-preflight-scale-and-all-suites.sh
+   ```
+   (Includes k6 + browser stage; use this as integrated baseline.)
+
+2. **Run explicit k6 phase suite for protocol/load profile depth**
+   ```bash
+   ./scripts/load/run-k6-phases.sh
+   ```
+
+3. **Collect protocol/transport observations (if needed for anomalies)**
+   ```bash
+   ./scripts/run-transport-study-experiments.sh
+   ```
+
+4. **Aggregate k6 and DB evidence into reports**
+   ```bash
+   ./scripts/perf/run-all-k6-load-report.sh
+   ./scripts/perf/run-all-explain.sh
+   ```
+   Optional full aggregate:
+   ```bash
+   ./scripts/perf/run-perf-full-report.sh
+   ```
+
+5. **Build cross-service bottleneck matrix**
+   For each major flow (auth, listings search, trust, analytics, media):
+   - ingress/gateway behavior
+   - service processing cost
+   - DB cost
+   - downstream dependency impact
+   - observed p95/p99 and error rate
+
+6. **Classify each bottleneck**
+   - `Code path` (service logic/query)
+   - `Infra/path` (edge, proxy, networking)
+   - `Load-shape` (orchestration artifacts, test pacing)
+
+7. **Prioritize optimizations (P0/P1/P2)**
+   - P0: immediate reliability/perf wins
+   - P1: medium complexity, high impact
+   - P2: structural improvements
+
+8. **Write findings doc**
+   Add/update a doc under `docs/perf/` including:
+   - methodology
+   - metrics tables
+   - bottleneck matrix
+   - optimization plan with owners/timeline
+
+**Required Deliverables**
+
+- One markdown report in `docs/perf/` with all findings.
+- One summary comment in issue with:
+  - top 5 bottlenecks
+  - expected gains
+  - recommended next implementation issues
+
+**Success Criteria**
+
+- k6 results analyzed across services (not isolated single-service notes).
+- Bottlenecks identified with evidence.
+- Optimization plan is actionable and prioritized.
+- Team can open follow-up implementation issues directly from the report.
+
+**Done When**
+
+- Report merged and linked in issue.
+- Follow-up issues (P0/P1/P2) are created with concrete scope.
+
+---
+
+
+---
+
+## Issue 11: Webapp UX Consistency and Theming
+
+**Title**
+
+`After PR1 complete: align webapp styling and UX consistency across pages`
+
+**Already Done (PR1 baseline)**
+
+- Core page structure, nav routes, and Playwright project setup are in place.
+- Light teal/slate visual direction exists on home/listings and should be propagated consistently.
+
+**Scope**
+
+- `webapp/app/*/page.tsx`
+- `webapp/components/Nav.tsx`
+- shared UI classes for forms/cards/buttons
+
+**Rebuild after code changes (this issue)**
+
+Quick matrix (full detail: **Colima rebuild cheat sheet** at top of this file):
+
+- **webapp** (+ default `listings-service`) → `./scripts/rebuild-housing-colima.sh` or `pnpm run rebuild:housing:colima`
+- **one backend** only → `SERVICES=<name> ./scripts/rebuild-och-images-and-rollout.sh` or `pnpm run rebuild:service:<name>`
+- **several backends** (no webapp) → `SERVICES="..." ./scripts/rebuild-och-images-and-rollout.sh`
+- **webapp + multiple backends** → `SERVICES="..." ./scripts/rebuild-housing-colima.sh`
+
+**This issue:** You change **`webapp/`** only — use **webapp + default listings** so the browser sees the new bundle: `./scripts/rebuild-housing-colima.sh` or `pnpm run rebuild:housing:colima` (Maps key still comes from `webapp/.env.local` at build time).
+
+**Steps**
+
+1. Audit page-level visual consistency for:
+   - background gradient
+   - typography hierarchy
+   - button styles
+   - form field states
+2. Standardize shared patterns (do not duplicate ad-hoc class sets).
+3. Run screenshot spec:
+   ```bash
+   E2E_SCREENSHOTS=1 ./scripts/webapp-playwright-strict-edge.sh --project=05-optional-screenshots
+   ```
+4. Compare before/after screenshots in `webapp/e2e/screenshots/`.
+
+**Success Criteria**
+
+- Major pages use a consistent visual system.
+- No regressions in core navigation or accessibility basics.
+
+**Done When**
+
+- Updated screenshots and a short design-change summary are posted in the issue.
+
+---
+
+## Issue 12: Webapp Frontend Contribution Pack (Developer Tasks)
+
+**Title**
+
+`After PR1 complete: add frontend contribution tasks and runbook for webapp updates`
+
+**Already Done (PR1 baseline)**
+
+- Playwright projects and key E2E tests already exist.
+- Rebuild/redeploy scripts already support fast webapp + backend iteration.
+
+**Scope**
+
+- `webapp/README.md`
+- `GITHUB_ISSUES_MARKDOWN_TEMPLATES.md`
+- optional `docs/WEBAPP_*` references
+
+**Rebuild after code changes (this issue)**
+
+Quick matrix (full detail: **Colima rebuild cheat sheet** at top of this file):
+
+- **webapp** (+ default `listings-service`) → `./scripts/rebuild-housing-colima.sh` or `pnpm run rebuild:housing:colima`
+- **one backend** only → `SERVICES=<name> ./scripts/rebuild-och-images-and-rollout.sh` or `pnpm run rebuild:service:<name>`
+- **several backends** (no webapp) → `SERVICES="..." ./scripts/rebuild-och-images-and-rollout.sh`
+- **webapp + multiple backends** → `SERVICES="..." ./scripts/rebuild-housing-colima.sh`
+
+**This issue:** Editing **docs only** — **no rebuild**. When you **validate** examples by changing the webapp, use **webapp + default listings** so Colima picks up the UI: `./scripts/rebuild-housing-colima.sh`.
+
+**Steps**
+
+1. Add a frontend quickstart section covering:
+   - where to edit pages/components
+   - how to run focused Playwright suites
+   - how to rebuild/redeploy webapp after changes
+2. Provide common task list for new contributors:
+   - UI polish
+   - form validation
+   - loading/error states
+   - empty-state improvements
+3. Include exact commands:
+   ```bash
+   pnpm run test:webapp:e2e:smoke
+   pnpm run test:webapp:e2e:listings
+   ./scripts/rebuild-housing-colima.sh
+   ```
+
+**Success Criteria**
+
+- New contributors can pick frontend tasks without deep backend context.
+- Runbook clearly maps edit -> test -> rebuild -> verify.
+
+**Done When**
+
+- Frontend runbook section merged and linked from issue templates.

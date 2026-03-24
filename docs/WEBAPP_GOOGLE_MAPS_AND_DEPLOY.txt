@@ -50,8 +50,8 @@ Paste key locally (tracked template, gitignored target)
 
 One-shot Colima: webapp + listings-service rebuild, load, fresh pods
 --------------------------------------------------------------------
-  ./scripts/rebuild-webapp-listings-colima.sh
-  Or: pnpm run rebuild:webapp-listings:colima
+  ./scripts/rebuild-housing-colima.sh
+  Or: pnpm run rebuild:housing:colima
 
   Reads the key from webapp/.env.local (or from env NEXT_PUBLIC_GOOGLE_MAPS_API_KEY). Bakes it into the webapp image at docker build; then docker save | colima ssh docker load for webapp:dev, builds/loads listings-service:dev, deletes webapp pods and rollout restart for webapp + listings-service.
 

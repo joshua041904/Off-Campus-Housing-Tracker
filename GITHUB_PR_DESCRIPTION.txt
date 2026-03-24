@@ -34,7 +34,7 @@ This repo work is already done (heavy lifting complete). Reviewers should valida
 **Step-by-step**
 
 1. Run first-time setup in **§4** through cert/TLS + preflight readiness.
-2. Rebuild/redeploy listings + webapp image pair: `./scripts/rebuild-webapp-listings-colima.sh`.
+2. Rebuild/redeploy listings + webapp image pair: `./scripts/rebuild-housing-colima.sh`.
 3. Validate listings browser flows in Playwright project `03-listings`:
    - `pnpm run test:webapp:e2e:listings`
 4. Validate trust pages and moderation/report paths:
@@ -843,6 +843,6 @@ Preflight integration:
 
 ### 13.4 Webapp-specific reviewer assignment (add-on to §12)
 
-- [ ] **Joshua:** Validate listings browser coverage in project `03-listings` (filters/sort/geo/maps/detail/create) and verify redeploy guidance (`rebuild-webapp-listings-colima.sh`) is accurate.
+- [ ] **Joshua:** Validate listings browser coverage in project `03-listings` (filters/sort/geo/maps/detail/create) and verify redeploy guidance (`rebuild-housing-colima.sh`) is accurate.
 - [ ] **Franco:** Validate Playwright project matrix + command aliases (`webapp/package.json`, root `package.json`) and confirm `23` test inventory / `5` projects remains stable.
 - [ ] **Arkar:** Validate preflight wiring and script messaging (`run-preflight-scale-and-all-suites.sh` step `7a8`) plus edge execution path (`run-playwright-e2e-preflight.sh`).

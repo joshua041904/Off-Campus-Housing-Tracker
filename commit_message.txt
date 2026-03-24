@@ -59,6 +59,16 @@ CERT/JKS AUTO-BOOTSTRAP IN PREFLIGHT
     - Kafka JKS bundle under `certs/kafka-ssl/` (`kafka.keystore.jks`, `kafka.truststore.jks`, password files, `ca-cert.pem`)
   • If missing, preflight auto-runs `scripts/dev-generate-certs.sh` (and attempts Kafka JKS refresh) so first-time runs do not fail on missing local cert/JKS prerequisites.
 
+SERVICE REBUILD AUTOMATION (TEAM USAGE)
+---------------------------------------
+  • **scripts/rebuild-housing-colima.sh** — docs/usage expanded for webapp + listings pair; includes pointer to per-service rebuild flow.
+  • **scripts/rebuild-och-images-and-rollout.sh** — now clearly supports per-service rebuild/restart with:
+    - `SERVICES=<service>` (or multiple services)
+    - `WAIT_ROLLOUT` + `ROLLOUT_TIMEOUT` for automatic rollout status waiting
+    - existing `SKIP_LOAD` and `ROLLOUT` flags for build/load-only workflows
+  • **README.md** — new **Colima rebuild cheat sheet (which script?)** table: webapp-only vs one backend vs many backends vs webapp+backends; links to maps deploy doc, issue quick guide, and canonical PR body.
+  • **GITHUB_ISSUES_EXECUTABLE.txt** — full **Colima rebuild cheat sheet** inlined; **each Issue 1–12** now includes **Rebuild after code changes (this issue)** with the same four-row command matrix plus **This issue:** mapping scope → script; **GITHUB_ISSUES_MARKDOWN_TEMPLATES.md** points to that per-issue pattern.
+
 HOW TO RUN (cheat sheet)
 ------------------------
   # Second terminal — prove contention

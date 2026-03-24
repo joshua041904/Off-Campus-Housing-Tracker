@@ -38,6 +38,21 @@ For detailed technical documentation, system design, and architectural decisions
 
 **Testing note:** Playwright E2E and **`scripts/run-housing-k6-edge-smoke.sh`** target **`https://off-campus-housing.test`** (edge → gateway). Use **`/etc/hosts`** or DNS for the hostname. **`kubectl port-forward` to api-gateway is for debugging only**, not for integrated E2E or the housing k6 edge smoke script.
 
+### Colima rebuild cheat sheet (which script?)
+
+Use this when you have Colima running and need a fresh image in k3s after editing code.
+
+| You changed | Run | Notes |
+|-------------|-----|--------|
+| **Webapp** (Next.js), optionally with default **listings-service** | `./scripts/rebuild-housing-colima.sh` or `pnpm run rebuild:housing:colima` | Reads `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` from `webapp/.env.local` at **build** time (see `webapp/env.local.template`). Default backend is `listings-service`; override with `SERVICES=...`. |
+| **One** backend microservice (no webapp) | `SERVICES=<name> ./scripts/rebuild-och-images-and-rollout.sh` or a shortcut such as `pnpm run rebuild:service:auth` | Builds `:dev` image, loads into Colima Docker, restarts the Deployment. |
+| **Several** backend services (no webapp) | `SERVICES="svc-a svc-b" ./scripts/rebuild-och-images-and-rollout.sh` | Same flow; list all touched services. |
+| **Webapp + one or more backends** | `SERVICES="listings-service auth-service" ./scripts/rebuild-housing-colima.sh` | Single entry point: webapp image + listed services. |
+
+`scripts/rebuild-webapp-listings-colima.sh` is a **deprecated** wrapper; it prints a warning and runs `rebuild-housing-colima.sh`.
+
+More detail: **`docs/WEBAPP_GOOGLE_MAPS_AND_DEPLOY.txt`**, issue docs **`GITHUB_ISSUES_EXECUTABLE.txt`** (Service Rebuild Quick Guide), and **`GITHUB_PR_DESCRIPTION.txt`** (testing / rollout sections).
+
 ---
 
 ## System Architecture
