@@ -1,12 +1,24 @@
-import express, { type NextFunction, type Request, type Response } from "express";
+import express, {
+  type NextFunction,
+  type Request,
+  type Response,
+} from "express";
 import { httpCounter, register } from "@common/utils";
 import { pool } from "./db.js";
+
+import {
+  validateCreateListingInput,
+  validateListingId,
+  validateSearchFilters,
+} from "./validation.js";
 
 type AuthedRequest = Request & { userId?: string };
 
 /** Request timing + optional pool stats (diagnose k6 tail latency / ~5s stalls). */
 function attachListingsHttpDiagnostics(app: ReturnType<typeof express>): void {
-  const timingEnabled = process.env.LISTINGS_HTTP_TIMING === "1" || process.env.LISTINGS_HTTP_TIMING === "true";
+  const timingEnabled =
+    process.env.LISTINGS_HTTP_TIMING === "1" ||
+    process.env.LISTINGS_HTTP_TIMING === "true";
   const minMs = Number(process.env.LISTINGS_HTTP_TIMING_MIN_MS ?? "1000");
   const poolStatsMs = Number(process.env.LISTINGS_HTTP_POOL_STATS_MS ?? "0");
 
@@ -41,7 +53,11 @@ function attachListingsHttpDiagnostics(app: ReturnType<typeof express>): void {
   }
 }
 
-function requireUser(req: AuthedRequest, res: Response, next: NextFunction): void {
+function requireUser(
+  req: AuthedRequest,
+  res: Response,
+  next: NextFunction,
+): void {
   const userId = (req.get("x-user-id") || "").trim();
   if (!userId) {
     res.status(401).json({ error: "missing x-user-id" });
@@ -53,7 +69,8 @@ function requireUser(req: AuthedRequest, res: Response, next: NextFunction): voi
 
 function amenitiesToStrings(raw: unknown): string[] {
   if (Array.isArray(raw)) return raw.map(String);
-  if (raw && typeof raw === "object") return Object.values(raw as object).map(String);
+  if (raw && typeof raw === "object")
+    return Object.values(raw as object).map(String);
   return [];
 }
 
@@ -79,7 +96,12 @@ export function createListingsHttpApp() {
   attachListingsHttpDiagnostics(app);
   app.use((req, res, next) => {
     res.on("finish", () =>
-      httpCounter.inc({ service: "listings", route: req.path, method: req.method, code: res.statusCode })
+      httpCounter.inc({
+        service: "listings",
+        route: req.path,
+        method: req.method,
+        code: res.statusCode,
+      }),
     );
     next();
   });
@@ -89,7 +111,11 @@ export function createListingsHttpApp() {
       await pool.query("SELECT 1");
       res.status(200).json({ ok: true, db: "connected" });
     } catch {
-      res.status(200).json({ ok: true, db: "disconnected", warning: "database unavailable" });
+      res.status(200).json({
+        ok: true,
+        db: "disconnected",
+        warning: "database unavailable",
+      });
     }
   });
 
@@ -103,14 +129,28 @@ export function createListingsHttpApp() {
     try {
       const searchT0 = Date.now();
       const q = String(req.query.q || "").trim();
-      const minP = req.query.min_price != null ? Number(req.query.min_price) : null;
-      const maxP = req.query.max_price != null ? Number(req.query.max_price) : null;
-      const smoke = req.query.smoke_free === "1" || req.query.smoke_free === "true";
-      const pets = req.query.pet_friendly === "1" || req.query.pet_friendly === "true";
+
+      const filterValidation = validateSearchFilters({
+        min_price: req.query.min_price,
+        max_price: req.query.max_price,
+      });
+      if (!filterValidation.ok) {
+        res.status(400).json({ error: filterValidation.message });
+        return;
+      }
+
+      const { min_price: minP, max_price: maxP } = filterValidation.value;
+      const smoke =
+        req.query.smoke_free === "1" || req.query.smoke_free === "true";
+      const pets =
+        req.query.pet_friendly === "1" || req.query.pet_friendly === "true";
 
       const params: unknown[] = [];
       let i = 1;
-      const where: string[] = [`status::text = 'active'`, `(deleted_at IS NULL)`];
+      const where: string[] = [
+        `status::text = 'active'`,
+        `(deleted_at IS NULL)`,
+      ];
       if (q) {
         where.push(`(title ILIKE $${i} OR description ILIKE $${i})`);
         params.push(`%${q.replace(/%/g, "\\%")}%`);
@@ -138,8 +178,13 @@ export function createListingsHttpApp() {
       `;
       const result = await pool.query(sql, params);
       const dbMs = Date.now() - searchT0;
-      if (process.env.LISTINGS_HTTP_TIMING === "1" || process.env.LISTINGS_HTTP_TIMING === "true") {
-        const dbMin = Number(process.env.LISTINGS_HTTP_SEARCH_DB_MIN_MS ?? "50");
+      if (
+        process.env.LISTINGS_HTTP_TIMING === "1" ||
+        process.env.LISTINGS_HTTP_TIMING === "true"
+      ) {
+        const dbMin = Number(
+          process.env.LISTINGS_HTTP_SEARCH_DB_MIN_MS ?? "50",
+        );
         if (dbMs >= dbMin) {
           console.log(
             `[listings-http-search-db] ms=${dbMs} rows=${result.rowCount} has_q=${q ? "1" : "0"}`,
@@ -157,11 +202,17 @@ export function createListingsHttpApp() {
   app.get("/search", searchListingsPublic);
 
   app.get("/listings/:id", async (req, res) => {
+    const validation = validateListingId(req.params.id);
+    if (!validation.ok) {
+      res.status(400).json({ error: validation.message });
+      return;
+    }
+
     try {
       const result = await pool.query(
         `SELECT id, user_id, title, description, price_cents, amenities, smoke_free, pet_friendly, furnished, status::text AS status, created_at
          FROM listings.listings WHERE id = $1::uuid AND (deleted_at IS NULL)`,
-        [req.params.id]
+        [validation.value],
       );
       if (!result.rows[0]) {
         res.status(404).json({ error: "not found" });
@@ -174,42 +225,53 @@ export function createListingsHttpApp() {
     }
   });
 
-  app.post("/create", requireUser, async (req: AuthedRequest, res: Response) => {
-    try {
-      const body = req.body as Record<string, unknown>;
-      const title = String(body.title || "");
-      const price_cents = Number(body.price_cents);
-      const effective_from = String(body.effective_from || "");
-      if (!title || !effective_from || !Number.isFinite(price_cents) || price_cents <= 0) {
-        res.status(400).json({ error: "title, effective_from, price_cents required" });
-        return;
-      }
-      const r = await pool.query(
-        `INSERT INTO listings.listings (
+  app.post(
+    "/create",
+    requireUser,
+    async (req: AuthedRequest, res: Response) => {
+      try {
+        const body = req.body as Record<string, unknown>;
+        const validation = validateCreateListingInput(
+          {
+            ...body,
+            user_id: req.userId,
+          },
+          { requireUserId: true },
+        );
+
+        if (!validation.ok) {
+          res.status(400).json({ error: validation.message });
+          return;
+        }
+
+        const input = validation.value;
+        const r = await pool.query(
+          `INSERT INTO listings.listings (
           user_id, title, description, price_cents, amenities, smoke_free, pet_friendly, furnished,
           effective_from, effective_until, listed_at
         ) VALUES (
           $1::uuid, $2, $3, $4, $5::jsonb, $6, $7, $8, $9::date, NULLIF($10,'')::date, CURRENT_DATE
         ) RETURNING id, user_id, title, description, price_cents, amenities, smoke_free, pet_friendly, furnished, status::text AS status, created_at`,
-        [
-          req.userId,
-          title,
-          String(body.description || ""),
-          price_cents,
-          JSON.stringify(body.amenities ?? []),
-          Boolean(body.smoke_free),
-          Boolean(body.pet_friendly),
-          body.furnished != null ? Boolean(body.furnished) : null,
-          effective_from,
-          String(body.effective_until || ""),
-        ]
-      );
-      res.status(201).json(rowToJson(r.rows[0]));
-    } catch (e) {
-      console.error("[listings HTTP create]", e);
-      res.status(500).json({ error: "internal" });
-    }
-  });
+          [
+            input.user_id,
+            input.title,
+            input.description,
+            input.price_cents,
+            JSON.stringify(input.amenities),
+            input.smoke_free,
+            input.pet_friendly,
+            input.furnished,
+            input.effective_from,
+            input.effective_until,
+          ],
+        );
+        res.status(201).json(rowToJson(r.rows[0]));
+      } catch (e) {
+        console.error("[listings HTTP create]", e);
+        res.status(500).json({ error: "internal" });
+      }
+    },
+  );
 
   return app;
 }
