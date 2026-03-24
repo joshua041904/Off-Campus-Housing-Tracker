@@ -15,6 +15,11 @@ build/
 .env.*
 !.env.example
 
+# TLS / Kafka material under certs/ — generated locally (dev-generate-certs.sh, kafka-ssl-from-dev-root.sh, etc.).
+# Never commit private keys, keystores, or password files (GitGuardian / secret scanners).
+certs/**
+!certs/README.txt
+
 # Accidental shell redirection artifact (e.g. mistyped `> &1`)
 /&1
 
