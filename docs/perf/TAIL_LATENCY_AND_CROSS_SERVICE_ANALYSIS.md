@@ -79,7 +79,7 @@ Watch for CPU/memory **> ~80%**, any pod **> ~1 core** sustained, Postgres or En
 
 ### 1.3 Sustainable load (when tails are environmental)
 
-- Reduce **constant-arrival-rate** `rate` or **`preAllocatedVUs` / `maxVUs`** in the hottest scripts (`k6-messaging.js`, `k6-media-health.js`, `k6-reads.js` rate scenario, `k6-limit-test-comprehensive.js`).
+- Reduce **constant-arrival-rate** `rate` or **`preAllocatedVUs` / `maxVUs`** in the hottest scripts (`k6-messaging.js`, `k6-media-health.js`, `k6-reads.js` rate scenario, `k6-limit-test-comprehensive.js`). For **orchestration** (`run-housing-k6-edge-smoke.sh`), **`K6_ORCHESTRATION_VU_SCENARIO=1`** (default) switches messaging + media to **ramping-vus**; hooks can **`K6_SUITE_GATEWAY_DRAIN=1`** (default in that script) to wait for **api-gateway** CPU to fall before the next script.
 - Prefer **longer** `K6_SUITE_COOLDOWN_SEC` / `K6_SUITE_CAR_EXTRA_SEC` in dev Colima over scaling replicas for the lab.
 - **Optional:** `K6_SUITE_RESTART_ENVOY_AFTER_CAR=1` to test whether Envoy connection reuse amplifies tails (disruptive).
 

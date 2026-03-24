@@ -1,80 +1,9 @@
-# PR #2 (onboarding): Green team — cluster, DB restore, TLS/JKS, curl 8.19+, preflight
+# Use `GITHUB_PR_DESCRIPTION.txt` only
 
-> **Canonical for a single PR:** The same green-team narrative is now **§4** inside **`GITHUB_PR_DESCRIPTION.txt`**. Use this file only if you still want a **separate onboarding PR**; otherwise paste **one** description from `GITHUB_PR_DESCRIPTION.txt` only.
+**Deprecated split PR paste.** Onboarding (green team), **Ollama**, k6 hooks, **`scripts/perf/`**, and the full testing map are all in **`GITHUB_PR_DESCRIPTION.txt`**. Paste that file into your PR description.
 
-**Depends on / updates with:** PR #1 — paste body from **`GITHUB_PR_DESCRIPTION.txt`**. Short pointer: **`docs/PR_FIRST_CONTRIBUTION.md`**.
-
-**Full runbook (source of truth):** **`docs/PR_SECOND_ONBOARDING.md`**
-
----
-
-## Why this PR
-
-Teammates were blocked on **strict TLS / mTLS / Kafka JKS** and on **bringing up Colima + 8 Postgres DBs + restore from backup**. This PR adds a **single narrative** that ties together existing scripts and docs so a **green group** can:
-
-1. Install **curl 8.19+** with **HTTP/3** and fix **PATH** on macOS  
-2. Run **one bring-up command** with **`RESTORE_BACKUP_DIR=latest`**  
-3. Generate/load **CA bundle, leaf, Envoy client cert, Kafka JKS** in the **correct order**  
-4. Run **`./scripts/run-preflight-scale-and-all-suites.sh`** (which **already** runs housing TLS secret ensure + strict TLS/mTLS preflight when secrets are missing)  
-5. Know **what else** to run (`run-all-test-suites`, k6 smoke, perf scripts)
-
----
-
-## What preflight already automates (so we don’t duplicate myths)
-
-`scripts/run-preflight-scale-and-all-suites.sh` **includes**:
-
-- **`ensure-housing-cluster-secrets.sh`** (bootstrap cluster TLS material when needed)  
-- **`ensure-strict-tls-mtls-preflight.sh`** (strict TLS/mTLS gate + ordered rollouts)  
-- Default **`PREFLIGHT_REISSUE_CA=0`** when `service-tls` + `dev-root-ca` exist (steady state)
-
-**You still need** on-disk **`certs/`** + **`certs/kafka-ssl/`** before Kafka/Docker come up — that’s covered in **`docs/PR_SECOND_ONBOARDING.md`** §4.
-
----
-
-## Quick start (copy-paste)
-
-```bash
-cd /path/to/Off-Campus-Housing-Tracker
-export PATH="/opt/homebrew/opt/curl/bin:$PATH"   # after: brew install curl
-export PGPASSWORD=postgres
-
-RESTORE_BACKUP_DIR=latest ./scripts/bring-up-cluster-and-infra.sh
-
-# First-time TLS + JKS (see docs/PR_SECOND_ONBOARDING.md for order)
-KAFKA_SSL=1 ./scripts/reissue-ca-and-leaf-load-all-services.sh
-./scripts/generate-envoy-client-cert.sh && ./scripts/strict-tls-bootstrap.sh
-./scripts/kafka-ssl-from-dev-root.sh
-
-./scripts/ensure-ready-for-preflight.sh
-METALLB_ENABLED=1 RUN_PGBENCH=0 ./scripts/run-preflight-scale-and-all-suites.sh 2>&1 | tee bench_logs/preflight-$(date +%Y%m%d-%H%M%S).log
-```
-
----
-
-## Files added/updated (checklist for reviewers)
-
-| Path | Role |
-|------|------|
-| **`docs/PR_SECOND_ONBOARDING.md`** | Full green-team runbook |
-| **`GITHUB_PR_DESCRIPTION_SECOND.txt`** | This file — paste into GitHub PR #2 description |
-| **`docs/PR_FIRST_CONTRIBUTION.md`** | Link to second PR + onboarding doc |
-| **`scripts/run-preflight-scale-and-all-suites.sh`** (header) | Pointer to onboarding doc |
-
----
-
-## Reviewers
-
-- **Joshua / infra:** bring-up + backup restore paths accurate  
-- **Franco / DX:** curl PATH + ensure-ready-for-preflight alignment  
-- **Arkar / edge:** cert order matches **`CERT_GENERATION_STRICT_TLS_MTLS.md`**
-
----
-
-## Suggested PR title
-
-`docs(onboarding): green team cluster, DB restore, TLS/JKS, curl 8.19+, preflight runbook`
-
-================================================================================
-END — Select from first # heading through Suggested PR title; paste into GitHub.
-================================================================================
+| Doc | Role |
+|-----|------|
+| **`GITHUB_PR_DESCRIPTION.txt`** | Single canonical PR body (review split + **§4** first-time / green team + **§4.7** Ollama + §6 testing map + §7 recipes) |
+| **`docs/PR_SECOND_ONBOARDING.md`** | Editable deep-dive runbook — keep in sync with bring-up / certs |
+| **`docs/PR_FIRST_CONTRIBUTION.md`** | First-contribution pointer |

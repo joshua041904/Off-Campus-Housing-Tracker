@@ -228,7 +228,7 @@ More detail: **`docs/RUN-PREFLIGHT.md`**, script header in **`scripts/run-prefli
 ## 10) Relationship to the first PR
 
 - **First PR** = what we built (listings diagnostics, k6 hooks, gateway fixes, etc.) + reviewer checklist → **`GITHUB_PR_DESCRIPTION.txt`**
-- **This doc** = **how anyone reproduces the environment** and runs the same pipeline. Update **this file** when bring-up or cert steps change; keep **`GITHUB_PR_DESCRIPTION_SECOND.txt`** in sync for GitHub paste.
+- **This doc** = **how anyone reproduces the environment** and runs the same pipeline. Update **this file** when bring-up or cert steps change; keep **`GITHUB_PR_DESCRIPTION.txt`** (**§4** first-time / green team, **§4.7** Ollama) aligned for PR paste.
 
 ---
 

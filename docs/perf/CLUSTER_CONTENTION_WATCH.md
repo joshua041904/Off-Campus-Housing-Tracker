@@ -46,8 +46,12 @@ CONTENTION_WATCH_MAX_ITER=30 CONTENTION_WATCH_INTERVAL_SEC=10 ./scripts/perf/wat
 Hooks in **`scripts/lib/k6-suite-resource-hooks.sh`** already:
 
 - **`sleep`** after each k6 block (`K6_SUITE_COOLDOWN_SEC`, extra after CAR)
+- Optionally **wait for `api-gateway` to go quiet** after each block (`K6_SUITE_GATEWAY_DRAIN=1`, default **on** in **`run-housing-k6-edge-smoke.sh`**) — polls `kubectl top pods` until max matching pod CPU &lt; **`K6_SUITE_GATEWAY_DRAIN_MAX_MILLICORES`** (default **150**). Reduces **back-to-back k6 concurrency bleed** through the shared gateway even when node CPU looks fine. Requires **metrics-server**.
 - Optionally **`kubectl rollout restart deployment/envoy-test`** after CAR tests (`K6_SUITE_RESTART_ENVOY_AFTER_CAR=1`)
 - **Append the same `kubectl top` text** to a file when **`K6_SUITE_RESOURCE_LOG`** is set
+- Optional **`K6_SUITE_KILL_K6_AFTER_BLOCK=1`** — `SIGKILL` lingering **`k6`** (kills **all** k6 on the host; harsh lab only)
+
+**Edge smoke** also defaults **`K6_ORCHESTRATION_VU_SCENARIO=1`**: **`k6-messaging.js`** and **`k6-media-health.js`** use **ramping-vus** instead of **constant-arrival-rate** so the orchestration suite is less likely to drop iterations and pile VUs against the gateway. Set **`K6_ORCHESTRATION_VU_SCENARIO=0`** to restore CAR for stress-style runs.
 
 ### Auto log path (default)
 

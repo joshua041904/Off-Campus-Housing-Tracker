@@ -14,6 +14,9 @@
 #   K6_SMOKE_VUS             — default 5
 #   SKIP_K6_BOOKING_SEARCH=1 — skip k6-booking.js + k6-search-watchlist.js
 #   SKIP_K6_ANALYTICS_LISTING_FEEL=1 — skip Ollama-backed POST listing-feel
+#   K6_ORCHESTRATION_VU_SCENARIO=1 (default here) — messaging + media use ramping-vus in suite (not CAR); set 0 for stress-style CAR.
+#   K6_SUITE_GATEWAY_DRAIN=1 (default here) — after each k6 block, wait until api-gateway CPU < ~150m before cooldown (needs metrics-server).
+#   K6_SUITE_KILL_K6_AFTER_BLOCK=1 — optional SIGKILL stray k6 (kills all k6 on host; lab only).
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -28,6 +31,10 @@ if [[ -f "$SCRIPT_DIR/lib/k6-suite-resource-hooks.sh" ]]; then
 else
   k6_suite_after_k6_block() { return 0; }
 fi
+
+# Defaults tuned for back-to-back orchestration (concurrency bleed through api-gateway); override per env.
+export K6_ORCHESTRATION_VU_SCENARIO="${K6_ORCHESTRATION_VU_SCENARIO:-1}"
+export K6_SUITE_GATEWAY_DRAIN="${K6_SUITE_GATEWAY_DRAIN:-1}"
 
 [[ "${SKIP_K6_GRID:-0}" == "1" ]] && { echo "SKIP_K6_GRID=1 — skipping"; exit 0; }
 
@@ -61,6 +68,7 @@ _k6_run() {
     -e "K6_INSECURE_SKIP_TLS=0" \
     -e "DURATION=${DURATION:-}" \
     -e "VUS=${VUS:-}" \
+    -e "K6_ORCHESTRATION_VU_SCENARIO=${K6_ORCHESTRATION_VU_SCENARIO:-}" \
     "$@"
 }
 
@@ -69,6 +77,11 @@ _run() {
   local name="$1"
   local file="$2"
   local is_car="${3:-0}"
+  if [[ "${K6_ORCHESTRATION_VU_SCENARIO:-1}" == "1" ]]; then
+    case "$file" in
+      k6-messaging.js | k6-media-health.js) is_car=0 ;;
+    esac
+  fi
   shift 3
   echo ""
   echo "━━ k6 smoke: $name ━━"

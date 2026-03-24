@@ -1,10 +1,6 @@
-================================================================================
-PASTE BELOW THE LINE INTO GITHUB / GITLAB PR DESCRIPTION (Preview tab checks tables).
-================================================================================
+# PR description — full (team review + how to run + green team)
 
-# First PR — full description (team review + how to run)
-
-**Purpose:** Single file for the PR: what we shipped end-to-end, how to run everything (including **first-time** Colima/k3s + MetalLB + Docker infra + TLS/JKS + DB restore + preflight — **macOS, Linux, k3d**), and a **three-reviewer split** (Joshua, Franco, Arkar).
+**Purpose:** One file to paste into GitHub/GitLab: what we shipped end-to-end, **first-time / green-team** bring-up (Colima/k3s + MetalLB + Docker infra + TLS/JKS + **Ollama** + DB restore + preflight — **macOS, Linux, k3d**), and a **three-reviewer split** (Joshua, Franco, Arkar). **§4** is the canonical first-time path; **§4.7** is **Ollama** (required for full analytics / listing-feel parity).
 
 **Deep-dive runbook (easier to edit in Git):** [`docs/PR_SECOND_ONBOARDING.md`](docs/PR_SECOND_ONBOARDING.md) — keep in sync when bring-up or cert steps change.
 
@@ -45,7 +41,7 @@ PASTE BELOW THE LINE INTO GITHUB / GITLAB PR DESCRIPTION (Preview tab checks tab
 
 | Action | Path(s) |
 |--------|---------|
-| Read NEW lib | `scripts/lib/k6-suite-resource-hooks.sh` — cooldown, `kubectl top`, CPU% gate, optional Envoy restart |
+| Read NEW lib | `scripts/lib/k6-suite-resource-hooks.sh` — cooldown, `kubectl top`, CPU% gate, **gateway drain**, optional kill k6, optional Envoy restart |
 | Read smoke runner | `scripts/run-housing-k6-edge-smoke.sh` — `name:file:car` triples, hooks after JWT scripts |
 | Read phases | `scripts/load/run-k6-phases.sh` — `run_phase` third arg `is_car`, hooks after HTTP/3 / comparison / max-RPS |
 | Read suites | `scripts/run-all-test-suites.sh` — hook after post-rotation k6 |
@@ -75,7 +71,7 @@ PASTE BELOW THE LINE INTO GITHUB / GITLAB PR DESCRIPTION (Preview tab checks tab
 - [ ] `bash -n scripts/lib/packet-capture-v2.sh` and housing script OK.
 - [ ] If DBs on 5441–5448 reachable: `./scripts/perf/run-perf-full-report.sh` produces `bench_logs/perf-report-*/` (or document skip).
 
-**Green team / first machine:** Skim [`docs/PR_SECOND_ONBOARDING.md`](docs/PR_SECOND_ONBOARDING.md) or **§4** — `setup-new-colima-cluster.sh` → `bring-up-external-infra.sh` → TLS/JKS → `bring-up-cluster-and-infra.sh` or preflight. `run-preflight-scale-and-all-suites.sh` header points here too.
+**Green team / first machine:** Skim [`docs/PR_SECOND_ONBOARDING.md`](docs/PR_SECOND_ONBOARDING.md) or **§4** — **§4.2** Colima → **§4.3** Docker infra → **§4.6** TLS/JKS → **§4.7** Ollama → **§4.8** cluster restore → **§4.9** preflight. `run-preflight-scale-and-all-suites.sh` header points here too.
 
 ### Shared checklist before merge
 
@@ -90,7 +86,7 @@ PASTE BELOW THE LINE INTO GITHUB / GITLAB PR DESCRIPTION (Preview tab checks tab
 1. [Welcome / how to use this doc](#1-welcome--how-to-use-this-doc)
 2. [Executive summary](#2-executive-summary)
 3. [Prerequisites (one-time)](#3-prerequisites-one-time--not-macos-only)
-4. [First timers — zero to preflight](#4-first-timers--from-zero-to-preflight)
+4. [First-time and green team — zero to preflight](#4-first-time-and-green-team--from-zero-to-preflight)
 5. [How to run — quick decision tree](#5-how-to-run--quick-decision-tree)
 6. [**Testing map — every script & test location**](#6-testing-map--every-script--test-location) ← **start here if you feel lost**
 7. [How to run — copy/paste recipes](#7-how-to-run--copypaste-recipes)
@@ -106,7 +102,8 @@ PASTE BELOW THE LINE INTO GITHUB / GITLAB PR DESCRIPTION (Preview tab checks tab
 
 | You want… | Go to… |
 |-----------|--------|
-| **Never brought the stack up?** | **§4.1** checklist → **§4.8** / **§7.3** preflight |
+| **First-time / green team (never brought the stack up)?** | **§4** (start **§4.1**); preflight gate **§4.9** / **§7.3**; one-paste **§4.11** |
+| **Ollama + analytics listing-feel (full surface)?** | **§4.7** (green team step — do before claiming full pass) |
 | **“What tests run where?”** | **§6** (full inventory) |
 | **One copy/paste command** | **§7** recipes |
 | **Reviewing the PR** | Review sections above → **§8** + **§11** |
@@ -149,13 +146,15 @@ You need a **Kubernetes** context and namespace **`off-campus-housing-tracker`**
 
 **Always:** `certs/dev-root.pem` after TLS (**§4.6**). **`/etc/hosts`:** `off-campus-housing.test` → edge/LB IP — see [`docs/LOCAL_TLS_AND_TESTING_GUIDE.md`](docs/LOCAL_TLS_AND_TESTING_GUIDE.md). **metrics-server** (recommended) for `kubectl top` in hooks. **curl 8.19+** with HTTP/3 on **PATH** where needed (**§4.5**).
 
-**k3d:** `REQUIRE_COLIMA=0` for preflight; skip **§4.2**; same **§4.3–4.8** pattern for infra + TLS.
+**k3d:** `REQUIRE_COLIMA=0` for preflight; skip **§4.2**; same **§4.3–4.9** pattern for infra + TLS + Ollama + cluster + gate.
 
 ---
 
-## 4. First timers — from zero to preflight
+## 4. First-time and green team — from zero to preflight
 
-*For people who have never brought this stack up. [`docs/PR_SECOND_ONBOARDING.md`](docs/PR_SECOND_ONBOARDING.md) mirrors this.*
+*For people who have **never** brought this stack up (green team). Same steps as [`docs/PR_SECOND_ONBOARDING.md`](docs/PR_SECOND_ONBOARDING.md) — keep both in sync.*
+
+**Cross-reference map (§4):** **§4.2** Colima → **§4.3** Docker infra → **§4.4** what preflight does / does not → **§4.5** curl → **§4.6** TLS+JKS → **§4.7** Ollama → **§4.8** cluster+DB restore → **§4.9** gate+preflight → **§4.10** after preflight → **§4.11** one-paste block.
 
 ### 4.1 Recommended order (checklist)
 
@@ -163,11 +162,13 @@ You need a **Kubernetes** context and namespace **`off-campus-housing-tracker`**
 2. **Colima + namespaces + MetalLB** — `./scripts/setup-new-colima-cluster.sh` (**§4.2**)  
 3. **TLS / Kafka JKS on disk** — **§4.6** before Kafka (or `SKIP_KAFKA=1` on first `bring-up-external-infra`)  
 4. **Host Docker infra** — `./scripts/bring-up-external-infra.sh` (**§4.3**)  
-5. **Cluster + DB restore** — `RESTORE_BACKUP_DIR=latest ./scripts/bring-up-cluster-and-infra.sh` (**§4.7**)  
-6. **curl HTTP/3 on PATH** — **§4.5**  
-7. **Gate + preflight** — **§4.8**
+5. **Ollama + model** — **§4.7** (green team: **required** for full **analytics-service** LLM paths, **`k6-analytics-listing-feel.js`**, and Playwright analytics flows; wire **`OLLAMA_BASE_URL`** on the deployment **before** you treat preflight as “full green”)  
+6. **Cluster + DB restore** — `RESTORE_BACKUP_DIR=latest ./scripts/bring-up-cluster-and-infra.sh` (**§4.8**)  
+7. **curl HTTP/3 on PATH** — **§4.5**  
+8. **Gate + preflight** — **§4.9**  
+9. **More runs / perf** — **§4.10** · **§6** · **§7** · **`scripts/perf/*`** (**§6.8**)
 
-**Ultra one-shot:** see [`docs/RUN_PIPELINE_ORDER.md`](docs/RUN_PIPELINE_ORDER.md) and `setup-full-off-campus-housing-stack.sh` (referenced from `setup-new-colima-cluster.sh`).
+**Ultra one-shot:** [`docs/RUN_PIPELINE_ORDER.md`](docs/RUN_PIPELINE_ORDER.md) · `setup-full-off-campus-housing-stack.sh` (from `setup-new-colima-cluster.sh`).
 
 ### 4.2 `setup-new-colima-cluster.sh`
 
@@ -190,9 +191,17 @@ RESTORE_BACKUP_DIR=latest ./scripts/bring-up-external-infra.sh
 
 - Zookeeper, Kafka (needs `certs/kafka-ssl/` or `SKIP_KAFKA=1`), Redis, MinIO, **8× Postgres** (`host.docker.internal:5441–5448`)
 
-### 4.4 What preflight already does (certs)
+### 4.4 What preflight already automates (don’t duplicate myths)
 
-Preflight runs **`ensure-housing-cluster-secrets`**, **`ensure-strict-tls-mtls-preflight`**, and by default **`PREFLIGHT_REISSUE_CA=0`** when secrets exist. You still need **`certs/kafka-ssl/`** on disk before Kafka (**§4.6**).
+`scripts/run-preflight-scale-and-all-suites.sh` **includes**:
+
+- **`ensure-housing-cluster-secrets.sh`** — bootstrap cluster TLS material when needed  
+- **`ensure-strict-tls-mtls-preflight.sh`** — strict TLS/mTLS gate + ordered rollouts  
+- Default **`PREFLIGHT_REISSUE_CA=0`** when `service-tls` + `dev-root-ca` already exist (steady state)  
+- **Step 7a** k6 edge smoke: **`scripts/lib/k6-suite-resource-hooks.sh`** — cooldowns, `kubectl top`, optional node CPU gate, **`K6_SUITE_GATEWAY_DRAIN`**, **`K6_ORCHESTRATION_VU_SCENARIO`** for messaging/media (**§6.3**, **§9**)  
+- Header lists **`scripts/perf/*`** helpers (watch contention, k6 isolation, EXPLAIN reports) for manual/CI use (**§6.8**)
+
+**You still need** on-disk **`certs/`** + **`certs/kafka-ssl/`** before Kafka/Docker bring-up — order in **§4.6** and **`docs/PR_SECOND_ONBOARDING.md`** §4.
 
 ### 4.5 curl 8.19+ (macOS + Linux)
 
@@ -220,7 +229,38 @@ KAFKA_SSL=1 ./scripts/reissue-ca-and-leaf-load-all-services.sh
 - **macOS trust:** `./scripts/lib/trust-dev-root-ca-macos.sh certs/dev-root.pem`  
 - **Linux:** import `certs/dev-root.pem` per [`docs/LOCAL_TLS_AND_TESTING_GUIDE.md`](docs/LOCAL_TLS_AND_TESTING_GUIDE.md)
 
-### 4.7 `bring-up-cluster-and-infra.sh`
+### 4.7 Ollama — green team (full analytics / listing-feel)
+
+**Green team:** treat **Ollama** as part of **first-time** setup so **analytics-service** LLM routes, **`k6-analytics-listing-feel.js`** (edge smoke **§6.3**), and **webapp** analytics checks match what the rest of the team runs. The service **starts without** Ollama but returns **fallback copy** instead of real inference — that is **not** full parity ([`services/analytics-service/src/ollama.ts`](services/analytics-service/src/ollama.ts)).
+
+**Install (macOS — Homebrew):**
+
+```bash
+brew install ollama
+```
+
+**Or** [ollama.com/download](https://ollama.com/download) (macOS / Linux / Windows).
+
+**Run the daemon** (default **`127.0.0.1:11434`**):
+
+```bash
+ollama serve
+```
+
+**Pull the model** the code expects (default **`llama3.2`** — override with **`OLLAMA_MODEL`**):
+
+```bash
+ollama pull llama3.2
+```
+
+**Wire the cluster:** set **`OLLAMA_BASE_URL`** (and **`OLLAMA_MODEL`** if needed) on **`analytics-service`** **before** preflight if you want a green pass on all analytics paths:
+
+- **Docker Desktop / Colima on Mac:** `OLLAMA_BASE_URL=http://host.docker.internal:11434`  
+- **Linux:** host IP or e.g. `http://172.17.0.1:11434` (depends on Docker bridge)
+
+**References:** [`services/analytics-service/README.md`](services/analytics-service/README.md) · **§6.3** (`k6-analytics-listing-feel.js`) · **§6.7** (Playwright analytics specs). If Ollama is intentionally down for a faster run: **`SKIP_K6_ANALYTICS_LISTING_FEEL=1`** (document that the run was partial).
+
+### 4.8 `bring-up-cluster-and-infra.sh`
 
 ```bash
 export PGPASSWORD=postgres
@@ -231,7 +271,7 @@ RESTORE_BACKUP_DIR=latest ./scripts/bring-up-cluster-and-infra.sh
 - **`SKIP_CLUSTER=1`** if cluster already up  
 - Postgres from pods: `scripts/colima-apply-host-aliases.sh` if needed
 
-### 4.8 Gate, then preflight
+### 4.9 Gate, then preflight
 
 ```bash
 ./scripts/ensure-ready-for-preflight.sh
@@ -241,7 +281,7 @@ METALLB_ENABLED=1 RUN_PGBENCH=0 ./scripts/run-preflight-scale-and-all-suites.sh 
 
 More flags: [`docs/RUN-PREFLIGHT.md`](docs/RUN-PREFLIGHT.md), header on `run-preflight-scale-and-all-suites.sh`.
 
-### 4.9 After preflight — optional commands
+### 4.10 After preflight — optional commands
 
 | Command | Role |
 |---------|------|
@@ -249,23 +289,50 @@ More flags: [`docs/RUN-PREFLIGHT.md`](docs/RUN-PREFLIGHT.md), header on `run-pre
 | `SSL_CERT_FILE=$PWD/certs/dev-root.pem ./scripts/run-housing-k6-edge-smoke.sh` | k6 edge grid only |
 | `./scripts/perf/run-k6-cross-service-isolation.sh` | One k6 script at a time + `kubectl top` |
 | `./scripts/perf/watch-cluster-contention.sh` | Continuous top → `bench_logs/cluster-contention-watch-*.log` |
+| `./scripts/perf/run-perf-full-report.sh` | EXPLAIN + k6 report → `bench_logs/perf-report-*/` |
+| `./scripts/perf/run-all-explain.sh` / `run-all-k6-load-report.sh` | À la carte (**§7.5**) |
 
-[`docs/perf/CLUSTER_CONTENTION_WATCH.md`](docs/perf/CLUSTER_CONTENTION_WATCH.md)
+[`docs/perf/CLUSTER_CONTENTION_WATCH.md`](docs/perf/CLUSTER_CONTENTION_WATCH.md) · **§6.8** (full `scripts/perf/` inventory)
+
+### 4.11 First-time / green team — single copy-paste (aligned with §4.1)
+
+Use after **§4.2**. If Docker **Postgres/Kafka/Redis/MinIO** are not up yet, run **§4.3** first. **§4.7 Ollama** (`ollama serve`, `ollama pull llama3.2`, **`OLLAMA_BASE_URL`** on **analytics-service**) is **required for full green parity** — do that before **§4.9** if you want the full analytics / listing-feel surface. Order inside this block matches **§4.1** where possible (TLS before cluster restore is acceptable if you already have `certs/`).
+
+```bash
+cd /path/to/Off-Campus-Housing-Tracker
+export PATH="/opt/homebrew/opt/curl/bin:$PATH"   # after: brew install curl (Intel: /usr/local/opt/curl/bin)
+export PGPASSWORD=postgres
+
+# See §4.7 — run in another terminal: ollama serve  &&  ollama pull llama3.2
+# Then set analytics-service OLLAMA_BASE_URL=http://host.docker.internal:11434 (see §4.7)
+
+RESTORE_BACKUP_DIR=latest ./scripts/bring-up-cluster-and-infra.sh
+
+# First-time TLS + JKS (full order: docs/PR_SECOND_ONBOARDING.md §4)
+KAFKA_SSL=1 ./scripts/reissue-ca-and-leaf-load-all-services.sh
+./scripts/generate-envoy-client-cert.sh && ./scripts/strict-tls-bootstrap.sh
+./scripts/kafka-ssl-from-dev-root.sh
+
+./scripts/ensure-ready-for-preflight.sh
+METALLB_ENABLED=1 RUN_PGBENCH=0 ./scripts/run-preflight-scale-and-all-suites.sh \
+  2>&1 | tee "bench_logs/preflight-$(date +%Y%m%d-%H%M%S).log"
+```
 
 ---
 
 ## 5. How to run — quick decision tree
 
 ```
-First machine / never ran stack?     → §4.1–4.8
-k3d / Linux (no Colima)?            → §3; skip §4.2; same §4.3–4.8
+First-time / green team / never ran stack? → §4.1–4.9 (or §4.11 one-paste)
+k3d / Linux (no Colima)?            → §3; skip §4.2; same §4.3–4.9
+Ollama + full analytics surface?    → §4.7
 Edge + all services from host?      → §7.1 k6 edge smoke
 Only listings health?               → §7.2 k6 listings health
 Full pipeline?                      → §7.3 preflight
 “Where is every test?”              → §6 Testing map
 Listings logs in cluster?            → §7.4 listings diagnostics
 EXPLAIN + k6 report?                → §7.5 perf scripts
-Relax CPU gate / cooldowns?         → §7.6 suite hooks
+Relax CPU gate / cooldowns / gateway drain? → §7.6 suite hooks + §9 env table
 ```
 
 ---
@@ -279,7 +346,7 @@ Relax CPU gate / cooldowns?         → §7.6 suite hooks
 | **`scripts/run-preflight-scale-and-all-suites.sh`** | **Main pipeline** — steps **0–8** in its header: infra, TLS, deploy, **7a** housing track (Vitest + bash + k6 edge + Playwright), **7b** transport study, **7c** in-cluster k6, **8** pgbench + EXPLAIN. |
 | **`scripts/run-all-test-suites.sh`** | **Standalone protocol grid** — auth → rotation → **`run-k6-phases.sh`** → standalone capture → tls-mtls. Does **not** duplicate preflight **7a** Vitest/housing/Playwright. |
 
-**Shared:** `scripts/lib/k6-suite-resource-hooks.sh` (cooldowns, `kubectl top`, CPU gate) — sourced from edge smoke, `run-k6-phases.sh`, `run-all-test-suites.sh`, preflight **7a/7c**.
+**Shared:** `scripts/lib/k6-suite-resource-hooks.sh` — cooldowns, `kubectl top`, optional **node CPU% fail**, **`K6_SUITE_GATEWAY_DRAIN`** (wait until **api-gateway** CPU drops between k6 scripts; default **on** in `run-housing-k6-edge-smoke.sh`), optional **`K6_SUITE_KILL_K6_AFTER_BLOCK`**. Sourced from edge smoke, `run-k6-phases.sh`, `run-all-test-suites.sh`, preflight **7a/7c**.
 
 ---
 
@@ -306,21 +373,21 @@ Earlier preflight steps (reissue, strict TLS, pod checks, **`build-k6-http3.sh`*
 
 ### 6.3 `run-housing-k6-edge-smoke.sh` — `scripts/load/*.js` order
 
-| # | Label | File | CAR* |
-|---|-------|------|------|
-| 1 | gateway-health | `k6-gateway-health.js` | no |
-| 2 | auth-health | `k6-auth-service-health.js` | no |
-| 3 | listings-health | `k6-listings-health.js` | no |
-| 4 | booking-health | `k6-booking-health.js` | no |
-| 5 | trust-public | `k6-trust-public.js` | no |
-| 6 | analytics-public | `k6-analytics-public.js` | no |
-| 7 | messaging | `k6-messaging.js` | **yes** |
-| 8 | media-health | `k6-media-health.js` | **yes** |
-| 9 | event-layer-adversarial | `k6-event-layer-adversarial.js` | no |
-| — | (optional) | `k6-analytics-listing-feel.js` | no — skip: `SKIP_K6_ANALYTICS_LISTING_FEEL=1` |
-| 10–11 | JWT flows | `k6-booking.js`, `k6-search-watchlist.js` | no — skip: `SKIP_K6_BOOKING_SEARCH=1` |
+| # | Label | File | Executor / hook note |
+|---|-------|------|----------------------|
+| 1 | gateway-health | `k6-gateway-health.js` | VU/duration |
+| 2 | auth-health | `k6-auth-service-health.js` | VU/duration |
+| 3 | listings-health | `k6-listings-health.js` | VU/duration |
+| 4 | booking-health | `k6-booking-health.js` | VU/duration |
+| 5 | trust-public | `k6-trust-public.js` | VU/duration |
+| 6 | analytics-public | `k6-analytics-public.js` | VU/duration |
+| 7 | messaging | `k6-messaging.js` | **Orchestration default:** `K6_ORCHESTRATION_VU_SCENARIO=1` → **ramping-vus** (not CAR). `=0` → **constant-arrival-rate** + CAR-style extra cooldown in hooks |
+| 8 | media-health | `k6-media-health.js` | same as messaging |
+| 9 | event-layer-adversarial | `k6-event-layer-adversarial.js` | VU/duration |
+| — | listing-feel k6 | `k6-analytics-listing-feel.js` | **§4.7** — green team installs Ollama + **`OLLAMA_BASE_URL`** for real inference; partial run: `SKIP_K6_ANALYTICS_LISTING_FEEL=1` |
+| 10–11 | JWT flows | `k6-booking.js`, `k6-search-watchlist.js` | skip: `SKIP_K6_BOOKING_SEARCH=1` |
 
-\* **CAR** = constant-arrival-rate → extra cooldown + optional Envoy restart per `K6_SUITE_*`.
+Between every script: **`k6-suite-resource-hooks.sh`** — `kubectl top`, optional node CPU fail, **`K6_SUITE_GATEWAY_DRAIN`** (default **on** here), then **`K6_SUITE_COOLDOWN_SEC`**. **CAR** scripts (when orchestration off) also get **`K6_SUITE_CAR_EXTRA_SEC`** + optional Envoy restart.
 
 ---
 
@@ -334,7 +401,7 @@ Earlier preflight steps (reissue, strict TLS, pod checks, **`build-k6-http3.sh`*
 | `k6-booking-health.js` | Edge smoke |
 | `k6-trust-public.js` | Edge smoke |
 | `k6-analytics-public.js` | Edge smoke |
-| `k6-analytics-listing-feel.js` | Edge smoke (Ollama-backed; optional) |
+| `k6-analytics-listing-feel.js` | Edge smoke — **§4.7** Ollama required for full parity (optional **skip** via env) |
 | `k6-messaging.js` | Edge smoke + `run-k6-phases` **messaging** phase |
 | `k6-media-health.js` | Edge smoke |
 | `k6-event-layer-adversarial.js` | Edge smoke |
@@ -415,16 +482,20 @@ Earlier preflight steps (reissue, strict TLS, pod checks, **`build-k6-http3.sh`*
 
 ### 6.8 `scripts/perf/` — reporting & lab helpers
 
+Preflight **does not** invoke these automatically; run manually or from CI. Listed in **`run-preflight-scale-and-all-suites.sh`** header for discoverability.
+
 | Script | Role |
 |--------|------|
-| `run-perf-full-report.sh` | One-shot EXPLAIN + k6 narrative |
-| `run-all-explain.sh` | EXPLAIN only |
-| `run-all-k6-load-report.sh` | k6 report aggregation |
-| `run-k6-cross-service-isolation.sh` | One k6 script at a time + snapshots |
-| `watch-cluster-contention.sh` | Continuous `kubectl top` → log file |
+| `run-perf-full-report.sh` | One-shot EXPLAIN (housing DBs) + k6 narrative → `bench_logs/perf-report-*/` |
+| `run-all-explain.sh` | EXPLAIN only (`sql/explain-*.sql`) |
+| `run-all-k6-load-report.sh` | k6 JSON summaries → markdown/html report |
+| `run-k6-cross-service-isolation.sh` | One edge k6 script at a time + `kubectl top` snapshots (isolate tails vs full grid) |
+| `watch-cluster-contention.sh` | Second terminal: continuous `kubectl top` → `bench_logs/cluster-contention-watch-*.log` |
 | `explain-listings-search.sh` | Listings search EXPLAIN helper |
 
-**SQL:** `scripts/perf/sql/explain-*.sql` (as referenced by the branch).
+**SQL:** `scripts/perf/sql/explain-*.sql` — `explain-auth.sql`, `explain-messaging.sql`, `explain-notification.sql`, `explain-listings.sql`, `explain-media.sql`, `explain-trust.sql`, `explain-analytics.sql`, `explain-bookings.sql`.
+
+**Docs:** [`docs/perf/CLUSTER_CONTENTION_WATCH.md`](docs/perf/CLUSTER_CONTENTION_WATCH.md), [`docs/perf/TAIL_LATENCY_AND_CROSS_SERVICE_ANALYSIS.md`](docs/perf/TAIL_LATENCY_AND_CROSS_SERVICE_ANALYSIS.md), [`docs/perf/README.md`](docs/perf/README.md).
 
 ---
 
@@ -460,7 +531,7 @@ SKIP_K6_ANALYTICS_LISTING_FEEL=1 SKIP_K6_BOOKING_SEARCH=1 \
   SSL_CERT_FILE="$PWD/certs/dev-root.pem" ./scripts/run-housing-k6-edge-smoke.sh
 ```
 
-Expect **cooldowns** + **`kubectl top`** between scripts (`scripts/lib/k6-suite-resource-hooks.sh`).
+Expect **`kubectl top`** + optional **gateway CPU drain** + **cooldowns** between scripts (`scripts/lib/k6-suite-resource-hooks.sh`). Defaults: **`K6_SUITE_GATEWAY_DRAIN=1`**, **`K6_ORCHESTRATION_VU_SCENARIO=1`** (ramping messaging/media).
 
 ### 7.2 k6 listings health only
 
@@ -528,6 +599,22 @@ export K6_SUITE_CAR_EXTRA_SEC=5
 export K6_SUITE_RESTART_ENVOY_AFTER_CAR=1
 ```
 
+```bash
+# Gateway quiet between k6 scripts (default on in edge smoke; metrics-server required)
+export K6_SUITE_GATEWAY_DRAIN=1
+export K6_SUITE_GATEWAY_DRAIN_MAX_MILLICORES=150
+```
+
+```bash
+# Stress-style CAR for messaging + media again (disables ramping in those two scripts)
+export K6_ORCHESTRATION_VU_SCENARIO=0
+```
+
+```bash
+# Harsh lab only: SIGKILL any k6 on host after each block
+export K6_SUITE_KILL_K6_AFTER_BLOCK=1
+```
+
 ---
 
 ## 8. What changed — by subsystem
@@ -538,8 +625,8 @@ export K6_SUITE_RESTART_ENVOY_AFTER_CAR=1
 - **api-gateway:** `server.ts` — preserve 4xx from JSON parse  
 - **transport:** `packet-capture-v2.sh` — Colima QUIC fallbacks  
 - **housing suite:** `test-microservices-http2-http3-housing.sh` — broader checks  
-- **orchestration:** `k6-suite-resource-hooks.sh`, `run-housing-k6-edge-smoke.sh`, `run-k6-phases.sh`, `run-all-test-suites.sh`, `run-preflight-scale-and-all-suites.sh`  
-- **perf:** `docs/perf/*`, `scripts/perf/*`
+- **orchestration:** `k6-suite-resource-hooks.sh` (**gateway drain**, kill-k6 opt), `run-housing-k6-edge-smoke.sh` (**`K6_ORCHESTRATION_VU_SCENARIO`**, default gateway drain), `run-k6-phases.sh`, `run-all-test-suites.sh`, `run-preflight-scale-and-all-suites.sh` (header documents **`scripts/perf/*`** + step **7a** wiring)
+- **perf:** `docs/perf/*`, `scripts/perf/*` (watch contention, k6 isolation, EXPLAIN + k6 reports)
 
 ---
 
@@ -618,13 +705,3 @@ Rebuild **api-gateway** in-cluster to validate JSON **400** behavior.
 - [ ] **Joshua:** Listings diagnostics off by default in base YAML.  
 - [ ] **Franco:** k6 default `BASE_URL` OK for all dev envs; team OK with CPU gate or CI sets `K6_SUITE_FAIL_ON_NODE_CPU=0`.  
 - [ ] **Arkar:** Gateway rolled out before claiming adversarial k6 paths fixed; perf scripts only when DB ports/creds available.
-
----
-
-## Suggested PR title
-
-`perf(observability,load): listings diagnostics, k6 suite hooks, edge/gateway hardening`
-
-================================================================================
-END — Paste from “# First PR” through “Suggested PR title” into GitHub/GitLab.
-================================================================================

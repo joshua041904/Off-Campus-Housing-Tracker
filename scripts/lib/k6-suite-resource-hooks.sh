@@ -16,6 +16,13 @@
 #   K6_SUITE_TOP_ENVOY_NS=envoy-test — empty to skip envoy namespace
 #   K6_SUITE_RESTART_ENVOY_AFTER_CAR=0 — if 1, after CAR tests: rollout restart envoy-test + sleep
 #   K6_SUITE_COLIMA_DROP_CACHES=0    — if 1, before each k6 block: colima ssh drop_caches (lab only; harsh)
+#   K6_SUITE_GATEWAY_DRAIN=0         — if 1, after k6: wait until api-gateway pod CPU (max) < K6_SUITE_GATEWAY_DRAIN_MAX_MILLICORES (needs metrics-server)
+#   K6_SUITE_GATEWAY_DRAIN_MAX_MILLICORES=150
+#   K6_SUITE_GATEWAY_DRAIN_INTERVAL_SEC=2
+#   K6_SUITE_GATEWAY_DRAIN_TIMEOUT_SEC=120
+#   K6_SUITE_GATEWAY_DRAIN_NAME_SUBSTR=api-gateway  — match pod name (substring)
+#   K6_SUITE_POST_DRAIN_SLEEP_SEC=0  — extra sleep after drain succeeds (e.g. 10 for harsh lab)
+#   K6_SUITE_KILL_K6_AFTER_BLOCK=0   — if 1, SIGKILL any lingering `k6` process (lab only; kills all k6 on host)
 
 k6_suite_append_log() {
   local logf="${K6_SUITE_RESOURCE_LOG:-}"
@@ -142,6 +149,75 @@ k6_suite_check_node_cpu() {
   return 0
 }
 
+# Max CPU in millicores across pods whose name matches K6_SUITE_GATEWAY_DRAIN_NAME_SUBSTR (empty = unavailable / no match).
+k6_suite_gateway_cpu_millicores_max() {
+  local ns="${K6_SUITE_TOP_NS:-off-campus-housing-tracker}"
+  local pat="${K6_SUITE_GATEWAY_DRAIN_NAME_SUBSTR:-api-gateway}"
+  kubectl top pods -n "$ns" --no-headers 2>/dev/null | awk -v pat="$pat" '
+    BEGIN { max = -1 }
+    {
+      pod = $1
+      c = $2
+      if (tolower(pod) !~ tolower(pat)) next
+      if (c ~ /^[0-9]+m$/) {
+        gsub(/m/, "", c)
+        v = c + 0
+      } else if (c ~ /^[0-9]+(\.[0-9]+)?$/) {
+        v = (c + 0) * 1000
+      } else {
+        next
+      }
+      if (v > max) max = v
+    }
+    END {
+      if (max < 0) print ""
+      else printf "%.0f", max
+    }
+  '
+}
+
+k6_suite_kill_lingering_k6() {
+  [[ "${K6_SUITE_KILL_K6_AFTER_BLOCK:-0}" == "1" ]] || return 0
+  if command -v pgrep >/dev/null 2>&1 && pgrep -x k6 >/dev/null 2>&1; then
+    echo "  k6 suite: SIGKILL lingering k6 process(es) (K6_SUITE_KILL_K6_AFTER_BLOCK=1)" >&2
+    pkill -9 -x k6 2>/dev/null || true
+  fi
+  return 0
+}
+
+# Wait until gateway pods look idle (reduces back-to-back suite concurrency bleed through api-gateway).
+k6_suite_wait_gateway_drain() {
+  [[ "${K6_SUITE_GATEWAY_DRAIN:-0}" == "1" ]] || return 0
+  local max_allowed="${K6_SUITE_GATEWAY_DRAIN_MAX_MILLICORES:-150}"
+  local interval="${K6_SUITE_GATEWAY_DRAIN_INTERVAL_SEC:-2}"
+  local timeout="${K6_SUITE_GATEWAY_DRAIN_TIMEOUT_SEC:-120}"
+  local waited=0
+  local cur
+  cur=$(k6_suite_gateway_cpu_millicores_max)
+  if [[ -z "$cur" ]]; then
+    echo "⚠️  k6 suite: gateway drain skipped (no api-gateway row in kubectl top — metrics-server / pod name?)" >&2
+    return 0
+  fi
+  echo "  k6 suite: gateway drain — waiting for api-gateway CPU < ${max_allowed}m (now ${cur}m, timeout ${timeout}s)" >&2
+  while [[ "$cur" -gt "$max_allowed" ]]; do
+    if [[ "$waited" -ge "$timeout" ]]; then
+      echo "⚠️  k6 suite: gateway drain timeout (${timeout}s) at ${cur}m — continuing (set K6_SUITE_GATEWAY_DRAIN=0 to skip)" >&2
+      return 0
+    fi
+    sleep "$interval"
+    waited=$((waited + interval))
+    cur=$(k6_suite_gateway_cpu_millicores_max)
+    [[ -z "$cur" ]] && cur=0
+  done
+  echo "  k6 suite: gateway drain ok (api-gateway ≤ ${max_allowed}m)" >&2
+  local extra="${K6_SUITE_POST_DRAIN_SLEEP_SEC:-0}"
+  if [[ "$extra" =~ ^[0-9]+$ ]] && [[ "$extra" -gt 0 ]]; then
+    echo "  k6 suite: post-drain sleep ${extra}s (K6_SUITE_POST_DRAIN_SLEEP_SEC)" >&2
+    sleep "$extra"
+  fi
+  return 0
+}
+
 k6_suite_maybe_restart_envoy_after_car() {
   [[ "${K6_SUITE_RESTART_ENVOY_AFTER_CAR:-0}" != "1" ]] && return 0
   [[ "${1:-0}" != "1" ]] && return 0
@@ -166,6 +242,8 @@ k6_suite_after_k6_block() {
   local is_car="${2:-0}"
   k6_suite_log_top "$label"
   k6_suite_check_node_cpu "$label" || return 3
+  k6_suite_kill_lingering_k6
+  k6_suite_wait_gateway_drain
   local cd="${K6_SUITE_COOLDOWN_SEC:-15}"
   echo "  k6 suite cooldown ${cd}s ($label)" >&2
   sleep "$cd"

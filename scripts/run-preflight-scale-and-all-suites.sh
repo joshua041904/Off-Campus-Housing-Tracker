@@ -24,6 +24,17 @@ fi
 # Host tools (curl HTTP/3, tcpdump, tshark, htop): ./scripts/install-preflight-tools.sh (run once)
 # Layers: docs/PREFLIGHT_AND_DIAGNOSTICS.md and docs/COLIMA_K3S_ANALYZE_EVERY_LAYER.md
 #
+# Cluster stopped / API unreachable (be aware — get the cluster back before expecting preflight to pass):
+#   - `colima list` shows **Stopped** and **ADDRESS** empty until the VM runs — then ADDRESS is the VM IP (e.g. 192.168.64.x).
+#   - Colima + k3s: `colima start --with-kubernetes`. If start fails with **disk "colima" in use** / attach error, try
+#     `colima stop --force` then `colima start --with-kubernetes` (clears stale Lima sockets; see Colima issues).
+#   - **Host kubectl → 127.0.0.1:6443**: if API is **refused** while Colima is **Running**, run `./scripts/colima-forward-6443.sh`
+#     (this script also invokes it when context is colima — step 1).
+#   - **COLIMA_START=1** (default): merges kubeconfig and may start Colima when no Colima context exists (see step 1).
+#   - Context: `kubectl config use-context colima`; kubeconfig under ~/.kube/config or ~/.colima/... per your Colima version.
+#   - k3d: `k3d cluster list` / `k3d cluster start <name>`; `kubectl config use-context k3d-...`.
+#   - Gate: `./scripts/ensure-ready-for-preflight.sh` — step 3 uses ensure-api-server-ready when needed.
+#
 # Single source of truth for CA: certs/dev-root.pem at repo root.
 #   - Reissue (3a) writes certs/dev-root.pem; ensure-strict-tls-mtls-preflight (5) syncs it from cluster.
 #   - Linux / Docker k6: SSL_CERT_FILE=certs/dev-root.pem is honored for TLS verify.
@@ -53,6 +64,39 @@ fi
 #   Preflight does not apply DB migrations or infra/db/*.sql; run scripts/setup-*-db.sh or scripts/ensure-*.sh manually when schema changes.
 #   CAPTURE_STOP_TIMEOUT=30 (default when running suites) — bounds packet capture stop phase so it never blocks; set higher for full pcap copy/analyze.
 #   PREFLIGHT_TELEMETRY=1 (default) capture control-plane telemetry during run (apiserver metrics every 8s) and post-run snapshot; set 0 to disable. TELEMETRY_PERF=1 / TELEMETRY_HTOP=1 for optional perf/htop. run-preflight-with-telemetry.sh is a thin wrapper that sets PREFLIGHT_MAIN_LOG and RUN_FULL_LOAD=0.
+#
+#   --- Load-lab orchestration (step 7a k6 edge grid): interference, not infra saturation ---
+#   When TIME_WAIT and conntrack stay low, node CPU looks moderate, and standalone k6 scripts are clean — but
+#   p95 spikes only inside the full suite — that points to orchestration concurrency bleed through the shared
+#   api-gateway (back-to-back k6), not kernel limits or Colima "being broken". You are tuning the load lab, not
+#   fighting the network stack. Next step if still noisy: instrument the gateway event loop (profiling), not only sysctl.
+#
+#   Mitigations are implemented in run-housing-k6-edge-smoke.sh (preflight 7a) + scripts/lib/k6-suite-resource-hooks.sh.
+#
+#   Step 1 — Active drain between k6 runs (wait until gateway CPU < ~150m before the next test — reduces overlap):
+#     Illustrative one-liner (fragile parsing; production code uses awk on pod names + millicores — see hooks):
+#       # echo "Waiting for gateway to drain..."
+#       # until kubectl top pods -n off-campus-housing-tracker | grep api-gateway | awk '{print $2}' | sed 's/m//' | awk '{exit !($1 < 150)}'; do sleep 2; done
+#     Implemented: K6_SUITE_GATEWAY_DRAIN=1, K6_SUITE_GATEWAY_DRAIN_MAX_MILLICORES=150,
+#       K6_SUITE_GATEWAY_DRAIN_INTERVAL_SEC=2, K6_SUITE_GATEWAY_DRAIN_TIMEOUT_SEC=120 — k6_suite_wait_gateway_drain()
+#       in k6-suite-resource-hooks.sh. Requires metrics-server for kubectl top.
+#
+#   Step 2 — Disable constant-arrival-rate for multi-service orchestration (CAR = stress; not the default grid):
+#     scripts/load/k6-messaging.js + k6-media-health.js use ramping-vus (e.g. startVUs 2, stages 10s/10s/5s) when
+#     K6_ORCHESTRATION_VU_SCENARIO=1 (default in run-housing-k6-edge-smoke.sh). Set =0 for legacy CAR + CAR-extra cooldown.
+#
+#   Step 3 — Hard stop / settle after each k6 block (optional harsh lab — kills ALL host k6; use a dedicated terminal):
+#     K6_SUITE_KILL_K6_AFTER_BLOCK=1 → pkill -9 -x k6 if any process named k6 exists.
+#     Extra settle: K6_SUITE_POST_DRAIN_SLEEP_SEC=10 (or 0 default) after gateway drain; plus K6_SUITE_COOLDOWN_SEC=15.
+#
+#   Final form (after every k6 block, k6_suite_after_k6_block order):
+#     1) kubectl top snapshot + optional node CPU fail
+#     2) optional SIGKILL lingering k6 (K6_SUITE_KILL_K6_AFTER_BLOCK)
+#     3) wait for api-gateway CPU to drop (gateway drain)
+#     4) optional post-drain sleep (K6_SUITE_POST_DRAIN_SLEEP_SEC — e.g. 10)
+#     5) cooldown (K6_SUITE_COOLDOWN_SEC) + optional CAR extras / Envoy restart
+#   Re-run the full suite after changing hooks to validate; if listings stays stable, you have evidence of suite interference.
+#
 #   k6 suite stability (orchestration — reduces cross-test contention on Colima/k3s; see scripts/lib/k6-suite-resource-hooks.sh):
 #     K6_SUITE_COOLDOWN_SEC=15 — sleep after every k6 block; K6_SUITE_CAR_EXTRA_SEC=20 — extra after constant-arrival-rate scripts.
 #     K6_SUITE_LOG_TOP=1 — kubectl top nodes + pods after each block; K6_SUITE_FAIL_ON_NODE_CPU=1 — exit hook code 3 if any node CPU% ≥ K6_SUITE_NODE_CPU_MAX (default 85). Set K6_SUITE_FAIL_ON_NODE_CPU=0 to only log.
@@ -61,8 +105,26 @@ fi
 #     K6_SUITE_STABILITY_AGGRESSIVE=1 — enables Envoy restart after CAR by default (clears connection state; disruptive).
 #     K6_SUITE_LOG_TOP_BEFORE=1 — snapshot before each k6 run; K6_SUITE_COLIMA_DROP_CACHES=1 — colima ssh sync+drop_caches before each k6 (harsh lab; Colima VM only).
 #     K6_SUITE_WARN_HOT_RESOURCES=1 (default) — stderr warnings when node CPU%/MEM% ≥ K6_SUITE_WARN_NODE_CPU / _MEM (default 80); fail still at K6_SUITE_NODE_CPU_MAX (85).
+#     K6_SUITE_GATEWAY_DRAIN=1 — after each k6 block, wait until api-gateway pod CPU (kubectl top) < K6_SUITE_GATEWAY_DRAIN_MAX_MILLICORES (default 150m); needs metrics-server. run-housing-k6-edge-smoke.sh defaults this on.
+#     K6_ORCHESTRATION_VU_SCENARIO=1 — in edge smoke, messaging + media k6 scripts use ramping-vus instead of constant-arrival-rate (less iteration drop / shared-gateway interference). Set 0 for legacy CAR stress.
+#     K6_SUITE_KILL_K6_AFTER_BLOCK=1 — SIGKILL any lingering k6 (all k6 on host); lab only.
 #     Second terminal (prove contention): kubectl top pods -n off-campus-housing-tracker; kubectl top nodes — watch CPU/mem >80%, Postgres/Envoy spikes.
 #     Continuous log: scripts/perf/watch-cluster-contention.sh → bench_logs/cluster-contention-watch-*.log (docs/perf/CLUSTER_CONTENTION_WATCH.md).
+#
+#   scripts/perf/ — lab & reporting (not auto-run by this script; use after bring-up or alongside preflight):
+#     watch-cluster-contention.sh — second terminal: poll kubectl top → bench_logs/cluster-contention-watch-*.log
+#     run-k6-cross-service-isolation.sh — run each edge k6 script in isolation + snapshots (compare p95 vs full grid)
+#     run-perf-full-report.sh — EXPLAIN all housing DBs + k6 aggregation → bench_logs/perf-report-*/
+#     run-all-explain.sh — EXPLAIN-only (uses sql/explain-*.sql)
+#     run-all-k6-load-report.sh — k6 JSON summaries → markdown/html report
+#     explain-listings-search.sh — listings search EXPLAIN helper
+#     sql/explain-*.sql — auth, messaging, notification, listings, media, trust, analytics, bookings
+#     See docs/perf/README.md, docs/perf/TAIL_LATENCY_AND_CROSS_SERVICE_ANALYSIS.md, docs/perf/CLUSTER_CONTENTION_WATCH.md
+#
+#   Step 7a invokes scripts/run-housing-k6-edge-smoke.sh — defaults + hook order summarized in the
+#   "Load-lab orchestration" block above. Preflight 7a sets K6_SUITE_RESOURCE_LOG_AUTO=1 →
+#   bench_logs/k6-suite-resources-*.log unless disabled.
+#
 #   RUN_FULL_LOAD=1 (default) run pgbench (all DBs, deep) + k6 + xk6 HTTP/3 phases + all suites (full control plane). Set RUN_FULL_LOAD=0 for suites only.
 #   RUN_K6=1 run k6 load phase; RUN_PGBENCH=1 run pgbench sweeps before suites (set by RUN_FULL_LOAD=1).
 #   When RUN_FULL_LOAD=1: K6_PHASES=read,soak,limit,max, K6_HTTP3=1, K6_HTTP3_PHASES=1 (run-k6-phases.sh runs xk6-http3 phases). Step 6d builds xk6-http3 if missing; SKIP_XK6_BUILD=1 to skip.
@@ -119,6 +181,7 @@ fi
 #   6     6a1–6a2: Force deployments, ensure Kafka. 6b: wait-for-all-services-ready (PREFLIGHT_READY_MAX_WAIT default 900s, INITIAL_WAIT 90s).
 #         6d: build xk6-http3 if RUN_K6=1. 6e: ensure-tcpdump-in-capture-pods (before suites).
 #   7     7a (Colima): ROTATION_USE_BBR=1 switches TCP congestion to BBR before suites. Run all test suites via run-all-test-suites.sh (auth, baseline, enhanced, adversarial, rotation, k6, standalone, tls-mtls, social). ROTATION_UDP_STATS=1 (Colima default) captures UDP stats pre/post k6. All 8 suites run to completion even if one fails; step 8 runs when RUN_PGBENCH=1. Step 5b inside run-all = k6 phases (HTTP/2 + xk6 HTTP/3 when K6_HTTP3=1). HTTP/3 on k3d: see docs/HTTP3-CURL-EXIT-CODES.md if baseline/enhanced hit exit 7/28/55.
+#         7a3–7a7: run-housing-k6-edge-smoke.sh — k6 hooks + gateway drain + ramping messaging/media (see "k6 suite stability" + "Step 7a k6 edge grid" above). Optional perf helpers: scripts/perf/* (watch-cluster-contention.sh during long runs).
 #   7b    Transport-layer study experiments (UDP drops, QUIC cwnd, BBR, NodePort, Caddy native, in-cluster k6). TRANSPORT_STUDY=1.
 #   7c    In-cluster k6 (Pod → Caddy ClusterIP; no host/VM). RUN_K6=1 and RUN_K6_IN_CLUSTER=1 (default). K6_IN_CLUSTER_DURATION=30s. Set RUN_K6_IN_CLUSTER=0 to skip.
 #   8     All 7 housing pgbench sweeps (ports 5441–5447; media 5448 optional), EXPLAIN, observation-deck summary. RUN_PGBENCH=1.
