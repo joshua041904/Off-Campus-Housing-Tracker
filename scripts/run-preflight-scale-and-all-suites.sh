@@ -17,8 +17,8 @@ fi
 #
 # Green team / first machine: read docs/PR_SECOND_ONBOARDING.md — Colima + DB restore (RESTORE_BACKUP_DIR=latest),
 # CA bundle + Kafka JKS (docs/CERT_GENERATION_STRICT_TLS_MTLS.md), curl 8.19+ on PATH, then this script.
-# Preflight already runs ensure-housing-cluster-secrets + ensure-strict-tls-mtls-preflight when needed; you still
-# need certs/kafka-ssl on disk before bringing up Docker Kafka (see bring-up-external-infra.sh).
+# Preflight auto-checks local cert material and bootstraps missing files (dev-root.pem/key, off-campus-housing leaf,
+# kafka-ssl JKS/password files) via scripts/dev-generate-certs.sh at step 1c; it also retries kafka-ssl-from-dev-root.sh.
 #
 # Use: ./scripts/run-preflight-scale-and-all-suites.sh
 #   REQUIRE_COLIMA=0  use k3d (default for preflight). REQUIRE_COLIMA=1  use Colima + k3s (primary). With REQUIRE_COLIMA=1 and METALLB_ENABLED=1 preflight uses install-metallb-colima.sh, caddy-h3-service-loadbalancer.yaml, and ensures :dev images (no k3d registry/3c0/3c0a/3c0b). Colima only used optionally for L2 verification when REQUIRE_COLIMA=0 (METALLB_VERIFY_COLIMA_L2=1).
@@ -238,6 +238,68 @@ ok()  { echo "✅ $*"; }
 warn(){ echo "⚠️  $*"; }
 fail(){ echo "❌ $*" >&2; exit 1; }
 info(){ echo "ℹ️  $*"; }
+
+_ensure_first_time_local_cert_assets() {
+  local certs_dir="$REPO_ROOT/certs"
+  local missing_core=()
+  local missing_kafka=()
+  local core_files=(
+    "$certs_dir/dev-root.pem"
+    "$certs_dir/dev-root.key"
+    "$certs_dir/off-campus-housing.test.crt"
+    "$certs_dir/off-campus-housing.test.key"
+  )
+  local kafka_files=(
+    "$certs_dir/kafka-ssl/kafka.keystore.jks"
+    "$certs_dir/kafka-ssl/kafka.truststore.jks"
+    "$certs_dir/kafka-ssl/kafka.keystore-password"
+    "$certs_dir/kafka-ssl/kafka.truststore-password"
+    "$certs_dir/kafka-ssl/kafka.key-password"
+    "$certs_dir/kafka-ssl/ca-cert.pem"
+  )
+  local f
+  for f in "${core_files[@]}"; do
+    [[ -s "$f" ]] || missing_core+=("$f")
+  done
+  for f in "${kafka_files[@]}"; do
+    [[ -s "$f" ]] || missing_kafka+=("$f")
+  done
+  if [[ ${#missing_core[@]} -eq 0 && ${#missing_kafka[@]} -eq 0 ]]; then
+    ok "Local cert/JKS assets present (dev-root + leaf + kafka-ssl)"
+    return 0
+  fi
+
+  say "0a. First-time local cert/JKS bootstrap (auto)..."
+  warn "Missing local cert assets detected. Attempting auto-generate via scripts/dev-generate-certs.sh"
+  if [[ -f "$SCRIPT_DIR/dev-generate-certs.sh" ]]; then
+    chmod +x "$SCRIPT_DIR/dev-generate-certs.sh" 2>/dev/null || true
+    "$SCRIPT_DIR/dev-generate-certs.sh" || warn "dev-generate-certs.sh failed; continuing checks"
+  else
+    warn "dev-generate-certs.sh not found; cannot auto-generate local certs"
+  fi
+
+  missing_core=()
+  missing_kafka=()
+  for f in "${core_files[@]}"; do
+    [[ -s "$f" ]] || missing_core+=("$f")
+  done
+  for f in "${kafka_files[@]}"; do
+    [[ -s "$f" ]] || missing_kafka+=("$f")
+  done
+
+  if [[ ${#missing_core[@]} -gt 0 ]]; then
+    echo "❌ Missing required local cert files after bootstrap:"
+    printf "   - %s\n" "${missing_core[@]}"
+    echo "   Fix: run ./scripts/dev-generate-certs.sh (or pnpm run reissue), then rerun preflight."
+    exit 1
+  fi
+
+  if [[ ${#missing_kafka[@]} -gt 0 ]] && command -v keytool >/dev/null 2>&1 && [[ -f "$SCRIPT_DIR/kafka-ssl-from-dev-root.sh" ]]; then
+    warn "Kafka JKS still missing; attempting refresh via kafka-ssl-from-dev-root.sh"
+    chmod +x "$SCRIPT_DIR/kafka-ssl-from-dev-root.sh" 2>/dev/null || true
+    "$SCRIPT_DIR/kafka-ssl-from-dev-root.sh" || warn "kafka-ssl-from-dev-root.sh failed; will continue and re-check later in step 3b"
+  fi
+}
 
 # Full control-plane run: pgbench (all DBs, deep) + k6 + all test suites. Default on so one command runs everything.
 # Pass RUN_PGBENCH=0 to run everything up to but not including step 8 (pgbench); output is still teed to PREFLIGHT_MAIN_LOG.
@@ -668,6 +730,9 @@ _get_colima_context_for_metallb() {
 if [[ "$ctx" == *"colima"* ]] && [[ -x "$SCRIPT_DIR/ensure-k8s-api.sh" ]]; then
   "$SCRIPT_DIR/ensure-k8s-api.sh" || exit 1
 fi
+
+# 1c. First-time bootstrap guard: ensure local CA/leaf + kafka JKS files exist before cert-dependent steps.
+_ensure_first_time_local_cert_assets
 
 # 1. Trim completed pods first (reduces API server load; no-op if cluster down)
 _phase_start "1_trim"

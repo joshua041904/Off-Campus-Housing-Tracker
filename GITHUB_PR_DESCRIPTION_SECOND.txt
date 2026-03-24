@@ -1,19 +1,8 @@
-# Which PR description to paste
+DEPRECATED: merged into GITHUB_PR_DESCRIPTION.txt
 
-| PR scope | Paste this file into GitHub |
-|----------|----------------------------|
-| **Main platform** (Colima/k3s, preflight, k6, Ollama, listings diagnostics, gateway, perf) | **`GITHUB_PR_DESCRIPTION.txt`** |
-| **Second PR: webapp visuals + full Playwright command matrix + listings browser coverage** | **`GITHUB_PR_DESCRIPTION_LISTINGS_E2E.txt`** |
+This selector file is no longer needed.
 
-Supporting docs (plain text where noted):
+Canonical PR description (includes former PR2 + task assignment):
+  GITHUB_PR_DESCRIPTION.txt
 
-- `docs/WEBAPP_GOOGLE_MAPS_AND_DEPLOY.txt` — Google Cloud, Docker build-arg, kubectl, listings rollout, E2E.
-- `docs/WEBAPP_E2E_ARCHITECTURE.txt` — E2E edge, listings query params, risks.
-- `docs/PR_SECOND_ONBOARDING.md` — Deep-dive bring-up (Markdown); keep in sync with infra changes.
-
-Merge order:
-
-1. **PR1 first** → `GITHUB_PR_DESCRIPTION.txt`
-2. **PR2 second** → `GITHUB_PR_DESCRIPTION_LISTINGS_E2E.txt`
-
-The old “deprecated split” note is superseded: use the two rows above with this merge order.
+Use ONLY GITHUB_PR_DESCRIPTION.txt when pasting PR descriptions.

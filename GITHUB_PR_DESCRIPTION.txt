@@ -1,6 +1,6 @@
-# PR description — full (team review + how to run + green team)
+# PR description — full (team review + how to run + first-time setup)
 
-**Purpose:** One file to paste into GitHub/GitLab: what we shipped end-to-end, **first-time / green-team** bring-up (Colima/k3s + MetalLB + Docker infra + TLS/JKS + **Ollama** + DB restore + preflight — **macOS, Linux, k3d**), and a **three-reviewer split** (Joshua, Franco, Arkar). **§4** is the canonical first-time path; **§4.7** is **Ollama** (required for full analytics / listing-feel parity).
+**Purpose:** One file to paste into GitHub/GitLab: what we shipped end-to-end, **first-time** bring-up (Colima/k3s + MetalLB + Docker infra + TLS/JKS + **Ollama** + DB restore + preflight — **macOS, Linux, k3d**), and a **three-reviewer split** (Joshua, Franco, Arkar). **§4** is the canonical first-time path; **§4.7** is **Ollama** (required for full analytics / listing-feel parity).
 
 **Deep-dive runbook (easier to edit in Git):** [`docs/PR_SECOND_ONBOARDING.md`](docs/PR_SECOND_ONBOARDING.md) — keep in sync when bring-up or cert steps change.
 
@@ -10,68 +10,75 @@
 
 | Person | Primary focus | Reply in PR with |
 |--------|----------------|------------------|
-| **Joshua** | Listings service, listings K8s YAML, perf docs (`docs/perf/*` for listings/timing) | `Review: Joshua — LGTM on listings + k8s + perf docs` (or comments) |
-| **Franco** | k6 scripts, suite hooks, preflight wiring (`k6-suite-resource-hooks`, smoke, phases, suites) | `Review: Franco — LGTM on k6 + orchestration` |
-| **Arkar** | API gateway, packet capture, housing HTTP suite script, `scripts/perf` automation | `Review: Arkar — LGTM on gateway + transport + perf scripts` |
+| **Joshua** | `listings-service`, `trust-service`, media upload flow, admin moderation + listing flagging | `Review: Joshua — LGTM on listings/trust/media/moderation` |
+| **Arkar** | `auth-service`, `analytics-service` | `Review: Arkar — LGTM on auth + analytics` |
+| **Franco** | search-service behavior (advanced search/filtering + distance integration path) | `Review: Franco — LGTM on search/filtering + maps distance path` |
 
 **Process:** Each reviewer works their section, checks boxes, and posts **one** summary comment. If something spans two areas, tag both in-thread.
 
 ---
 
-## Review breakdown — Joshua, Franco & Arkar
+## Service ownership handoff — step by step
 
-### Joshua — Listings service + Kubernetes + perf docs
+This repo work is already done (heavy lifting complete). Reviewers should validate and operate the services below using these concrete steps.
 
-**Owns:** runtime behavior of listings, cluster config for diagnostics, operator-facing perf docs.
+### Joshua — listings + trust + media/moderation
 
-| Action | Path(s) |
-|--------|---------|
-| Read code | `services/listings-service/src/http-server.ts` — `attachListingsHttpDiagnostics`, startup log, pool interval, search DB logging |
-| Read YAML | `infra/k8s/base/listings-service/deploy.yaml` — `LISTINGS_HTTP_TIMING*`, `LISTINGS_HTTP_POOL_STATS_MS` |
-| Read docs | `docs/perf/LISTINGS_HTTP_TIMING.md`, `docs/perf/LISTINGS_SEARCH.md`, `docs/perf/TAIL_LATENCY_AND_CROSS_SERVICE_ANALYSIS.md`, `docs/perf/README.md` |
+**Scope**
 
-**Verify (pick one):**
+- `listings-service`
+- `trust-service`
+- media upload service (property images)
+- admin moderation + listing flagging flow
 
-- [ ] `LISTINGS_HTTP_TIMING` defaults keep prod quiet unless explicitly enabled.
-- [ ] Follow **§7.4** in this doc: build → `docker save … | colima ssh -- docker load` → rollout → `kubectl set env` → see `[listings-http-timing]` in logs.
+**Step-by-step**
 
-### Franco — k6 + suite orchestration + preflight wiring
+1. Run first-time setup in **§4** through cert/TLS + preflight readiness.
+2. Rebuild/redeploy listings + webapp image pair: `./scripts/rebuild-webapp-listings-colima.sh`.
+3. Validate listings browser flows in Playwright project `03-listings`:
+   - `pnpm run test:webapp:e2e:listings`
+4. Validate trust pages and moderation/report paths:
+   - trust UI + API checks through preflight/browser E2E
+5. Post one PR summary:
+   - `Review: Joshua — LGTM on listings/trust/media/moderation`
 
-**Owns:** host-side load scripts, hooks between tests, phase runner, preflight wiring.
+### Arkar — auth + analytics
 
-| Action | Path(s) |
-|--------|---------|
-| Read NEW lib | `scripts/lib/k6-suite-resource-hooks.sh` — cooldown, `kubectl top`, CPU% gate, **gateway drain**, optional kill k6, optional Envoy restart |
-| Read smoke runner | `scripts/run-housing-k6-edge-smoke.sh` — `name:file:car` triples, hooks after JWT scripts |
-| Read phases | `scripts/load/run-k6-phases.sh` — `run_phase` third arg `is_car`, hooks after HTTP/3 / comparison / max-RPS |
-| Read suites | `scripts/run-all-test-suites.sh` — hook after post-rotation k6 |
-| Read preflight | `scripts/run-preflight-scale-and-all-suites.sh` — header `K6_SUITE_*`, hooks after 7a k6 grid + 7c in-cluster k6 |
-| Read k6 JS | `scripts/load/k6-strict-edge-tls.js`, `k6-listings-health.js`, other `k6-*.js` touched |
+**Scope**
 
-**Verify (pick one):**
+- `auth-service`
+- `analytics-service`
 
-- [ ] `SSL_CERT_FILE=$PWD/certs/dev-root.pem ./scripts/run-housing-k6-edge-smoke.sh` completes (or fails only on real infra).
-- [ ] Between scripts: pauses + `kubectl top` blocks (unless `K6_SUITE_LOG_TOP=0`).
-- [ ] `K6_SUITE_FAIL_ON_NODE_CPU=0` avoids CPU gate when metrics-server is missing or the laptop is noisy.
+**Step-by-step**
 
-### Arkar — API gateway + transport + housing HTTP suite + perf automation
+1. Ensure first-time setup is done in **§4** including Ollama (**§4.7**) when claiming full analytics parity.
+2. Validate auth journeys:
+   - register/login cycle and dashboard access
+3. Validate analytics API + UI:
+   - `pnpm run test:e2e:04-analytics` (from `webapp/`) or full edge suite
+4. Confirm listing-feel behavior (real Ollama path vs fallback) matches expected environment.
+5. Post one PR summary:
+   - `Review: Arkar — LGTM on auth + analytics`
 
-**Owns:** gateway correctness, packet capture, housing health script, SQL/report scripts.
+### Franco — search-service + advanced filtering
 
-| Action | Path(s) |
-|--------|---------|
-| Read gateway | `services/api-gateway/src/server.ts` — JSON parse / body-parser **4xx** vs 500 `internal` |
-| Read capture | `scripts/lib/packet-capture-v2.sh` — Colima QUIC / L1 vs L2 fallback |
-| Read housing suite | `scripts/test-microservices-http2-http3-housing.sh` — HTTP/2 routes, nested protocol suites |
-| Read perf automation | `scripts/perf/run-perf-full-report.sh`, `run-all-explain.sh`, `run-all-k6-load-report.sh`, `scripts/perf/sql/explain-*.sql` |
+**Scope**
 
-**Verify (pick one):**
+- search-service behavior
+- advanced housing search/filtering (price, distance, recency, amenities)
+- external integration path for map/distance-related UX
 
-- [ ] After **rebuilt gateway** in cluster: invalid JSON to login returns **400** (not generic 500) where applicable.
-- [ ] `bash -n scripts/lib/packet-capture-v2.sh` and housing script OK.
-- [ ] If DBs on 5441–5448 reachable: `./scripts/perf/run-perf-full-report.sh` produces `bench_logs/perf-report-*/` (or document skip).
+**Step-by-step**
 
-**Green team / first machine:** Skim [`docs/PR_SECOND_ONBOARDING.md`](docs/PR_SECOND_ONBOARDING.md) or **§4** — **§4.2** Colima → **§4.3** Docker infra → **§4.6** TLS/JKS → **§4.7** Ollama → **§4.8** cluster restore → **§4.9** preflight. `run-preflight-scale-and-all-suites.sh` header points here too.
+1. Ensure first-time setup is complete in **§4** and cluster is ready.
+2. Validate search/filter behavior via Playwright project `03-listings`:
+   - sort + recency + amenity + price filters
+3. Validate map/embed + coordinates flow and key wiring path (`NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`).
+4. Confirm preflight invokes browser suite at step `7a8` and command aliases remain correct.
+5. Post one PR summary:
+   - `Review: Franco — LGTM on search/filtering + maps distance path`
+
+**First-time machine:** Skim [`docs/PR_SECOND_ONBOARDING.md`](docs/PR_SECOND_ONBOARDING.md) or **§4** — **§4.2** Colima → **§4.3** Docker infra → **§4.6** TLS/JKS → **§4.7** Ollama → **§4.8** cluster restore → **§4.9** preflight.
 
 ### Shared checklist before merge
 
@@ -86,13 +93,15 @@
 1. [Welcome / how to use this doc](#1-welcome--how-to-use-this-doc)
 2. [Executive summary](#2-executive-summary)
 3. [Prerequisites (one-time)](#3-prerequisites-one-time--not-macos-only)
-4. [First-time and green team — zero to preflight](#4-first-time-and-green-team--from-zero-to-preflight)
+4. [First-time setup — zero to preflight](#4-first-time-setup--from-zero-to-preflight)
+   - [4.0 First-time fast path (copy/paste)](#40-first-time-fast-path-copypaste)
 5. [How to run — quick decision tree](#5-how-to-run--quick-decision-tree)
 6. [**Testing map — every script & test location**](#6-testing-map--every-script--test-location) ← **start here if you feel lost**
 7. [How to run — copy/paste recipes](#7-how-to-run--copypaste-recipes)
 8. [What changed — by subsystem](#8-what-changed--by-subsystem)
 9. [Environment variables reference](#9-environment-variables-reference)
 10. [Troubleshooting (FAQ)](#10-troubleshooting-faq)
+   - [10.1 Common error codes (curl/x509/503)](#101-common-error-codes-curlx509503)
 11. [Verify before merging](#11-verify-before-merging)
 12. [Review checklist (quick)](#12-review-checklist-quick)
 
@@ -102,8 +111,8 @@
 
 | You want… | Go to… |
 |-----------|--------|
-| **First-time / green team (never brought the stack up)?** | **§4** (start **§4.1**); preflight gate **§4.9** / **§7.3**; one-paste **§4.11** |
-| **Ollama + analytics listing-feel (full surface)?** | **§4.7** (green team step — do before claiming full pass) |
+| **First-time setup (never brought the stack up)?** | **§4** (start **§4.1**); preflight gate **§4.9** / **§7.3**; one-paste **§4.11** |
+| **Ollama + analytics listing-feel (full surface)?** | **§4.7** (first-time step — do before claiming full pass) |
 | **“What tests run where?”** | **§6** (full inventory) |
 | **One copy/paste command** | **§7** recipes |
 | **Reviewing the PR** | Review sections above → **§8** + **§11** |
@@ -150,11 +159,34 @@ You need a **Kubernetes** context and namespace **`off-campus-housing-tracker`**
 
 ---
 
-## 4. First-time and green team — from zero to preflight
+## 4. First-time setup — from zero to preflight
 
-*For people who have **never** brought this stack up (green team). Same steps as [`docs/PR_SECOND_ONBOARDING.md`](docs/PR_SECOND_ONBOARDING.md) — keep both in sync.*
+*For people who have **never** brought this stack up (first-time setup). Same steps as [`docs/PR_SECOND_ONBOARDING.md`](docs/PR_SECOND_ONBOARDING.md) — keep both in sync.*
 
 **Cross-reference map (§4):** **§4.2** Colima → **§4.3** Docker infra → **§4.4** what preflight does / does not → **§4.5** curl → **§4.6** TLS+JKS → **§4.7** Ollama → **§4.8** cluster+DB restore → **§4.9** gate+preflight → **§4.10** after preflight → **§4.11** one-paste block.
+
+### 4.0 First-time fast path (copy/paste)
+
+```bash
+cd /path/to/Off-Campus-Housing-Tracker
+
+# 1) Cluster + namespaces + MetalLB
+./scripts/setup-new-colima-cluster.sh
+
+# 2) External infra (Postgres, Redis, MinIO, Kafka/ZK)
+RESTORE_BACKUP_DIR=latest ./scripts/bring-up-external-infra.sh
+
+# 3) Cluster apps + restore path
+RESTORE_BACKUP_DIR=latest ./scripts/bring-up-cluster-and-infra.sh
+
+# 4) Optional but required for full analytics parity (LLM listing-feel)
+# ollama serve (separate terminal), then wire OLLAMA_BASE_URL per §4.7
+
+# 5) Full gate (preflight + suites; includes step 7a8 Playwright unless disabled)
+RUN_PGBENCH=0 ./scripts/run-preflight-scale-and-all-suites.sh
+```
+
+If step 5 fails, go to **§10.1 Common error codes** first, then re-run this block.
 
 ### 4.1 Recommended order (checklist)
 
@@ -162,7 +194,7 @@ You need a **Kubernetes** context and namespace **`off-campus-housing-tracker`**
 2. **Colima + namespaces + MetalLB** — `./scripts/setup-new-colima-cluster.sh` (**§4.2**)  
 3. **TLS / Kafka JKS on disk** — **§4.6** before Kafka (or `SKIP_KAFKA=1` on first `bring-up-external-infra`)  
 4. **Host Docker infra** — `./scripts/bring-up-external-infra.sh` (**§4.3**)  
-5. **Ollama + model** — **§4.7** (green team: **required** for full **analytics-service** LLM paths, **`k6-analytics-listing-feel.js`**, and Playwright analytics flows; wire **`OLLAMA_BASE_URL`** on the deployment **before** you treat preflight as “full green”)  
+5. **Ollama + model** — **§4.7** (first-time: **required** for full **analytics-service** LLM paths, **`k6-analytics-listing-feel.js`**, and Playwright analytics flows; wire **`OLLAMA_BASE_URL`** on the deployment **before** you treat preflight as full parity)
 6. **Cluster + DB restore** — `RESTORE_BACKUP_DIR=latest ./scripts/bring-up-cluster-and-infra.sh` (**§4.8**)  
 7. **curl HTTP/3 on PATH** — **§4.5**  
 8. **Gate + preflight** — **§4.9**  
@@ -229,9 +261,9 @@ KAFKA_SSL=1 ./scripts/reissue-ca-and-leaf-load-all-services.sh
 - **macOS trust:** `./scripts/lib/trust-dev-root-ca-macos.sh certs/dev-root.pem`  
 - **Linux:** import `certs/dev-root.pem` per [`docs/LOCAL_TLS_AND_TESTING_GUIDE.md`](docs/LOCAL_TLS_AND_TESTING_GUIDE.md)
 
-### 4.7 Ollama — green team (full analytics / listing-feel)
+### 4.7 Ollama — first-time setup (full analytics / listing-feel)
 
-**Green team:** treat **Ollama** as part of **first-time** setup so **analytics-service** LLM routes, **`k6-analytics-listing-feel.js`** (edge smoke **§6.3**), and **webapp** analytics checks match what the rest of the team runs. The service **starts without** Ollama but returns **fallback copy** instead of real inference — that is **not** full parity ([`services/analytics-service/src/ollama.ts`](services/analytics-service/src/ollama.ts)).
+**First-time setup:** treat **Ollama** as part of setup so **analytics-service** LLM routes, **`k6-analytics-listing-feel.js`** (edge smoke **§6.3**), and **webapp** analytics checks match what the rest of the team runs. The service **starts without** Ollama but returns **fallback copy** instead of real inference — that is **not** full parity ([`services/analytics-service/src/ollama.ts`](services/analytics-service/src/ollama.ts)).
 
 **Install (macOS — Homebrew):**
 
@@ -294,7 +326,7 @@ More flags: [`docs/RUN-PREFLIGHT.md`](docs/RUN-PREFLIGHT.md), header on `run-pre
 
 [`docs/perf/CLUSTER_CONTENTION_WATCH.md`](docs/perf/CLUSTER_CONTENTION_WATCH.md) · **§6.8** (full `scripts/perf/` inventory)
 
-### 4.11 First-time / green team — single copy-paste (aligned with §4.1)
+### 4.11 First-time setup — single copy-paste (aligned with §4.1)
 
 Use after **§4.2**. If Docker **Postgres/Kafka/Redis/MinIO** are not up yet, run **§4.3** first. **§4.7 Ollama** (`ollama serve`, `ollama pull llama3.2`, **`OLLAMA_BASE_URL`** on **analytics-service**) is **required for full green parity** — do that before **§4.9** if you want the full analytics / listing-feel surface. Order inside this block matches **§4.1** where possible (TLS before cluster restore is acceptable if you already have `certs/`).
 
@@ -323,7 +355,7 @@ METALLB_ENABLED=1 RUN_PGBENCH=0 ./scripts/run-preflight-scale-and-all-suites.sh 
 ## 5. How to run — quick decision tree
 
 ```
-First-time / green team / never ran stack? → §4.1–4.9 (or §4.11 one-paste)
+First-time / never ran stack? → §4.1–4.9 (or §4.11 one-paste)
 k3d / Linux (no Colima)?            → §3; skip §4.2; same §4.3–4.9
 Ollama + full analytics surface?    → §4.7
 Edge + all services from host?      → §7.1 k6 edge smoke
@@ -385,7 +417,7 @@ Earlier preflight steps (reissue, strict TLS, pod checks, **`build-k6-http3.sh`*
 | 7 | messaging | `k6-messaging.js` | **Orchestration default:** `K6_ORCHESTRATION_VU_SCENARIO=1` → **ramping-vus** (not CAR). `=0` → **constant-arrival-rate** + CAR-style extra cooldown in hooks |
 | 8 | media-health | `k6-media-health.js` | same as messaging |
 | 9 | event-layer-adversarial | `k6-event-layer-adversarial.js` | VU/duration |
-| — | listing-feel k6 | `k6-analytics-listing-feel.js` | **§4.7** — green team installs Ollama + **`OLLAMA_BASE_URL`** for real inference; partial run: `SKIP_K6_ANALYTICS_LISTING_FEEL=1` |
+| — | listing-feel k6 | `k6-analytics-listing-feel.js` | **§4.7** — first-time setup installs Ollama + **`OLLAMA_BASE_URL`** for real inference; partial run: `SKIP_K6_ANALYTICS_LISTING_FEEL=1` |
 | 10–11 | JWT flows | `k6-booking.js`, `k6-search-watchlist.js` | skip: `SKIP_K6_BOOKING_SEARCH=1` |
 
 Between every script: **`k6-suite-resource-hooks.sh`** — `kubectl top`, optional node CPU fail, **`K6_SUITE_GATEWAY_DRAIN`** (default **on** here), then **`K6_SUITE_COOLDOWN_SEC`**. **CAR** scripts (when orchestration off) also get **`K6_SUITE_CAR_EXTRA_SEC`** + optional Envoy restart.
@@ -685,6 +717,29 @@ export K6_SUITE_KILL_K6_AFTER_BLOCK=1
 | Colima on Linux? | [Colima install](https://github.com/abiosoft/colima#installation) — then `setup-new-colima-cluster.sh` |
 | Docker unreachable? | `colima start --with-kubernetes` or `docker context use colima` |
 
+### 10.1 Common error codes (curl/x509/503)
+
+| Error | Usually means | First thing to do |
+|------|----------------|-------------------|
+| `curl: (7)` | Connection refused / host not reachable / wrong target port | `colima status`; `kubectl get nodes`; verify hostname resolves; for Colima API tunnel run `./scripts/colima-forward-6443.sh` |
+| `curl: (28)` | Timeout (service slow/not ready, edge not yet healthy) | Retry after readiness checks: `curl --cacert certs/dev-root.pem https://off-campus-housing.test/api/readyz` |
+| `curl: (35)` | TLS handshake failure (protocol/cipher mismatch or broken cert chain) | Re-sync TLS secrets + CA (`pnpm run reissue`), then rerun strict TLS checks |
+| `curl: (55)` | Send/recv reset mid-stream (often unstable edge/pod restart during request) | Check pods restarting (`kubectl get pods -n off-campus-housing-tracker`), rerun after rollout stabilizes |
+| `curl: (60)` | Certificate verify failure (CA mismatch / stale certs) | Ensure `certs/dev-root.pem` is current; run `pnpm run reissue`; verify `dev-root-ca` + `service-tls` in cluster |
+| `curl: (70)` | TLS client cert path/permissions or cert formatting issue | Recreate local certs (`./scripts/dev-generate-certs.sh`) and rerun preflight |
+| `curl: (77)` | CA file unreadable/missing path | Check `certs/dev-root.pem` exists and is non-empty; verify `SSL_CERT_FILE` / `--cacert` path |
+| `x509: certificate signed by unknown authority` | Client trust store missing current dev root CA | Sync trust from cluster (`ensure-strict-tls-mtls-preflight.sh` / preflight) and use `certs/dev-root.pem` |
+| HTTP `503` with cert/TLS symptoms | Upstream not ready after cert rotation or secret mismatch | Wait for rollout status, verify `service-tls` + `dev-root-ca`, then re-run failing step |
+
+Fast recovery sequence (first-time friendly):
+
+```bash
+./scripts/dev-generate-certs.sh
+./scripts/ensure-housing-cluster-secrets.sh
+pnpm run reissue
+RUN_PGBENCH=0 ./scripts/run-preflight-scale-and-all-suites.sh
+```
+
 ---
 
 ## 11. Verify before merging
@@ -711,6 +766,83 @@ Rebuild **api-gateway** in-cluster to validate JSON **400** behavior.
 
 ## 12. Review checklist (quick)
 
-- [ ] **Joshua:** Listings diagnostics off by default in base YAML.  
-- [ ] **Franco:** k6 default `BASE_URL` OK for all dev envs; team OK with CPU gate or CI sets `K6_SUITE_FAIL_ON_NODE_CPU=0`.  
-- [ ] **Arkar:** Gateway rolled out before claiming adversarial k6 paths fixed; perf scripts only when DB ports/creds available.
+- [ ] **Joshua:** listings + trust + media/moderation paths verified (including browser coverage and rollout notes).
+- [ ] **Arkar:** auth + analytics flows verified (including Ollama-dependent listing-feel expectations).
+- [ ] **Franco:** search/filtering + map/distance path verified (project `03-listings` + command aliases).
+
+---
+
+## 13. Webapp visuals + Playwright addendum (merged from PR2 docs)
+
+This section merges content that was previously split into:
+
+- `GITHUB_PR_DESCRIPTION_LISTINGS_E2E.txt`
+- `GITHUB_PR_DESCRIPTION_SECOND.txt`
+
+Treat this file as the single canonical PR body.
+
+### 13.1 Scope
+
+- Webapp color/palette alignment to match home page styling across auth + app surfaces.
+- Full Playwright browser matrix grouped by project in `webapp/playwright.config.ts`.
+- Listings browser depth (filters/sort/geo/maps/detail by ID/create flows).
+- Preflight wiring confirmation: step `7a8` runs browser E2E via edge.
+
+### 13.2 Playwright inventory (edge browser E2E)
+
+| Project | File | What it stresses |
+|---------|------|------------------|
+| **01-guest-shell** | `guest.spec.ts` | Auth redirects, home CTA, guest access to listings/trust |
+| | `webapp-pages.spec.ts` | Mission / analytics shells, primary nav paths |
+| | `messaging-mentioned.spec.ts` | Mission copy (architecture / messaging) |
+| **02-auth-booking** | `auth-cycle.spec.ts` | auth-service flow: register → sign out → login |
+| | `flows.spec.ts` | auth + booking: search history + watchlist |
+| **03-listings** | `listing-and-analytics-journey.spec.ts` | register → create listing → search → analytics feel |
+| | `listings-filters-maps.spec.ts` | listings-service + webapp filters/sort/geo/map/detail/create |
+| **04-analytics** | `analytics-api.spec.ts` | analytics-service via gateway |
+| | `analytics-ui.spec.ts` | Browser analytics UI (Analyze) |
+| **05-optional-screenshots** | `ui-screenshots.spec.ts` | PNG snapshots under `webapp/e2e/screenshots/` (`E2E_SCREENSHOTS=1`) |
+
+Counts: **23** listed tests in **10** spec files; **22** run by default (screenshots skip unless enabled).
+
+### 13.3 Commands (copy-paste)
+
+Webapp (`cd webapp`):
+
+```bash
+pnpm run test:e2e:01-guest-shell
+pnpm run test:e2e:02-auth-booking
+pnpm run test:e2e:03-listings
+pnpm run test:e2e:04-analytics
+pnpm run test:e2e:05-screenshots
+pnpm run test:e2e:smoke
+pnpm run test:e2e
+```
+
+Repo root:
+
+```bash
+pnpm run test:webapp:e2e:smoke
+pnpm run test:webapp:e2e:listings
+pnpm run test:webapp:e2e:auth-booking
+pnpm run test:webapp:e2e
+```
+
+Full edge run:
+
+```bash
+./scripts/run-playwright-e2e-preflight.sh
+# or
+./scripts/webapp-playwright-strict-edge.sh
+```
+
+Preflight integration:
+
+- `./scripts/run-preflight-scale-and-all-suites.sh` step **7a8** invokes Playwright edge suite.
+- Set `RUN_PREFLIGHT_PLAYWRIGHT=0` only when intentionally skipping browser E2E.
+
+### 13.4 Webapp-specific reviewer assignment (add-on to §12)
+
+- [ ] **Joshua:** Validate listings browser coverage in project `03-listings` (filters/sort/geo/maps/detail/create) and verify redeploy guidance (`rebuild-webapp-listings-colima.sh`) is accurate.
+- [ ] **Franco:** Validate Playwright project matrix + command aliases (`webapp/package.json`, root `package.json`) and confirm `23` test inventory / `5` projects remains stable.
+- [ ] **Arkar:** Validate preflight wiring and script messaging (`run-preflight-scale-and-all-suites.sh` step `7a8`) plus edge execution path (`run-playwright-e2e-preflight.sh`).

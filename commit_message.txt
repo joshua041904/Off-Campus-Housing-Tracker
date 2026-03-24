@@ -1,4 +1,4 @@
-perf(perf-lab): cluster contention story, k6 pacing hooks, listings diagnostics, green-team docs, preflight hardening
+docs(pr): unify canonical PR body, first-time handoff roles, and cert/JKS preflight bootstrap
 
 WHY (cluster-level resource contention — not “fix listings replicas”)
 ----------------------------------------------------------------------
@@ -31,23 +31,33 @@ OTHER CHANGES IN THIS INTEGRATED PR
   • **k6** — **k6-strict-edge-tls.js**, **k6-listings-health.js**, thresholds / **x-loadtest** on touched scripts.
   • **Gateway / transport / housing** — **api-gateway/server.ts** (JSON **4xx** vs 500), **packet-capture-v2.sh**, **test-microservices-http2-http3-housing.sh**.
   • **Perf** — **scripts/perf/** EXPLAIN + k6 report scripts, **run-k6-cross-service-isolation.sh**, **watch-cluster-contention.sh**, **CLUSTER_CONTENTION_WATCH.md**.
-  • **Docs / PR body** — **GITHUB_PR_DESCRIPTION.txt** single canonical paste (review split; **§3** prerequisites; **§4** first-time / green team + **§4.7** Ollama + **§4.11** one-paste; **§6** testing map). **docs/PR_SECOND_ONBOARDING.md** aligned. **GITHUB_PR_DESCRIPTION_SECOND.txt** stub → use main PR file only.
+  • **Docs / PR body** — **GITHUB_PR_DESCRIPTION.txt** single canonical paste (review split; **§3** prerequisites; **§4** first-time setup + **§4.7** Ollama + **§4.11** one-paste; **§6** testing map).
   • **Docs rename** — **`docs/CERTS_AND_TESTING_FOR_MORTALS.md`** → **`docs/LOCAL_TLS_AND_TESTING_GUIDE.md`** (neutral title); README, Runbook, **FIRST_TIME_TEAM_SETUP**, **RUN_PIPELINE_ORDER**, **PR_SECOND_ONBOARDING**, PR body links updated.
   • **Shell** — **run-preflight-scale-and-all-suites.sh** Phase **A/C** closing fix (no stacked **fi** parse issue); **_phase_a_only** exit uses **&& { … }** group; **say** lines with parentheses use **single-quoted** messages + ASCII **`...`** (avoids subshell/parse edge cases around **`(`** / Unicode ellipsis on some setups).
 
 WHERE TO READ / PASTE
 ---------------------
   • Narrative: **docs/perf/TAIL_LATENCY_AND_CROSS_SERVICE_ANALYSIS.md**, **docs/perf/CLUSTER_CONTENTION_WATCH.md**
-  • GitHub PR (first / team body — green team, reviewers, k6, full testing map): **GITHUB_PR_DESCRIPTION.txt**
-  • Webapp Playwright E2E (23 tests, 5 projects, copy-paste commands, preflight **7a8**): **GITHUB_PR_DESCRIPTION_LISTINGS_E2E.txt**
+  • GitHub PR (single canonical body — first-time setup, reviewers, k6, webapp Playwright, full testing map): **GITHUB_PR_DESCRIPTION.txt**
   • Listings operator: **docs/perf/LISTINGS_HTTP_TIMING.md**
 
-WEBAPP PLAYWRIGHT + PREFLIGHT WIRING (browser edge suite)
-----------------------------------------------------------
-  • **PR dependency / order** — this webapp Playwright follow-up is **PR2** and depends on **PR1** (`GITHUB_PR_DESCRIPTION.txt`) being merged first; PR2 assumes cluster bring-up, TLS, preflight, and baseline service wiring from PR1.
-  • **webapp/playwright.config.ts** — projects **01-guest-shell** … **05-optional-screenshots**; **23** listed tests, **22** executed by default (screenshot spec skips unless **E2E_SCREENSHOTS=1**).
-  • **webapp/package.json** / root **package.json** — **test:e2e:01-guest-shell** … **test:e2e:04-analytics**, **test:e2e:05-screenshots**, **test:e2e:smoke**, **test:webapp:e2e:*** shortcuts (see **GITHUB_PR_DESCRIPTION_LISTINGS_E2E.txt**).
-  • **scripts/run-preflight-scale-and-all-suites.sh** — header comments + step **7a8** **`say`** line document the full Playwright inventory; **7a8** still invokes **run-playwright-e2e-preflight.sh** (set **RUN_PREFLIGHT_PLAYWRIGHT=0** to skip).
+FIRST-TIME HANDOFF + SERVICE OWNERSHIP (in canonical PR body)
+--------------------------------------------------------------
+  • **Joshua** — listings-service + trust-service + media upload + admin moderation/flagging.
+  • **Arkar** — auth-service + analytics-service.
+  • **Franco** — search-service behavior (advanced search/filtering + maps distance path).
+  • **GITHUB_PR_DESCRIPTION.txt §Review owners + §Service ownership handoff** now includes concrete step-by-step reviewer actions and the browser test commands they should run.
+  • Added **§4.0 First-time fast path (copy/paste)** so teammates can run setup in one short sequence before deep-dive sections.
+  • Added **§10.1 Common error codes** table for first-time failures:
+    `curl (7,28,35,55,60,70,77)`, `x509 unknown authority`, and HTTP `503` cert/readiness cases with direct fixes.
+
+CERT/JKS AUTO-BOOTSTRAP IN PREFLIGHT
+------------------------------------
+  • **scripts/run-preflight-scale-and-all-suites.sh** now checks for local cert material before heavy steps:
+    - `certs/dev-root.pem`, `certs/dev-root.key`
+    - `certs/off-campus-housing.test.crt`, `certs/off-campus-housing.test.key`
+    - Kafka JKS bundle under `certs/kafka-ssl/` (`kafka.keystore.jks`, `kafka.truststore.jks`, password files, `ca-cert.pem`)
+  • If missing, preflight auto-runs `scripts/dev-generate-certs.sh` (and attempts Kafka JKS refresh) so first-time runs do not fail on missing local cert/JKS prerequisites.
 
 HOW TO RUN (cheat sheet)
 ------------------------
@@ -64,7 +74,7 @@ HOW TO RUN (cheat sheet)
   # Preflight (relax CPU gate if Colima too noisy)
   K6_SUITE_FAIL_ON_NODE_CPU=0 RUN_PGBENCH=0 ./scripts/run-preflight-scale-and-all-suites.sh
 
-  # Green team first machine — see GITHUB_PR_DESCRIPTION §4.1–4.8
+  # First-time machine — see GITHUB_PR_DESCRIPTION §4.1–4.8
   ./scripts/setup-new-colima-cluster.sh
   RESTORE_BACKUP_DIR=latest ./scripts/bring-up-external-infra.sh
   # … TLS §4.6, then bring-up-cluster-and-infra / preflight
@@ -99,4 +109,4 @@ DEPLOY NOTES
 
 Suggested subject
 -----------------
-perf(perf-lab): k6 suite contention hooks, preflight CPU fail + post-grid settle, listings diagnostics, green-team PR doc
+docs(pr): consolidate canonical PR guide, first-time ownership handoff, and cert/JKS preflight bootstrap
