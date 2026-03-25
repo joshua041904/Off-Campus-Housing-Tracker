@@ -42,6 +42,12 @@ spec:
             # Gateway does not use Kafka; avoid common/kafka SSL cert validation at startup
             - name: KAFKA_SSL_ENABLED
               value: "false"
+            # 0 = disabled. Under load lab, raise (e.g. 512) to shed with 503 instead of unbounded queueing.
+            - name: GATEWAY_PROXY_MAX_INFLIGHT
+              value: "0"
+            # 1 = coalesce concurrent GET /daily-metrics with identical query (one upstream fetch).
+            - name: GATEWAY_COALESCE_ANALYTICS_DAILY
+              value: "0"
             # Strict TLS/mTLS for gRPC to auth-service — internal leaf + CA only (secret service-tls; sync alias och-service-tls is optional).
             - name: GRPC_CA_CERT
               value: "/etc/certs/ca.crt"

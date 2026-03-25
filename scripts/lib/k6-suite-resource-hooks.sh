@@ -21,8 +21,9 @@
 #   K6_SUITE_GATEWAY_DRAIN_INTERVAL_SEC=2
 #   K6_SUITE_GATEWAY_DRAIN_TIMEOUT_SEC=120
 #   K6_SUITE_GATEWAY_DRAIN_NAME_SUBSTR=api-gateway  — match pod name (substring)
-#   K6_SUITE_POST_DRAIN_SLEEP_SEC=0  — extra sleep after drain succeeds (e.g. 10 for harsh lab)
+#   K6_SUITE_POST_DRAIN_SLEEP_SEC=0  — extra sleep after gateway drain succeeds (settle before kill / next script; edge smoke defaults 10)
 #   K6_SUITE_KILL_K6_AFTER_BLOCK=0   — if 1, SIGKILL any lingering `k6` process (lab only; kills all k6 on host)
+#   K6_SUITE_POST_KILL_K6_SLEEP_SEC=0 — sleep after kill step when K6_SUITE_KILL_K6_AFTER_BLOCK=1 (optional extra settle)
 
 k6_suite_append_log() {
   local logf="${K6_SUITE_RESOURCE_LOG:-}"
@@ -182,6 +183,11 @@ k6_suite_kill_lingering_k6() {
     echo "  k6 suite: SIGKILL lingering k6 process(es) (K6_SUITE_KILL_K6_AFTER_BLOCK=1)" >&2
     pkill -9 -x k6 2>/dev/null || true
   fi
+  local ks="${K6_SUITE_POST_KILL_K6_SLEEP_SEC:-0}"
+  if [[ "$ks" =~ ^[0-9]+$ ]] && [[ "$ks" -gt 0 ]]; then
+    echo "  k6 suite: post-k6-kill sleep ${ks}s (K6_SUITE_POST_KILL_K6_SLEEP_SEC)" >&2
+    sleep "$ks"
+  fi
   return 0
 }
 
@@ -237,13 +243,16 @@ k6_suite_maybe_restart_envoy_after_car() {
 }
 
 # Args: $1 = label, $2 = is_constant_arrival (1 = extra cooldown + optional envoy)
+# Order: snapshot → node CPU gate → gateway drain (active idle) → post-drain settle → kill stray k6 → cooldown.
+# Rationale: back-to-back k6 can leave api-gateway hot and CAR can drop iterations / pile VUs; drain first stops new
+# load from overlapping the prior block’s tail; then kill any stuck k6 before the global cooldown.
 k6_suite_after_k6_block() {
   local label="${1:-k6}"
   local is_car="${2:-0}"
   k6_suite_log_top "$label"
   k6_suite_check_node_cpu "$label" || return 3
-  k6_suite_kill_lingering_k6
   k6_suite_wait_gateway_drain
+  k6_suite_kill_lingering_k6
   local cd="${K6_SUITE_COOLDOWN_SEC:-15}"
   echo "  k6 suite cooldown ${cd}s ($label)" >&2
   sleep "$cd"

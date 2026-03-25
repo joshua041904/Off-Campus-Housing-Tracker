@@ -4,6 +4,8 @@
 
 **Deep-dive runbook (easier to edit in Git):** [`docs/PR_SECOND_ONBOARDING.md`](docs/PR_SECOND_ONBOARDING.md) — keep in sync when bring-up or cert steps change.
 
+**Commands-only, in order (team quickstart + “just show me the frontend”):** repo root **`TEAM_COMMANDS_IN_ORDER.txt`**
+
 ---
 
 ## Review owners (quick map)
@@ -132,7 +134,7 @@ We hardened the **load lab** and **observability** story for **Off-Campus Housin
 | **k6 edge ergonomics** | Default `BASE_URL` + defensive fallback in listings health | Fewer missing `-e BASE_URL` failures. |
 | **Suite orchestration** | After each k6 block: `kubectl top`, cooldowns, optional **node CPU% fail** | Surfaces **cluster contention**; less back-to-back k6 poisoning (Colima/k3s). |
 | **Gateway / transport / suites** | `x-loadtest` on k6, gateway **400** on bad JSON, QUIC capture fallbacks, broader housing HTTP/2 checks | Fewer **false reds** on real edge paths. |
-| **Perf reporting** | `scripts/perf/*` EXPLAIN + k6 report aggregation | One command for DB plans + load narrative. |
+| **Perf reporting** | `scripts/perf/*` EXPLAIN + k6 report aggregation; **canonical 10-file bundle** + **k6 protocol matrix** | One zip for lab handoff; compare h1 / ALPN(h2) / h3 on gateway health. |
 
 **Mental model:** *A service can be healthy while the **full preflight** is red because load stacks. This PR adds **visibility** (top, cooldowns, listings logs) so we do not confuse the two.*
 
@@ -323,6 +325,8 @@ More flags: [`docs/RUN-PREFLIGHT.md`](docs/RUN-PREFLIGHT.md), header on `run-pre
 | `./scripts/perf/watch-cluster-contention.sh` | Continuous top → `bench_logs/cluster-contention-watch-*.log` |
 | `./scripts/perf/run-perf-full-report.sh` | EXPLAIN + k6 report → `bench_logs/perf-report-*/` |
 | `./scripts/perf/run-all-explain.sh` / `run-all-k6-load-report.sh` | À la carte (**§7.5**) |
+| `./scripts/perf/build-canonical-bundle.sh` | Copies **10** canonical artifacts from `bench_logs/run-<STAMP>/` → `PERF_CANONICAL_10/`, writes `summary.json`, zips `perf-bundle-<STAMP>.zip` |
+| `SSL_CERT_FILE=... ./scripts/load/run-k6-protocol-matrix.sh` | Sequential k6: TLS **ALPN** (default), **HTTP/1.1** hint (`GODEBUG=http2client=0` + `K6_PROTOCOL=http1`), **HTTP/3** (`.k6-build/bin/k6-http3` if built) → `protocol-matrix/` + `protocol-comparison.md` |
 
 [`docs/perf/CLUSTER_CONTENTION_WATCH.md`](docs/perf/CLUSTER_CONTENTION_WATCH.md) · **§6.8** (full `scripts/perf/` inventory)
 
@@ -444,7 +448,8 @@ Between every script: **`k6-suite-resource-hooks.sh`** — `kubectl top`, option
 | `k6-limit-test-comprehensive.js` | **limit** + **max** phases |
 | `k6-http3-complete.js` | xk6 HTTP/3 tooling |
 | `k6-http3-toolchain.js` | HTTP/3 checks |
-| `k6-strict-edge-tls.js` | Strict TLS edge |
+| `k6-gateway-health-http3.js` | Gateway `/api/healthz` over **k6/x/http3** (use with `.k6-build/bin/k6-http3`) |
+| `k6-strict-edge-tls.js` | Strict TLS edge; **`K6_PROTOCOL`** / **`K6_HTTP_PROTOCOL`** + `Connection: keep-alive` for protocol matrix |
 | `k6-listings.js` | Listings load |
 | `k6-listings-ramp.js` | Listings ramp |
 | `k6-messaging-flow.js` | Messaging flow |
@@ -457,7 +462,7 @@ Between every script: **`k6-suite-resource-hooks.sh`** — `kubectl top`, option
 | `k6-spam-test.js` | Spam / stress |
 | `k6-find-max-rps-http3.js` | Max RPS HTTP/3 |
 
-**Wrappers (also under `scripts/load/`):** `run-k6-phases.sh`, `run-k6-http3-phases.sh`, `run-k6-protocol-comparison.sh`, `run-k6-max-rps-no-errors.sh` — called from **`run-k6-phases.sh`** when env flags are set (`K6_HTTP3`, `K6_PROTOCOL_COMPARISON`, `K6_MAX_RPS_NO_ERRORS`, etc.).
+**Wrappers (also under `scripts/load/`):** `run-k6-phases.sh`, `run-k6-http3-phases.sh`, `run-k6-protocol-comparison.sh`, `run-k6-max-rps-no-errors.sh`, **`run-k6-protocol-matrix.sh`** (h1 / ALPN / h3 + `protocol-comparison.md`) — phases script also honors env flags (`K6_HTTP3`, `K6_PROTOCOL_COMPARISON`, `K6_MAX_RPS_NO_ERRORS`, etc.).
 
 ---
 
@@ -525,6 +530,8 @@ Preflight **does not** invoke these automatically; run manually or from CI. List
 | `run-k6-cross-service-isolation.sh` | One edge k6 script at a time + `kubectl top` snapshots (isolate tails vs full grid) |
 | `watch-cluster-contention.sh` | Second terminal: continuous `kubectl top` → `bench_logs/cluster-contention-watch-*.log` |
 | `explain-listings-search.sh` | Listings search EXPLAIN helper |
+| `build-canonical-bundle.sh` | **10-file** perf artifact dir + `summary.json` + `perf-bundle-<STAMP>.zip` under the chosen `bench_logs/run-*` |
+| `summarize-protocol-matrix.sh` | Emits `protocol-comparison.md` from k6 `--summary-export` JSON (used by `run-k6-protocol-matrix.sh`) |
 
 **SQL:** `scripts/perf/sql/explain-*.sql` — `explain-auth.sql`, `explain-messaging.sql`, `explain-notification.sql`, `explain-listings.sql`, `explain-media.sql`, `explain-trust.sql`, `explain-analytics.sql`, `explain-bookings.sql`.
 
@@ -615,6 +622,22 @@ More: [`docs/perf/LISTINGS_HTTP_TIMING.md`](docs/perf/LISTINGS_HTTP_TIMING.md)
 
 À la carte: `./scripts/perf/run-all-explain.sh`, `./scripts/perf/run-all-k6-load-report.sh`  
 Output: `bench_logs/perf-report-*/`
+
+**Canonical 10-file bundle + one zip** (pick the run dir, or omit arg to use newest `bench_logs/run-*`):
+
+```bash
+./scripts/perf/build-canonical-bundle.sh
+# or
+./scripts/perf/build-canonical-bundle.sh bench_logs/run-20260324-210538
+```
+
+**k6 protocol matrix** (gateway health; HTTP/3 requires `./scripts/build-k6-http3.sh` first):
+
+```bash
+SSL_CERT_FILE="$PWD/certs/dev-root.pem" ./scripts/load/run-k6-protocol-matrix.sh
+# With a specific preflight run directory:
+PREFLIGHT_RUN_DIR="$PWD/bench_logs/run-20260324-210538" SSL_CERT_FILE="$PWD/certs/dev-root.pem" ./scripts/load/run-k6-protocol-matrix.sh
+```
 
 ### 7.6 Suite hooks tuning
 

@@ -71,7 +71,12 @@ warn() { echo "⚠️  $*"; }
 fail() { echo "❌ $*" >&2; exit 1; }
 info() { echo "ℹ️  $*"; }
 
-LATENCY_DIR="${REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}/bench_logs/latency-$(date +%Y%m%d-%H%M%S)"
+REPO_ROOT="${REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+if [[ -n "${PREFLIGHT_RUN_DIR:-}" ]]; then
+  LATENCY_DIR="${LATENCY_DIR:-$PREFLIGHT_RUN_DIR/latency}"
+else
+  LATENCY_DIR="${LATENCY_DIR:-$REPO_ROOT/bench_logs/latency-$(date +%Y%m%d-%H%M%S)}"
+fi
 LATENCY_CSV="$LATENCY_DIR/service-latency.csv"
 mkdir -p "$LATENCY_DIR"
 echo "service,protocol,http_code,time_total_ms" > "$LATENCY_CSV"
@@ -92,7 +97,6 @@ PY
   echo "${service},${protocol},${code:-000},${ms}" >> "$LATENCY_CSV"
 }
 
-REPO_ROOT="${REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 mkdir -p "$REPO_ROOT/certs"
 CA_CERT=""
 # CA from cluster or repo

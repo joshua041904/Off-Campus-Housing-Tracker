@@ -1,122 +1,21 @@
-docs(pr): unify canonical PR body, first-time handoff roles, and cert/JKS preflight bootstrap
+perf(lab): canonical 10-file perf bundle, k6 protocol matrix, and edge TLS protocol env
 
-WHY (cluster-level resource contention — not “fix listings replicas”)
-----------------------------------------------------------------------
-Messaging / analytics / listings can look “sick” in a **long suite** while the **same paths are fine in isolation**:
-  • Back-to-back k6 (especially **constant-arrival-rate**), high VUs, shared Colima/k3s CPU, virtiofs + hypervisor scheduling.
-  • **Envoy** retains connection state; **Postgres** spikes when many services load together.
-  • **Listings “got better” after enabling HTTP timing** partly because **rollout restart** reset pools / memory / event-loop state — stability signal, not proof the code was wrong.
+WHAT
+----
+  • scripts/perf/build-canonical-bundle.sh — from bench_logs/run-<STAMP>/ copies 10 fixed names into
+    PERF_CANONICAL_10/, writes summary.json (sha256 per file), zips perf-bundle-<STAMP>.zip.
+  • scripts/load/run-k6-protocol-matrix.sh — sequential gateway-health k6 runs: TLS ALPN (default),
+    HTTP/1.1 hint (GODEBUG=http2client=0 + K6_PROTOCOL=http1), HTTP/3 via .k6-build/bin/k6-http3 when present;
+    outputs protocol-matrix/*/summary.json and protocol-comparison.md (via summarize-protocol-matrix.sh).
+  • scripts/load/k6-gateway-health-http3.js — /api/healthz using k6/x/http3 when the custom binary is used.
+  • scripts/load/k6-strict-edge-tls.js — K6_PROTOCOL / K6_HTTP_PROTOCOL (auto|http1|http2|http3), keep-alive,
+    k6_protocol tag, httpVersion for h1/h2 where k6 supports it.
 
-**Prove it (second terminal while preflight or edge smoke runs):**
-  kubectl top pods -n off-campus-housing-tracker
-  kubectl top nodes
-Watch: CPU or memory **> ~80%**, any pod **≥ ~1 core** sustained, Postgres- or Envoy-shaped spikes. Hooks also **warn** at 80% (K6_SUITE_WARN_*) and can **fail** at **85%** node CPU (K6_SUITE_NODE_CPU_MAX).
-
-WHAT WE DO (orchestration + visibility — maps to “do this properly”)
---------------------------------------------------------------------
-Implemented in **scripts/lib/k6-suite-resource-hooks.sh** and wired into **run-housing-k6-edge-smoke.sh**, **load/run-k6-phases.sh**, **run-all-test-suites.sh**, **run-preflight-scale-and-all-suites.sh**:
-
-  1) **Cooldown after every k6 block** — default **K6_SUITE_COOLDOWN_SEC=15** (GC, pools, sockets).
-  2) **Extra settle after CAR-style tests** — **K6_SUITE_CAR_EXTRA_SEC=20**; optional **K6_SUITE_RESTART_ENVOY_AFTER_CAR=1** (+ sleep, disruptive) or **K6_SUITE_STABILITY_AGGRESSIVE=1**.
-  3) **Log kubectl top nodes + pods** after each block — **K6_SUITE_LOG_TOP=1**; optional **K6_SUITE_LOG_TOP_BEFORE=1**; append to **bench_logs/k6-suite-resources-*.log** via **K6_SUITE_RESOURCE_LOG** / **K6_SUITE_RESOURCE_LOG_AUTO** (preflight 7a enables AUTO).
-  4) **Fail when node CPU too high** — **K6_SUITE_FAIL_ON_NODE_CPU=1**, **K6_SUITE_NODE_CPU_MAX=85**; hook **exit code 3**. Preflight **fails the run** on rc=3 after service grid / after full grid hook / after 7c in-cluster k6 (not only warn). Set **K6_SUITE_FAIL_ON_NODE_CPU=0** for noisy labs or missing metrics-server.
-
-**Optional harsh lab (Colima VM):** **K6_SUITE_COLIMA_DROP_CACHES=1** — before each k6 block, **colima ssh** runs **sync** + **drop_caches** (same idea as manual sync; sudo inside VM). Not for production.
-
-**Preflight-specific:** Sources hooks at start of **7a**; after **run-housing-k6-edge-smoke.sh** runs **k6_suite_after_k6_block preflight-after-k6-service-grid** (extra top + cooldown before Playwright).
-
-OTHER CHANGES IN THIS INTEGRATED PR
------------------------------------
-  • **Listings HTTP diagnostics** — **services/listings-service/src/http-server.ts**, **infra/k8s/base/listings-service/deploy.yaml**, **docs/perf/LISTINGS_*.md**, **TAIL_LATENCY_AND_CROSS_SERVICE_ANALYSIS.md**.
-  • **k6** — **k6-strict-edge-tls.js**, **k6-listings-health.js**, thresholds / **x-loadtest** on touched scripts.
-  • **Gateway / transport / housing** — **api-gateway/server.ts** (JSON **4xx** vs 500), **packet-capture-v2.sh**, **test-microservices-http2-http3-housing.sh**.
-  • **Perf** — **scripts/perf/** EXPLAIN + k6 report scripts, **run-k6-cross-service-isolation.sh**, **watch-cluster-contention.sh**, **CLUSTER_CONTENTION_WATCH.md**.
-  • **Docs / PR body** — **GITHUB_PR_DESCRIPTION.txt** single canonical paste (review split; **§3** prerequisites; **§4** first-time setup + **§4.7** Ollama + **§4.11** one-paste; **§6** testing map).
-  • **Docs rename** — **`docs/CERTS_AND_TESTING_FOR_MORTALS.md`** → **`docs/LOCAL_TLS_AND_TESTING_GUIDE.md`** (neutral title); README, Runbook, **FIRST_TIME_TEAM_SETUP**, **RUN_PIPELINE_ORDER**, **PR_SECOND_ONBOARDING**, PR body links updated.
-  • **Shell** — **run-preflight-scale-and-all-suites.sh** Phase **A/C** closing fix (no stacked **fi** parse issue); **_phase_a_only** exit uses **&& { … }** group; **say** lines with parentheses use **single-quoted** messages + ASCII **`...`** (avoids subshell/parse edge cases around **`(`** / Unicode ellipsis on some setups).
-
-WHERE TO READ / PASTE
----------------------
-  • Narrative: **docs/perf/TAIL_LATENCY_AND_CROSS_SERVICE_ANALYSIS.md**, **docs/perf/CLUSTER_CONTENTION_WATCH.md**
-  • GitHub PR (single canonical body — first-time setup, reviewers, k6, webapp Playwright, full testing map): **GITHUB_PR_DESCRIPTION.txt**
-  • Listings operator: **docs/perf/LISTINGS_HTTP_TIMING.md**
-
-FIRST-TIME HANDOFF + SERVICE OWNERSHIP (in canonical PR body)
---------------------------------------------------------------
-  • **Joshua** — listings-service + trust-service + media upload + admin moderation/flagging.
-  • **Arkar** — auth-service + analytics-service.
-  • **Franco** — search-service behavior (advanced search/filtering + maps distance path).
-  • **GITHUB_PR_DESCRIPTION.txt §Review owners + §Service ownership handoff** now includes concrete step-by-step reviewer actions and the browser test commands they should run.
-  • Added **§4.0 First-time fast path (copy/paste)** so teammates can run setup in one short sequence before deep-dive sections.
-  • Added **§10.1 Common error codes** table for first-time failures:
-    `curl (7,28,35,55,60,70,77)`, `x509 unknown authority`, and HTTP `503` cert/readiness cases with direct fixes.
-
-CERT/JKS AUTO-BOOTSTRAP IN PREFLIGHT
-------------------------------------
-  • **scripts/run-preflight-scale-and-all-suites.sh** now checks for local cert material before heavy steps:
-    - `certs/dev-root.pem`, `certs/dev-root.key`
-    - `certs/off-campus-housing.test.crt`, `certs/off-campus-housing.test.key`
-    - Kafka JKS bundle under `certs/kafka-ssl/` (`kafka.keystore.jks`, `kafka.truststore.jks`, password files, `ca-cert.pem`)
-  • If missing, preflight auto-runs `scripts/dev-generate-certs.sh` (and attempts Kafka JKS refresh) so first-time runs do not fail on missing local cert/JKS prerequisites.
-
-SERVICE REBUILD AUTOMATION (TEAM USAGE)
----------------------------------------
-  • **scripts/rebuild-housing-colima.sh** — docs/usage expanded for webapp + listings pair; includes pointer to per-service rebuild flow.
-  • **scripts/rebuild-och-images-and-rollout.sh** — now clearly supports per-service rebuild/restart with:
-    - `SERVICES=<service>` (or multiple services)
-    - `WAIT_ROLLOUT` + `ROLLOUT_TIMEOUT` for automatic rollout status waiting
-    - existing `SKIP_LOAD` and `ROLLOUT` flags for build/load-only workflows
-  • **README.md** — new **Colima rebuild cheat sheet (which script?)** table: webapp-only vs one backend vs many backends vs webapp+backends; links to maps deploy doc, issue quick guide, and canonical PR body.
-  • **GITHUB_ISSUES_EXECUTABLE.txt** — full **Colima rebuild cheat sheet** inlined; **each Issue 1–12** now includes **Rebuild after code changes (this issue)** with the same four-row command matrix plus **This issue:** mapping scope → script; **GITHUB_ISSUES_MARKDOWN_TEMPLATES.md** points to that per-issue pattern.
-
-HOW TO RUN (cheat sheet)
-------------------------
-  # Second terminal — prove contention
-  kubectl top nodes
-  kubectl top pods -n off-campus-housing-tracker
-
-  # Continuous top → file
-  ./scripts/perf/watch-cluster-contention.sh
-
-  # Edge k6 grid (hooks between scripts)
-  SSL_CERT_FILE="$PWD/certs/dev-root.pem" ./scripts/run-housing-k6-edge-smoke.sh
-
-  # Preflight (relax CPU gate if Colima too noisy)
-  K6_SUITE_FAIL_ON_NODE_CPU=0 RUN_PGBENCH=0 ./scripts/run-preflight-scale-and-all-suites.sh
-
-  # First-time machine — see GITHUB_PR_DESCRIPTION §4.1–4.8
-  ./scripts/setup-new-colima-cluster.sh
-  RESTORE_BACKUP_DIR=latest ./scripts/bring-up-external-infra.sh
-  # … TLS §4.6, then bring-up-cluster-and-infra / preflight
-
-HOOK ENV (reference)
---------------------
-  K6_SUITE_COOLDOWN_SEC=15 K6_SUITE_CAR_EXTRA_SEC=20
-  K6_SUITE_LOG_TOP=1 K6_SUITE_FAIL_ON_NODE_CPU=1 K6_SUITE_NODE_CPU_MAX=85
-  K6_SUITE_WARN_HOT_RESOURCES=1 K6_SUITE_WARN_NODE_CPU=80 K6_SUITE_WARN_NODE_MEM=80
-  K6_SUITE_RESTART_ENVOY_AFTER_CAR=0 K6_SUITE_ENVOY_RESTART_SLEEP_SEC=10
-  K6_SUITE_STABILITY_AGGRESSIVE=0 K6_SUITE_COLIMA_DROP_CACHES=0
-  K6_SUITE_LOG_TOP_BEFORE=0 K6_SUITE_RESOURCE_LOG_AUTO=1
-
-NEXT (backlog)
---------------
-  • Isolation matrix: which prior k6 script poisons the next (cross-service order).
-  • Tune CAR / VUs to sustainable RPS on Colima 12c/16Gi.
-  • Correlate **K6_SUITE_RESTART_ENVOY_AFTER_CAR** with improved tails when enabled.
-
-VERIFY BEFORE PUSH
-------------------
-  bash -n scripts/lib/k6-suite-resource-hooks.sh
-  bash -n scripts/load/run-k6-phases.sh
-  bash -n scripts/run-housing-k6-edge-smoke.sh
-  bash -n scripts/run-preflight-scale-and-all-suites.sh
-  SSL_CERT_FILE="$PWD/certs/dev-root.pem" ./scripts/run-housing-k6-edge-smoke.sh
-
-DEPLOY NOTES
-------------
-  • Rebuild + rollout **api-gateway** if JSON 4xx behavior was validated in-cluster.
-  • Rebuild + load + rollout **listings-service** for HTTP timing logs (env alone insufficient).
+DOCS / TEAM
+-----------
+  • TEAM_COMMANDS_IN_ORDER.txt — copy/paste for build-canonical-bundle and run-k6-protocol-matrix.
+  • GITHUB_PR_DESCRIPTION.txt — §4.10, §6.3/6.4/6.8, §7.5 recipes + exec summary row.
 
 Suggested subject
 -----------------
-docs(pr): consolidate canonical PR guide, first-time ownership handoff, and cert/JKS preflight bootstrap
+perf(lab): canonical perf zip + k6 h1/h2/h3 matrix and protocol env on edge TLS helper

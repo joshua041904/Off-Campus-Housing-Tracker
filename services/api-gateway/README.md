@@ -8,6 +8,8 @@ Single public entrypoint: JWT validation, rate limiting, and gRPC proxy to the s
 
 **Verbose client errors:** In non-`production` `NODE_ENV`, gRPC failures include `detail` and `grpcCode` in JSON. In production, set `GATEWAY_VERBOSE_GRPC_ERRORS=1` to expose them (logs always include `[gateway → …] upstream gRPC error`).
 
+**HTTP proxy hardening (optional):** `GATEWAY_PROXY_MAX_INFLIGHT` — max concurrent housing HTTP proxy requests (default `0` = unlimited); when exceeded, respond **503** with `{ code: "gateway_backpressure" }`. `GATEWAY_COALESCE_ANALYTICS_DAILY=1` — for concurrent identical `GET` to `/api/analytics/daily-metrics`, share one upstream fetch to analytics-service `/daily-metrics`.
+
 ## Supported backends (gRPC)
 
 The gateway routes to these services. Each contract is defined in the repo root **proto/** directory:

@@ -47,7 +47,16 @@
     "test:webapp:e2e:smoke": "NODE_EXTRA_CA_CERTS=$PWD/certs/dev-root.pem pnpm --filter webapp exec playwright test --project=01-guest-shell --project=04-analytics",
     "test:webapp:e2e:listings": "NODE_EXTRA_CA_CERTS=$PWD/certs/dev-root.pem pnpm --filter webapp exec playwright test --project=03-listings",
     "test:webapp:e2e:auth-booking": "NODE_EXTRA_CA_CERTS=$PWD/certs/dev-root.pem pnpm --filter webapp exec playwright test --project=02-auth-booking",
-    "test:housing-wiring": "bash scripts/test-housing-stack-wiring.sh"
+    "test:housing-wiring": "bash scripts/test-housing-stack-wiring.sh",
+    "k6:listings:concurrency": "bash -c 'SSL_CERT_FILE=\"${SSL_CERT_FILE:-$PWD/certs/dev-root.pem}\" k6 run scripts/load/k6-listings-concurrency.js'",
+    "k6:messaging:concurrency": "bash -c 'SSL_CERT_FILE=\"${SSL_CERT_FILE:-$PWD/certs/dev-root.pem}\" k6 run scripts/load/k6-messaging-concurrency.js'",
+    "k6:analytics:concurrency": "bash -c 'SSL_CERT_FILE=\"${SSL_CERT_FILE:-$PWD/certs/dev-root.pem}\" k6 run scripts/load/k6-analytics-concurrency.js'",
+    "k6:booking:concurrency": "bash -c 'SSL_CERT_FILE=\"${SSL_CERT_FILE:-$PWD/certs/dev-root.pem}\" k6 run scripts/load/k6-booking-concurrency.js'",
+    "k6:trust:concurrency": "bash -c 'SSL_CERT_FILE=\"${SSL_CERT_FILE:-$PWD/certs/dev-root.pem}\" k6 run scripts/load/k6-trust-concurrency.js'",
+    "k6:media:concurrency": "bash -c 'SSL_CERT_FILE=\"${SSL_CERT_FILE:-$PWD/certs/dev-root.pem}\" k6 run scripts/load/k6-media-concurrency.js'",
+    "k6:listings:search-slowpath": "bash -c 'SSL_CERT_FILE=\"${SSL_CERT_FILE:-$PWD/certs/dev-root.pem}\" k6 run scripts/load/k6-listings-search-slowpath.js'",
+    "k6:dual:contention": "bash -c 'SSL_CERT_FILE=\"${SSL_CERT_FILE:-$PWD/certs/dev-root.pem}\" k6 run scripts/perf/k6-dual-service-contention.js'",
+    "k6:listings:malformed": "bash -c 'SSL_CERT_FILE=\"${SSL_CERT_FILE:-$PWD/certs/dev-root.pem}\" k6 run scripts/load/k6-listings-malformed.js'"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

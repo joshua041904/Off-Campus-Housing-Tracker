@@ -17,20 +17,31 @@ def extract_duration_values(summary: dict) -> dict[str, float | None]:
     if not isinstance(dur, dict):
         return {}
     vals = dur.get("values")
-    if not isinstance(vals, dict):
-        return {}
-    out: dict[str, float | None] = {}
-    for k, v in vals.items():
-        try:
-            if v is None:
+    if isinstance(vals, dict):
+        out: dict[str, float | None] = {}
+        for k, v in vals.items():
+            try:
+                if v is None:
+                    out[k] = None
+                elif isinstance(v, (int, float)):
+                    out[k] = float(v)
+                else:
+                    out[k] = float(v)
+            except (TypeError, ValueError):
                 out[k] = None
-            elif isinstance(v, (int, float)):
-                out[k] = float(v)
-            else:
-                out[k] = float(v)
+        return out
+    # k6 --summary-export: avg / med / max / p(90) / p(95) / p(99) on the metric object
+    out_flat: dict[str, float | None] = {}
+    for k in ("avg", "med", "max", "p(90)", "p(95)", "p(99)"):
+        v = dur.get(k)
+        if v is None:
+            out_flat[k] = None
+            continue
+        try:
+            out_flat[k] = float(v)
         except (TypeError, ValueError):
-            out[k] = None
-    return out
+            out_flat[k] = None
+    return out_flat
 
 
 def main() -> None:

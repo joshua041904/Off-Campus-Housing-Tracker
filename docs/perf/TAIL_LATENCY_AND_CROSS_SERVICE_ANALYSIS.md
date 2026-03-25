@@ -22,6 +22,10 @@ Under **isolated** k6 against listings health (edge → gateway → listings):
 
 **Conclusion:** degradation is consistent with **systemic contention** when many k6 scenarios run **sequentially** (and some use **constant-arrival-rate**, high VUs, bursts). Later tests **inherit** CPU, memory pressure, connection state, and hypervisor scheduling from earlier work.
 
+### Ruled out in one lab snapshot (still re-check if symptoms change)
+
+If **`ss` TIME_WAIT** counts stay in the **tens/low hundreds**, **`conntrack_count`** is **≪ conntrack_max** (e.g. hundreds vs 262k), and **node CPU** is not pegged — you are **not** in classic ephemeral-port / conntrack / kernel-table exhaustion. Non-deterministic **p95 spikes** across **listings / analytics / messaging** inside the **orchestration suite** (but not in standalone runs) then point at **load-lab orchestration**: shared **api-gateway** + **back-to-back k6** without full drain, plus **constant-arrival-rate** scenarios that **drop iterations** and spin **maxVUs**, increasing concurrency overlap through the same edge path.
+
 ---
 
 ## Hypotheses when suite > standalone (checklist)
@@ -99,7 +103,13 @@ Watch for CPU/memory **> ~80%**, any pod **> ~1 core** sustained, Postgres or En
 | **Extra cooldown** after **constant-arrival-rate** style tests | same | `K6_SUITE_CAR_EXTRA_SEC=20` |
 | **`kubectl top` snapshot** after each block | same | `K6_SUITE_LOG_TOP=1` |
 | **Fail if node CPU too high** | same | `K6_SUITE_FAIL_ON_NODE_CPU=1`, `K6_SUITE_NODE_CPU_MAX=85` |
+| **Gateway drain** (wait until api-gateway pod CPU &lt; threshold) | same | `K6_SUITE_GATEWAY_DRAIN=1` in `run-housing-k6-edge-smoke.sh`, `K6_SUITE_GATEWAY_DRAIN_MAX_MILLICORES=150` |
+| **Post-drain settle** | same | `K6_SUITE_POST_DRAIN_SLEEP_SEC=10` default in edge smoke (after drain succeeds, before kill/cooldown) |
+| **Kill stray host `k6`** | same | `K6_SUITE_KILL_K6_AFTER_BLOCK=1` default in edge smoke (`pkill -9 -x k6`); set `0` if another terminal runs k6 |
+| **Post-kill sleep** (optional) | same | `K6_SUITE_POST_KILL_K6_SLEEP_SEC=0` (set `10` for extra settle) |
 | **Optional Envoy restart** after CAR tests | same | `K6_SUITE_RESTART_ENVOY_AFTER_CAR=0` (set `1` deliberately) |
+
+**Hook order** after each k6 block: snapshot → node CPU check → **gateway drain** → **post-drain sleep** → **kill lingering k6** → cooldown (+ CAR extras when applicable).
 
 **Wired into:** `run-housing-k6-edge-smoke.sh`, `run-k6-phases.sh`, `run-all-test-suites.sh`, and post–in-cluster k6 in `run-preflight-scale-and-all-suites.sh` (see script headers for `K6_SUITE_*`).
 
@@ -133,10 +143,10 @@ SSL_CERT_FILE=$PWD/certs/dev-root.pem ./scripts/perf/run-k6-cross-service-isolat
 
 ### 2.4 Why messaging / analytics looked “bad” in the suite
 
-- **Messaging:** constant-arrival-rate patterns, many VUs → competes for CPU and connections with everything else.
-- **Analytics:** slow p95 + low RPS often reads as **resource competition** or cold dependencies (e.g. Ollama), not only “analytics code is wrong.”
+- **Messaging (CAR mode):** **dropped_iterations** under **constant-arrival-rate** means the system could not sustain the arrival rate at current latency; k6 then raises **maxVUs**, increasing overlap on **api-gateway** and downstream services. For the **orchestration grid**, **`K6_ORCHESTRATION_VU_SCENARIO=1`** (default in `run-housing-k6-edge-smoke.sh`) uses **ramping-vus** in `k6-messaging.js` / `k6-media-health.js` instead of CAR.
+- **Analytics:** slow p95 + low RPS often reads as **resource competition** or cold dependencies (e.g. Ollama), not only “analytics code is wrong.” **Gateway** can sit at a large fraction of a core **even when node CPU looks fine** — the next script starts before that path has fully settled unless **gateway drain + settle** runs between blocks.
 
-**Strategy (agreed direction):** prefer **orchestration and pacing** (cooldowns, visibility, sustainable CAR rates) over blindly **scaling replicas** for a dev Colima lab.
+**Strategy (agreed direction):** prefer **deterministic load isolation** (gateway drain, post-drain sleep, optional stray-`k6` kill, cooldowns) and **non-CAR executors in the suite** over sysctl tuning or blind replica scaling for a dev Colima lab.
 
 ---
 

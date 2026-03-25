@@ -607,7 +607,11 @@ _run_suite "rotation" "$SCRIPT_DIR/rotation-suite.sh" || { FAILED=$((FAILED + 1)
 if [[ "${RUN_K6:-0}" == "1" ]] && command -v k6 >/dev/null 2>&1; then
   say "5b. k6 load (after CA/leaf rotation; strict TLS — trust certs/dev-root.pem to prove new cert works)"
   if [[ -z "${K6_SUITE_RESOURCE_LOG:-}" ]] && [[ "${K6_SUITE_RESOURCE_LOG_AUTO:-1}" == "1" ]]; then
-    export K6_SUITE_RESOURCE_LOG="$REPO_ROOT/bench_logs/k6-suite-resources-$(date +%Y%m%d-%H%M%S).log"
+    if [[ -n "${PREFLIGHT_RUN_DIR:-}" ]]; then
+      export K6_SUITE_RESOURCE_LOG="$PREFLIGHT_RUN_DIR/k6-suite-resources-run-all.log"
+    else
+      export K6_SUITE_RESOURCE_LOG="$REPO_ROOT/bench_logs/k6-suite-resources-$(date +%Y%m%d-%H%M%S).log"
+    fi
     mkdir -p "$(dirname "$K6_SUITE_RESOURCE_LOG")"
     {
       echo "# run-all-test-suites — k6 kubectl top snapshots (contention evidence)"

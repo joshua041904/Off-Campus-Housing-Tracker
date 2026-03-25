@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/><title>k6 latency by service run</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+body{font-family:system-ui,sans-serif;background:#1c1917;color:#e7e5e4;margin:24px;}
+h1{font-size:1.25rem;}
+canvas{max-height:420px;}
+</style></head><body>
+<h1>HTTP request duration — p(95) vs max (empirical p100)</h1>
+<p>Generated from k6 <code>--summary-export</code> JSON files in this folder.</p>
+<canvas id="c"></canvas>
+<script>
+const labels = ["analytics-listing-feel", "analytics-public", "auth-health", "booking-health", "event-layer-adversarial", "gateway-health", "listings-health", "media-health", "messaging", "trust-public"];
+const p95 = [57.37249999999998, 94.59439999999995, 52.62974999999999, 52.488949999999996, 22.28894999999999, 15.379449999999986, 127.62769999999998, 22.16019999999999, 19.88574999999999, 61.9713];
+const maxv = [389.512, 1086.959, 245.389, 1201.227, 435.336, 288.322, 2224.69, 71.878, 152.288, 618.02];
+new Chart(document.getElementById('c'), {
+  type: 'bar',
+  data: {
+    labels,
+    datasets: [
+      { label: 'p(95) ms', data: p95, backgroundColor: 'rgba(245, 158, 11, 0.7)' },
+      { label: 'max ms', data: maxv, backgroundColor: 'rgba(120, 113, 108, 0.8)' },
+    ],
+  },
+  options: {
+    responsive: true,
+    scales: {
+      x: { ticks: { color: '#a8a29e' }, grid: { color: '#44403c' } },
+      y: { beginAtZero: true, ticks: { color: '#a8a29e' }, grid: { color: '#44403c' }, title: { display: true, text: 'ms', color: '#78716c' } },
+    },
+    plugins: { legend: { labels: { color: '#d6d3d1' } } },
+  },
+});
+</script>
+</body></html>

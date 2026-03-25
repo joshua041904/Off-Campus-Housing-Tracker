@@ -591,11 +591,20 @@ Quick matrix (full detail: **Colima rebuild cheat sheet** at top of this file):
 
 This issue targets high tail latency under concurrency (good p50, unstable p95/p99). Focus is system stability under realistic parallel load, not single-endpoint microbenchmarks.
 
+**Disciplined order (PR + perf — read first)**
+
+Do **not** run full-grid tail work before reviewing concurrent PRs that touch the request path (e.g. listings **`fix/listings-validation-response-handling`**). Follow **`docs/perf/PERF_EXECUTION_ORDER_PHASES_A_B_C.md`**: **Phase A** — checkout/diff PR branch, audit **`validation.ts`** + handlers, **`pnpm --filter listings-service build`**, standalone **`k6-listings-health.js`**, compare p95 to baseline; **Phase B** — per-service **`scripts/load/k6-*-concurrency.js`** + **`scripts/perf/k6-dual-service-contention.js`** in isolation; **Phase C** — **`run-housing-k6-edge-smoke.sh`** + **`run-k6-cross-service-isolation.sh`**. Keep **`feature/system-build`** (or your perf branch) separate from teammate branches until PR is understood; see **`docs/perf/LISTINGS_VALIDATION_PR_REVIEW_fix-listings-validation.md`**.
+
 **Preconditions**
 
 1. PR1 baseline is merged and first-time setup is complete.
 2. Hostname/TLS path works (`off-campus-housing.test`, `certs/dev-root.pem`).
 3. Cluster ready (`kubectl get pods -n off-campus-housing-tracker`).
+
+**Load-lab orchestration (baseline mitigations — use before sysctl / “network exhaustion”)**
+
+- **`run-housing-k6-edge-smoke.sh`** defaults: **`K6_ORCHESTRATION_VU_SCENARIO=1`** (messaging + media use **ramping-vus**, not **constant-arrival-rate**, to avoid dropped iterations / VU pile-up through **api-gateway**), **`K6_SUITE_GATEWAY_DRAIN=1`**, **`K6_SUITE_GATEWAY_DRAIN_MAX_MILLICORES=150`**, **`K6_SUITE_POST_DRAIN_SLEEP_SEC=10`**, **`K6_SUITE_KILL_K6_AFTER_BLOCK=1`** ( **`pkill -9 -x k6`** — set **`0`** if another terminal runs k6). Hook order: drain → post-drain sleep → kill → cooldown (see **`scripts/lib/k6-suite-resource-hooks.sh`**).
+- If **TIME_WAIT** / **conntrack** stay low and **node CPU** is moderate but **p95** spikes only in the **full suite** → treat as **orchestration interference** through the shared gateway; read **`docs/perf/TAIL_LATENCY_AND_CROSS_SERVICE_ANALYSIS.md`** (“Ruled out in one lab snapshot” + §2.1).
 
 **Execution Plan (deep, step-by-step)**
 
@@ -702,6 +711,14 @@ Quick matrix (full detail: **Colima rebuild cheat sheet** at top of this file):
 **Objective**
 
 Produce a system-level performance analysis that explains where latency/error amplification happens across service boundaries and what should be optimized first.
+
+**Disciplined order**
+
+Finish **Phase A/B** in **`docs/perf/PERF_EXECUTION_ORDER_PHASES_A_B_C.md`** (listings PR review + per-service concurrency scripts + dual contention) before treating full-suite numbers as the primary signal. Issue 9 and Issue 10 share that playbook.
+
+**Load-lab orchestration (interpret suite vs isolation)**
+
+- Preflight **7a** runs **`run-housing-k6-edge-smoke.sh`**, which defaults **`K6_ORCHESTRATION_VU_SCENARIO=1`**, **`K6_SUITE_GATEWAY_DRAIN=1`**, **`K6_SUITE_POST_DRAIN_SLEEP_SEC=10`**, **`K6_SUITE_KILL_K6_AFTER_BLOCK=1`**. When comparing **full suite** vs **`run-k6-cross-service-isolation.sh`**, attribute differences to **order effects / shared api-gateway** if kernel tables (TIME_WAIT, conntrack) and node CPU are not saturated — see **`docs/perf/TAIL_LATENCY_AND_CROSS_SERVICE_ANALYSIS.md`**.
 
 **Analysis Workflow (step-by-step)**
 

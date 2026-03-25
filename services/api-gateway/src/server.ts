@@ -26,6 +26,7 @@ import { createClient } from "redis";
 import type { ServerResponse as NodeServerResponse } from "http";
 import { Agent as HttpAgent } from "http";
 import type { Socket } from "net";
+import { analyticsDailyMetricsCoalescedHandler, proxyInflightMiddleware } from "./proxy-limits.js";
 
 const keepAliveAgent = new HttpAgent({
   keepAlive: true,
@@ -383,43 +384,58 @@ const proxyOpts = (target: string, pathRewrite: Record<string, string>, proxyTim
   },
 });
 
-app.use("/auth", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(AUTH_HTTP, { "^/auth": "" }) as any));
-app.use("/api/auth", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(AUTH_HTTP, { "^/api/auth": "" }) as any));
+const GATEWAY_PROXY_MAX_INFLIGHT = Math.max(0, parseInt(process.env.GATEWAY_PROXY_MAX_INFLIGHT || "0", 10) || 0);
+const proxyLoad = proxyInflightMiddleware(GATEWAY_PROXY_MAX_INFLIGHT);
+const coalesceAnalyticsDaily =
+  process.env.GATEWAY_COALESCE_ANALYTICS_DAILY === "1" || process.env.GATEWAY_COALESCE_ANALYTICS_DAILY === "true";
 
-app.use("/listings", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(LISTINGS_HTTP, { "^/listings": "" }) as any));
-app.use("/api/listings", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(LISTINGS_HTTP, { "^/api/listings": "" }) as any));
+app.use("/auth", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(AUTH_HTTP, { "^/auth": "" }) as any));
+app.use("/api/auth", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(AUTH_HTTP, { "^/api/auth": "" }) as any));
 
-app.use("/booking", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(BOOKING_HTTP, { "^/booking": "" }) as any));
-app.use("/api/booking", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(BOOKING_HTTP, { "^/api/booking": "" }) as any));
+app.use("/listings", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(LISTINGS_HTTP, { "^/listings": "" }) as any));
+app.use("/api/listings", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(LISTINGS_HTTP, { "^/api/listings": "" }) as any));
 
-app.use("/messaging", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(MESSAGING_HTTP, { "^/messaging": "" }) as any));
-app.use("/api/messaging", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(MESSAGING_HTTP, { "^/api/messaging": "" }) as any));
+app.use("/booking", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(BOOKING_HTTP, { "^/booking": "" }) as any));
+app.use("/api/booking", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(BOOKING_HTTP, { "^/api/booking": "" }) as any));
+
+app.use("/messaging", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(MESSAGING_HTTP, { "^/messaging": "" }) as any));
+app.use("/api/messaging", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(MESSAGING_HTTP, { "^/api/messaging": "" }) as any));
 
 // Backward compatible: forum + messages are served by messaging-service,
 // historically accessed under /api/forum and /api/messages.
 app.use(
   "/api/forum",
   injectIdentityHeadersIfAny,
+  proxyLoad,
   createProxyMiddleware(proxyOpts(`${MESSAGING_HTTP}/forum`, { "^/": "/" }) as any)
 );
 app.use(
   "/api/messages",
   injectIdentityHeadersIfAny,
+  proxyLoad,
   createProxyMiddleware(proxyOpts(`${MESSAGING_HTTP}/messages`, { "^/": "/" }) as any)
 );
 
-app.use("/trust", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(TRUST_HTTP, { "^/trust": "" }) as any));
-app.use("/api/trust", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(TRUST_HTTP, { "^/api/trust": "" }) as any));
+app.use("/trust", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(TRUST_HTTP, { "^/trust": "" }) as any));
+app.use("/api/trust", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(TRUST_HTTP, { "^/api/trust": "" }) as any));
 
-app.use("/analytics", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(ANALYTICS_HTTP, { "^/analytics": "" }) as any));
-app.use("/api/analytics", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(ANALYTICS_HTTP, { "^/api/analytics": "" }) as any));
+if (coalesceAnalyticsDaily) {
+  const dailyHandler = analyticsDailyMetricsCoalescedHandler({
+    analyticsHttpBase: ANALYTICS_HTTP,
+    agent: keepAliveAgent,
+  });
+  app.get(["/analytics/daily-metrics", "/api/analytics/daily-metrics"], proxyLoad, dailyHandler);
+}
+
+app.use("/analytics", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(ANALYTICS_HTTP, { "^/analytics": "" }) as any));
+app.use("/api/analytics", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(ANALYTICS_HTTP, { "^/api/analytics": "" }) as any));
 
 // Media can be slow (S3/DB); avoid 504 on healthz through edge
-app.use("/media", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(MEDIA_HTTP, { "^/media": "" }, 45000) as any));
-app.use("/api/media", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(MEDIA_HTTP, { "^/api/media": "" }, 45000) as any));
+app.use("/media", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(MEDIA_HTTP, { "^/media": "" }, 45000) as any));
+app.use("/api/media", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(MEDIA_HTTP, { "^/api/media": "" }, 45000) as any));
 
-app.use("/notification", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(NOTIFICATION_HTTP, { "^/notification": "" }) as any));
-app.use("/api/notification", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(NOTIFICATION_HTTP, { "^/api/notification": "" }) as any));
+app.use("/notification", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(NOTIFICATION_HTTP, { "^/notification": "" }) as any));
+app.use("/api/notification", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(NOTIFICATION_HTTP, { "^/api/notification": "" }) as any));
 
 app.use((_req, res) => res.status(404).json({ error: "not found" }));
 

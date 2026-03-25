@@ -64,7 +64,11 @@ fi
 #   PREFLIGHT_VERBOSE_HOUSING_MESSAGING_SUITE=1 — step 7a: show "Housing HTTP/2 + HTTP/3 suite done" and run ensure-messaging-schema.psql (noisy DDL). Default: quieter preflight (schema already applied by bring-up / migrations; re-run manually if needed: ./scripts/ensure-messaging-schema.sh).
 #   PREFLIGHT_EXIT_AFTER_HOUSING_SUITES=1 — exit after step 7a (Vitest + housing HTTP suite + k6 grid + Playwright); skip transport study / in-cluster k6 / step 8 pgbench. make demo sets this to 1; make demo-full sets 0.
 #     Set RUN_MESSAGING_LOAD=0 to skip. Tune: K6_MESSAGING_DURATION, K6_MESSAGING_RATE, K6_MESSAGING_VUS, K6_MEDIA_*.
-#   Preflight does not apply DB migrations or infra/db/*.sql; run scripts/setup-*-db.sh or scripts/ensure-*.sh manually when schema changes.
+#   Preflight does not apply DB migrations or infra/db/*.sql by default; run scripts/setup-*-db.sh or scripts/ensure-*.sh manually when schema changes.
+#   Exception: PREFLIGHT_PHASE_D_TAIL_LAB=1|full runs scripts/perf/run-preflight-phase-d-tail-lab.sh after the k6 edge grid, which **best-effort** runs
+#     ensure-listings-schema.sh against host postgres-listings (PGHOST/PGPORT) and run-all-explain.sh when DBs are reachable.
+#   PREFLIGHT_PHASE_D_TAIL_LAB — default **full** (Phase D + cross-service isolation). Set 0|off to skip; 1 = Phase D without forcing cross-iso (unless PREFLIGHT_PHASE_D_CROSS_ISO=1).
+#   PREFLIGHT_PHASE_D_SKIP_SCHEMA / PREFLIGHT_PHASE_D_SKIP_EXPLAIN / PREFLIGHT_PHASE_D_PG_SNAPSHOT — see scripts/perf/run-preflight-phase-d-tail-lab.sh
 #   CAPTURE_STOP_TIMEOUT=30 (default when running suites) — bounds packet capture stop phase so it never blocks; set higher for full pcap copy/analyze.
 #   PREFLIGHT_TELEMETRY=1 (default) capture control-plane telemetry during run (apiserver metrics every 8s) and post-run snapshot; set 0 to disable. TELEMETRY_PERF=1 / TELEMETRY_HTOP=1 for optional perf/htop. run-preflight-with-telemetry.sh is a thin wrapper that sets PREFLIGHT_MAIN_LOG and RUN_FULL_LOAD=0.
 #
@@ -88,15 +92,15 @@ fi
 #     scripts/load/k6-messaging.js + k6-media-health.js use ramping-vus (e.g. startVUs 2, stages 10s/10s/5s) when
 #     K6_ORCHESTRATION_VU_SCENARIO=1 (default in run-housing-k6-edge-smoke.sh). Set =0 for legacy CAR + CAR-extra cooldown.
 #
-#   Step 3 — Hard stop / settle after each k6 block (optional harsh lab — kills ALL host k6; use a dedicated terminal):
-#     K6_SUITE_KILL_K6_AFTER_BLOCK=1 → pkill -9 -x k6 if any process named k6 exists.
-#     Extra settle: K6_SUITE_POST_DRAIN_SLEEP_SEC=10 (or 0 default) after gateway drain; plus K6_SUITE_COOLDOWN_SEC=15.
+#   Step 3 — Hard stop after drain + settle (kills ALL host k6; use a dedicated terminal if you run other k6 jobs):
+#     run-housing-k6-edge-smoke.sh defaults K6_SUITE_KILL_K6_AFTER_BLOCK=1 → pkill -9 -x k6 when any exists.
+#     K6_SUITE_POST_DRAIN_SLEEP_SEC=10 default in that script (fixed 10s after gateway idle); optional K6_SUITE_POST_KILL_K6_SLEEP_SEC after kill.
 #
 #   Final form (after every k6 block, k6_suite_after_k6_block order):
 #     1) kubectl top snapshot + optional node CPU fail
-#     2) optional SIGKILL lingering k6 (K6_SUITE_KILL_K6_AFTER_BLOCK)
-#     3) wait for api-gateway CPU to drop (gateway drain)
-#     4) optional post-drain sleep (K6_SUITE_POST_DRAIN_SLEEP_SEC — e.g. 10)
+#     2) wait for api-gateway CPU to drop (K6_SUITE_GATEWAY_DRAIN — active drain loop)
+#     3) post-drain sleep (K6_SUITE_POST_DRAIN_SLEEP_SEC — default 10s in edge smoke)
+#     4) SIGKILL lingering k6 if K6_SUITE_KILL_K6_AFTER_BLOCK=1 (+ optional K6_SUITE_POST_KILL_K6_SLEEP_SEC)
 #     5) cooldown (K6_SUITE_COOLDOWN_SEC) + optional CAR extras / Envoy restart
 #   Re-run the full suite after changing hooks to validate; if listings stays stable, you have evidence of suite interference.
 #
@@ -104,29 +108,83 @@ fi
 #     K6_SUITE_COOLDOWN_SEC=15 — sleep after every k6 block; K6_SUITE_CAR_EXTRA_SEC=20 — extra after constant-arrival-rate scripts.
 #     K6_SUITE_LOG_TOP=1 — kubectl top nodes + pods after each block; K6_SUITE_FAIL_ON_NODE_CPU=1 — exit hook code 3 if any node CPU% ≥ K6_SUITE_NODE_CPU_MAX (default 85). Set K6_SUITE_FAIL_ON_NODE_CPU=0 to only log.
 #     K6_SUITE_RESTART_ENVOY_AFTER_CAR=0 — set 1 to rollout restart deployment/envoy-test in envoy-test after each CAR test (+ K6_SUITE_ENVOY_RESTART_SLEEP_SEC=10).
-#     K6_SUITE_RESOURCE_LOG / K6_SUITE_RESOURCE_LOG_AUTO=1 — append kubectl top snapshots to bench_logs/k6-suite-resources-*.log (AUTO on in step 7a; proves contention offline).
+#     K6_SUITE_RESOURCE_LOG / K6_SUITE_RESOURCE_LOG_AUTO=1 — append kubectl top snapshots to $PREFLIGHT_RUN_DIR/k6-suite-resources.log (AUTO on in step 7a; proves contention offline).
 #     K6_SUITE_STABILITY_AGGRESSIVE=1 — enables Envoy restart after CAR by default (clears connection state; disruptive).
 #     K6_SUITE_LOG_TOP_BEFORE=1 — snapshot before each k6 run; K6_SUITE_COLIMA_DROP_CACHES=1 — colima ssh sync+drop_caches before each k6 (harsh lab; Colima VM only).
 #     K6_SUITE_WARN_HOT_RESOURCES=1 (default) — stderr warnings when node CPU%/MEM% ≥ K6_SUITE_WARN_NODE_CPU / _MEM (default 80); fail still at K6_SUITE_NODE_CPU_MAX (85).
 #     K6_SUITE_GATEWAY_DRAIN=1 — after each k6 block, wait until api-gateway pod CPU (kubectl top) < K6_SUITE_GATEWAY_DRAIN_MAX_MILLICORES (default 150m); needs metrics-server. run-housing-k6-edge-smoke.sh defaults this on.
 #     K6_ORCHESTRATION_VU_SCENARIO=1 — in edge smoke, messaging + media k6 scripts use ramping-vus instead of constant-arrival-rate (less iteration drop / shared-gateway interference). Set 0 for legacy CAR stress.
-#     K6_SUITE_KILL_K6_AFTER_BLOCK=1 — SIGKILL any lingering k6 (all k6 on host); lab only.
+#     K6_SUITE_KILL_K6_AFTER_BLOCK=1 — default in run-housing-k6-edge-smoke.sh; SIGKILL lingering k6 (all k6 on host). Set 0 to disable.
+#     K6_SUITE_POST_DRAIN_SLEEP_SEC=10 — default in edge smoke after gateway drain; K6_SUITE_POST_KILL_K6_SLEEP_SEC optional after kill.
 #     Second terminal (prove contention): kubectl top pods -n off-campus-housing-tracker; kubectl top nodes — watch CPU/mem >80%, Postgres/Envoy spikes.
 #     Continuous log: scripts/perf/watch-cluster-contention.sh → bench_logs/cluster-contention-watch-*.log (docs/perf/CLUSTER_CONTENTION_WATCH.md).
 #
-#   scripts/perf/ — lab & reporting (not auto-run by this script; use after bring-up or alongside preflight):
+#   scripts/perf/ — lab & reporting:
+#     run-preflight-phase-d-tail-lab.sh — **auto** when PREFLIGHT_PHASE_D_TAIL_LAB=1 or full (after step 7a k6 grid); else run manually.
 #     watch-cluster-contention.sh — second terminal: poll kubectl top → bench_logs/cluster-contention-watch-*.log
-#     run-k6-cross-service-isolation.sh — run each edge k6 script in isolation + snapshots (compare p95 vs full grid)
+#     run-k6-cross-service-isolation.sh — each edge k6 script in isolation (also inside Phase D when TAIL_LAB=full)
 #     run-perf-full-report.sh — EXPLAIN all housing DBs + k6 aggregation → bench_logs/perf-report-*/
-#     run-all-explain.sh — EXPLAIN-only (uses sql/explain-*.sql)
+#     run-all-explain.sh — EXPLAIN-only (uses sql/explain-*.sql); part of Phase D
 #     run-all-k6-load-report.sh — k6 JSON summaries → markdown/html report
 #     explain-listings-search.sh — listings search EXPLAIN helper
 #     sql/explain-*.sql — auth, messaging, notification, listings, media, trust, analytics, bookings
-#     See docs/perf/README.md, docs/perf/TAIL_LATENCY_AND_CROSS_SERVICE_ANALYSIS.md, docs/perf/CLUSTER_CONTENTION_WATCH.md
+#     See docs/perf/README.md, docs/perf/TAIL_OPTIMIZATION_PHASE_D_REPORT.md, docs/perf/TAIL_LATENCY_AND_CROSS_SERVICE_ANALYSIS.md
 #
-#   Step 7a invokes scripts/run-housing-k6-edge-smoke.sh — defaults + hook order summarized in the
-#   "Load-lab orchestration" block above. Preflight 7a sets K6_SUITE_RESOURCE_LOG_AUTO=1 →
-#   bench_logs/k6-suite-resources-*.log unless disabled.
+#   Step 7a invokes scripts/run-housing-k6-edge-smoke.sh. Preflight also calls _preflight_export_k6_orchestration_defaults
+#   (after sourcing k6-suite-resource-hooks.sh) so K6_ORCHESTRATION_VU_SCENARIO, K6_SUITE_GATEWAY_DRAIN, POST_DRAIN_SLEEP,
+#   KILL_K6_AFTER_BLOCK, drain thresholds, etc. are set in this process even if edge-smoke defaults change — override via env anytime.
+#   Preflight 7a sets K6_SUITE_RESOURCE_LOG_AUTO=1 → $PREFLIGHT_RUN_DIR/k6-suite-resources.log unless disabled.
+#
+#   --- Issue 9 & 10 playbook (tail latency + cross-service perf; self-contained reference, mirrors GITHUB_ISSUES_EXECUTABLE.txt) ---
+#
+#   Issue 9 — Tail Latency Optimization (Advanced)
+#   Title: After PR1 complete: optimize tail latency (p95/p99) under concurrent load
+#   Already done (PR1): first-time path GITHUB_PR_DESCRIPTION.txt §4; rebuild scripts rebuild-housing-colima.sh +
+#     rebuild-och-images-and-rollout.sh; cert/JKS preflight bootstrap (step 1c).
+#   Scope: cross-service via edge/gateway (auth, listings, booking, trust, analytics, media); k6 orchestration + hooks +
+#     bench_logs/.
+#   Rebuild after code: one backend SERVICES=<n> ./scripts/rebuild-och-images-and-rollout.sh or pnpm rebuild:service:*;
+#     several backends SERVICES="a b" .../rebuild-och-images-and-rollout.sh; webapp + default listings
+#     ./scripts/rebuild-housing-colima.sh; webapp + many SERVICES="..." ./scripts/rebuild-housing-colima.sh.
+#     k6-only edits do not require image rebuild unless you change services.
+#   Problem: high tails under concurrency (unstable p95/p99), not single-endpoint microbench.
+#   Preconditions: PR1 merged; off-campus-housing.test + certs/dev-root.pem; kubectl get pods -n off-campus-housing-tracker.
+#   Load-lab orchestration (before sysctl / “network exhaustion”): this script exports K6_ORCHESTRATION_VU_SCENARIO=1
+#     (messaging/media ramping-vus not CAR), K6_SUITE_GATEWAY_DRAIN=1, max 150m, POST_DRAIN_SLEEP 10s,
+#     K6_SUITE_KILL_K6_AFTER_BLOCK=1 (pkill -9 -x k6; set 0 if another terminal runs k6). Hook order: drain → post-drain
+#     sleep → kill → cooldown — scripts/lib/k6-suite-resource-hooks.sh. Low TIME_WAIT/conntrack + moderate node CPU but
+#     suite-only p95 spikes → orchestration / shared api-gateway — docs/perf/TAIL_LATENCY_AND_CROSS_SERVICE_ANALYSIS.md.
+#   Execution plan:
+#     1) SSL_CERT_FILE=$PWD/certs/dev-root.pem ./scripts/run-housing-k6-edge-smoke.sh  (or full preflight this file)
+#     2) Second terminal: ./scripts/perf/watch-cluster-contention.sh
+#     3) SSL_CERT_FILE=$PWD/certs/dev-root.pem ./scripts/perf/run-k6-cross-service-isolation.sh
+#     4) ./scripts/perf/run-perf-full-report.sh  (or ./scripts/perf/run-all-k6-load-report.sh if DB tight)
+#     5) Top 3 contention points: gateway queue, endpoint tails, DB index, Envoy/Caddy
+#     6) One change at a time: query/index, batching, sync calls, K6_SUITE_* tuning
+#     7) Re-run same load profile
+#     8) Document p50/p95/p99, error rate, resource trend
+#   Artifacts: baseline vs after; bench_logs/k6-suite-resources-*.log; contention watcher log; bench_logs/perf-report-*
+#   Success: material p95/p99 improvement, no error regression, 2+ consecutive runs, documented root cause.
+#
+#   Issue 10 — Cross-Service Performance Analysis (System-Wide)
+#   Title: After PR1 complete: perform cross-service performance analysis and bottleneck mapping
+#   Scope: full-stack under load; k6 correlation; bottleneck map + prioritized plan.
+#   Rebuild: none for docs/k6-only; else several backends / webapp+housing script per cheat sheet.
+#   Objective: where latency/error amplifies across boundaries; what to optimize first.
+#   Load-lab: preflight 7a runs run-housing-k6-edge-smoke.sh with exports above; compare full suite vs isolation script;
+#     if kernel tables and node CPU not saturated, attribute delta to order effects / shared api-gateway
+#     (TAIL_LATENCY_AND_CROSS_SERVICE_ANALYSIS.md).
+#   Workflow:
+#     1) RUN_PGBENCH=0 ./scripts/run-preflight-scale-and-all-suites.sh  (integrated baseline)
+#     2) ./scripts/load/run-k6-phases.sh
+#     3) ./scripts/run-transport-study-experiments.sh  (if needed)
+#     4) ./scripts/perf/run-all-k6-load-report.sh + ./scripts/perf/run-all-explain.sh  (optional run-perf-full-report.sh)
+#     5) Bottleneck matrix per flow: ingress/gateway, service, DB, downstream, p95/p99
+#     6) Classify: Code path | Infra/path | Load-shape
+#     7) Prioritize P0/P1/P2
+#     8) Write docs/perf/*.md: methodology, tables, matrix, plan
+#   Deliverables: merged markdown report; issue summary with top 5 bottlenecks, expected gains, follow-up issues.
+#   Success: cross-service analysis with evidence; actionable prioritized plan.
 #
 #   --- Step 7a — testing matrix (edge + services; what preflight runs vs run manually) ---
 #   Playwright E2E (7a8): run-playwright-e2e-preflight.sh → waits for E2E_API_BASE/api/readyz, then
@@ -202,7 +260,7 @@ fi
 #   6     6a1–6a2: Force deployments, ensure Kafka. 6b: wait-for-all-services-ready (PREFLIGHT_READY_MAX_WAIT default 900s, INITIAL_WAIT 90s).
 #         6d: build xk6-http3 if RUN_K6=1. 6e: ensure-tcpdump-in-capture-pods (before suites).
 #   7     7a (Colima): ROTATION_USE_BBR=1 switches TCP congestion to BBR before suites. Run all test suites via run-all-test-suites.sh (auth, baseline, enhanced, adversarial, rotation, k6, standalone, tls-mtls, social). ROTATION_UDP_STATS=1 (Colima default) captures UDP stats pre/post k6. All 8 suites run to completion even if one fails; step 8 runs when RUN_PGBENCH=1. Step 5b inside run-all = k6 phases (HTTP/2 + xk6 HTTP/3 when K6_HTTP3=1). HTTP/3 on k3d: see docs/HTTP3-CURL-EXIT-CODES.md if baseline/enhanced hit exit 7/28/55.
-#         7a3–7a7: run-housing-k6-edge-smoke.sh — k6 hooks + gateway drain + ramping messaging/media (see "k6 suite stability" + "Step 7a k6 edge grid" above). Optional 7a7b: PREFLIGHT_K6_MESSAGING_LIMIT_FINDER=1 → k6-messaging-limit-finder.js. 7a8: Playwright full edge suite (23 tests / 10 specs / 5 projects; 22 executed by default) via run-playwright-e2e-preflight.sh. Optional perf: scripts/perf/* (not auto).
+#         7a3–7a7: run-housing-k6-edge-smoke.sh — k6 hooks + gateway drain + ramping messaging/media (see "k6 suite stability" + "Step 7a k6 edge grid" above). 7a7a: PREFLIGHT_PHASE_D_TAIL_LAB=1|full → scripts/perf/run-preflight-phase-d-tail-lab.sh (EXPLAIN + listings/analytics/dual k6). Optional 7a7b: PREFLIGHT_K6_MESSAGING_LIMIT_FINDER=1 → k6-messaging-limit-finder.js. 7a8: Playwright full edge suite (23 tests / 10 specs / 5 projects; 22 executed by default) via run-playwright-e2e-preflight.sh.
 #   7b    Transport-layer study experiments (UDP drops, QUIC cwnd, BBR, NodePort, Caddy native, in-cluster k6). TRANSPORT_STUDY=1.
 #   7c    In-cluster k6 (Pod → Caddy ClusterIP; no host/VM). RUN_K6=1 and RUN_K6_IN_CLUSTER=1 (default). K6_IN_CLUSTER_DURATION=30s. Set RUN_K6_IN_CLUSTER=0 to skip.
 #   8     All 7 housing pgbench sweeps (ports 5441–5447; media 5448 optional), EXPLAIN, observation-deck summary. RUN_PGBENCH=1.
@@ -213,6 +271,22 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 export PATH="$SCRIPT_DIR/shims:/opt/homebrew/bin:/usr/local/bin:${PATH:-}"
 cd "$REPO_ROOT"
+
+# Dev CA for k6 / Phase D / edge TLS tools: default to repo bundle when unset (override with SSL_CERT_FILE=...).
+if [[ -z "${SSL_CERT_FILE:-}" ]] && [[ -s "$REPO_ROOT/certs/dev-root.pem" ]]; then
+  export SSL_CERT_FILE="$REPO_ROOT/certs/dev-root.pem"
+fi
+if [[ -n "${SSL_CERT_FILE:-}" ]]; then
+  export K6_TLS_CA_CERT="${K6_TLS_CA_CERT:-$SSL_CERT_FILE}"
+  export K6_CA_ABSOLUTE="${K6_CA_ABSOLUTE:-$SSL_CERT_FILE}"
+fi
+
+# Single artifact directory for this preflight process (logs, telemetry, k6 snapshots, phase-d, suite logs, pgbench).
+# Override with PREFLIGHT_RUN_DIR=/path or PREFLIGHT_RUN_STAMP=YYYYMMDD-HHMMSS (folder becomes bench_logs/run-$STAMP).
+PREFLIGHT_RUN_STAMP="${PREFLIGHT_RUN_STAMP:-$(date +%Y%m%d-%H%M%S)}"
+export PREFLIGHT_RUN_DIR="${PREFLIGHT_RUN_DIR:-$REPO_ROOT/bench_logs/run-$PREFLIGHT_RUN_STAMP}"
+mkdir -p "$PREFLIGHT_RUN_DIR"
+export PREFLIGHT_RUN_STAMP
 
 # Steady-state preflight: skip full CA reissue unless PREFLIGHT_REISSUE_CA=1 or cluster TLS secrets are missing.
 PREFLIGHT_REISSUE_CA="${PREFLIGHT_REISSUE_CA:-0}"
@@ -336,6 +410,8 @@ fi
 export PREFLIGHT_APP_DEPLOYS
 export WAIT_APP_SERVICES="$PREFLIGHT_APP_DEPLOYS"
 RUN_MESSAGING_LOAD="${RUN_MESSAGING_LOAD:-1}"
+# Issues 9 & 10 Phase D lab after k6 edge grid (see scripts/perf/run-preflight-phase-d-tail-lab.sh). Default full; set PREFLIGHT_PHASE_D_TAIL_LAB=0 to skip.
+PREFLIGHT_PHASE_D_TAIL_LAB="${PREFLIGHT_PHASE_D_TAIL_LAB:-full}"
 # Phase 5 guardrail: write-rate limiter must be at least 1s
 [[ "$APPLY_RATE_LIMIT_SLEEP" -lt 1 ]] 2>/dev/null && APPLY_RATE_LIMIT_SLEEP=1
 PREFLIGHT_ABORT_ON_503="${PREFLIGHT_ABORT_ON_503:-1}"
@@ -357,17 +433,19 @@ if [[ "$PREFLIGHT_PHASE" != "full" ]]; then
 else
   PREFLIGHT_ABORT_ON_SLOW_APPLY="${PREFLIGHT_ABORT_ON_SLOW_APPLY:-0}"
 fi
-# Tee entire preflight output to one log file for full-run analysis.
-# Default: bench_logs/preflight-<timestamp>-full.log so every run has a complete log.
+# Tee entire preflight output to one log file for full-run analysis (inside PREFLIGHT_RUN_DIR by default).
 # Set PREFLIGHT_MAIN_LOG= to disable (empty string); or set a custom path.
-PREFLIGHT_MAIN_LOG="${PREFLIGHT_MAIN_LOG:-$REPO_ROOT/bench_logs/preflight-$(date +%Y%m%d-%H%M%S)-full.log}"
+PREFLIGHT_MAIN_LOG="${PREFLIGHT_MAIN_LOG:-$PREFLIGHT_RUN_DIR/preflight-full.log}"
 if [[ -n "$PREFLIGHT_MAIN_LOG" ]]; then
   mkdir -p "$(dirname "$PREFLIGHT_MAIN_LOG")" 2>/dev/null || true
   exec > >(tee "$PREFLIGHT_MAIN_LOG") 2>&1
   echo "Preflight output logging to: $PREFLIGHT_MAIN_LOG"
 fi
+echo "Preflight run directory (artifacts): $PREFLIGHT_RUN_DIR"
+info "PREFLIGHT_RUN_DIR=$PREFLIGHT_RUN_DIR (preflight-full.log, telemetry, k6 snapshots, phase-d, suite logs, pgbench)"
 info "PREFLIGHT_APP_SCOPE=${PREFLIGHT_APP_SCOPE:-full} — scale/wait targets: $PREFLIGHT_APP_DEPLOYS"
 info "RUN_MESSAGING_LOAD=${RUN_MESSAGING_LOAD:-1} (k6 messaging/media health after suites, if k6 installed)"
+info "PREFLIGHT_PHASE_D_TAIL_LAB=${PREFLIGHT_PHASE_D_TAIL_LAB:-full} (default full = Phase D + cross-service isolation; 0 = skip)"
 
 # Telemetry: capture control-plane pressure during run and post-run snapshot (same as run-preflight-with-telemetry.sh).
 # Set PREFLIGHT_TELEMETRY=0 to disable. TELEMETRY_PERF=1 / TELEMETRY_HTOP=1 for optional perf/htop.
@@ -390,7 +468,7 @@ _preflight_telemetry_on_exit() {
   [[ -f "$SCRIPT_DIR/capture-control-plane-telemetry.sh" ]] && "$SCRIPT_DIR/capture-control-plane-telemetry.sh" --once > "$TELEMETRY_AFTER" 2>&1 || true
   kubectl get --raw /metrics --request-timeout=15s > "$TELEMETRY_RAW_METRICS" 2>/dev/null || echo "(raw metrics unavailable)" > "$TELEMETRY_RAW_METRICS"
   if [[ "${TELEMETRY_HTOP:-0}" == "1" ]] && command -v htop >/dev/null 2>&1; then
-    HTOP_SNAP="$REPO_ROOT/htop-after-${TELEMETRY_TS}.txt"
+    HTOP_SNAP="$PREFLIGHT_RUN_DIR/htop-after.txt"
     htop --batch --delay=1 2>/dev/null | head -100 > "$HTOP_SNAP" || true
     echo "TELEMETRY_HTOP_SNAPSHOT=$HTOP_SNAP"
   fi
@@ -398,15 +476,16 @@ _preflight_telemetry_on_exit() {
   echo "TELEMETRY_AFTER=$TELEMETRY_AFTER"
   echo "TELEMETRY_RAW_METRICS=$TELEMETRY_RAW_METRICS"
   [[ -n "$TELEMETRY_PERF_DATA" ]] && [[ -f "$TELEMETRY_PERF_DATA" ]] && echo "TELEMETRY_PERF_DATA=$TELEMETRY_PERF_DATA (perf report -i $TELEMETRY_PERF_DATA)"
+  [[ -n "${PREFLIGHT_RUN_DIR:-}" ]] && [[ -f "${TELEMETRY_LIVE_CSV:-$REPO_ROOT/live-telemetry.csv}" ]] && cp -f "${TELEMETRY_LIVE_CSV:-$REPO_ROOT/live-telemetry.csv}" "$PREFLIGHT_RUN_DIR/live-telemetry.csv" 2>/dev/null || true
 }
 if [[ "$PREFLIGHT_TELEMETRY" == "1" ]]; then
-  TELEMETRY_TS=$(date +%Y%m%d-%H%M%S)
-  TELEMETRY_DURING="$REPO_ROOT/telemetry-during-${TELEMETRY_TS}.log"
-  TELEMETRY_AFTER="$REPO_ROOT/telemetry-after-${TELEMETRY_TS}.txt"
-  TELEMETRY_RAW_METRICS="$REPO_ROOT/raw-metrics-${TELEMETRY_TS}.txt"
-  # Live CSV for dashboard: one row per sample (iso_ts, epoch_ts, inflight, request_count, node_ready, node_not_ready). Fixed name so dashboard can fetch /live-telemetry.csv when serving repo root.
+  TELEMETRY_TS="$PREFLIGHT_RUN_STAMP"
+  TELEMETRY_DURING="$PREFLIGHT_RUN_DIR/telemetry-during.log"
+  TELEMETRY_AFTER="$PREFLIGHT_RUN_DIR/telemetry-after.txt"
+  TELEMETRY_RAW_METRICS="$PREFLIGHT_RUN_DIR/raw-metrics.txt"
+  # Live CSV for dashboard: fixed name at repo root so a static file server can fetch it; copy also under run dir.
   TELEMETRY_LIVE_CSV="${TELEMETRY_LIVE_CSV:-$REPO_ROOT/live-telemetry.csv}"
-  [[ "${TELEMETRY_PERF:-0}" == "1" ]] && TELEMETRY_PERF_DATA="$REPO_ROOT/perf-${TELEMETRY_TS}.data"
+  [[ "${TELEMETRY_PERF:-0}" == "1" ]] && TELEMETRY_PERF_DATA="$PREFLIGHT_RUN_DIR/perf.data"
   trap 'e=$?; _preflight_telemetry_on_exit; exit $e' EXIT
   : > "$TELEMETRY_DURING"
   # Telemetry loop is started after step 0 (kill stale) so it is never mistaken for a stale process.
@@ -2218,9 +2297,8 @@ if [[ "${RUN_K6:-0}" == "1" ]] && [[ "${SKIP_XK6_BUILD:-0}" != "1" ]]; then
 fi
 
 # --- Step 7: Run all test suites (auth, baseline, enhanced, adversarial, rotation, k6, standalone, tls-mtls, social); RUN_K6=1 runs k6 phases after rotation ---
-# One packaged output folder for the whole run (suites + pgbench + EXPLAIN): bench_logs/preflight-<timestamp>
+# PREFLIGHT_RUN_DIR is created at script start (bench_logs/run-<stamp>/). Re-announce before suites.
 if [[ "${RUN_SUITES:-1}" == "1" ]] || [[ "${RUN_PGBENCH:-0}" == "1" ]]; then
-  export PREFLIGHT_RUN_DIR="${PREFLIGHT_RUN_DIR:-$REPO_ROOT/bench_logs/preflight-$(date +%Y%m%d-%H%M%S)}"
   mkdir -p "$PREFLIGHT_RUN_DIR"
   info "Preflight run output folder: $PREFLIGHT_RUN_DIR"
 fi
@@ -2363,15 +2441,39 @@ _preflight_ensure_macos_k6_keychain_trust() {
   return 0
 }
 
+# Edge k6 grid + any hook using k6_suite_after_k6_block in this process (7a, limit-finder, post-grid hook).
+# Defaults match run-housing-k6-edge-smoke.sh; exporting here keeps preflight self-contained. Override any var before running.
+_preflight_phase_d_tail_lab_enabled() {
+  case "${PREFLIGHT_PHASE_D_TAIL_LAB:-full}" in
+    0 | false | no | off | skip | disabled) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+_preflight_export_k6_orchestration_defaults() {
+  export K6_ORCHESTRATION_VU_SCENARIO="${K6_ORCHESTRATION_VU_SCENARIO:-1}"
+  export K6_SUITE_GATEWAY_DRAIN="${K6_SUITE_GATEWAY_DRAIN:-1}"
+  export K6_SUITE_GATEWAY_DRAIN_MAX_MILLICORES="${K6_SUITE_GATEWAY_DRAIN_MAX_MILLICORES:-150}"
+  export K6_SUITE_GATEWAY_DRAIN_INTERVAL_SEC="${K6_SUITE_GATEWAY_DRAIN_INTERVAL_SEC:-2}"
+  export K6_SUITE_GATEWAY_DRAIN_TIMEOUT_SEC="${K6_SUITE_GATEWAY_DRAIN_TIMEOUT_SEC:-120}"
+  export K6_SUITE_GATEWAY_DRAIN_NAME_SUBSTR="${K6_SUITE_GATEWAY_DRAIN_NAME_SUBSTR:-api-gateway}"
+  export K6_SUITE_POST_DRAIN_SLEEP_SEC="${K6_SUITE_POST_DRAIN_SLEEP_SEC:-10}"
+  export K6_SUITE_KILL_K6_AFTER_BLOCK="${K6_SUITE_KILL_K6_AFTER_BLOCK:-1}"
+  export K6_SUITE_POST_KILL_K6_SLEEP_SEC="${K6_SUITE_POST_KILL_K6_SLEEP_SEC:-0}"
+  export K6_SUITE_COOLDOWN_SEC="${K6_SUITE_COOLDOWN_SEC:-15}"
+  export K6_SUITE_CAR_EXTRA_SEC="${K6_SUITE_CAR_EXTRA_SEC:-20}"
+}
+
 # Do not skip strict TLS/mTLS preflight — always run ensure-strict-tls-mtls-preflight so all tests use strict TLS/mTLS
 _run_all_suites() {
   _preflight_ensure_macos_k6_keychain_trust || return 1
   if [[ -z "${K6_SUITE_RESOURCE_LOG:-}" ]] && [[ "${K6_SUITE_RESOURCE_LOG_AUTO:-1}" == "1" ]]; then
-    export K6_SUITE_RESOURCE_LOG="$REPO_ROOT/bench_logs/k6-suite-resources-$(date +%Y%m%d-%H%M%S).log"
+    export K6_SUITE_RESOURCE_LOG="${K6_SUITE_RESOURCE_LOG:-$PREFLIGHT_RUN_DIR/k6-suite-resources.log}"
     mkdir -p "$(dirname "$K6_SUITE_RESOURCE_LOG")"
     {
       echo "# k6 suite resource log — kubectl top snapshots (suite contention evidence)"
       echo "# started $(date -Iseconds)"
+      echo "# PREFLIGHT_RUN_DIR=${PREFLIGHT_RUN_DIR:-}"
       echo "# PREFLIGHT_MAIN_LOG=${PREFLIGHT_MAIN_LOG:-}"
     } >>"$K6_SUITE_RESOURCE_LOG"
   fi
@@ -2384,6 +2486,8 @@ _run_all_suites() {
     # shellcheck source=lib/k6-suite-resource-hooks.sh
     source "$SCRIPT_DIR/lib/k6-suite-resource-hooks.sh"
   fi
+  _preflight_export_k6_orchestration_defaults
+  info "k6 load-lab orchestration (preflight defaults; override with env): K6_ORCHESTRATION_VU_SCENARIO=${K6_ORCHESTRATION_VU_SCENARIO} K6_SUITE_GATEWAY_DRAIN=${K6_SUITE_GATEWAY_DRAIN} K6_SUITE_GATEWAY_DRAIN_MAX_MILLICORES=${K6_SUITE_GATEWAY_DRAIN_MAX_MILLICORES} K6_SUITE_POST_DRAIN_SLEEP_SEC=${K6_SUITE_POST_DRAIN_SLEEP_SEC} K6_SUITE_KILL_K6_AFTER_BLOCK=${K6_SUITE_KILL_K6_AFTER_BLOCK} K6_SUITE_POST_KILL_K6_SLEEP_SEC=${K6_SUITE_POST_KILL_K6_SLEEP_SEC}"
   export SKIP_PREFLIGHT=1 SKIP_FULL_PREFLIGHT=1 RUN_K6="${RUN_K6:-0}" RUN_PGBENCH=0
   export SUITE_LOG_DIR DB_VERIFY_TIMING_LOG RUN_SHOPPING_SEQUENCE CAPTURE_STOP_TIMEOUT CAPTURE_MAX_STOP_SECONDS
   export SUITE_TIMEOUT DB_VERIFY_MAX_SECONDS DB_VERIFY_CONNECT_TIMEOUT DB_VERIFY_FAST
@@ -2451,6 +2555,25 @@ _run_all_suites() {
     fi
   elif [[ "${RUN_MESSAGING_LOAD:-1}" != "0" ]] && [[ "${RUN_K6_SERVICE_GRID:-1}" != "0" ]]; then
     info "7a3 k6 skipped: k6 not on PATH (install: brew install k6; or RUN_MESSAGING_LOAD=0 / RUN_K6_SERVICE_GRID=0)"
+  fi
+  # Phase D (Issues 9 & 10): tail latency + dual-service k6 + EXPLAIN (+ optional cross-service isolation when TAIL_LAB=full).
+  if _preflight_phase_d_tail_lab_enabled; then
+    say "7a7a. Phase D tail lab (run-preflight-phase-d-tail-lab.sh) — PREFLIGHT_PHASE_D_TAIL_LAB=${PREFLIGHT_PHASE_D_TAIL_LAB}"
+    chmod +x "$SCRIPT_DIR/perf/run-preflight-phase-d-tail-lab.sh" 2>/dev/null || true
+    export PREFLIGHT_PHASE_D_TAIL_LAB
+    export PREFLIGHT_PHASE_D_OUT="${PREFLIGHT_PHASE_D_OUT:-$PREFLIGHT_RUN_DIR/phase-d}"
+    _pd_rc=0
+    SSL_CERT_FILE="${SSL_CERT_FILE:-$REPO_ROOT/certs/dev-root.pem}" \
+      PREFLIGHT_PHASE_D_OUT="$PREFLIGHT_PHASE_D_OUT" \
+      "$SCRIPT_DIR/perf/run-preflight-phase-d-tail-lab.sh" || _pd_rc=$?
+    if [[ "$_pd_rc" -ne 0 ]]; then
+      warn "Phase D tail lab exited $_pd_rc (non-fatal; artifacts: ${PREFLIGHT_PHASE_D_OUT})"
+    else
+      info "Phase D tail lab artifacts: ${PREFLIGHT_PHASE_D_OUT}"
+    fi
+    if declare -F k6_suite_after_k6_block >/dev/null 2>&1; then
+      k6_suite_after_k6_block "preflight-after-phase-d-tail-lab" 0 || true
+    fi
   fi
   # Optional: messaging capacity envelope (long; ramping-arrival-rate). Uses k6-strict-edge-tls.js. Default off.
   if [[ "${RUN_MESSAGING_LOAD:-1}" != "0" ]] && [[ "${PREFLIGHT_K6_MESSAGING_LIMIT_FINDER:-0}" == "1" ]] && command -v k6 >/dev/null 2>&1; then
@@ -2523,7 +2646,6 @@ fi
 # Housing DBs: ports 5441–5447 (auth, listings, bookings, messaging, notification, trust, analytics).
 # PGBENCH_PARALLEL=1 (default) runs the 7 sweeps in parallel; set 0 for sequential.
 if [[ "${RUN_PGBENCH:-0}" == "1" ]]; then
-  PREFLIGHT_RUN_DIR="${PREFLIGHT_RUN_DIR:-$REPO_ROOT/bench_logs/preflight-$(date +%Y%m%d-%H%M%S)}"
   mkdir -p "$PREFLIGHT_RUN_DIR"
   PGBENCH_PARALLEL="${PGBENCH_PARALLEL:-1}"
   say "8. Running all 7 housing pgbench sweeps (ports 5441–5447; cold-first then warm; real cold=restart Postgres when COLD_POSTGRES_RESTART=1; mode=${PGBENCH_MODE:-deep}, parallel=${PGBENCH_PARALLEL})..."

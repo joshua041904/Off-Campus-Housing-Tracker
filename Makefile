@@ -35,7 +35,7 @@ stack: ## Full idempotent stack setup WITHOUT preflight (Colima, infra, certs, D
 
 demo: ## Colima+k3s stack + preflight (MetalLB + k6 LB IP); stops after housing suites+Playwright; no k3d
 	REQUIRE_COLIMA=1 METALLB_USE_K3D=0 METALLB_ENABLED=1 K6_USE_METALLB=1 RUN_PGBENCH=0 RUN_FULL_LOAD=0 RUN_PREFLIGHT=1 \
-	  PREFLIGHT_EXIT_AFTER_HOUSING_SUITES=1 \
+	  PREFLIGHT_EXIT_AFTER_HOUSING_SUITES=1 PREFLIGHT_PHASE_D_TAIL_LAB=0 \
 	  bash $(SCRIPTS)/setup-full-off-campus-housing-stack.sh
 
 demo-full: ## Colima+k3s + full preflight continuation (transport/pgbench when enabled); no early exit
@@ -48,7 +48,7 @@ demo-network: ## Colima path: preflight + sslkeylog + packet capture (./scripts/
 
 demo-k3d: ## stack + preflight for k3d (no Colima): set kubectl context to k3d first
 	METALLB_ENABLED=1 METALLB_USE_K3D=1 REQUIRE_COLIMA=0 K6_USE_METALLB=1 RUN_PGBENCH=0 RUN_FULL_LOAD=0 RUN_PREFLIGHT=1 \
-	  SKIP_COLIMA=1 bash $(SCRIPTS)/setup-full-off-campus-housing-stack.sh
+	  PREFLIGHT_PHASE_D_TAIL_LAB=0 SKIP_COLIMA=1 bash $(SCRIPTS)/setup-full-off-campus-housing-stack.sh
 
 preflight-metallb: ## Run preflight only (MetalLB + k6 LB IP). Example: RUN_PGBENCH=0 RUN_FULL_LOAD=0 make preflight-metallb
 	REQUIRE_COLIMA=1 METALLB_USE_K3D=0 METALLB_ENABLED=1 K6_USE_METALLB=1 bash $(SCRIPTS)/run-preflight-scale-and-all-suites.sh

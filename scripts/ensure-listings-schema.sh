@@ -41,4 +41,9 @@ if [[ -f "$SQL4" ]]; then
   psql -h "$PGHOST" -p "$PGPORT" -U postgres -d listings -v ON_ERROR_STOP=1 -f "$SQL4"
   echo "✅ Listings processed_events (04) applied."
 fi
+SQL6="$REPO_ROOT/infra/db/06-listings-active-created-at-index.sql"
+if [[ -f "$SQL6" ]]; then
+  psql -h "$PGHOST" -p "$PGPORT" -U postgres -d listings -v ON_ERROR_STOP=1 -f "$SQL6"
+  echo "✅ Listings active+created_at index (06) applied."
+fi
 echo "✅ Listings schema and tuning applied (port $PGPORT, database listings)."
