@@ -1,0 +1,570 @@
+{
+  "source_csv": "/Users/tom/Off-Campus-Housing-Tracker/bench_logs/protocol-comparison.csv",
+  "generated_at": "2026-03-26T15:44:23.173Z",
+  "model_assumptions": {
+    "little_law": "L = lambda * W",
+    "mu_estimated_from_avg_waiting": "mu ~= 1 / W_avg",
+    "target_utilization_for_safe_rps": 0.8,
+    "pool_sizes": [
+      10,
+      20,
+      30
+    ]
+  },
+  "services": [
+    {
+      "service": "analytics",
+      "best_protocol": "http2",
+      "protocols": [
+        {
+          "protocol": "http2",
+          "rps": 57.50819441806779,
+          "fail_rate": 0,
+          "p50_ms": 16.139,
+          "p95_ms": 40.869999999999806,
+          "max_ms": 634.528,
+          "avg_waiting_ms": 23.62841876629018,
+          "w_avg_sec": 0.023628418766290182,
+          "l_estimated": 1.3588277002033373,
+          "mu_estimated_rps_per_slot": 42.32191793666126,
+          "utilization_by_pool": {
+            "10": 0.13588277002033372,
+            "20": 0.06794138501016686,
+            "30": 0.04529425667344458
+          },
+          "predicted_safe_rps_by_pool": {
+            "10": 338.57534349329006,
+            "20": 677.1506869865801,
+            "30": 1015.7260304798701
+          },
+          "tail_ratio_p95_over_p50": 2.5323749922547747,
+          "max_ratio_over_p95": 15.525519941277295,
+          "tail_amplification": "high"
+        },
+        {
+          "protocol": "http1.1",
+          "rps": 57.19282147672864,
+          "fail_rate": 0,
+          "p50_ms": 16.787,
+          "p95_ms": 60.10739999999999,
+          "max_ms": 511.487,
+          "avg_waiting_ms": 24.194141484716145,
+          "w_avg_sec": 0.024194141484716145,
+          "l_estimated": 1.383731214718085,
+          "mu_estimated_rps_per_slot": 41.33232008384002,
+          "utilization_by_pool": {
+            "10": 0.13837312147180847,
+            "20": 0.06918656073590423,
+            "30": 0.046124373823936166
+          },
+          "predicted_safe_rps_by_pool": {
+            "10": 330.65856067072014,
+            "20": 661.3171213414403,
+            "30": 991.9756820121604
+          },
+          "tail_ratio_p95_over_p50": 3.580592124858521,
+          "max_ratio_over_p95": 8.509551236619785,
+          "tail_amplification": "high"
+        }
+      ]
+    },
+    {
+      "service": "auth",
+      "best_protocol": "http2",
+      "protocols": [
+        {
+          "protocol": "http2",
+          "rps": 83.75094213582142,
+          "fail_rate": 0,
+          "p50_ms": 19.511,
+          "p95_ms": 32.276,
+          "max_ms": 87.381,
+          "avg_waiting_ms": 20.85220820939917,
+          "w_avg_sec": 0.02085220820939917,
+          "l_estimated": 1.7463920831494901,
+          "mu_estimated_rps_per_slot": 47.95655164949141,
+          "utilization_by_pool": {
+            "10": 0.174639208314949,
+            "20": 0.0873196041574745,
+            "30": 0.05821306943831634
+          },
+          "predicted_safe_rps_by_pool": {
+            "10": 383.6524131959313,
+            "20": 767.3048263918625,
+            "30": 1150.9572395877938
+          },
+          "tail_ratio_p95_over_p50": 1.6542463225872588,
+          "max_ratio_over_p95": 2.7073057380096666,
+          "tail_amplification": "low"
+        },
+        {
+          "protocol": "http1.1",
+          "rps": 81.60475170244482,
+          "fail_rate": 0,
+          "p50_ms": 21.379,
+          "p95_ms": 33.1898,
+          "max_ms": 127.785,
+          "avg_waiting_ms": 22.80877247706426,
+          "w_avg_sec": 0.02280877247706426,
+          "l_estimated": 1.8613042146283862,
+          "mu_estimated_rps_per_slot": 43.84278027261514,
+          "utilization_by_pool": {
+            "10": 0.18613042146283862,
+            "20": 0.09306521073141931,
+            "30": 0.06204347382094621
+          },
+          "predicted_safe_rps_by_pool": {
+            "10": 350.7422421809211,
+            "20": 701.4844843618422,
+            "30": 1052.2267265427633
+          },
+          "tail_ratio_p95_over_p50": 1.552448664577389,
+          "max_ratio_over_p95": 3.8501286539840556,
+          "tail_amplification": "low"
+        }
+      ]
+    },
+    {
+      "service": "booking",
+      "best_protocol": "http1.1",
+      "protocols": [
+        {
+          "protocol": "http1.1",
+          "rps": 81.83090607445602,
+          "fail_rate": 0,
+          "p50_ms": 14.1415,
+          "p95_ms": 71.89279999999997,
+          "max_ms": 396.516,
+          "avg_waiting_ms": 22.666636752136807,
+          "w_avg_sec": 0.022666636752136808,
+          "l_estimated": 1.8548314230879202,
+          "mu_estimated_rps_per_slot": 44.117705283547586,
+          "utilization_by_pool": {
+            "10": 0.185483142308792,
+            "20": 0.092741571154396,
+            "30": 0.06182771410293067
+          },
+          "predicted_safe_rps_by_pool": {
+            "10": 352.9416422683807,
+            "20": 705.8832845367614,
+            "30": 1058.824926805142
+          },
+          "tail_ratio_p95_over_p50": 5.083817133967398,
+          "max_ratio_over_p95": 5.515378452362409,
+          "tail_amplification": "high"
+        },
+        {
+          "protocol": "http2",
+          "rps": 82.1925063418139,
+          "fail_rate": 0,
+          "p50_ms": 13.65,
+          "p95_ms": 83.81079999999992,
+          "max_ms": 545.181,
+          "avg_waiting_ms": 22.3488990881459,
+          "w_avg_sec": 0.0223488990881459,
+          "l_estimated": 1.8369120300349906,
+          "mu_estimated_rps_per_slot": 44.744933343513594,
+          "utilization_by_pool": {
+            "10": 0.18369120300349906,
+            "20": 0.09184560150174953,
+            "30": 0.061230401001166355
+          },
+          "predicted_safe_rps_by_pool": {
+            "10": 357.95946674810875,
+            "20": 715.9189334962175,
+            "30": 1073.8784002443263
+          },
+          "tail_ratio_p95_over_p50": 6.139985347985341,
+          "max_ratio_over_p95": 6.504901516272373,
+          "tail_amplification": "high"
+        }
+      ]
+    },
+    {
+      "service": "event-layer",
+      "best_protocol": "http1.1",
+      "protocols": [
+        {
+          "protocol": "http1.1",
+          "rps": 83.2281380563206,
+          "fail_rate": 0,
+          "p50_ms": 7.1025,
+          "p95_ms": 17.456,
+          "max_ms": 586.451,
+          "avg_waiting_ms": 10.925067146282968,
+          "w_avg_sec": 0.010925067146282968,
+          "l_estimated": 0.9092729967254115,
+          "mu_estimated_rps_per_slot": 91.53261820823039,
+          "utilization_by_pool": {
+            "10": 0.09092729967254115,
+            "20": 0.045463649836270575,
+            "30": 0.030309099890847048
+          },
+          "predicted_safe_rps_by_pool": {
+            "10": 732.2609456658431,
+            "20": 1464.5218913316862,
+            "30": 2196.7828369975296
+          },
+          "tail_ratio_p95_over_p50": 2.4577261527631116,
+          "max_ratio_over_p95": 33.59595554537122,
+          "tail_amplification": "high"
+        },
+        {
+          "protocol": "http2",
+          "rps": 83.90098448967065,
+          "fail_rate": 0,
+          "p50_ms": 7.148,
+          "p95_ms": 17.673799999999993,
+          "max_ms": 177.367,
+          "avg_waiting_ms": 9.414562611275969,
+          "w_avg_sec": 0.009414562611275969,
+          "l_estimated": 0.7898910716256983,
+          "mu_estimated_rps_per_slot": 106.21842365807673,
+          "utilization_by_pool": {
+            "10": 0.07898910716256984,
+            "20": 0.03949455358128492,
+            "30": 0.026329702387523274
+          },
+          "predicted_safe_rps_by_pool": {
+            "10": 849.7473892646138,
+            "20": 1699.4947785292277,
+            "30": 2549.2421677938414
+          },
+          "tail_ratio_p95_over_p50": 2.472551762730833,
+          "max_ratio_over_p95": 10.035589403523863,
+          "tail_amplification": "high"
+        }
+      ]
+    },
+    {
+      "service": "gateway",
+      "best_protocol": "http2",
+      "protocols": [
+        {
+          "protocol": "http2",
+          "rps": 108.90210374032354,
+          "fail_rate": 0,
+          "p50_ms": 3.94,
+          "p95_ms": 8.10365,
+          "max_ms": 32.273,
+          "avg_waiting_ms": 4.477310439560437,
+          "w_avg_sec": 0.004477310439560437,
+          "l_estimated": 0.48758852596664426,
+          "mu_estimated_rps_per_slot": 223.34837253281364,
+          "utilization_by_pool": {
+            "10": 0.04875885259666442,
+            "20": 0.02437942629833221,
+            "30": 0.01625295086555481
+          },
+          "predicted_safe_rps_by_pool": {
+            "10": 1786.7869802625091,
+            "20": 3573.5739605250183,
+            "30": 5360.360940787527
+          },
+          "tail_ratio_p95_over_p50": 2.056763959390863,
+          "max_ratio_over_p95": 3.982526392428104,
+          "tail_amplification": "low"
+        },
+        {
+          "protocol": "http3",
+          "rps": 104.24799345069093,
+          "fail_rate": 0,
+          "p50_ms": 3.743125,
+          "p95_ms": 8.640358399999998,
+          "max_ms": 34.3205,
+          "avg_waiting_ms": 4.390591884155096,
+          "w_avg_sec": 0.0043905918841550965,
+          "l_estimated": 0.4577103939840572,
+          "mu_estimated_rps_per_slot": 227.75972497212297,
+          "utilization_by_pool": {
+            "10": 0.045771039398405725,
+            "20": 0.022885519699202862,
+            "30": 0.015257013132801908
+          },
+          "predicted_safe_rps_by_pool": {
+            "10": 1822.0777997769837,
+            "20": 3644.1555995539675,
+            "30": 5466.233399330951
+          },
+          "tail_ratio_p95_over_p50": 2.308327507096343,
+          "max_ratio_over_p95": 3.972115323364365,
+          "tail_amplification": "low"
+        },
+        {
+          "protocol": "http1.1",
+          "rps": 108.68475611884938,
+          "fail_rate": 0,
+          "p50_ms": 3.614,
+          "p95_ms": 9.536499999999997,
+          "max_ms": 78.247,
+          "avg_waiting_ms": 4.561613051470589,
+          "w_avg_sec": 0.004561613051470589,
+          "l_estimated": 0.49577780200764127,
+          "mu_estimated_rps_per_slot": 219.2206986249341,
+          "utilization_by_pool": {
+            "10": 0.04957778020076413,
+            "20": 0.024788890100382065,
+            "30": 0.01652592673358804
+          },
+          "predicted_safe_rps_by_pool": {
+            "10": 1753.7655889994728,
+            "20": 3507.5311779989456,
+            "30": 5261.296766998418
+          },
+          "tail_ratio_p95_over_p50": 2.6387659103486434,
+          "max_ratio_over_p95": 8.205001835054793,
+          "tail_amplification": "high"
+        }
+      ]
+    },
+    {
+      "service": "listings",
+      "best_protocol": "http1.1",
+      "protocols": [
+        {
+          "protocol": "http1.1",
+          "rps": 86.04948842681743,
+          "fail_rate": 0,
+          "p50_ms": 11.988,
+          "p95_ms": 53.5025,
+          "max_ms": 381.213,
+          "avg_waiting_ms": 18.93341541135574,
+          "w_avg_sec": 0.01893341541135574,
+          "l_estimated": 1.6292107103195825,
+          "mu_estimated_rps_per_slot": 52.816672442533935,
+          "utilization_by_pool": {
+            "10": 0.16292107103195827,
+            "20": 0.08146053551597914,
+            "30": 0.05430702367731942
+          },
+          "predicted_safe_rps_by_pool": {
+            "10": 422.5333795402715,
+            "20": 845.066759080543,
+            "30": 1267.6001386208145
+          },
+          "tail_ratio_p95_over_p50": 4.4630046713380045,
+          "max_ratio_over_p95": 7.125143684874539,
+          "tail_amplification": "moderate"
+        },
+        {
+          "protocol": "http2",
+          "rps": 81.37056013134449,
+          "fail_rate": 0,
+          "p50_ms": 13.613,
+          "p95_ms": 62.13159999999998,
+          "max_ms": 527.596,
+          "avg_waiting_ms": 23.08998648648643,
+          "w_avg_sec": 0.02308998648648643,
+          "l_estimated": 1.8788451338305758,
+          "mu_estimated_rps_per_slot": 43.30881703136798,
+          "utilization_by_pool": {
+            "10": 0.18788451338305756,
+            "20": 0.09394225669152878,
+            "30": 0.06262817112768586
+          },
+          "predicted_safe_rps_by_pool": {
+            "10": 346.47053625094384,
+            "20": 692.9410725018877,
+            "30": 1039.4116087528314
+          },
+          "tail_ratio_p95_over_p50": 4.564137221773303,
+          "max_ratio_over_p95": 8.491588821147374,
+          "tail_amplification": "high"
+        }
+      ]
+    },
+    {
+      "service": "media",
+      "best_protocol": "http1.1",
+      "protocols": [
+        {
+          "protocol": "http1.1",
+          "rps": 33.8049677136677,
+          "fail_rate": 0,
+          "p50_ms": 10.38,
+          "p95_ms": 16.7414,
+          "max_ms": 81.194,
+          "avg_waiting_ms": 11.293498233215558,
+          "w_avg_sec": 0.011293498233215559,
+          "l_estimated": 0.3817763431482152,
+          "mu_estimated_rps_per_slot": 88.54652290632833,
+          "utilization_by_pool": {
+            "10": 0.03817763431482152,
+            "20": 0.01908881715741076,
+            "30": 0.012725878104940505
+          },
+          "predicted_safe_rps_by_pool": {
+            "10": 708.3721832506267,
+            "20": 1416.7443665012534,
+            "30": 2125.11654975188
+          },
+          "tail_ratio_p95_over_p50": 1.6128516377649322,
+          "max_ratio_over_p95": 4.849893079431828,
+          "tail_amplification": "low"
+        },
+        {
+          "protocol": "http2",
+          "rps": 33.072032400709986,
+          "fail_rate": 0,
+          "p50_ms": 12.864,
+          "p95_ms": 24.61199999999999,
+          "max_ms": 105.79,
+          "avg_waiting_ms": 14.172793975903613,
+          "w_avg_sec": 0.014172793975903613,
+          "l_estimated": 0.46872310157967156,
+          "mu_estimated_rps_per_slot": 70.55771795597862,
+          "utilization_by_pool": {
+            "10": 0.04687231015796717,
+            "20": 0.023436155078983584,
+            "30": 0.015624103385989055
+          },
+          "predicted_safe_rps_by_pool": {
+            "10": 564.4617436478289,
+            "20": 1128.9234872956579,
+            "30": 1693.385230943487
+          },
+          "tail_ratio_p95_over_p50": 1.9132462686567155,
+          "max_ratio_over_p95": 4.298309767593046,
+          "tail_amplification": "low"
+        }
+      ]
+    },
+    {
+      "service": "messaging",
+      "best_protocol": "http2",
+      "protocols": [
+        {
+          "protocol": "http2",
+          "rps": 34.01425800953838,
+          "fail_rate": 0,
+          "p50_ms": 9.844,
+          "p95_ms": 22.997499999999977,
+          "max_ms": 84.63,
+          "avg_waiting_ms": 11.293874265569912,
+          "w_avg_sec": 0.011293874265569912,
+          "l_estimated": 0.38415275319638076,
+          "mu_estimated_rps_per_slot": 88.54357472781179,
+          "utilization_by_pool": {
+            "10": 0.03841527531963808,
+            "20": 0.01920763765981904,
+            "30": 0.012805091773212693
+          },
+          "predicted_safe_rps_by_pool": {
+            "10": 708.3485978224943,
+            "20": 1416.6971956449886,
+            "30": 2125.045793467483
+          },
+          "tail_ratio_p95_over_p50": 2.3361946363266943,
+          "max_ratio_over_p95": 3.6799652136101786,
+          "tail_amplification": "low"
+        },
+        {
+          "protocol": "http3",
+          "rps": 33.79208183938339,
+          "fail_rate": 0,
+          "p50_ms": 10.303,
+          "p95_ms": 23.008799999999997,
+          "max_ms": 103.291,
+          "avg_waiting_ms": 12.021210650887573,
+          "w_avg_sec": 0.012021210650887574,
+          "l_estimated": 0.4062217341232602,
+          "mu_estimated_rps_per_slot": 83.18629704123569,
+          "utilization_by_pool": {
+            "10": 0.040622173412326025,
+            "20": 0.020311086706163013,
+            "30": 0.013540724470775341
+          },
+          "predicted_safe_rps_by_pool": {
+            "10": 665.4903763298855,
+            "20": 1330.980752659771,
+            "30": 1996.4711289896566
+          },
+          "tail_ratio_p95_over_p50": 2.2332136270989027,
+          "max_ratio_over_p95": 4.489195438267098,
+          "tail_amplification": "low"
+        },
+        {
+          "protocol": "http1.1",
+          "rps": 33.383865936131,
+          "fail_rate": 0,
+          "p50_ms": 10.478,
+          "p95_ms": 27.030599999999996,
+          "max_ms": 103.421,
+          "avg_waiting_ms": 12.92669809069213,
+          "w_avg_sec": 0.01292669809069213,
+          "l_estimated": 0.43154315605650667,
+          "mu_estimated_rps_per_slot": 77.35927558484947,
+          "utilization_by_pool": {
+            "10": 0.04315431560565067,
+            "20": 0.021577157802825334,
+            "30": 0.014384771868550222
+          },
+          "predicted_safe_rps_by_pool": {
+            "10": 618.8742046787958,
+            "20": 1237.7484093575915,
+            "30": 1856.6226140363874
+          },
+          "tail_ratio_p95_over_p50": 2.5797480435197553,
+          "max_ratio_over_p95": 3.826071193388235,
+          "tail_amplification": "low"
+        }
+      ]
+    },
+    {
+      "service": "trust",
+      "best_protocol": "http1.1",
+      "protocols": [
+        {
+          "protocol": "http1.1",
+          "rps": 60.49869106011192,
+          "fail_rate": 0,
+          "p50_ms": 13.418,
+          "p95_ms": 28.422999999999973,
+          "max_ms": 346.914,
+          "avg_waiting_ms": 18.51353839801817,
+          "w_avg_sec": 0.01851353839801817,
+          "l_estimated": 1.1200448399712206,
+          "mu_estimated_rps_per_slot": 54.014525937788726,
+          "utilization_by_pool": {
+            "10": 0.11200448399712208,
+            "20": 0.05600224199856104,
+            "30": 0.03733482799904069
+          },
+          "predicted_safe_rps_by_pool": {
+            "10": 432.1162075023098,
+            "20": 864.2324150046196,
+            "30": 1296.3486225069294
+          },
+          "tail_ratio_p95_over_p50": 2.1182739603517646,
+          "max_ratio_over_p95": 12.205397037610396,
+          "tail_amplification": "high"
+        },
+        {
+          "protocol": "http2",
+          "rps": 55.11863174219772,
+          "fail_rate": 0,
+          "p50_ms": 16.451,
+          "p95_ms": 58.955499999999866,
+          "max_ms": 808.286,
+          "avg_waiting_ms": 27.706181003584245,
+          "w_avg_sec": 0.027706181003584244,
+          "l_estimated": 1.527126787719234,
+          "mu_estimated_rps_per_slot": 36.09302920061894,
+          "utilization_by_pool": {
+            "10": 0.1527126787719234,
+            "20": 0.0763563393859617,
+            "30": 0.050904226257307804
+          },
+          "predicted_safe_rps_by_pool": {
+            "10": 288.74423360495155,
+            "20": 577.4884672099031,
+            "30": 866.2327008148546
+          },
+          "tail_ratio_p95_over_p50": 3.5837031183514596,
+          "max_ratio_over_p95": 13.710103383060135,
+          "tail_amplification": "high"
+        }
+      ]
+    }
+  ]
+}

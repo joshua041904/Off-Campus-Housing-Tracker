@@ -1,0 +1,38 @@
+[
+  {
+    "service": "analytics",
+    "best_protocol": "http2"
+  },
+  {
+    "service": "auth",
+    "best_protocol": "http3"
+  },
+  {
+    "service": "booking",
+    "best_protocol": "http1"
+  },
+  {
+    "service": "event-layer",
+    "best_protocol": "http2"
+  },
+  {
+    "service": "gateway",
+    "best_protocol": "http2"
+  },
+  {
+    "service": "listings",
+    "best_protocol": "http3"
+  },
+  {
+    "service": "media",
+    "best_protocol": "http2"
+  },
+  {
+    "service": "messaging",
+    "best_protocol": "http3"
+  },
+  {
+    "service": "trust",
+    "best_protocol": "http3"
+  }
+]

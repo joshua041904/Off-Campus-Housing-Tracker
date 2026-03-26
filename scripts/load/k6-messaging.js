@@ -28,6 +28,7 @@ const DUR = __ENV.DURATION || '30s';
 const RATE = Number(__ENV.RATE || 20);
 const VUS = Number(__ENV.VUS || 10);
 const ORCH_VU = __ENV.K6_ORCHESTRATION_VU_SCENARIO === '1';
+const NO_VU_CONN_REUSE = __ENV.K6_HTTP2_DISABLE_REUSE === '1';
 
 export const errors = new Rate('errors');
 
@@ -57,15 +58,16 @@ const scenarios = ORCH_VU
       },
     };
 
-export const options = {
-  ...strictEdgeTlsOptions(RAW_BASE),
+// k6/xk6-http3 Babel: no object spread — Object.assign. K6_HTTP2_DISABLE_REUSE=1 → new connection per iteration (protocol comparison).
+export const options = Object.assign({}, strictEdgeTlsOptions(RAW_BASE), {
   scenarios,
+  noVUConnectionReuse: NO_VU_CONN_REUSE,
   thresholds: {
     errors: ['rate<0.02'],
     http_req_failed: ['rate<0.02'],
-    'http_req_duration': ['p(95)<500', 'p(99)<2000', 'p(100)<8000'],
+    http_req_duration: ['p(95)<500', 'p(99)<2000', 'p(100)<8000'],
   },
-};
+});
 
 const api = (p) => `${BASE}${HAS_API ? '' : '/api'}${p}`;
 

@@ -1,0 +1,74 @@
+[
+  {
+    "service": "analytics",
+    "classification": "DB_POOL_LIMITED_TRANSPORT_SENSITIVE",
+    "best_protocol": "http2",
+    "best_protocol_max_rps_pre_collapse": 109.10234963424084,
+    "collapse_spread_vus": 20,
+    "protocol_rps_variance_cv": 0.4351
+  },
+  {
+    "service": "auth",
+    "classification": "DB_POOL_LIMITED_TRANSPORT_SENSITIVE",
+    "best_protocol": "http3",
+    "best_protocol_max_rps_pre_collapse": 205.13611347404833,
+    "collapse_spread_vus": 20,
+    "protocol_rps_variance_cv": 0.1266
+  },
+  {
+    "service": "booking",
+    "classification": "TRANSPORT_SENSITIVE",
+    "best_protocol": "http1",
+    "best_protocol_max_rps_pre_collapse": 112.41423507736226,
+    "collapse_spread_vus": 20,
+    "protocol_rps_variance_cv": 0.1765
+  },
+  {
+    "service": "event-layer",
+    "classification": "TRANSPORT_SENSITIVE",
+    "best_protocol": "http2",
+    "best_protocol_max_rps_pre_collapse": 225.80783021164598,
+    "collapse_spread_vus": 20,
+    "protocol_rps_variance_cv": 0.0732
+  },
+  {
+    "service": "gateway",
+    "classification": "TRANSPORT_SENSITIVE",
+    "best_protocol": "http2",
+    "best_protocol_max_rps_pre_collapse": 342.3537844658424,
+    "collapse_spread_vus": 0,
+    "protocol_rps_variance_cv": 0.2396
+  },
+  {
+    "service": "listings",
+    "classification": "DB_POOL_LIMITED_TRANSPORT_SENSITIVE",
+    "best_protocol": "http3",
+    "best_protocol_max_rps_pre_collapse": 145.23488469677554,
+    "collapse_spread_vus": 30,
+    "protocol_rps_variance_cv": 0.2375
+  },
+  {
+    "service": "media",
+    "classification": "FANOUT_AMPLIFIED",
+    "best_protocol": "http2",
+    "best_protocol_max_rps_pre_collapse": 14.988970795878583,
+    "collapse_spread_vus": 0,
+    "protocol_rps_variance_cv": 0.0002
+  },
+  {
+    "service": "messaging",
+    "classification": "FANOUT_AMPLIFIED",
+    "best_protocol": "http3",
+    "best_protocol_max_rps_pre_collapse": 19.970422822737955,
+    "collapse_spread_vus": 10,
+    "protocol_rps_variance_cv": 0.0389
+  },
+  {
+    "service": "trust",
+    "classification": "DB_POOL_LIMITED_TRANSPORT_SENSITIVE",
+    "best_protocol": "http3",
+    "best_protocol_max_rps_pre_collapse": 96.40742816995872,
+    "collapse_spread_vus": 40,
+    "protocol_rps_variance_cv": 0.3004
+  }
+]

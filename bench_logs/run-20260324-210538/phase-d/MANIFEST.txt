@@ -1,6 +1,0 @@
-# Preflight Phase D tail lab
-Started: 2026-03-24T21:33:12-04:00
-OUT=/Users/tom/Off-Campus-Housing-Tracker/bench_logs/preflight-phase-d-20260324-213312
-BASE_URL=https://off-campus-housing.test
-ensure-listings-schema: OK
-Finished: 2026-03-24T21:48:31-04:00

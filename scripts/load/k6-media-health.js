@@ -48,15 +48,14 @@ const scenarios = ORCH_VU
       },
     };
 
-export const options = {
-  ...strictEdgeTlsOptions(RAW_BASE),
+export const options = Object.assign({}, strictEdgeTlsOptions(RAW_BASE), {
   scenarios,
   thresholds: {
     errors: ['rate<0.05'],
     http_req_failed: ['rate<0.05'],
     http_req_duration: ['p(95)<600', 'p(99)<2500', 'p(100)<10000'],
   },
-};
+});
 
 const api = (p) => `${BASE}${HAS_API ? '' : '/api'}${p}`;
 

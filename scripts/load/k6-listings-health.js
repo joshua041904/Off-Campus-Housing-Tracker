@@ -13,7 +13,7 @@ import {
 function rawBaseOrDefault() {
   try {
     return defaultRawBase();
-  } catch {
+  } catch (_e) {
     const b =
       typeof __ENV.BASE_URL === "string" && __ENV.BASE_URL.startsWith("https://")
         ? __ENV.BASE_URL
@@ -27,15 +27,14 @@ const BASE = RAW_BASE;
 const DUR = __ENV.DURATION || "20s";
 const VUS = Number(__ENV.VUS || 6);
 
-export const options = {
-  ...strictEdgeTlsOptions(RAW_BASE),
+export const options = Object.assign({}, strictEdgeTlsOptions(RAW_BASE), {
   vus: VUS,
   duration: DUR,
   thresholds: {
     http_req_failed: ["rate<0.08"],
     http_req_duration: ["p(95)<600", "p(99)<2500", "p(100)<8000"],
   },
-};
+});
 
 export default function () {
   const r = http.get(

@@ -1,0 +1,4 @@
+# raw k6 summary exports (concatenated)
+
+### protocol=http3 file=/Users/tom/Off-Campus-Housing-Tracker/bench_logs/ceiling/20260326-115610/event-layer/http3/vus-10-run/http3/event-layer-summary.json
+{"error":"k6 exited 107","protocol":"http3","service":"event-layer","log":"k6-matrix-logs/http3-event-layer.log"}

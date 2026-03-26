@@ -26,11 +26,18 @@ export function strictEdgeTlsOptions(_rawBase) {
 }
 
 /**
- * Protocol hint for matrix runs: K6_PROTOCOL=auto|http1|http2|http3 (alias: K6_HTTP_PROTOCOL=HTTP/1.1 etc.).
+ * Protocol hint for matrix runs: PROTOCOL_MODE=http1|http2|http3 (preferred),
+ * with fallbacks K6_PROTOCOL and K6_HTTP_PROTOCOL.
  * Stock k6/http: http1 sets params.httpVersion "1.1" when supported. HTTP/3 needs k6-http3 + k6/x/http3 (separate scripts).
  */
 export function protocolFromEnv() {
-  const raw = (__ENV.K6_PROTOCOL || __ENV.K6_HTTP_PROTOCOL || "auto").toLowerCase();
+  const raw = (
+    __ENV.PROTOCOL_MODE ||
+    __ENV.PROTOCOL ||
+    __ENV.K6_PROTOCOL ||
+    __ENV.K6_HTTP_PROTOCOL ||
+    "auto"
+  ).toLowerCase();
   if (raw === "http/1.1" || raw === "http1" || raw === "h1") return "http1";
   if (raw === "http/2" || raw === "http2" || raw === "h2") return "http2";
   if (raw === "http/3" || raw === "http3" || raw === "h3" || raw === "quic") return "http3";
@@ -40,15 +47,18 @@ export function protocolFromEnv() {
 /** Per-request merge hook (HTTP ignores tls here; kept for call-site consistency). */
 export function mergeEdgeTls(_rawBase, extra = {}) {
   // api-gateway rate limiter skips when x-loadtest=1 (see services/api-gateway/src/server.ts)
-  const headers = {
-    Connection: "keep-alive",
-    "x-loadtest": "1",
-    ...(extra.headers || {}),
-  };
+  // k6's bundled Babel does not support object spread — use Object.assign.
+  const headers = Object.assign(
+    {
+      Connection: "keep-alive",
+      "x-loadtest": "1",
+    },
+    extra.headers || {},
+  );
   const proto = protocolFromEnv();
   const tagProto = proto === "auto" ? "alpn" : proto;
-  const tags = { k6_protocol: tagProto, ...(extra.tags || {}) };
-  const out = { ...extra, headers, tags };
+  const tags = Object.assign({ k6_protocol: tagProto }, extra.tags || {});
+  const out = Object.assign({}, extra, { headers: headers, tags: tags });
   if (proto === "http1") {
     // k6 Request params (when supported); combine with GODEBUG=http2client=0 for best-effort h1
     out.httpVersion = "HTTP/1.1";

@@ -1,11 +1,74 @@
 ================================================================================
-TEAM_COMMANDS_IN_ORDER.txt
+TEAM_COMMANDS_IN_ORDER.txt  (plain-text mirror of TEAM_COMMANDS_IN_ORDER.md)
 ================================================================================
+Easier read + copy/paste: open TEAM_COMMANDS_IN_ORDER.md first (Markdown: short
+“fast path” blocks, chained setup, optional preflight shell functions).
+
 Repo is already cloned. Run commands top-to-bottom from repo root unless noted.
 TLS + Kafka JKS must exist BEFORE Docker Kafka starts (order below does that).
 
+--------------------------------------------------------------------------------
+NEW TEAM DEFAULT (recommended): Makefile one-command flow
+--------------------------------------------------------------------------------
+# 1) Full bootstrap: cluster + infra + certs + deploy (no preflight by default)
+make up
+
+# 2) Full test pass: preflight + suites + current performance modeling suite
+make test
+
+# 3) Current perf suite only (service ceiling + auto service-model.json)
+make test-current
+
+# 4) Optional: derive model from latest protocol-comparison.csv only
+make model
+
+# Notes:
+# - make up uses scripts/setup-full-off-campus-housing-stack.sh under the hood.
+# - make up now orchestrates the linear setup flow (deps, Playwright, Colima+k3s, TLS/JKS chain,
+#   host infra, cluster deploy, MetalLB/LB checks, hosts sanity reminder, preflight gate, SSL keylog seed).
+# - Optional Ollama is classified separately via: make ollama-note / make ollama-env
+# - make test runs scripts/run-preflight-scale-and-all-suites.sh, then
+#   scripts/load/run-service-ceiling.sh with defaults:
+#   SERVICES=trust,messaging,listings,booking,auth,gateway,analytics,media,event-layer
+#   PROTOCOLS=http3,http2,http1
+#   VUS_STEPS=10,20,30,40,50,60
+#   DURATION=60s
+# - Override any knobs inline, e.g.:
+#   TEST_RUN_PGBENCH=1 CEILING_DURATION=30s make test
+
 Copy only the shell lines (cd, export, ./scripts/..., etc.). Skip the bordered
 “purpose” blocks above each step — those are labels, not terminal commands.
+
+--------------------------------------------------------------------------------
+FAST PATH — stack already up (strict canonical v2 preflight, multi-line env)
+--------------------------------------------------------------------------------
+cd /path/to/Off-Campus-Housing-Tracker
+mkdir -p bench_logs
+env \
+  METALLB_ENABLED=1 REQUIRE_COLIMA=0 RUN_PGBENCH=0 ROTATION_H2_KEYLOG=0 PREFLIGHT_K6_MESSAGING_LIMIT_FINDER=1 \
+  PREFLIGHT_PERF_ARTIFACTS=1 PREFLIGHT_PERF_PROTOCOL_MATRIX=1 PREFLIGHT_PERF_STRICT_CANONICAL=1 \
+  PREFLIGHT_PERF_FLATTEN_TO_10=1 PREFLIGHT_PERF_ENSURE_XK6_HTTP3=1 \
+  ./scripts/run-preflight-scale-and-all-suites.sh 2>&1 \
+  | tee "bench_logs/preflight-canonical-v2-$(date +%Y%m%d-%H%M%S).log"
+
+--------------------------------------------------------------------------------
+FAST PATH — chained first-time TLS (after Colima / cluster script; see below)
+--------------------------------------------------------------------------------
+KAFKA_SSL=1 ./scripts/reissue-ca-and-leaf-load-all-services.sh \
+  && ./scripts/generate-envoy-client-cert.sh \
+  && ./scripts/strict-tls-bootstrap.sh \
+  && ./scripts/kafka-ssl-from-dev-root.sh
+
+--------------------------------------------------------------------------------
+FAST PATH — chained deps + Playwright (from repo root)
+--------------------------------------------------------------------------------
+pnpm install && pnpm --filter webapp exec playwright install chromium && chmod +x scripts/setup-new-colima-cluster.sh
+
+--------------------------------------------------------------------------------
+FAST PATH — chained host infra then cluster deploy (PGPASSWORD set)
+--------------------------------------------------------------------------------
+export PGPASSWORD=postgres
+RESTORE_BACKUP_DIR=latest ./scripts/bring-up-external-infra.sh && RESTORE_BACKUP_DIR=latest ./scripts/bring-up-cluster-and-infra.sh
 
 Detail / FAQ / test map: GITHUB_PR_DESCRIPTION.txt
 TLS + JKS outputs table: docs/PR_SECOND_ONBOARDING.md §4
@@ -14,7 +77,8 @@ Hosts + trust: docs/LOCAL_TLS_AND_TESTING_GUIDE.md
 MetalLB + QUIC RCA: docs/COLIMA-K3S-METALLB-PRIMARY.md · docs/TLS-AND-EDGE-SETUP.md · docs/NEW_CLUSTER_SETUP.md
 
 ================================================================================
-LINEAR RUN — one command after another (GITHUB_PR_DESCRIPTION.txt §4.1 / §4.6 / §4.9)
+LINEAR RUN — step-by-step (same as TEAM_COMMANDS_IN_ORDER.md §2, expanded)
+                 (GITHUB_PR_DESCRIPTION.txt §4.1 / §4.6 / §4.9)
 ================================================================================
 
 --------------------------------------------------------------------------------
@@ -149,8 +213,25 @@ curl --cacert certs/dev-root.pem -sS -I --http3 https://off-campus-housing.test/
 
 --------------------------------------------------------------------------------
 Full preflight + suites (long run); tee saves transcript under bench_logs/
+  Lighter run (no strict perf bundle): use multi-line env — easier to read than one long line.
 --------------------------------------------------------------------------------
-METALLB_ENABLED=1 REQUIRE_COLIMA=0 RUN_PGBENCH=0 ROTATION_H2_KEYLOG=0 PREFLIGHT_K6_MESSAGING_LIMIT_FINDER=1 ./scripts/run-preflight-scale-and-all-suites.sh 2>&1 | tee "bench_logs/preflight-no-pgbench-$(date +%Y%m%d-%H%M%S).log"
+mkdir -p bench_logs
+env \
+  METALLB_ENABLED=1 REQUIRE_COLIMA=0 RUN_PGBENCH=0 ROTATION_H2_KEYLOG=0 PREFLIGHT_K6_MESSAGING_LIMIT_FINDER=1 \
+  ./scripts/run-preflight-scale-and-all-suites.sh 2>&1 \
+  | tee "bench_logs/preflight-no-pgbench-$(date +%Y%m%d-%H%M%S).log"
+
+--------------------------------------------------------------------------------
+Strict canonical v2 (recommended team default — same as FAST PATH at top of file)
+  Enforces: protocol matrix http1/http2/http3 + canonical completeness PASS + run dir flattened to 10 files
+--------------------------------------------------------------------------------
+mkdir -p bench_logs
+env \
+  METALLB_ENABLED=1 REQUIRE_COLIMA=0 RUN_PGBENCH=0 ROTATION_H2_KEYLOG=0 PREFLIGHT_K6_MESSAGING_LIMIT_FINDER=1 \
+  PREFLIGHT_PERF_ARTIFACTS=1 PREFLIGHT_PERF_PROTOCOL_MATRIX=1 PREFLIGHT_PERF_STRICT_CANONICAL=1 \
+  PREFLIGHT_PERF_FLATTEN_TO_10=1 PREFLIGHT_PERF_ENSURE_XK6_HTTP3=1 \
+  ./scripts/run-preflight-scale-and-all-suites.sh 2>&1 \
+  | tee "bench_logs/preflight-canonical-v2-$(date +%Y%m%d-%H%M%S).log"
 
 
 ================================================================================
@@ -236,10 +317,11 @@ chmod +x scripts/perf/build-canonical-bundle.sh
 ./scripts/perf/build-canonical-bundle.sh
 
 --------------------------------------------------------------------------------
-k6 protocol matrix: ALPN (default), HTTP/1.1 hint, HTTP/3 (needs ./scripts/build-k6-http3.sh)
+k6 protocol matrix: ALPN (default), HTTP/1.1 hint, HTTP/3 via xk6-http3 (.k6-build/bin/k6-http3)
 --------------------------------------------------------------------------------
 chmod +x scripts/load/run-k6-protocol-matrix.sh scripts/perf/summarize-protocol-matrix.sh
 SSL_CERT_FILE="$PWD/certs/dev-root.pem" ./scripts/load/run-k6-protocol-matrix.sh
+# If HTTP/3 leg skipped: ./scripts/build-k6-http3.sh   or   K6_MATRIX_ENSURE_HTTP3=1 SSL_CERT_FILE="$PWD/certs/dev-root.pem" ./scripts/load/run-k6-protocol-matrix.sh
 
 --------------------------------------------------------------------------------
 OPTIONAL — preflight with rotation SSLKEYLOG (slower; decryptable H2)

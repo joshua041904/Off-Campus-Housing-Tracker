@@ -1,0 +1,139 @@
+{
+  "source_csv": "/Users/tom/Off-Campus-Housing-Tracker/bench_logs/ceiling/20260326-114653/results.csv",
+  "generated_at": "2026-03-26T15:47:33.043Z",
+  "model_assumptions": {
+    "little_law": "L = lambda * W",
+    "mu_estimated_from_avg_waiting": "mu ~= 1 / W_avg",
+    "target_utilization_for_safe_rps": 0.8,
+    "pool_sizes": [
+      10,
+      20,
+      30
+    ]
+  },
+  "services": [
+    {
+      "service": "trust",
+      "best_protocol": "http1",
+      "protocols": [
+        {
+          "protocol": "http1",
+          "rps": 73.04782266046344,
+          "fail_rate": 0,
+          "p50_ms": 23.76,
+          "p95_ms": 180.056,
+          "p99_ms": 0,
+          "max_ms": 821.199,
+          "avg_waiting_ms": 53.461948783610715,
+          "w_avg_sec": 0.05346194878361071,
+          "l_estimated": 3.9052789538279744,
+          "mu_estimated_rps_per_slot": 18.704892409506776,
+          "utilization_by_pool": {
+            "10": 0.3905278953827974,
+            "20": 0.1952639476913987,
+            "30": 0.13017596512759913
+          },
+          "predicted_safe_rps_by_pool": {
+            "10": 149.6391392760542,
+            "20": 299.2782785521084,
+            "30": 448.9174178281626
+          },
+          "tail_ratio_p95_over_p50": 7.578114478114478,
+          "max_ratio_over_p95": 4.560797751810547,
+          "tail_amplification": "high",
+          "modeled_extreme_percentiles_ms": {
+            "p999_ms": 1067.3392518284388,
+            "p9999_ms": 2314.917537970379,
+            "p99999_ms": 4533.501304030907,
+            "p999999_ms": 8273.129500406105,
+            "p9999999_ms": 14325.683570466046,
+            "p99999999_ms": 23811.192481348375,
+            "p100_observed_ms": 821.199,
+            "p100_modeled_ms": 23811.192481348375,
+            "model": "lognormal_fit(p50,p95)",
+            "tail_ratio_p95_over_p50": 7.578114478114478,
+            "tail_ratio_p99_over_p95": 0
+          }
+        },
+        {
+          "protocol": "http2",
+          "rps": 67.52361771799984,
+          "fail_rate": 0,
+          "p50_ms": 24.866500000000002,
+          "p95_ms": 227.16709999999998,
+          "p99_ms": 0,
+          "max_ms": 557.904,
+          "avg_waiting_ms": 66.60546198830406,
+          "w_avg_sec": 0.06660546198830405,
+          "l_estimated": 4.497441753229013,
+          "mu_estimated_rps_per_slot": 15.013783707041929,
+          "utilization_by_pool": {
+            "10": 0.4497441753229013,
+            "20": 0.22487208766145064,
+            "30": 0.14991472510763376
+          },
+          "predicted_safe_rps_by_pool": {
+            "10": 120.11026965633543,
+            "20": 240.22053931267087,
+            "30": 360.3308089690063
+          },
+          "tail_ratio_p95_over_p50": 9.135467395894073,
+          "max_ratio_over_p95": 2.4559190129204453,
+          "tail_amplification": "high",
+          "modeled_extreme_percentiles_ms": {
+            "p999_ms": 1586.9612183339682,
+            "p9999_ms": 3696.820467494037,
+            "p99999_ms": 7703.075908269959,
+            "p999999_ms": 14859.637708110666,
+            "p9999999_ms": 27068.14605237279,
+            "p99999999_ms": 47150.71381035514,
+            "p100_observed_ms": 557.904,
+            "p100_modeled_ms": 47150.71381035514,
+            "model": "lognormal_fit(p50,p95)",
+            "tail_ratio_p95_over_p50": 9.135467395894073,
+            "tail_ratio_p99_over_p95": 0
+          }
+        },
+        {
+          "protocol": "http3",
+          "rps": 55.978597876807534,
+          "fail_rate": 0,
+          "p50_ms": 33.921,
+          "p95_ms": 308.25579999999985,
+          "p99_ms": 0,
+          "max_ms": 1459.429,
+          "avg_waiting_ms": 96.5534358523726,
+          "w_avg_sec": 0.0965534358523726,
+          "l_estimated": 5.404925959204097,
+          "mu_estimated_rps_per_slot": 10.35695924409123,
+          "utilization_by_pool": {
+            "10": 0.5404925959204098,
+            "20": 0.2702462979602049,
+            "30": 0.18016419864013655
+          },
+          "predicted_safe_rps_by_pool": {
+            "10": 82.85567395272984,
+            "20": 165.7113479054597,
+            "30": 248.56702185818955
+          },
+          "tail_ratio_p95_over_p50": 9.08746204416143,
+          "max_ratio_over_p95": 4.734473771458641,
+          "tail_amplification": "high",
+          "modeled_extreme_percentiles_ms": {
+            "p999_ms": 2143.490016004481,
+            "p9999_ms": 4983.20561506532,
+            "p99999_ms": 10365.380687472336,
+            "p999999_ms": 19964.098303866416,
+            "p9999999_ms": 36314.46732685334,
+            "p99999999_ms": 63173.56431624674,
+            "p100_observed_ms": 1459.429,
+            "p100_modeled_ms": 63173.56431624674,
+            "model": "lognormal_fit(p50,p95)",
+            "tail_ratio_p95_over_p50": 9.08746204416143,
+            "tail_ratio_p99_over_p95": 0
+          }
+        }
+      ]
+    }
+  ]
+}

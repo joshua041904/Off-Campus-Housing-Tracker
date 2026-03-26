@@ -1,0 +1,182 @@
+[
+  {
+    "service": "analytics",
+    "protocols": {
+      "http3": {
+        "collapse_vus": 30,
+        "collapse_reason": "p95>=1000",
+        "max_rps_pre_collapse": 43.42050883011647
+      },
+      "http2": {
+        "collapse_vus": 30,
+        "collapse_reason": "fail_rate>=0.01",
+        "max_rps_pre_collapse": 109.10234963424084
+      },
+      "http1": {
+        "collapse_vus": 10,
+        "collapse_reason": "fail_rate>=0.01",
+        "max_rps_pre_collapse": 83.2281362082193
+      }
+    }
+  },
+  {
+    "service": "auth",
+    "protocols": {
+      "http3": {
+        "collapse_vus": null,
+        "collapse_reason": "none",
+        "max_rps_pre_collapse": 205.13611347404833
+      },
+      "http2": {
+        "collapse_vus": 40,
+        "collapse_reason": "rps_stall",
+        "max_rps_pre_collapse": 190.6987444656297
+      },
+      "http1": {
+        "collapse_vus": 60,
+        "collapse_reason": "rps_stall",
+        "max_rps_pre_collapse": 197.76387323142623
+      }
+    }
+  },
+  {
+    "service": "booking",
+    "protocols": {
+      "http3": {
+        "collapse_vus": 40,
+        "collapse_reason": "p95>=1000",
+        "max_rps_pre_collapse": 67.14807467645966
+      },
+      "http2": {
+        "collapse_vus": 50,
+        "collapse_reason": "p95>=1000",
+        "max_rps_pre_collapse": 103.90842702326776
+      },
+      "http1": {
+        "collapse_vus": 60,
+        "collapse_reason": "p95>=1000",
+        "max_rps_pre_collapse": 112.41423507736226
+      }
+    }
+  },
+  {
+    "service": "event-layer",
+    "protocols": {
+      "http3": {
+        "collapse_vus": 40,
+        "collapse_reason": "rps_stall",
+        "max_rps_pre_collapse": 179.08692322559907
+      },
+      "http2": {
+        "collapse_vus": null,
+        "collapse_reason": "none",
+        "max_rps_pre_collapse": 225.80783021164598
+      },
+      "http1": {
+        "collapse_vus": 60,
+        "collapse_reason": "rps_stall",
+        "max_rps_pre_collapse": 225.45308473242494
+      }
+    }
+  },
+  {
+    "service": "gateway",
+    "protocols": {
+      "http3": {
+        "collapse_vus": 10,
+        "collapse_reason": "no_metrics",
+        "max_rps_pre_collapse": 1
+      },
+      "http2": {
+        "collapse_vus": null,
+        "collapse_reason": "none",
+        "max_rps_pre_collapse": 342.3537844658424
+      },
+      "http1": {
+        "collapse_vus": null,
+        "collapse_reason": "none",
+        "max_rps_pre_collapse": 312.4937675214844
+      }
+    }
+  },
+  {
+    "service": "listings",
+    "protocols": {
+      "http3": {
+        "collapse_vus": 60,
+        "collapse_reason": "p95>=1000|rps_stall",
+        "max_rps_pre_collapse": 145.23488469677554
+      },
+      "http2": {
+        "collapse_vus": 30,
+        "collapse_reason": "p95>=1000",
+        "max_rps_pre_collapse": 59.86207611609935
+      },
+      "http1": {
+        "collapse_vus": 40,
+        "collapse_reason": "rps_stall",
+        "max_rps_pre_collapse": 111.09924946984931
+      }
+    }
+  },
+  {
+    "service": "media",
+    "protocols": {
+      "http3": {
+        "collapse_vus": 30,
+        "collapse_reason": "rps_stall",
+        "max_rps_pre_collapse": 14.987392292880726
+      },
+      "http2": {
+        "collapse_vus": 30,
+        "collapse_reason": "rps_stall",
+        "max_rps_pre_collapse": 14.988970795878583
+      },
+      "http1": {
+        "collapse_vus": 30,
+        "collapse_reason": "rps_stall",
+        "max_rps_pre_collapse": 14.988302303776923
+      }
+    }
+  },
+  {
+    "service": "messaging",
+    "protocols": {
+      "http3": {
+        "collapse_vus": 40,
+        "collapse_reason": "rps_stall",
+        "max_rps_pre_collapse": 19.970422822737955
+      },
+      "http2": {
+        "collapse_vus": 30,
+        "collapse_reason": "p95>=1000|rps_stall",
+        "max_rps_pre_collapse": 19.918439145884694
+      },
+      "http1": {
+        "collapse_vus": 30,
+        "collapse_reason": "rps_stall",
+        "max_rps_pre_collapse": 19.93675947015165
+      }
+    }
+  },
+  {
+    "service": "trust",
+    "protocols": {
+      "http3": {
+        "collapse_vus": 50,
+        "collapse_reason": "p95>=1000",
+        "max_rps_pre_collapse": 96.40742816995872
+      },
+      "http2": {
+        "collapse_vus": 10,
+        "collapse_reason": "p95>=1000",
+        "max_rps_pre_collapse": 22.675020657757198
+      },
+      "http1": {
+        "collapse_vus": 20,
+        "collapse_reason": "p95>=1000",
+        "max_rps_pre_collapse": 43.671568047365334
+      }
+    }
+  }
+]

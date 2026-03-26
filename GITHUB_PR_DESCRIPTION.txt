@@ -4,7 +4,7 @@
 
 **Deep-dive runbook (easier to edit in Git):** [`docs/PR_SECOND_ONBOARDING.md`](docs/PR_SECOND_ONBOARDING.md) — keep in sync when bring-up or cert steps change.
 
-**Commands-only, in order (team quickstart + “just show me the frontend”):** repo root **`TEAM_COMMANDS_IN_ORDER.txt`**
+**Commands-only, in order (team quickstart + “just show me the frontend”):** repo root **`TEAM_COMMANDS_IN_ORDER.md`** (readable / fast chained blocks); plain-text mirror **`TEAM_COMMANDS_IN_ORDER.txt`**
 
 ---
 
@@ -327,6 +327,7 @@ More flags: [`docs/RUN-PREFLIGHT.md`](docs/RUN-PREFLIGHT.md), header on `run-pre
 | `./scripts/perf/run-all-explain.sh` / `run-all-k6-load-report.sh` | À la carte (**§7.5**) |
 | `./scripts/perf/build-canonical-bundle.sh` | Copies **10** canonical artifacts from `bench_logs/run-<STAMP>/` → `PERF_CANONICAL_10/`, writes `summary.json`, zips `perf-bundle-<STAMP>.zip` |
 | `SSL_CERT_FILE=... ./scripts/load/run-k6-protocol-matrix.sh` | Sequential k6: TLS **ALPN** (default), **HTTP/1.1** hint (`GODEBUG=http2client=0` + `K6_PROTOCOL=http1`), **HTTP/3** (`.k6-build/bin/k6-http3` if built) → `protocol-matrix/` + `protocol-comparison.md` |
+| `run-preflight-scale-and-all-suites.sh` (default) | **Step 9** after 7b/7c (and 8 if `RUN_PGBENCH=1`): runs **both** scripts above into `PREFLIGHT_RUN_DIR` — even when `RUN_PGBENCH=0`. Disable: `PREFLIGHT_PERF_ARTIFACTS=0`. HTTP/3 leg: `PREFLIGHT_PERF_ENSURE_XK6_HTTP3=1` (default) builds xk6-http3 if missing unless `SKIP_XK6_BUILD=1`. |
 
 [`docs/perf/CLUSTER_CONTENTION_WATCH.md`](docs/perf/CLUSTER_CONTENTION_WATCH.md) · **§6.8** (full `scripts/perf/` inventory)
 
@@ -623,7 +624,7 @@ More: [`docs/perf/LISTINGS_HTTP_TIMING.md`](docs/perf/LISTINGS_HTTP_TIMING.md)
 À la carte: `./scripts/perf/run-all-explain.sh`, `./scripts/perf/run-all-k6-load-report.sh`  
 Output: `bench_logs/perf-report-*/`
 
-**Canonical 10-file bundle + one zip** (pick the run dir, or omit arg to use newest `bench_logs/run-*`):
+**Canonical 10-file bundle + one zip** (strict `och-perf-canonical-10-v2`; missing/0-byte => fail):
 
 ```bash
 ./scripts/perf/build-canonical-bundle.sh
@@ -631,13 +632,15 @@ Output: `bench_logs/perf-report-*/`
 ./scripts/perf/build-canonical-bundle.sh bench_logs/run-20260324-210538
 ```
 
-**k6 protocol matrix** (gateway health; HTTP/3 requires `./scripts/build-k6-http3.sh` first):
+**k6 protocol matrix** (core service flows across `http1.1`, `http2`, `http3`; emits `service-latency.csv` + `raw-metrics.txt`; HTTP/3 uses **xk6-http3** — same binary as `run-k6-phases.sh`: `.k6-build/bin/k6-http3` or `.k6-build/k6-http3`, optional `K6_HTTP3_BIN`). Build: `./scripts/build-k6-http3.sh`. Optional auto-build: `K6_MATRIX_ENSURE_HTTP3=1`.
 
 ```bash
 SSL_CERT_FILE="$PWD/certs/dev-root.pem" ./scripts/load/run-k6-protocol-matrix.sh
 # With a specific preflight run directory:
 PREFLIGHT_RUN_DIR="$PWD/bench_logs/run-20260324-210538" SSL_CERT_FILE="$PWD/certs/dev-root.pem" ./scripts/load/run-k6-protocol-matrix.sh
 ```
+
+**Preflight default (enforced):** step 9 runs protocol matrix first, then canonical builder, then flattens run dir to exactly 10 files when `PREFLIGHT_PERF_FLATTEN_TO_10=1` (default).
 
 ### 7.6 Suite hooks tuning
 

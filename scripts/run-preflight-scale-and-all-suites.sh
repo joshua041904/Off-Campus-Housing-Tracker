@@ -126,9 +126,28 @@ fi
 #     run-perf-full-report.sh — EXPLAIN all housing DBs + k6 aggregation → bench_logs/perf-report-*/
 #     run-all-explain.sh — EXPLAIN-only (uses sql/explain-*.sql); part of Phase D
 #     run-all-k6-load-report.sh — k6 JSON summaries → markdown/html report
+#     build-canonical-bundle.sh — 10-file PERF_CANONICAL_10 + summary.json + perf-bundle zip (wired at end of preflight)
+#     summarize-protocol-matrix.sh — protocol-comparison.md from k6 summary JSON (via run-k6-protocol-matrix.sh)
+#     extract-protocol-matrix.js — protocol-comparison.csv (tail + RPS + fail_rate + waiting/sending); wired after matrix when step 9 runs
 #     explain-listings-search.sh — listings search EXPLAIN helper
 #     sql/explain-*.sql — auth, messaging, notification, listings, media, trust, analytics, bookings
 #     See docs/perf/README.md, docs/perf/TAIL_OPTIMIZATION_PHASE_D_REPORT.md, docs/perf/TAIL_LATENCY_AND_CROSS_SERVICE_ANALYSIS.md
+#
+#   End-of-run perf packaging (after step 7b/7c and step 8 when enabled; always before final exit when suites ran):
+#     PREFLIGHT_PERF_ARTIFACTS=1 (default) — run build-canonical-bundle.sh + run-k6-protocol-matrix.sh into PREFLIGHT_RUN_DIR
+#     PREFLIGHT_PERF_CANONICAL_BUNDLE=0 — skip canonical 10-file dir + zip
+#     PREFLIGHT_PERF_CANONICAL_SKIP_ZIP=1 — summary + PERF_CANONICAL_10 only (no perf-bundle-*.zip)
+#     PREFLIGHT_PERF_PROTOCOL_MATRIX=0 — skip ALPN / HTTP/1.1-hint / xk6 HTTP/3 matrix
+#     PREFLIGHT_PERF_ENSURE_XK6_HTTP3=1 (default) — if k6-http3 binary missing, run build-k6-http3.sh before matrix (respects SKIP_XK6_BUILD=1)
+#     PREFLIGHT_MATRIX_K6_DURATION / PREFLIGHT_MATRIX_K6_VUS — passed as DURATION/VUS for gateway health matrix (default 20s / 6)
+#     PREFLIGHT_PERF_MATRIX_SKIP_HTTP3=1 — same as SKIP_HTTP3=1 for matrix only
+#     PREFLIGHT_PERF_MATRIX_STRICT=1 — k6 non-zero exit fails each matrix cell (default 0: tolerate xk6-http3 teardown panic when summary valid)
+#     PREFLIGHT_PERF_MATRIX_HTTP2_NO_REUSE=1 — set K6_HTTP2_DISABLE_REUSE for http1/http2 matrix (k6-messaging.js uses noVUConnectionReuse)
+#     PREFLIGHT_PERF_EXTRACT_PROTOCOL_CSV=0 — skip node scripts/perf/extract-protocol-matrix.js after matrix
+#     PREFLIGHT_PERF_PROTOCOL_CSV_OUT=/path/file.csv — override CSV path (default: repo bench_logs/protocol-comparison.csv)
+#     PREFLIGHT_OPEN_PROTOCOL_CSV=0 — do not open protocol-comparison.csv in Cursor/VS Code after step 9 (default 1)
+#     PREFLIGHT_OPEN_PROTOCOL_CSV_IN_CI=1 — open from CI runners too (default: skip open when CI= is set)
+#     PREFLIGHT_PERF_ARTIFACTS_ON_EARLY_EXIT=1 — when PREFLIGHT_EXIT_AFTER_HOUSING_SUITES=1, still run step 9 before exit (default 0)
 #
 #   Step 7a invokes scripts/run-housing-k6-edge-smoke.sh. Preflight also calls _preflight_export_k6_orchestration_defaults
 #   (after sourcing k6-suite-resource-hooks.sh) so K6_ORCHESTRATION_VU_SCENARIO, K6_SUITE_GATEWAY_DRAIN, POST_DRAIN_SLEEP,
@@ -264,6 +283,7 @@ fi
 #   7b    Transport-layer study experiments (UDP drops, QUIC cwnd, BBR, NodePort, Caddy native, in-cluster k6). TRANSPORT_STUDY=1.
 #   7c    In-cluster k6 (Pod → Caddy ClusterIP; no host/VM). RUN_K6=1 and RUN_K6_IN_CLUSTER=1 (default). K6_IN_CLUSTER_DURATION=30s. Set RUN_K6_IN_CLUSTER=0 to skip.
 #   8     All 7 housing pgbench sweeps (ports 5441–5447; media 5448 optional), EXPLAIN, observation-deck summary. RUN_PGBENCH=1.
+#   9     Perf artifacts (default on): run-k6-protocol-matrix.sh → extract-protocol-matrix.js (protocol-comparison.csv) → retry CSV if missing (9a2b, before flatten) → build-canonical-bundle.sh → optional flatten (preserves protocol-comparison.csv at run root) → open CSV in editor (see PREFLIGHT_PERF_* / PREFLIGHT_OPEN_PROTOCOL_CSV_*). Runs even when RUN_PGBENCH=0. Skipped when RUN_SUITES=0 or PREFLIGHT_EXIT_AFTER_HOUSING_SUITES=1 unless PREFLIGHT_PERF_ARTIFACTS_ON_EARLY_EXIT=1.
 
 set -euo pipefail
 
@@ -446,6 +466,9 @@ info "PREFLIGHT_RUN_DIR=$PREFLIGHT_RUN_DIR (preflight-full.log, telemetry, k6 sn
 info "PREFLIGHT_APP_SCOPE=${PREFLIGHT_APP_SCOPE:-full} — scale/wait targets: $PREFLIGHT_APP_DEPLOYS"
 info "RUN_MESSAGING_LOAD=${RUN_MESSAGING_LOAD:-1} (k6 messaging/media health after suites, if k6 installed)"
 info "PREFLIGHT_PHASE_D_TAIL_LAB=${PREFLIGHT_PHASE_D_TAIL_LAB:-full} (default full = Phase D + cross-service isolation; 0 = skip)"
+PREFLIGHT_PERF_ARTIFACTS="${PREFLIGHT_PERF_ARTIFACTS:-1}"
+info "PREFLIGHT_PERF_ARTIFACTS=${PREFLIGHT_PERF_ARTIFACTS} (matrix + protocol-comparison.csv + canonical bundle under PREFLIGHT_RUN_DIR; 0=skip)"
+info "PREFLIGHT_PERF_MATRIX_STRICT=${PREFLIGHT_PERF_MATRIX_STRICT:-0} PREFLIGHT_PERF_EXTRACT_PROTOCOL_CSV=${PREFLIGHT_PERF_EXTRACT_PROTOCOL_CSV:-1} PREFLIGHT_OPEN_PROTOCOL_CSV=${PREFLIGHT_OPEN_PROTOCOL_CSV:-1}"
 
 # Telemetry: capture control-plane pressure during run and post-run snapshot (same as run-preflight-with-telemetry.sh).
 # Set PREFLIGHT_TELEMETRY=0 to disable. TELEMETRY_PERF=1 / TELEMETRY_HTOP=1 for optional perf/htop.
@@ -538,6 +561,209 @@ _phase_start() {
   if [[ "${PREFLIGHT_TELEMETRY:-0}" == "1" ]] && [[ -n "${TELEMETRY_DURING:-}" ]] && [[ -w "${TELEMETRY_DURING:-}" ]]; then
     echo "phase=$name start_ts=$(date +%s) iso=$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$TELEMETRY_DURING"
   fi
+}
+
+# Regenerate protocol-comparison.csv from $PREFLIGHT_RUN_DIR/protocol-matrix (any *-summary.json under http1|http2|http3).
+_preflight_try_generate_protocol_csv() {
+  local dest="$1"
+  local pm="${PREFLIGHT_RUN_DIR:?}/protocol-matrix"
+  [[ -d "$pm" ]] || return 1
+  command -v node >/dev/null 2>&1 || return 1
+  local found=""
+  for _d in http1 http2 http3; do
+    [[ -d "$pm/$_d" ]] || continue
+    if compgen -G "$pm/$_d/*-summary.json" >/dev/null 2>&1; then
+      found=1
+      break
+    fi
+  done
+  [[ -n "$found" ]] || return 1
+  mkdir -p "$(dirname "$dest")" 2>/dev/null || true
+  (
+    export PROTOCOL_MATRIX_DIR="$pm"
+    export PROTOCOL_COMPARISON_CSV="$dest"
+    node "$SCRIPT_DIR/perf/extract-protocol-matrix.js"
+  )
+}
+
+# Open CSV in Cursor, VS Code, or macOS Cursor app (background). Skipped in CI unless PREFLIGHT_OPEN_PROTOCOL_CSV_IN_CI=1.
+_preflight_open_protocol_comparison_csv() {
+  local f="$1"
+  [[ -f "$f" ]] || return 0
+  [[ "${PREFLIGHT_OPEN_PROTOCOL_CSV:-1}" == "1" ]] || return 0
+  if [[ -n "${CI:-}" ]] && [[ "${PREFLIGHT_OPEN_PROTOCOL_CSV_IN_CI:-0}" != "1" ]]; then
+    info "PREFLIGHT_OPEN_PROTOCOL_CSV: skipping editor open in CI (set PREFLIGHT_OPEN_PROTOCOL_CSV_IN_CI=1 to enable)"
+    return 0
+  fi
+  say "Opening protocol-comparison CSV in editor: $f"
+  if command -v cursor >/dev/null 2>&1; then
+    (cursor "$f" >/dev/null 2>&1 &)
+    return 0
+  fi
+  if command -v code >/dev/null 2>&1; then
+    (code -g "$f:1:1" >/dev/null 2>&1 &)
+    return 0
+  fi
+  if [[ "$(uname -s 2>/dev/null)" == "Darwin" ]]; then
+    open -a "Cursor" "$f" 2>/dev/null || open -a "Visual Studio Code" "$f" 2>/dev/null || true
+  fi
+}
+
+# Step 9 (default): k6 protocol matrix → protocol-comparison.csv → canonical 10-file bundle (+ optional flatten) under PREFLIGHT_RUN_DIR.
+_preflight_run_perf_artifacts() {
+  [[ "${PREFLIGHT_PERF_ARTIFACTS:-1}" == "1" ]] || return 0
+  [[ -n "${PREFLIGHT_RUN_DIR:-}" ]] || return 0
+  mkdir -p "$PREFLIGHT_RUN_DIR"
+
+  chmod +x "$SCRIPT_DIR/perf/build-canonical-bundle.sh" \
+    "$SCRIPT_DIR/perf/summarize-protocol-matrix.sh" \
+    "$SCRIPT_DIR/perf/extract-protocol-matrix.js" \
+    "$SCRIPT_DIR/load/run-k6-protocol-matrix.sh" 2>/dev/null || true
+
+  if [[ "${PREFLIGHT_PERF_PROTOCOL_MATRIX:-1}" == "1" ]]; then
+    if ! command -v k6 >/dev/null 2>&1; then
+      warn "9b Protocol matrix skipped: k6 not on PATH"
+      return 0
+    fi
+    _phase_start "9_perf_protocol_matrix"
+    if [[ "${PREFLIGHT_PERF_ENSURE_XK6_HTTP3:-1}" == "1" ]] && [[ "${SKIP_XK6_BUILD:-0}" != "1" ]]; then
+      _pf_h3=""
+      for _c in "$REPO_ROOT/.k6-build/bin/k6-http3" "$REPO_ROOT/.k6-build/k6-http3" \
+        "$REPO_ROOT/.xk6-build/bin/k6-http3" "$REPO_ROOT/.xk6-build/k6-http3"; do
+        [[ -x "$_c" ]] && _pf_h3="$_c" && break
+      done
+      if [[ -z "$_pf_h3" ]] && [[ -f "$SCRIPT_DIR/build-k6-http3.sh" ]]; then
+        say "9b-prep. Building xk6-http3 for protocol matrix HTTP/3 leg (bandorko/xk6-http3)…"
+        ( cd "$REPO_ROOT" && chmod +x "$SCRIPT_DIR/build-k6-http3.sh" 2>/dev/null && "$SCRIPT_DIR/build-k6-http3.sh" 2>&1 ) \
+          && ok "xk6-http3 build done (protocol matrix)" \
+          || warn "xk6-http3 build had issues; HTTP/3 matrix leg may be skipped"
+      fi
+    fi
+    say "9a. k6 protocol matrix (HTTP/1.1 + HTTP/2 + xk6 HTTP/3) → $PREFLIGHT_RUN_DIR/protocol-matrix/"
+    export PREFLIGHT_RUN_DIR
+    export SSL_CERT_FILE="${SSL_CERT_FILE:-$REPO_ROOT/certs/dev-root.pem}"
+    export K6_TLS_CA_CERT="${K6_TLS_CA_CERT:-$SSL_CERT_FILE}"
+    export K6_CA_ABSOLUTE="${K6_CA_ABSOLUTE:-$SSL_CERT_FILE}"
+    (
+      export DURATION="${PREFLIGHT_MATRIX_K6_DURATION:-20s}"
+      export VUS="${PREFLIGHT_MATRIX_K6_VUS:-6}"
+      export SKIP_HTTP3="${PREFLIGHT_PERF_MATRIX_SKIP_HTTP3:-0}"
+      export K6_MATRIX_STRICT="${PREFLIGHT_PERF_MATRIX_STRICT:-0}"
+      export K6_HTTP2_DISABLE_REUSE="${PREFLIGHT_PERF_MATRIX_HTTP2_NO_REUSE:-0}"
+      "$SCRIPT_DIR/load/run-k6-protocol-matrix.sh"
+    ) || warn "9a run-k6-protocol-matrix.sh had issues (non-fatal)"
+    # Canonical contract uses service-latency.csv and raw-metrics.txt at run root.
+    [[ -f "$PREFLIGHT_RUN_DIR/protocol-matrix/service-latency.csv" ]] && cp -f "$PREFLIGHT_RUN_DIR/protocol-matrix/service-latency.csv" "$PREFLIGHT_RUN_DIR/service-latency.csv" || true
+    [[ -f "$PREFLIGHT_RUN_DIR/protocol-matrix/raw-metrics.txt" ]] && cp -f "$PREFLIGHT_RUN_DIR/protocol-matrix/raw-metrics.txt" "$PREFLIGHT_RUN_DIR/raw-metrics.txt" || true
+    [[ -f "$PREFLIGHT_RUN_DIR/protocol-matrix/protocol-comparison.md" ]] && cp -f "$PREFLIGHT_RUN_DIR/protocol-matrix/protocol-comparison.md" "$PREFLIGHT_RUN_DIR/latency-report.md" || true
+
+    if [[ "${PREFLIGHT_PERF_EXTRACT_PROTOCOL_CSV:-1}" == "1" ]]; then
+      _phase_start "9_perf_protocol_matrix_csv"
+      _csv_out="${PREFLIGHT_PERF_PROTOCOL_CSV_OUT:-$REPO_ROOT/bench_logs/protocol-comparison.csv}"
+      if command -v node >/dev/null 2>&1; then
+        say "9a2. extract-protocol-matrix.js → ${_csv_out} (+ mirror under protocol-matrix/)"
+        (
+          export PROTOCOL_MATRIX_DIR="$PREFLIGHT_RUN_DIR/protocol-matrix"
+          export PROTOCOL_COMPARISON_CSV="$_csv_out"
+          node "$SCRIPT_DIR/perf/extract-protocol-matrix.js"
+        ) && ok "9a2 protocol-comparison.csv ($(wc -l < "$_csv_out" 2>/dev/null | tr -d ' ' || echo 0) lines)" || warn "9a2 extract-protocol-matrix.js had issues (non-fatal)"
+        [[ -f "$_csv_out" ]] && cp -f "$_csv_out" "$PREFLIGHT_RUN_DIR/protocol-matrix/protocol-comparison.csv" 2>/dev/null || true
+      else
+        warn "9a2 skipped: node not on PATH (install Node or set PREFLIGHT_PERF_EXTRACT_PROTOCOL_CSV=0)"
+      fi
+    fi
+  fi
+
+  local _strict="${PREFLIGHT_PERF_STRICT_CANONICAL:-1}"
+  if [[ "${PREFLIGHT_PERF_CANONICAL_BUNDLE:-1}" == "1" ]]; then
+    _phase_start "9_perf_canonical_bundle"
+    # Canonical expects telemetry-after.txt + raw-metrics.txt at run root; those are also written on EXIT.
+    # Snapshot here so strict bundle passes mid-preflight; EXIT overwrites with the final capture.
+    if [[ "${PREFLIGHT_TELEMETRY:-0}" == "1" ]]; then
+      say "9b-pre. Snapshot telemetry + raw metrics → $PREFLIGHT_RUN_DIR (for canonical bundle)"
+      [[ -f "$SCRIPT_DIR/capture-control-plane-telemetry.sh" ]] && "$SCRIPT_DIR/capture-control-plane-telemetry.sh" --once > "$PREFLIGHT_RUN_DIR/telemetry-after.txt" 2>&1 || true
+      kubectl get --raw /metrics --request-timeout=15s > "$PREFLIGHT_RUN_DIR/raw-metrics.txt" 2>/dev/null || echo "(raw metrics unavailable)" > "$PREFLIGHT_RUN_DIR/raw-metrics.txt"
+    fi
+    say "9b. Canonical perf bundle (och-perf-canonical-10-v2 + summary.json + zip) → $PREFLIGHT_RUN_DIR"
+    (
+      export PREFLIGHT_RUN_DIR
+      export SKIP_ZIP="${PREFLIGHT_PERF_CANONICAL_SKIP_ZIP:-0}"
+      "$SCRIPT_DIR/perf/build-canonical-bundle.sh" "$PREFLIGHT_RUN_DIR"
+    ) || {
+      _rc=$?
+      if [[ "$_strict" == "1" ]]; then
+        fail "9b canonical bundle failed (strict mode): missing/empty canonical files. Canonical completeness: FAIL"
+      fi
+      warn "9b build-canonical-bundle.sh had issues (non-fatal because PREFLIGHT_PERF_STRICT_CANONICAL=0)"
+      return "$_rc"
+    }
+  fi
+
+  # Retry CSV before 9c flatten — flatten removes protocol-matrix/, so regeneration must happen while summaries still exist.
+  local _pf_csv="${PREFLIGHT_PERF_PROTOCOL_CSV_OUT:-$REPO_ROOT/bench_logs/protocol-comparison.csv}"
+  if [[ "${PREFLIGHT_PERF_PROTOCOL_MATRIX:-1}" == "1" ]] && [[ -d "$PREFLIGHT_RUN_DIR/protocol-matrix" ]] && [[ "${PREFLIGHT_PERF_EXTRACT_PROTOCOL_CSV:-1}" == "1" ]]; then
+    if command -v node >/dev/null 2>&1; then
+      local _sz
+      _sz=$(wc -c < "$_pf_csv" 2>/dev/null | tr -d ' ' || echo 0)
+      if [[ ! -f "$_pf_csv" ]] || [[ "${_sz:-0}" -lt 40 ]]; then
+        say "9a2b. Regenerating protocol-comparison.csv (missing or nearly empty)"
+        if _preflight_try_generate_protocol_csv "$_pf_csv"; then
+          ok "9a2b protocol-comparison.csv ($(wc -l < "$_pf_csv" 2>/dev/null | tr -d ' ' || echo 0) lines)"
+        else
+          warn "9a2b could not generate protocol-comparison.csv (no matrix summaries or extract error)"
+        fi
+      fi
+      if [[ -d "$PREFLIGHT_RUN_DIR/protocol-matrix" ]] && [[ -f "$_pf_csv" ]]; then
+        cp -f "$_pf_csv" "$PREFLIGHT_RUN_DIR/protocol-matrix/protocol-comparison.csv" 2>/dev/null || true
+      fi
+    fi
+  fi
+
+  if [[ "${PREFLIGHT_PERF_FLATTEN_TO_10:-1}" == "1" ]]; then
+    _phase_start "9_perf_flatten_to_10"
+    say "9c. Flatten run directory to strict canonical 10 files"
+    python3 - <<PY
+import os, shutil, sys
+run_dir = os.path.abspath("$PREFLIGHT_RUN_DIR")
+canon = os.path.join(run_dir, "och-perf-canonical-10-v2")
+keep = {
+  "latency-report.md",
+  "service-latency.csv",
+  "protocol-comparison.csv",
+  "k6-cross-service-isolation.log",
+  "k6-dual-analytics-listings.log",
+  "k6-suite-resources.log",
+  "telemetry-during.log",
+  "telemetry-after.txt",
+  "run-all-explain.log",
+  "raw-metrics.txt",
+  "schema-report.md",
+}
+if not os.path.isdir(canon):
+    print("flatten skipped: canonical folder missing", file=sys.stderr)
+    sys.exit(0)
+for n in keep:
+    src = os.path.join(canon, n)
+    dst = os.path.join(run_dir, n)
+    if os.path.isfile(src):
+        shutil.copy2(src, dst)
+for e in list(os.listdir(run_dir)):
+    if e in keep:
+        continue
+    p = os.path.join(run_dir, e)
+    if os.path.isdir(p):
+        shutil.rmtree(p, ignore_errors=True)
+    else:
+        try:
+            os.remove(p)
+        except FileNotFoundError:
+            pass
+PY
+  fi
+
+  _preflight_open_protocol_comparison_csv "$_pf_csv"
+
+  ok "Perf artifacts (step 9): $PREFLIGHT_RUN_DIR — matrix + $_pf_csv + strict canonical 10 when enabled"
 }
 
 # Timestamp start for tracking how long steps take (grep phase= in TELEMETRY_DURING or telemetry log).
@@ -2271,11 +2497,11 @@ kubectl get pods -n envoy-test --no-headers 2>/dev/null | head -5
 ok "6b2 cluster health and pod summary done"
 
 # End of 3a–6b block (Phase C skips above and runs only 7 and 8).
-# Single fi closes if ! _phase_c_only (line ~926). Use && group so we do not stack two fi (some environments mis-parse).
-_phase_a_only && {
+# Single fi closes if ! _phase_c_only (line ~1227). Use plain if/fi (avoid `} fi` after `&& { … }` — some bash builds mis-parse).
+if _phase_a_only; then
   ok "Phase A complete — control-plane sanity. Run Phase B for cert, then full or Phase C for load. See docs/PREFLIGHT_PHASES_README.md"
   exit 0
-}
+fi
 fi
 
 # 6c. (pgbench moved to step 8 so all 8 pgbench runs come after test suites and do not block or slow earlier steps.)
@@ -2404,28 +2630,28 @@ fi
 # Before any host k6 (phases or edge grid): macOS must trust dev-root in Keychain — see header "macOS + host k6".
 _preflight_ensure_macos_k6_keychain_trust() {
   [[ "$(uname -s)" == "Darwin" ]] || return 0
-  [[ "${SKIP_MACOS_DEV_CA_TRUST:-0}" == "1" ]] && {
+  if [[ "${SKIP_MACOS_DEV_CA_TRUST:-0}" == "1" ]]; then
     info "SKIP_MACOS_DEV_CA_TRUST=1 — skipping login keychain dev-root (host k6 must already trust the CA)."
     return 0
-  }
-  [[ "${K6_USE_DOCKER_K6:-0}" == "1" ]] && command -v docker >/dev/null 2>&1 && {
+  fi
+  if [[ "${K6_USE_DOCKER_K6:-0}" == "1" ]] && command -v docker >/dev/null 2>&1; then
     info "K6_USE_DOCKER_K6=1 + Docker on PATH — edge k6 smoke can use Linux k6 + SSL_CERT_FILE; skipping macOS keychain step here."
     return 0
-  }
+  fi
   command -v k6 >/dev/null 2>&1 || return 0
   local _need_host_k6=0
   [[ "${RUN_K6:-0}" == "1" ]] && _need_host_k6=1
   [[ "${RUN_MESSAGING_LOAD:-1}" != "0" ]] && [[ "${RUN_K6_SERVICE_GRID:-1}" != "0" ]] && _need_host_k6=1
   [[ "$_need_host_k6" == "0" ]] && return 0
   local _ca="${PREFLIGHT_MACOS_K6_CA:-$REPO_ROOT/certs/dev-root.pem}"
-  [[ -f "$_ca" ]] || {
+  if [[ ! -f "$_ca" ]]; then
     warn "macOS k6 prep: CA missing at $_ca — sync certs first"
     return 0
-  }
-  [[ -f "$SCRIPT_DIR/lib/trust-dev-root-ca-macos.sh" ]] || {
+  fi
+  if [[ ! -f "$SCRIPT_DIR/lib/trust-dev-root-ca-macos.sh" ]]; then
     warn "macOS k6 prep: scripts/lib/trust-dev-root-ca-macos.sh missing"
     return 0
-  }
+  fi
   chmod +x "$SCRIPT_DIR/lib/trust-dev-root-ca-macos.sh" 2>/dev/null || true
   say "7a-prep (macOS). Host k6 ignores SSL_CERT_FILE for TLS — trusting dev-root in login keychain (re-run after CA rotation)."
   info "  Same as: ./scripts/lib/trust-dev-root-ca-macos.sh \"$_ca\""
@@ -2608,6 +2834,11 @@ fi
 # Default: continue to transport study / in-cluster k6 / pgbench when enabled.
 # make demo sets PREFLIGHT_EXIT_AFTER_HOUSING_SUITES=1 for a faster stop after Vitest + housing HTTP suites + Playwright.
 if [[ "${PREFLIGHT_EXIT_AFTER_HOUSING_SUITES:-0}" == "1" ]]; then
+  if [[ "${PREFLIGHT_PERF_ARTIFACTS_ON_EARLY_EXIT:-0}" == "1" ]]; then
+    _preflight_run_perf_artifacts || true
+  else
+    info "PREFLIGHT_EXIT_AFTER_HOUSING_SUITES=1: step 9 perf artifacts skipped (set PREFLIGHT_PERF_ARTIFACTS_ON_EARLY_EXIT=1 to run bundle + matrix here)"
+  fi
   say "PREFLIGHT_EXIT_AFTER_HOUSING_SUITES=1 — stopping after step 7a (housing suites + Playwright)"
   exit 0
 fi
@@ -2799,8 +3030,10 @@ if [[ "${RUN_PGBENCH:-0}" == "1" ]]; then
   fi
 fi
 
+_preflight_run_perf_artifacts || true
+
 if [[ "${RUN_PGBENCH:-0}" != "1" ]]; then
-  ok "Pre-test complete (pgbench skipped; set RUN_PGBENCH=1 for full control plane)"
+  ok "Pre-test complete (pgbench skipped; set RUN_PGBENCH=1 for full control plane). Step 9: matrix + protocol-comparison.csv + canonical bundle under PREFLIGHT_RUN_DIR when PREFLIGHT_PERF_ARTIFACTS=1."
   exit 0
 fi
 exit 0

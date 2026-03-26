@@ -1,21 +1,84 @@
-perf(lab): canonical 10-file perf bundle, k6 protocol matrix, and edge TLS protocol env
+perf(lab): add classification + protocol-merit interpretation pipeline from combined CSV
 
-WHAT
-----
-  • scripts/perf/build-canonical-bundle.sh — from bench_logs/run-<STAMP>/ copies 10 fixed names into
-    PERF_CANONICAL_10/, writes summary.json (sha256 per file), zips perf-bundle-<STAMP>.zip.
-  • scripts/load/run-k6-protocol-matrix.sh — sequential gateway-health k6 runs: TLS ALPN (default),
-    HTTP/1.1 hint (GODEBUG=http2client=0 + K6_PROTOCOL=http1), HTTP/3 via .k6-build/bin/k6-http3 when present;
-    outputs protocol-matrix/*/summary.json and protocol-comparison.md (via summarize-protocol-matrix.sh).
-  • scripts/load/k6-gateway-health-http3.js — /api/healthz using k6/x/http3 when the custom binary is used.
-  • scripts/load/k6-strict-edge-tls.js — K6_PROTOCOL / K6_HTTP_PROTOCOL (auto|http1|http2|http3), keep-alive,
-    k6_protocol tag, httpVersion for h1/h2 where k6 supports it.
+WHY
+---
+  • We already collect collapse-aware, machine-readable rows in `ALL_SERVICES_PROTOCOLS_VU_COMBINED.csv`,
+    but we lacked an automated interpretation layer for per-service strategy decisions.
+  • The previous `make test-current` flow could fail in `make model` because CLI parsing in
+    `derive-service-model.js` treated `--pools` values as positional CSV input.
+  • We need deterministic, repeatable outputs that classify services, identify protocol merit curves,
+    summarize collapse behavior, and model only DB-bound services before any new load generation.
 
-DOCS / TEAM
------------
-  • TEAM_COMMANDS_IN_ORDER.txt — copy/paste for build-canonical-bundle and run-k6-protocol-matrix.
-  • GITHUB_PR_DESCRIPTION.txt — §4.10, §6.3/6.4/6.8, §7.5 recipes + exec summary row.
+WHAT CHANGED
+------------
+  1) New interpretation builder
+     • Added `scripts/perf/build-performance-lab.js`.
+     • Input: combined dataset CSV (for example:
+       `bench_logs/ceiling/<stamp>/combined-10/ALL_SERVICES_PROTOCOLS_VU_COMBINED.csv`).
+     • Output directory: `bench_logs/performance-lab/`.
+     • Produces:
+       - `service-classification.json`
+       - `per-service-best-protocol.json`
+       - `collapse-summary.json`
+       - `protocol-merit.json`
+       - `service-models.json` (only DB-bound classes)
+       - `final-classification.json`
+       - `performance-lab-report.md`
+
+  2) Classification + merit logic
+     • Computes per-service:
+       - best protocol by max pre-collapse RPS
+       - collapse spread across protocols
+       - protocol RPS variance at matched VUS points
+     • Assigns service classes via data-driven heuristics:
+       - `DB_POOL_LIMITED(_TRANSPORT_SENSITIVE)`
+       - `TRANSPORT_SENSITIVE`
+       - `BACKEND_BOUND`
+       - `CPU_BOUND`
+       - `FANOUT_AMPLIFIED`
+     • Adds protocol merit detection:
+       - throughput merit start VUS (A > B by >10%, consistent windows)
+       - latency merit start VUS (p95 improvement >15%, consistent windows)
+       - stability merit (later collapse VUS)
+       - intensity metrics (avg throughput advantage %, avg p95 improvement %)
+
+  3) DB-bound-only modeling + headroom
+     • Restricts Little’s Law-style modeling to services classified as DB-bound.
+     • Computes:
+       - `safe_rps = 0.8 * max_rps_pre_collapse`
+       - `current_rps_at_vus_20`
+       - `headroom_rps`
+       - pool utilization and predicted safe RPS by configurable pool sizes.
+
+  4) Makefile integration
+     • Added target:
+       `make performance-lab-interpret CSV=<path-to-combined-csv>`
+     • Added this target to `.PHONY` and `help`.
+     • Keeps output deterministic at `bench_logs/performance-lab/`.
+
+  5) CLI parser bug fix
+     • Updated `scripts/load/derive-service-model.js` argument parsing so flag values
+       (e.g. `--pools "10,20,30,40"`) are not mistaken for positional CSV input.
+     • Prevents failures like:
+       `CSV not found: .../10,20,30,40`.
+
+RUN / VALIDATION
+----------------
+  • Executed:
+    `make performance-lab-interpret CSV=/Users/tom/Off-Campus-Housing-Tracker/bench_logs/ceiling/20260326-122845/combined-10/ALL_SERVICES_PROTOCOLS_VU_COMBINED.csv`
+  • Verified generated outputs exist in:
+    `/Users/tom/Off-Campus-Housing-Tracker/bench_logs/performance-lab/`
+  • Verified no linter diagnostics for:
+    - `scripts/perf/build-performance-lab.js`
+    - `scripts/load/derive-service-model.js`
+    - `Makefile`
+
+MAKEFILE NOTE
+-------------
+  • This change extends the existing perf control plane with an interpretation-first stage,
+    so teams can classify and decide protocol strategy from current data before scheduling
+    additional stress runs.
 
 Suggested subject
 -----------------
-perf(lab): canonical perf zip + k6 h1/h2/h3 matrix and protocol env on edge TLS helper
+perf(lab): add combined-csv interpretation target with classification, merit, and report outputs

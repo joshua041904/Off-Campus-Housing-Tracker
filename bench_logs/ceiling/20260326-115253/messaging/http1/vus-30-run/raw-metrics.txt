@@ -1,0 +1,146 @@
+# raw k6 summary exports (concatenated)
+
+### protocol=http1 file=/Users/tom/Off-Campus-Housing-Tracker/bench_logs/ceiling/20260326-115253/messaging/http1/vus-30-run/http1/messaging-summary.json
+{
+    "root_group": {
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {},
+        "checks": {
+                "messaging health": {
+                    "name": "messaging health",
+                    "path": "::messaging health",
+                    "id": "5283f4bcb8950a4997d5f15646378010",
+                    "passes": 1199,
+                    "fails": 2
+                }
+            }
+    },
+    "metrics": {
+        "http_req_tls_handshaking": {
+            "min": 0,
+            "med": 0,
+            "max": 12.683,
+            "p(90)": 0,
+            "p(95)": 0,
+            "avg": 0.16712406328059956
+        },
+        "http_req_failed": {
+            "passes": 2,
+            "fails": 1199,
+            "thresholds": {
+                "rate<0.02": false
+            },
+            "value": 0.0016652789342214821
+        },
+        "http_reqs": {
+            "count": 1201,
+            "rate": 19.98025697738107
+        },
+        "http_req_duration{expected_response:true}": {
+            "med": 9.386,
+            "max": 342.611,
+            "p(90)": 23.5624,
+            "p(95)": 36.061699999999995,
+            "avg": 15.563311926605495,
+            "min": 5.865
+        },
+        "checks": {
+            "passes": 1199,
+            "fails": 2,
+            "value": 0.9983347210657785
+        },
+        "http_req_blocked": {
+            "p(90)": 0.019,
+            "p(95)": 0.041,
+            "avg": 0.21205828476269706,
+            "min": 0.003,
+            "med": 0.009,
+            "max": 18.396
+        },
+        "http_req_waiting": {
+            "max": 342.388,
+            "p(90)": 23.802,
+            "p(95)": 36.02,
+            "avg": 15.590968359700229,
+            "min": 5.749,
+            "med": 9.233
+        },
+        "http_req_receiving": {
+            "avg": 0.10969608659450422,
+            "min": 0.037,
+            "med": 0.089,
+            "max": 5.117,
+            "p(90)": 0.131,
+            "p(95)": 0.151
+        },
+        "http_req_sending": {
+            "med": 0.029,
+            "max": 2.469,
+            "p(90)": 0.045,
+            "p(95)": 0.063,
+            "avg": 0.040935886761032464,
+            "min": 0.013
+        },
+        "data_received": {
+            "count": 1263942,
+            "rate": 21027.382151960854
+        },
+        "http_req_connecting": {
+            "max": 2.352,
+            "p(90)": 0,
+            "p(95)": 0,
+            "avg": 0.024304746044962536,
+            "min": 0,
+            "med": 0
+        },
+        "errors": {
+            "passes": 2,
+            "fails": 1199,
+            "thresholds": {
+                "rate<0.02": false
+            },
+            "value": 0.0016652789342214821
+        },
+        "vus": {
+            "value": 2,
+            "min": 2,
+            "max": 5
+        },
+        "vus_max": {
+            "value": 30,
+            "min": 30,
+            "max": 30
+        },
+        "http_req_duration": {
+            "med": 9.391,
+            "max": 342.611,
+            "p(90)": 23.97,
+            "p(95)": 36.168,
+            "avg": 15.741600333055784,
+            "min": 5.865,
+            "thresholds": {
+                "p(95)<500": false,
+                "p(99)<2000": false,
+                "p(100)<8000": false
+            }
+        },
+        "iteration_duration": {
+            "p(95)": 137.445833,
+            "avg": 116.87532845878455,
+            "min": 106.408042,
+            "med": 110.273875,
+            "max": 444.443875,
+            "p(90)": 126.470291
+        },
+        "iterations": {
+            "count": 1201,
+            "rate": 19.98025697738107
+        },
+        "data_sent": {
+            "count": 240731,
+            "rate": 4004.8852976035987
+        }
+    }
+}

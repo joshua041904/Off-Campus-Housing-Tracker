@@ -14,15 +14,14 @@ const BASE = RAW_BASE;
 const DUR = __ENV.DURATION || "20s";
 const VUS = Number(__ENV.VUS || 6);
 
-export const options = {
-  ...strictEdgeTlsOptions(RAW_BASE),
+export const options = Object.assign({}, strictEdgeTlsOptions(RAW_BASE), {
   vus: VUS,
   duration: DUR,
   thresholds: {
     http_req_failed: ["rate<0.08"],
     http_req_duration: ["p(95)<800", "p(99)<3000", "p(100)<8000"],
   },
-};
+});
 
 export default function () {
   const r = http.get(
