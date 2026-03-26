@@ -11,6 +11,16 @@ import { pool } from "./db.js";
 
 import { validateCreateListingInput, validateListingId } from "./validation.js";
 
+// Logs per-request gRPC latency and marks requests over 100ms as slow.
+function logGrpcTiming(method: string, start: number) {
+  const ms = Date.now() - start;
+  const slow = ms > 100;
+
+  console.log(
+    `[listings gRPC] ${slow ? "SLOW REQUEST " : ""}method=${method} latency_ms=${ms}`,
+  );
+}
+
 const LISTINGS_PROTO = resolveProtoPath("listings.proto");
 const packageDefinition = protoLoader.loadSync(LISTINGS_PROTO, {
   keepCase: true,
@@ -109,10 +119,12 @@ const listingsService = {
     call: grpc.ServerUnaryCall<any, any>,
     callback: grpc.sendUnaryData<any>,
   ) {
+    const start = Date.now();
     const req = call.request;
 
     const validation = validateCreateListingInput(req, { requireUserId: true });
     if (!validation.ok) {
+      logGrpcTiming("CreateListing", start);
       callback({
         code: grpc.status.INVALID_ARGUMENT,
         message: validation.message,
@@ -186,10 +198,12 @@ const listingsService = {
           title: row.title,
           price_cents: row.price_cents,
         });
+        logGrpcTiming("CreateListing", start);
         callback(null, rowToResponse(row));
       })
       .catch((error) => {
         console.error("[CreateListing]", error);
+        logGrpcTiming("CreateListing", start);
         callback({
           code: grpc.status.INTERNAL,
           message: "failed to create listing",
@@ -201,8 +215,10 @@ const listingsService = {
     call: grpc.ServerUnaryCall<any, any>,
     callback: grpc.sendUnaryData<any>,
   ) {
+    const start = Date.now();
     const validation = validateListingId(call.request?.listing_id);
     if (!validation.ok) {
+      logGrpcTiming("GetListing", start);
       callback({
         code: grpc.status.INVALID_ARGUMENT,
         message: validation.message,
@@ -222,16 +238,19 @@ const listingsService = {
       )
       .then((res) => {
         if (!res.rows[0]) {
+          logGrpcTiming("GetListing", start);
           callback({
             code: grpc.status.NOT_FOUND,
             message: "listing not found",
           });
           return;
         }
+        logGrpcTiming("GetListing", start);
         callback(null, rowToResponse(res.rows[0]));
       })
       .catch((e) => {
         console.error("[GetListing]", e);
+        logGrpcTiming("GetListing", start);
         callback({ code: grpc.status.INTERNAL, message: "internal" });
       });
   },
@@ -240,6 +259,7 @@ const listingsService = {
     call: grpc.ServerUnaryCall<any, any>,
     callback: grpc.sendUnaryData<any>,
   ) {
+    const start = Date.now();
     const req = call.request || {};
     const q = String(req.query || "").trim();
     const minP =
@@ -289,10 +309,12 @@ const listingsService = {
     pool
       .query(sql, params)
       .then((res) => {
+        logGrpcTiming("SearchListings", start);
         callback(null, { listings: res.rows.map((r) => rowToResponse(r)) });
       })
       .catch((e) => {
         console.error("[SearchListings]", e);
+        logGrpcTiming("SearchListings", start);
         callback({ code: grpc.status.INTERNAL, message: "search failed" });
       });
   },
