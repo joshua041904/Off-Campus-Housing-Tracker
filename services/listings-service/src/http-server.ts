@@ -14,31 +14,27 @@ import {
 
 type AuthedRequest = Request & { userId?: string };
 
-/** Request timing + optional pool stats (diagnose k6 tail latency / ~5s stalls). */
+// Logs per-request HTTP latency and marks requests over the configured threshold as slow.
 function attachListingsHttpDiagnostics(app: ReturnType<typeof express>): void {
   const timingEnabled =
     process.env.LISTINGS_HTTP_TIMING === "1" ||
     process.env.LISTINGS_HTTP_TIMING === "true";
-  const minMs = Number(process.env.LISTINGS_HTTP_TIMING_MIN_MS ?? "1000");
+  const minMs = Number(process.env.LISTINGS_HTTP_TIMING_MIN_MS ?? "100");
   const poolStatsMs = Number(process.env.LISTINGS_HTTP_POOL_STATS_MS ?? "0");
 
   if (timingEnabled) {
     console.log(
-      `[listings-http-timing] enabled minMs=${minMs} poolStatsMs=${poolStatsMs} (slow requests + SLOW_TIMEOUT_CLASS >=5000ms)`,
+      `[listings-http-timing] enabled minMs=${minMs} poolStatsMs=${poolStatsMs}`,
     );
     app.use((req, res, next) => {
       const started = Date.now();
       res.on("finish", () => {
         const ms = Date.now() - started;
         const path = req.originalUrl || req.url || req.path;
-        const logAll = minMs <= 0;
-        const slow = ms >= minMs;
-        if (logAll || slow) {
-          const tag = ms >= 5000 ? "SLOW_TIMEOUT_CLASS" : slow ? "SLOW" : "req";
-          console.log(
-            `[listings-http-timing] ${tag} ms=${ms} method=${req.method} status=${res.statusCode} path=${path}`,
-          );
-        }
+        const slow = ms > minMs;
+        console.log(
+          `[listings HTTP] ${slow ? "SLOW REQUEST " : ""}method=${req.method} path=${path} status=${res.statusCode} latency_ms=${ms}`,
+        );
       });
       next();
     });
