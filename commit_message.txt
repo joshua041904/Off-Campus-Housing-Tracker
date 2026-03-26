@@ -1,4 +1,4 @@
-perf(lab,make,docs): performance-lab pipeline, capacity outputs, PR doc section 7.7, explain-all-dbs
+perf(lab,make,docs): performance-lab pipeline, reviewer Golden Path, tiered make menu
 
 WHY
 ---
@@ -10,6 +10,9 @@ WHY
     Make targets should be documented next to the existing script-only recipes.
   • EXPLAIN coverage for all housing Postgres instances should be one command, consistent with
     `scripts/perf/run-all-explain.sh` (ports 5441–5448 in the script).
+  • The PR body read like an infra platform dump; reviewers needed one default validation path,
+    a modes table, and explicit “advanced perf” labels so standard review does not require
+    understanding ceiling/capacity tooling.
 
 WHAT CHANGED
 ------------
@@ -32,27 +35,32 @@ WHAT CHANGED
      • `--min-pool` floor (default 5) avoids unrealistic tiny pool suggestions for low-μ services;
        wired as `MIN_RECOMMENDED_POOL` in the Makefile `capacity-recommend` target.
 
-  4) Makefile — perf / lab / capacity / DB EXPLAIN
-     • `performance-lab-interpret` — `CSV=<path>` required.
-     • `performance-lab-interpret-latest` — latest `bench_logs/ceiling/*/combined-10/*.csv`.
-     • `performance-lab-one` — latest ceiling stamp → `combined-10` → performance-lab outputs.
-     • `capacity-recommend` — pool / ingress / dashboard schema from existing lab outputs.
-     • `capacity-one` — `performance-lab-one` then `capacity-recommend`.
-     • `explain-all-dbs` — runs `scripts/perf/run-all-explain.sh` to
-       `bench_logs/explain-all-<timestamp>.md` (needs `psql` + reachable DBs).
-     • `help` / `.PHONY` updated for the above; `PATH` still prefixes `scripts/shims` for Make
-       invocations.
+  4) Makefile — perf / lab / capacity / DB EXPLAIN + menu UX
+     • Targets: `performance-lab-interpret`, `performance-lab-interpret-latest`,
+       `performance-lab-one`, `capacity-recommend`, `capacity-one`, `explain-all-dbs` (see prior
+       commits for full list); `help` / `.PHONY` unchanged in spirit; `PATH` still prefixes
+       `scripts/shims`.
+     • `menu` (default goal): tiered echo groups — Core (`up`, `up-fast`, `strict-canonical`,
+       `test-current`), Performance / modeling (`collapse-all`, `performance-lab-one`,
+       `capacity-one`, `protocol-matrix`), SRE / deep infra (`packet-capture`, `demo-network`,
+       `demo-k3d`), plus “Also common” and output paths; footer states `make help` is still the
+       full flat list (no targets removed).
 
   5) CLI fix (`scripts/load/derive-service-model.js`)
      • Positional CSV and `--pools` flag values no longer collide (avoids “CSV not found: 10,20,…”).
 
-  6) Documentation (`GITHUB_PR_DESCRIPTION.txt`)
-     • Section 4.10: pointer to Makefile shortcuts.
-     • Section 5: decision-tree line for ceiling + `make capacity-one`.
-     • Section 7.7: table of Make targets (`menu`, `ceiling`, `test-current`, performance-lab targets,
-       `capacity-recommend`, `capacity-one`, `explain-all-dbs`), full sweep recipe, override note
-       (`CEILING_*` vs direct `SERVICES=` on the shell script), EXPLAIN cross-links.
-     • Table of contents updated for section 7.7 under section 7.
+  6) Documentation (`GITHUB_PR_DESCRIPTION.txt`) — runbook + reviewer clarity
+     • Top-of-doc and section 1: pointer to Reviewer Golden Path.
+     • Section 2: **Reviewer Golden Path** (`make up-fast` then `make strict-canonical`, first-time
+       `make up` note) and **Modes of operation** table (daily dev, PR validation, `test-current`,
+       `capacity-one`, `make ci`; default when unsure: `strict-canonical`).
+     • Review owners: reviewers need not master the full performance lab; validate owned services
+       after the Golden Path.
+     • Table of contents and section 5 decision tree: link / lead with Golden Path.
+     • Sections 4.10, 6.8, 7.5, 7.7: lead with “Advanced performance tooling — not required for
+       standard PR review” (7.7 adds ceiling/collapse/capacity scope note).
+     • Earlier additions retained: section 7.7 Make target table, `explain-all-dbs`, sweep overrides,
+       cross-links to EXPLAIN and perf scripts.
 
 RUN / VALIDATION
 ----------------
@@ -60,10 +68,11 @@ RUN / VALIDATION
     ceiling run produces `bench_logs/performance-lab/*`.
   • `make capacity-recommend` / `make capacity-one` regenerates capacity artifacts from those inputs.
   • `make explain-all-dbs` writes `bench_logs/explain-all-*.md` (per-DB skips if host port down).
-  • Spot-check: `make help` lists new targets; `bash -n` on touched shell scripts as needed.
+  • Reviewer smoke: `make menu` shows tiered groups; `make help` still lists all targets.
+  • Spot-check: `bash -n` on touched shell scripts as needed.
 
 Suggested subject
 -----------------
-perf(lab,make,docs): performance-lab Make targets, capacity-one, explain-all-dbs, PR section 7.7
+docs(make): reviewer Golden Path + modes table; tiered menu; mark advanced perf sections
 
 Made with Tom.

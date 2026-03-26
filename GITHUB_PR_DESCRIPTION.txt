@@ -6,6 +6,8 @@
 
 **Commands-only, in order (team quickstart + “just show me the frontend”):** repo root **`TEAM_COMMANDS_IN_ORDER.md`** (readable / fast chained blocks); plain-text mirror **`TEAM_COMMANDS_IN_ORDER.txt`**
 
+**Reviewer default:** run the **Reviewer Golden Path** in [section 2](#reviewer-golden-path-do-this-first) (`make up-fast` then `make strict-canonical`) before deep-reading perf sections.
+
 ---
 
 ## Review owners (quick map)
@@ -17,6 +19,8 @@
 | **Franco** | search-service behavior (advanced search/filtering + distance integration path) | `Review: Franco — LGTM on search/filtering + maps distance path` |
 
 **Process:** Each reviewer works their section, checks boxes, and posts **one** summary comment. If something spans two areas, tag both in-thread.
+
+Reviewers do **not** need to understand the full performance lab, ceiling sweeps, or capacity modeling to approve their service area. Follow the [Reviewer Golden Path](#reviewer-golden-path-do-this-first) under section 2, then validate only the flows you own (scripts, Playwright projects, and services in your row above).
 
 ---
 
@@ -93,7 +97,7 @@ This repo work is already done (heavy lifting complete). Reviewers should valida
 ## Table of contents
 
 1. [Welcome / how to use this doc](#1-welcome--how-to-use-this-doc)
-2. [Executive summary](#2-executive-summary)
+2. [Executive summary](#2-executive-summary) — [Reviewer Golden Path](#reviewer-golden-path-do-this-first) · [Modes of operation](#modes-of-operation)
 3. [Prerequisites (one-time)](#3-prerequisites-one-time--not-macos-only)
 4. [First-time setup — zero to preflight](#4-first-time-setup--from-zero-to-preflight)
    - [4.0 First-time fast path (copy/paste)](#40-first-time-fast-path-copypaste)
@@ -117,7 +121,7 @@ This repo work is already done (heavy lifting complete). Reviewers should valida
 | **Ollama + analytics listing-feel (full surface)?** | **§4.7** (first-time step — do before claiming full pass) |
 | **“What tests run where?”** | **§6** (full inventory) |
 | **One copy/paste command** | **§7** recipes |
-| **Reviewing the PR** | Review sections above → **§8** + **§11** |
+| **Reviewing the PR (one safe path)** | Section 2 — **Reviewer Golden Path** → then your reviewer row above → **§8** + **§11** |
 | **Something failed** | **§10** FAQ → `bench_logs/` and paths printed by scripts |
 
 **Repo root:** every command assumes `cd` to **`Off-Campus-Housing-Tracker`**.
@@ -139,6 +143,33 @@ We hardened the **load lab** and **observability** story for **Off-Campus Housin
 **Mental model:** *A service can be healthy while the **full preflight** is red because load stacks. This PR adds **visibility** (top, cooldowns, listings logs) so we do not confuse the two.*
 
 **Long-form:** [`docs/perf/TAIL_LATENCY_AND_CROSS_SERVICE_ANALYSIS.md`](docs/perf/TAIL_LATENCY_AND_CROSS_SERVICE_ANALYSIS.md)
+
+### Reviewer Golden Path (do this first)
+
+If you only run one thing for this PR:
+
+```bash
+make up-fast
+make strict-canonical
+```
+
+**First time on this machine?** Run **`make up`** once (full bootstrap including deps), then use `make up-fast` for later iterations.
+
+If this passes, you have exercised cluster bring-up (repeat path), TLS/mTLS gates, the edge k6 grid, the Playwright browser suite, the protocol matrix, and the canonical 10-artifact bundle (as enforced by preflight defaults). You are then green to approve **your** section.
+
+Everything else in this document is **advanced** performance and lab tooling—optional unless you own perf or capacity work.
+
+### Modes of operation
+
+| Mode | Who should use it | Command |
+|------|-------------------|---------|
+| Daily dev bring-up | Everyone | `make up-fast` (after at least one `make up` on a clean machine) |
+| PR validation | Reviewers | `make strict-canonical` |
+| Performance modeling | Perf work only | `make test-current` |
+| Capacity modeling | Perf follow-up | `make capacity-one` |
+| CI | CI only | `make ci` |
+
+If you are unsure which to run, use **`make strict-canonical`**.
 
 ---
 
@@ -317,6 +348,8 @@ More flags: [`docs/RUN-PREFLIGHT.md`](docs/RUN-PREFLIGHT.md), header on `run-pre
 
 ### 4.10 After preflight — optional commands
 
+**Advanced performance tooling.** Not required for standard PR review. Use the [Reviewer Golden Path](#reviewer-golden-path-do-this-first) first; treat the table below as optional follow-ups for deep dives, perf bundles, and lab scripts.
+
 **Makefile shortcuts (repo root):** the same perf / interpretation / capacity flows are wired for one-liner use. See **§7.7**.
 
 | Command | Role |
@@ -362,6 +395,7 @@ METALLB_ENABLED=1 RUN_PGBENCH=0 ./scripts/run-preflight-scale-and-all-suites.sh 
 ## 5. How to run — quick decision tree
 
 ```
+PR review / approve your owned services? → Section 2 Golden Path: make up-fast && make strict-canonical
 First-time / never ran stack? → §4.1–4.9 (or §4.11 one-paste)
 k3d / Linux (no Colima)?            → §3; skip §4.2; same §4.3–4.9
 Ollama + full analytics surface?    → §4.7
@@ -524,6 +558,8 @@ Between every script: **`k6-suite-resource-hooks.sh`** — `kubectl top`, option
 
 ### 6.8 `scripts/perf/` — reporting & lab helpers
 
+**Advanced performance tooling.** Not required for standard PR review.
+
 Preflight **does not** invoke these automatically; run manually or from CI. Listed in **`run-preflight-scale-and-all-suites.sh`** header for discoverability.
 
 | Script | Role |
@@ -620,6 +656,8 @@ More: [`docs/perf/LISTINGS_HTTP_TIMING.md`](docs/perf/LISTINGS_HTTP_TIMING.md)
 
 ### 7.5 Perf report (EXPLAIN + k6)
 
+**Advanced performance tooling.** Not required for standard PR review.
+
 ```bash
 ./scripts/perf/run-perf-full-report.sh
 ```
@@ -678,6 +716,8 @@ export K6_SUITE_KILL_K6_AFTER_BLOCK=1
 ```
 
 ### 7.7 Makefile — ceiling, performance lab, capacity (one commands)
+
+**Advanced performance tooling.** Not required for standard PR review. Ceiling sweeps, collapse modeling, combined CSV interpretation, and capacity JSON/MD are for perf owners.
 
 From repo root, `make help` lists targets. **`PATH`** includes `scripts/shims` (curl, etc.) when invoked via Make.
 

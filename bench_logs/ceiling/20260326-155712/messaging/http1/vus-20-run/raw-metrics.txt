@@ -1,0 +1,146 @@
+# raw k6 summary exports (concatenated)
+
+### protocol=http1 file=/Users/tom/Off-Campus-Housing-Tracker/bench_logs/ceiling/20260326-155712/messaging/http1/vus-20-run/http1/messaging-summary.json
+{
+    "metrics": {
+        "data_received": {
+            "count": 1242340,
+            "rate": 20685.02129166581
+        },
+        "http_req_duration": {
+            "min": 5.249,
+            "med": 10.2035,
+            "max": 282.342,
+            "p(90)": 23.1259,
+            "p(95)": 36.885949999999966,
+            "avg": 14.611471666666693,
+            "thresholds": {
+                "p(95)<500": false,
+                "p(99)<2000": false,
+                "p(100)<8000": false
+            }
+        },
+        "checks": {
+            "passes": 1200,
+            "fails": 0,
+            "value": 1
+        },
+        "errors": {
+            "passes": 0,
+            "fails": 1200,
+            "thresholds": {
+                "rate<0.02": false
+            },
+            "value": 0
+        },
+        "http_req_receiving": {
+            "med": 0.093,
+            "max": 0.86,
+            "p(90)": 0.13010000000000002,
+            "p(95)": 0.151,
+            "avg": 0.09929583333333297,
+            "min": 0.037
+        },
+        "http_req_failed": {
+            "passes": 0,
+            "fails": 1200,
+            "thresholds": {
+                "rate<0.02": false
+            },
+            "value": 0
+        },
+        "http_req_duration{expected_response:true}": {
+            "med": 10.2035,
+            "max": 282.342,
+            "p(90)": 23.1259,
+            "p(95)": 36.885949999999966,
+            "avg": 14.611471666666693,
+            "min": 5.249
+        },
+        "http_reqs": {
+            "count": 1200,
+            "rate": 19.980058236874747
+        },
+        "http_req_tls_handshaking": {
+            "avg": 0.11031666666666669,
+            "min": 0,
+            "med": 0,
+            "max": 13.987,
+            "p(90)": 0,
+            "p(95)": 0
+        },
+        "http_req_sending": {
+            "p(95)": 0.073,
+            "avg": 0.04067583333333331,
+            "min": 0.012,
+            "med": 0.031,
+            "max": 2.449,
+            "p(90)": 0.052
+        },
+        "vus": {
+            "value": 2,
+            "min": 2,
+            "max": 3
+        },
+        "vus_max": {
+            "value": 20,
+            "min": 20,
+            "max": 20
+        },
+        "iteration_duration": {
+            "med": 111.17331250000001,
+            "max": 385.913459,
+            "p(90)": 125.3743461,
+            "p(95)": 138.06884825,
+            "avg": 115.64764590833329,
+            "min": 106.419083
+        },
+        "iterations": {
+            "count": 1200,
+            "rate": 19.980058236874747
+        },
+        "http_req_connecting": {
+            "max": 1.965,
+            "p(90)": 0,
+            "p(95)": 0,
+            "avg": 0.015576666666666664,
+            "min": 0,
+            "med": 0
+        },
+        "http_req_waiting": {
+            "avg": 14.471499999999994,
+            "min": 5.106,
+            "med": 10.09,
+            "max": 281.769,
+            "p(90)": 22.9918,
+            "p(95)": 36.561249999999994
+        },
+        "data_sent": {
+            "rate": 3742.5979087372543,
+            "count": 224780
+        },
+        "http_req_blocked": {
+            "p(90)": 0.019,
+            "p(95)": 0.033,
+            "avg": 0.14362416666666478,
+            "min": 0.003,
+            "med": 0.009,
+            "max": 18.257
+        }
+    },
+    "root_group": {
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {},
+        "checks": {
+                "messaging health": {
+                    "name": "messaging health",
+                    "path": "::messaging health",
+                    "id": "5283f4bcb8950a4997d5f15646378010",
+                    "passes": 1200,
+                    "fails": 0
+                }
+            }
+    }
+}
