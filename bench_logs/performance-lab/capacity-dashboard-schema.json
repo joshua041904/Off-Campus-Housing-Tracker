@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "description": "Capacity envelope dashboard fields by service and protocol.",
+  "metrics": [
+    "service",
+    "protocol",
+    "current_rps",
+    "safe_rps",
+    "pool_size",
+    "mu_rps_per_db_slot",
+    "estimated_utilization",
+    "inflight_requests",
+    "db_waiters",
+    "p95_waiting_ms",
+    "fail_rate",
+    "collapse_detected",
+    "collapse_reason"
+  ],
+  "derived_formulas": {
+    "estimated_utilization": "current_rps / (pool_size * mu_rps_per_db_slot)",
+    "collapse_detected": "fail_rate > 0.02 || p95_waiting_ms > (3 * baseline_p95_waiting_ms)"
+  }
+}

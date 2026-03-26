@@ -99,7 +99,7 @@ This repo work is already done (heavy lifting complete). Reviewers should valida
    - [4.0 First-time fast path (copy/paste)](#40-first-time-fast-path-copypaste)
 5. [How to run — quick decision tree](#5-how-to-run--quick-decision-tree)
 6. [**Testing map — every script & test location**](#6-testing-map--every-script--test-location) ← **start here if you feel lost**
-7. [How to run — copy/paste recipes](#7-how-to-run--copypaste-recipes)
+7. [How to run — copy/paste recipes](#7-how-to-run--copypaste-recipes) (includes **§7.7** Makefile ceiling / performance-lab / capacity)
 8. [What changed — by subsystem](#8-what-changed--by-subsystem)
 9. [Environment variables reference](#9-environment-variables-reference)
 10. [Troubleshooting (FAQ)](#10-troubleshooting-faq)
@@ -317,6 +317,8 @@ More flags: [`docs/RUN-PREFLIGHT.md`](docs/RUN-PREFLIGHT.md), header on `run-pre
 
 ### 4.10 After preflight — optional commands
 
+**Makefile shortcuts (repo root):** the same perf / interpretation / capacity flows are wired for one-liner use. See **§7.7**.
+
 | Command | Role |
 |---------|------|
 | `./scripts/run-all-test-suites.sh` | Auth → rotation → k6 phases → standalone capture → tls-mtls |
@@ -369,6 +371,7 @@ Full pipeline?                      → §7.3 preflight
 “Where is every test?”              → §6 Testing map
 Listings logs in cluster?            → §7.4 listings diagnostics
 EXPLAIN + k6 report?                → §7.5 perf scripts
+Ceiling sweep + perf lab + capacity JSON/MD? → §7.7 `make ceiling` / `make capacity-one`
 Relax CPU gate / cooldowns / gateway drain? → §7.6 suite hooks + §9 env table
 ```
 
@@ -673,6 +676,34 @@ export K6_ORCHESTRATION_VU_SCENARIO=0
 # Harsh lab only: SIGKILL any k6 on host after each block
 export K6_SUITE_KILL_K6_AFTER_BLOCK=1
 ```
+
+### 7.7 Makefile — ceiling, performance lab, capacity (one commands)
+
+From repo root, `make help` lists targets. **`PATH`** includes `scripts/shims` (curl, etc.) when invoked via Make.
+
+| Target | What it runs |
+|--------|----------------|
+| `make menu` | Short workflow menu (default `make` with no args) |
+| `make ceiling` | Full **service ceiling sweep** for `CEILING_SERVICES` (default: trust, messaging, listings, booking, auth, gateway, analytics, media, event-layer) × `CEILING_PROTOCOLS` × `CEILING_VUS_STEPS` — writes `bench_logs/ceiling/<stamp>/results.csv` |
+| `make test-current` | `ceiling` + `model` + `summarize-ceiling` |
+| `make performance-lab-interpret CSV=<path>` | Build `bench_logs/performance-lab/*` from a combined CSV (`ALL_SERVICES_PROTOCOLS_VU_COMBINED.csv`) |
+| `make performance-lab-interpret-latest` | Same as above, auto-picks latest `bench_logs/ceiling/*/combined-10/ALL_SERVICES_PROTOCOLS_VU_COMBINED.csv` |
+| `make performance-lab-one` | Latest ceiling run → `combined-10/` + full performance-lab outputs under `bench_logs/performance-lab/` |
+| `make capacity-recommend` | Reads performance-lab JSONs; writes `capacity-recommendations.json`, `ingress-tuning.md`, `capacity-dashboard-schema.json` (tune floor with `MIN_RECOMMENDED_POOL`, default `5`) |
+| `make capacity-one` | **`performance-lab-one` + `capacity-recommend`** — end-to-end from latest ceiling stamp to capacity artifacts |
+| `make explain-all-dbs` | **`run-all-explain.sh`** — EXPLAIN ANALYZE across **8** housing Postgres databases (ports **5441–5448** per script; requires `psql` + reachable DBs on `PGHOST`, default `127.0.0.1`) → `bench_logs/explain-all-*.md` |
+
+**Typical full re-measure + model + capacity (all DB-backed services in the sweep):**
+
+```bash
+cd /path/to/Off-Campus-Housing-Tracker
+make ceiling          # long run; needs edge/cluster + k6 ready
+make capacity-one     # combined-10 + lab + pool / ingress / dashboard schema
+```
+
+**Override sweep knobs (optional):** via Make variables `CEILING_SERVICES`, `CEILING_PROTOCOLS`, `CEILING_VUS_STEPS`, `CEILING_DURATION` (see `Makefile` `ceiling` target). Alternatively run the script directly: `SERVICES="trust,media" PROTOCOLS=... ./scripts/load/run-service-ceiling.sh` (see script header).
+
+**Postgres EXPLAIN across housing DBs** (separate from ceiling): `make explain-all-dbs` or `./scripts/perf/run-all-explain.sh` / `./scripts/perf/run-perf-full-report.sh` — see **§7.5** and **§6.8**.
 
 ---
 

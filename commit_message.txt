@@ -1,84 +1,69 @@
-perf(lab): add classification + protocol-merit interpretation pipeline from combined CSV
+perf(lab,make,docs): performance-lab pipeline, capacity outputs, PR doc section 7.7, explain-all-dbs
 
 WHY
 ---
-  • We already collect collapse-aware, machine-readable rows in `ALL_SERVICES_PROTOCOLS_VU_COMBINED.csv`,
-    but we lacked an automated interpretation layer for per-service strategy decisions.
-  • The previous `make test-current` flow could fail in `make model` because CLI parsing in
-    `derive-service-model.js` treated `--pools` values as positional CSV input.
-  • We need deterministic, repeatable outputs that classify services, identify protocol merit curves,
-    summarize collapse behavior, and model only DB-bound services before any new load generation.
+  • Ceiling runs produce `results.csv` and (after flattening) combined CSVs, but teams need a
+    single path from raw sweep → interpretation artifacts → derived pool / ingress guidance without
+    hand-rolled shell.
+  • `derive-service-model.js` previously mis-parsed `--pools` as a positional CSV path.
+  • Reviewers and operators rely on `GITHUB_PR_DESCRIPTION.txt` for copy/paste flows; the new
+    Make targets should be documented next to the existing script-only recipes.
+  • EXPLAIN coverage for all housing Postgres instances should be one command, consistent with
+    `scripts/perf/run-all-explain.sh` (ports 5441–5448 in the script).
 
 WHAT CHANGED
 ------------
-  1) New interpretation builder
-     • Added `scripts/perf/build-performance-lab.js`.
-     • Input: combined dataset CSV (for example:
-       `bench_logs/ceiling/<stamp>/combined-10/ALL_SERVICES_PROTOCOLS_VU_COMBINED.csv`).
-     • Output directory: `bench_logs/performance-lab/`.
-     • Produces:
-       - `service-classification.json`
-       - `per-service-best-protocol.json`
-       - `collapse-summary.json`
-       - `protocol-merit.json`
-       - `service-models.json` (only DB-bound classes)
-       - `final-classification.json`
-       - `performance-lab-report.md`
+  1) Interpretation pipeline (`scripts/perf/build-performance-lab.js`)
+     • Input: `ALL_SERVICES_PROTOCOLS_VU_COMBINED.csv` (or path via Make).
+     • Output dir: `bench_logs/performance-lab/`.
+     • Writes: `service-classification.json`, `per-service-best-protocol.json`,
+       `collapse-summary.json`, `protocol-merit.json`, `service-models.json` (DB-bound classes),
+       `final-classification.json`, `performance-lab-report.md`.
+     • Classification, protocol merit (throughput / latency / stability / intensity), headroom
+       estimates for DB-bound services.
 
-  2) Classification + merit logic
-     • Computes per-service:
-       - best protocol by max pre-collapse RPS
-       - collapse spread across protocols
-       - protocol RPS variance at matched VUS points
-     • Assigns service classes via data-driven heuristics:
-       - `DB_POOL_LIMITED(_TRANSPORT_SENSITIVE)`
-       - `TRANSPORT_SENSITIVE`
-       - `BACKEND_BOUND`
-       - `CPU_BOUND`
-       - `FANOUT_AMPLIFIED`
-     • Adds protocol merit detection:
-       - throughput merit start VUS (A > B by >10%, consistent windows)
-       - latency merit start VUS (p95 improvement >15%, consistent windows)
-       - stability merit (later collapse VUS)
-       - intensity metrics (avg throughput advantage %, avg p95 improvement %)
+  2) Combined-10 generation (`scripts/perf/build-combined-10.js`)
+     • Builds `combined-10/` under a ceiling stamp from that run’s `results.csv`, including
+       `ALL_SERVICES_PROTOCOLS_VU_COMBINED.csv`.
 
-  3) DB-bound-only modeling + headroom
-     • Restricts Little’s Law-style modeling to services classified as DB-bound.
-     • Computes:
-       - `safe_rps = 0.8 * max_rps_pre_collapse`
-       - `current_rps_at_vus_20`
-       - `headroom_rps`
-       - pool utilization and predicted safe RPS by configurable pool sizes.
+  3) Capacity recommendations (`scripts/capacity/derive-pool-sizes.js`)
+     • Reads performance-lab JSONs; emits `capacity-recommendations.json`,
+       `ingress-tuning.md`, `capacity-dashboard-schema.json`.
+     • `--min-pool` floor (default 5) avoids unrealistic tiny pool suggestions for low-μ services;
+       wired as `MIN_RECOMMENDED_POOL` in the Makefile `capacity-recommend` target.
 
-  4) Makefile integration
-     • Added target:
-       `make performance-lab-interpret CSV=<path-to-combined-csv>`
-     • Added this target to `.PHONY` and `help`.
-     • Keeps output deterministic at `bench_logs/performance-lab/`.
+  4) Makefile — perf / lab / capacity / DB EXPLAIN
+     • `performance-lab-interpret` — `CSV=<path>` required.
+     • `performance-lab-interpret-latest` — latest `bench_logs/ceiling/*/combined-10/*.csv`.
+     • `performance-lab-one` — latest ceiling stamp → `combined-10` → performance-lab outputs.
+     • `capacity-recommend` — pool / ingress / dashboard schema from existing lab outputs.
+     • `capacity-one` — `performance-lab-one` then `capacity-recommend`.
+     • `explain-all-dbs` — runs `scripts/perf/run-all-explain.sh` to
+       `bench_logs/explain-all-<timestamp>.md` (needs `psql` + reachable DBs).
+     • `help` / `.PHONY` updated for the above; `PATH` still prefixes `scripts/shims` for Make
+       invocations.
 
-  5) CLI parser bug fix
-     • Updated `scripts/load/derive-service-model.js` argument parsing so flag values
-       (e.g. `--pools "10,20,30,40"`) are not mistaken for positional CSV input.
-     • Prevents failures like:
-       `CSV not found: .../10,20,30,40`.
+  5) CLI fix (`scripts/load/derive-service-model.js`)
+     • Positional CSV and `--pools` flag values no longer collide (avoids “CSV not found: 10,20,…”).
+
+  6) Documentation (`GITHUB_PR_DESCRIPTION.txt`)
+     • Section 4.10: pointer to Makefile shortcuts.
+     • Section 5: decision-tree line for ceiling + `make capacity-one`.
+     • Section 7.7: table of Make targets (`menu`, `ceiling`, `test-current`, performance-lab targets,
+       `capacity-recommend`, `capacity-one`, `explain-all-dbs`), full sweep recipe, override note
+       (`CEILING_*` vs direct `SERVICES=` on the shell script), EXPLAIN cross-links.
+     • Table of contents updated for section 7.7 under section 7.
 
 RUN / VALIDATION
 ----------------
-  • Executed:
-    `make performance-lab-interpret CSV=/Users/tom/Off-Campus-Housing-Tracker/bench_logs/ceiling/20260326-122845/combined-10/ALL_SERVICES_PROTOCOLS_VU_COMBINED.csv`
-  • Verified generated outputs exist in:
-    `/Users/tom/Off-Campus-Housing-Tracker/bench_logs/performance-lab/`
-  • Verified no linter diagnostics for:
-    - `scripts/perf/build-performance-lab.js`
-    - `scripts/load/derive-service-model.js`
-    - `Makefile`
-
-MAKEFILE NOTE
--------------
-  • This change extends the existing perf control plane with an interpretation-first stage,
-    so teams can classify and decide protocol strategy from current data before scheduling
-    additional stress runs.
+  • `make performance-lab-interpret CSV=<combined-csv>` or `make performance-lab-one` after a
+    ceiling run produces `bench_logs/performance-lab/*`.
+  • `make capacity-recommend` / `make capacity-one` regenerates capacity artifacts from those inputs.
+  • `make explain-all-dbs` writes `bench_logs/explain-all-*.md` (per-DB skips if host port down).
+  • Spot-check: `make help` lists new targets; `bash -n` on touched shell scripts as needed.
 
 Suggested subject
 -----------------
-perf(lab): add combined-csv interpretation target with classification, merit, and report outputs
+perf(lab,make,docs): performance-lab Make targets, capacity-one, explain-all-dbs, PR section 7.7
+
+Made with Tom.

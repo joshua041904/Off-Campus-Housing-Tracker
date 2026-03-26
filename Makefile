@@ -16,7 +16,7 @@ export PATH := $(SCRIPTS)/shims:/opt/homebrew/bin:/usr/local/bin:$(PATH)
 .PHONY: menu help up up-fast deps kubeconfig-colima cluster colima-net tls-first-time trust-ca-macos verify-curl-http3 infra-host infra-cluster \
 	metallb-fix hosts-sanity preflight-gate sslkeylog-seed ollama-note ollama-env test test-current model summarize-ceiling strict-canonical ceiling collapse-trust collapse-messaging collapse-all \
 	protocol-matrix packet-capture perf-lab perf-full generate-report graph-capacity heatmap-tail compare-run regression-guard \
-	slack-report discord-report ci ci-full ceiling-default performance-lab-interpret performance-lab-interpret-latest demo demo-network demo-full demo-k3d stack images kustomize-apply \
+	slack-report discord-report ci ci-full ceiling-default performance-lab-interpret performance-lab-interpret-latest performance-lab-one capacity-recommend capacity-one explain-all-dbs demo demo-network demo-full demo-k3d stack images kustomize-apply \
 	deploy-dev rollouts preflight-metallb test-e2e-integrated packet-capture-standalone
 
 # Default orchestration knobs for team "one-command" workflow.
@@ -43,6 +43,7 @@ CEILING_PROTOCOLS ?= http3,http2,http1
 CEILING_VUS_STEPS ?= 10,20,30,40,50,60
 CEILING_DURATION ?= 60s
 POOL_SIZES ?= 10,20,30,40
+MIN_RECOMMENDED_POOL ?= 5
 GENERATE_HTML_REPORT ?= 1
 GENERATE_MD_REPORT ?= 1
 REGRESSION_THRESHOLD_P95 ?= 0.15
@@ -68,6 +69,10 @@ help: ## List targets and short descriptions
 	@echo "  make model            Derive model from latest protocol-comparison.csv"
 	@echo "  make performance-lab-interpret CSV=<combined.csv>  Build classification/merit/report outputs"
 	@echo "  make performance-lab-interpret-latest  Auto-detect latest combined CSV and build outputs"
+	@echo "  make performance-lab-one  Latest ceiling run -> combined-10 + interpretation outputs"
+	@echo "  make capacity-recommend  Generate pool/ingress/dashboard outputs from performance-lab"
+	@echo "  make capacity-one        One command: performance-lab-one + capacity-recommend"
+	@echo "  make explain-all-dbs     EXPLAIN ANALYZE across housing Postgres (5441–5448)"
 	@echo ""
 	@echo "Advanced:"
 	@echo "  make collapse-trust"
@@ -280,6 +285,32 @@ performance-lab-interpret-latest: ## Build interpretation outputs from latest co
 	fi; \
 	echo "Using $$csv"; \
 	node $(SCRIPTS)/perf/build-performance-lab.js --input "$$csv" --out-dir "$(BENCH)/performance-lab" --pools "$(POOL_SIZES)"
+
+performance-lab-one: ## One command: latest ceiling run -> combined-10 -> performance-lab outputs
+	@run="$$(ls -td $(REPO_ROOT)/bench_logs/ceiling/* 2>/dev/null | head -1)"; \
+	if [ -z "$$run" ]; then \
+		echo "❌ No ceiling run found under bench_logs/ceiling"; \
+		exit 1; \
+	fi; \
+	if [ ! -f "$$run/results.csv" ]; then \
+		echo "❌ Latest ceiling run missing results.csv: $$run"; \
+		exit 1; \
+	fi; \
+	echo "Using run $$run"; \
+	node $(SCRIPTS)/perf/build-combined-10.js --run-dir "$$run"; \
+	node $(SCRIPTS)/perf/build-performance-lab.js --input "$$run/combined-10/ALL_SERVICES_PROTOCOLS_VU_COMBINED.csv" --out-dir "$(BENCH)/performance-lab" --pools "$(POOL_SIZES)"
+
+capacity-recommend: ## Generate recommended pool sizes + ingress tuning + dashboard schema
+	node $(SCRIPTS)/capacity/derive-pool-sizes.js --perf-dir "$(BENCH)/performance-lab" --min-pool "$(MIN_RECOMMENDED_POOL)"
+
+capacity-one: ## One command: latest ceiling -> interpretation -> capacity recommendations
+	$(MAKE) performance-lab-one
+	$(MAKE) capacity-recommend
+
+# ROLE: PERF — EXPLAIN across all housing Postgres instances (host ports 5441–5448; see script for DB list)
+explain-all-dbs: ## Run EXPLAIN ANALYZE for every housing DB (needs local psql + reachable Postgres)
+	@mkdir -p $(BENCH)
+	bash $(SCRIPTS)/perf/run-all-explain.sh $(BENCH)/explain-all-$$(date +%Y%m%d-%H%M%S).md
 
 summarize-ceiling: ## Build protocol-side-by-side.csv + protocol-anomalies.csv from CEILING_RESULTS (or latest ceiling run)
 	@csv="$${CEILING_RESULTS:-$$(ls -td $(REPO_ROOT)/bench_logs/ceiling/* 2>/dev/null | head -1)/results.csv}"; \

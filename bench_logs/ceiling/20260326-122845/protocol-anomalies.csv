@@ -1,4 +1,0 @@
-service,protocol,vus,p95_ms,rps,fail_rate,collapse,reason,severity,why
-analytics,http1,10,132.17784999999998,83.2281362082193,0.31387445021991206,1,fail_rate>=0.01,high,fail_rate>=0.01
-gateway,http3,10,,1,k6 exited 2,1,no_metrics,medium,no_metrics
-trust,http2,10,1142.9097499999993,22.675020657757198,0.0021961932650073207,1,p95>=1000,medium,p95>=1000

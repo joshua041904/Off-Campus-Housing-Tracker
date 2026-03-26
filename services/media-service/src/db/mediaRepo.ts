@@ -10,12 +10,45 @@ const conn =
   (process.env.DATABASE_HOST
     ? `postgresql://${process.env.PG_USER || 'postgres'}:${process.env.PG_PASSWORD || 'postgres'}@${process.env.DATABASE_HOST}:${mediaPort}/${mediaDb}?connect_timeout=10`
     : `postgresql://postgres:postgres@127.0.0.1:${mediaPort}/${mediaDb}?connect_timeout=10`)
+const poolMaxRaw = Number(process.env.MEDIA_DB_POOL_MAX || '10')
+const poolMax = Number.isFinite(poolMaxRaw) && poolMaxRaw > 0 ? Math.floor(poolMaxRaw) : 10
+const inflightLimitRaw = Number(process.env.MAX_DB_CONCURRENCY || String(poolMax))
+const inflightLimit = Number.isFinite(inflightLimitRaw) && inflightLimitRaw > 0 ? Math.floor(inflightLimitRaw) : poolMax
 
 export const pool = new Pool({
   connectionString: conn,
-  max: 10,
+  max: poolMax,
   connectionTimeoutMillis: 10_000,
 })
+
+function attachConcurrencyGuard(target: pg.Pool, maxInflight: number): void {
+  const originalQuery = target.query.bind(target) as (...args: any[]) => Promise<any>
+  let inflight = 0
+  const waiters: Array<() => void> = []
+  const acquire = async (): Promise<void> => {
+    if (inflight < maxInflight) {
+      inflight += 1
+      return
+    }
+    await new Promise<void>((resolve) => waiters.push(resolve))
+    inflight += 1
+  }
+  const release = (): void => {
+    inflight = Math.max(0, inflight - 1)
+    const next = waiters.shift()
+    if (next) next()
+  }
+  ;(target as any).query = async (...args: any[]): Promise<any> => {
+    await acquire()
+    try {
+      return await originalQuery(...args)
+    } finally {
+      release()
+    }
+  }
+}
+
+attachConcurrencyGuard(pool, inflightLimit)
 
 export interface MediaRow {
   id: string

@@ -1,2 +1,0 @@
-service,protocol,p50,p95,p99,max,rps
-messaging,http1.1,31.385,171.399,,271.633,19.462974885693754

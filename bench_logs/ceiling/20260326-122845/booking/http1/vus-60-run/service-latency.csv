@@ -1,2 +1,0 @@
-service,protocol,p50,p95,p99,max,rps
-booking,http1.1,410.45,1082.251,,2231.541,108.65211521765855

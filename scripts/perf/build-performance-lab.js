@@ -247,34 +247,32 @@ function build(rows, pools) {
     }
     merit[service] = { service, merit: meritByProtocol };
 
-    if (finalClass.includes("DB_POOL_LIMITED")) {
-      const bestRows = (byProto.get(best) || []).filter((r) => !r.collapse);
-      const anchor = bestRows.length ? bestRows[bestRows.length - 1] : (byProto.get(best) || [])[0];
-      if (anchor && anchor.avg && anchor.avg > 0) {
-        const wAvgSec = anchor.avg / 1000;
-        const mu = 1 / wAvgSec;
-        const util = {};
-        const safeByPool = {};
-        for (const p of pools) {
-          util[p] = Number((anchor.rps / (p * mu)).toFixed(4));
-          safeByPool[p] = Number((0.8 * p * mu).toFixed(2));
-        }
-        const curr20 = (byProto.get(best) || []).find((r) => r.vus === 20)?.rps ?? null;
-        const safeRps = Number((0.8 * (maxPreByProto[best] || 0)).toFixed(2));
-        serviceModels[service] = {
-          service,
-          classification: finalClass,
-          modeled_protocol: best,
-          max_rps_pre_collapse: Number((maxPreByProto[best] || 0).toFixed(2)),
-          safe_rps: safeRps,
-          current_rps_at_vus_20: curr20,
-          headroom_rps: curr20 != null ? Number((safeRps - curr20).toFixed(2)) : null,
-          avg_waiting_ms_anchor: anchor.avg,
-          mu_estimated_rps_per_slot: Number(mu.toFixed(4)),
-          utilization_by_pool: util,
-          predicted_safe_rps_by_pool: safeByPool,
-        };
+    const bestRows = (byProto.get(best) || []).filter((r) => !r.collapse);
+    const anchor = bestRows.length ? bestRows[bestRows.length - 1] : (byProto.get(best) || [])[0];
+    if (anchor && anchor.avg && anchor.avg > 0) {
+      const wAvgSec = anchor.avg / 1000;
+      const mu = 1 / wAvgSec;
+      const util = {};
+      const safeByPool = {};
+      for (const p of pools) {
+        util[p] = Number((anchor.rps / (p * mu)).toFixed(4));
+        safeByPool[p] = Number((0.8 * p * mu).toFixed(2));
       }
+      const curr20 = (byProto.get(best) || []).find((r) => r.vus === 20)?.rps ?? null;
+      const safeRps = Number((0.8 * (maxPreByProto[best] || 0)).toFixed(2));
+      serviceModels[service] = {
+        service,
+        classification: finalClass,
+        modeled_protocol: best,
+        max_rps_pre_collapse: Number((maxPreByProto[best] || 0).toFixed(2)),
+        safe_rps: safeRps,
+        current_rps_at_vus_20: curr20,
+        headroom_rps: curr20 != null ? Number((safeRps - curr20).toFixed(2)) : null,
+        avg_waiting_ms_anchor: anchor.avg,
+        mu_estimated_rps_per_slot: Number(mu.toFixed(4)),
+        utilization_by_pool: util,
+        predicted_safe_rps_by_pool: safeByPool,
+      };
     }
   }
 

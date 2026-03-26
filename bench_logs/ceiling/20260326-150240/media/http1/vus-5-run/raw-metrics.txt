@@ -1,0 +1,150 @@
+# raw k6 summary exports (concatenated)
+
+### protocol=http1 file=/Users/tom/Off-Campus-Housing-Tracker/bench_logs/ceiling/20260326-150240/media/http1/vus-5-run/http1/media-summary.json
+{
+    "metrics": {
+        "http_req_duration": {
+            "avg": 47.19752513966483,
+            "min": 7.861,
+            "med": 17.152,
+            "max": 1778.904,
+            "p(90)": 62.6042,
+            "p(95)": 202.74729999999997,
+            "thresholds": {
+                "p(95)<600": false,
+                "p(99)<2500": false,
+                "p(100)<10000": false
+            }
+        },
+        "data_sent": {
+            "count": 157884,
+            "rate": 2625.7724008276728
+        },
+        "http_req_sending": {
+            "max": 2.587,
+            "p(90)": 0.049,
+            "p(95)": 0.074,
+            "avg": 0.033631284916201015,
+            "min": 0.011,
+            "med": 0.02
+        },
+        "iterations": {
+            "count": 895,
+            "rate": 14.88476538940467
+        },
+        "data_received": {
+            "rate": 14741.12324564122,
+            "count": 886363
+        },
+        "vus": {
+            "max": 8,
+            "value": 1,
+            "min": 1
+        },
+        "dropped_iterations": {
+            "count": 6,
+            "rate": 0.09978613668874639
+        },
+        "http_req_failed": {
+            "fails": 894,
+            "passes": 1,
+            "thresholds": {
+                "rate<0.05": false
+            },
+            "value": 0.0011173184357541898
+        },
+        "errors": {
+            "passes": 1,
+            "fails": 894,
+            "thresholds": {
+                "rate<0.05": false
+            },
+            "value": 0.0011173184357541898
+        },
+        "http_req_connecting": {
+            "max": 3.396,
+            "p(90)": 0,
+            "p(95)": 0,
+            "avg": 0.015555307262569831,
+            "min": 0,
+            "med": 0
+        },
+        "http_req_receiving": {
+            "avg": 0.11549832402234653,
+            "min": 0.034,
+            "med": 0.086,
+            "max": 3.24,
+            "p(90)": 0.161,
+            "p(95)": 0.21879999999999977
+        },
+        "checks": {
+            "passes": 894,
+            "fails": 1,
+            "value": 0.9988826815642458
+        },
+        "http_req_blocked": {
+            "avg": 0.2133396648044687,
+            "min": 0.003,
+            "med": 0.005,
+            "max": 55.835,
+            "p(90)": 0.013,
+            "p(95)": 0.02529999999999996
+        },
+        "vus_max": {
+            "value": 11,
+            "min": 5,
+            "max": 11
+        },
+        "iteration_duration": {
+            "p(90)": 163.6455664,
+            "p(95)": 303.45370899999995,
+            "avg": 148.44188522346352,
+            "min": 108.634833,
+            "med": 118.085292,
+            "max": 1880.576375
+        },
+        "http_reqs": {
+            "rate": 14.88476538940467,
+            "count": 895
+        },
+        "http_req_duration{expected_response:true}": {
+            "p(90)": 62.31860000000001,
+            "p(95)": 202.77835,
+            "avg": 47.14692505592844,
+            "min": 7.861,
+            "med": 17.143500000000003,
+            "max": 1778.904
+        },
+        "http_req_tls_handshaking": {
+            "avg": 0.1831106145251397,
+            "min": 0,
+            "med": 0,
+            "max": 54.574,
+            "p(90)": 0,
+            "p(95)": 0
+        },
+        "http_req_waiting": {
+            "min": 7.065,
+            "med": 17.026,
+            "max": 1778.787,
+            "p(90)": 62.4212,
+            "p(95)": 202.59429999999998,
+            "avg": 47.04839553072633
+        }
+    },
+    "root_group": {
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {},
+        "checks": {
+                "media health": {
+                    "name": "media health",
+                    "path": "::media health",
+                    "id": "841f137838968c18a16538aa00c03cc0",
+                    "passes": 894,
+                    "fails": 1
+                }
+            }
+    }
+}

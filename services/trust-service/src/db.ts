@@ -12,6 +12,8 @@ const conn =
 /** Default 20: k6 matrix / gateway fan-out can exceed 10 concurrent DB clients; tune via TRUST_DB_POOL_MAX. */
 const poolMaxRaw = Number(process.env.TRUST_DB_POOL_MAX ?? "20");
 const poolMax = Number.isFinite(poolMaxRaw) && poolMaxRaw > 0 ? Math.floor(poolMaxRaw) : 20;
+const inflightLimitRaw = Number(process.env.MAX_DB_CONCURRENCY ?? `${poolMax}`);
+const inflightLimit = Number.isFinite(inflightLimitRaw) && inflightLimitRaw > 0 ? Math.floor(inflightLimitRaw) : poolMax;
 
 export const pool = new Pool({
   connectionString: conn,
@@ -19,8 +21,44 @@ export const pool = new Pool({
   connectionTimeoutMillis: 10_000,
 });
 
+function attachConcurrencyGuard(target: Pool, maxInflight: number): void {
+  const originalQuery = target.query.bind(target) as (...args: any[]) => Promise<any>;
+  let inflight = 0;
+  const waiters: Array<() => void> = [];
+  const acquire = async (): Promise<void> => {
+    if (inflight < maxInflight) {
+      inflight += 1;
+      return;
+    }
+    await new Promise<void>((resolve) => waiters.push(resolve));
+    inflight += 1;
+  };
+  const release = (): void => {
+    inflight = Math.max(0, inflight - 1);
+    const next = waiters.shift();
+    if (next) next();
+  };
+  (target as any).query = async (...args: any[]): Promise<any> => {
+    await acquire();
+    try {
+      return await originalQuery(...args);
+    } finally {
+      release();
+    }
+  };
+  const metricsMs = Number(process.env.DB_CONCURRENCY_METRICS_MS || "0");
+  if (metricsMs > 0) {
+    const h = setInterval(() => {
+      console.info(`[trust-service] db_concurrency inflight=${inflight} waiters=${waiters.length} max=${maxInflight}`);
+    }, metricsMs);
+    h.unref();
+  }
+}
+
+attachConcurrencyGuard(pool, inflightLimit);
+
 console.info(
-  `[trust-service] DB pool max=${poolMax} (override with TRUST_DB_POOL_MAX) host=${process.env.DB_HOST || "127.0.0.1"} port=${trustPort} db=${process.env.DB_NAME || "trust"}`,
+  `[trust-service] DB pool max=${poolMax} inflight_limit=${inflightLimit} host=${process.env.DB_HOST || "127.0.0.1"} port=${trustPort} db=${process.env.DB_NAME || "trust"}`,
 );
 
 const poolMetricsMs = Number(process.env.TRUST_DB_POOL_METRICS_MS || "0");

@@ -1,0 +1,113 @@
+{
+  "generated_at": "2026-03-26T19:44:52.075Z",
+  "recommendations": [
+    {
+      "service": "analytics",
+      "classification": "DB_POOL_LIMITED",
+      "mu_rps_per_db_slot": 7.4053,
+      "peak_rps_pre_collapse": 95.05,
+      "safe_utilization_target": 0.75,
+      "min_pool_floor": 5,
+      "recommended_pool": 18,
+      "recommended_max_inflight": 18,
+      "recommended_http2_stream_cap": 9,
+      "recommended_http3_stream_cap": 9,
+      "recommended_safe_rps": 99.97,
+      "merit_hint": {
+        "http1": {
+          "throughput_merit_from_vus": null,
+          "latency_merit_from_vus": null,
+          "stability_merit": false,
+          "avg_throughput_advantage_percent": null,
+          "avg_p95_improvement_percent": null
+        },
+        "http2": {
+          "throughput_merit_from_vus": null,
+          "latency_merit_from_vus": null,
+          "stability_merit": true,
+          "avg_throughput_advantage_percent": 28.85,
+          "avg_p95_improvement_percent": 23.37
+        },
+        "http3": {
+          "throughput_merit_from_vus": null,
+          "latency_merit_from_vus": null,
+          "stability_merit": true,
+          "avg_throughput_advantage_percent": 28.92,
+          "avg_p95_improvement_percent": 39.09
+        }
+      }
+    },
+    {
+      "service": "media",
+      "classification": "FANOUT_AMPLIFIED",
+      "mu_rps_per_db_slot": 42.5744,
+      "peak_rps_pre_collapse": 14.99,
+      "safe_utilization_target": 0.75,
+      "min_pool_floor": 5,
+      "recommended_pool": 5,
+      "recommended_max_inflight": 5,
+      "recommended_http2_stream_cap": 8,
+      "recommended_http3_stream_cap": 8,
+      "recommended_safe_rps": 159.65,
+      "merit_hint": {
+        "http1": {
+          "throughput_merit_from_vus": null,
+          "latency_merit_from_vus": null,
+          "stability_merit": false,
+          "avg_throughput_advantage_percent": null,
+          "avg_p95_improvement_percent": null
+        },
+        "http2": {
+          "throughput_merit_from_vus": null,
+          "latency_merit_from_vus": 5,
+          "stability_merit": false,
+          "avg_throughput_advantage_percent": 0.76,
+          "avg_p95_improvement_percent": 71.07
+        },
+        "http3": {
+          "throughput_merit_from_vus": null,
+          "latency_merit_from_vus": 5,
+          "stability_merit": false,
+          "avg_throughput_advantage_percent": 0.61,
+          "avg_p95_improvement_percent": 46.75
+        }
+      }
+    },
+    {
+      "service": "messaging",
+      "classification": "FANOUT_AMPLIFIED",
+      "mu_rps_per_db_slot": 52.6314,
+      "peak_rps_pre_collapse": 19.98,
+      "safe_utilization_target": 0.75,
+      "min_pool_floor": 5,
+      "recommended_pool": 5,
+      "recommended_max_inflight": 5,
+      "recommended_http2_stream_cap": 8,
+      "recommended_http3_stream_cap": 8,
+      "recommended_safe_rps": 197.37,
+      "merit_hint": {
+        "http1": {
+          "throughput_merit_from_vus": null,
+          "latency_merit_from_vus": null,
+          "stability_merit": false,
+          "avg_throughput_advantage_percent": null,
+          "avg_p95_improvement_percent": null
+        },
+        "http2": {
+          "throughput_merit_from_vus": null,
+          "latency_merit_from_vus": null,
+          "stability_merit": false,
+          "avg_throughput_advantage_percent": null,
+          "avg_p95_improvement_percent": null
+        },
+        "http3": {
+          "throughput_merit_from_vus": null,
+          "latency_merit_from_vus": null,
+          "stability_merit": false,
+          "avg_throughput_advantage_percent": null,
+          "avg_p95_improvement_percent": null
+        }
+      }
+    }
+  ]
+}
