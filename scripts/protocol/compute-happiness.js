@@ -111,6 +111,7 @@ function scoreService(serviceBlock, collapseByService, poolByService) {
       p95_ms: Number(r.p95_ms) || 0,
       max_ms: Number(r.max_ms) || 0,
       fail_rate: Number(r.fail_rate) || 0,
+      tail_penalty: Number(pen.toFixed(6)),
       mu_estimated_rps_per_slot: r.mu_estimated_rps_per_slot != null ? Number(r.mu_estimated_rps_per_slot) : null,
       utilization_pool_10: r.utilization_by_pool && r.utilization_by_pool["10"] != null
         ? Number(r.utilization_by_pool["10"])
@@ -155,6 +156,8 @@ function scoreService(serviceBlock, collapseByService, poolByService) {
   const lambda3 = h3 ? Number(h3.rps) || 0 : 0;
   const mu3 = h3 && h3.mu_estimated_rps_per_slot != null ? Number(h3.mu_estimated_rps_per_slot) : null;
   const tau = lambda2 > 0 ? lambda3 / lambda2 - 1 : null;
+  /** Ignore noise: JSON may round τ to 0 while float τ>0 — unlock only if materially faster H3 */
+  const tauSignificant = lambda2 > 0 && lambda3 > lambda2 * 1.0001;
   let poolThresholdH3 = null;
   if (mu3 != null && mu3 > 0 && lambda3 > 0) {
     poolThresholdH3 = lambda3 / mu3;
@@ -169,11 +172,7 @@ function scoreService(serviceBlock, collapseByService, poolByService) {
   const dominanceRuleHolds = B != null && T != null && lambda2 > 0 ? B > lambda2 * T : null;
 
   const h3Unlocked =
-    poolThresholdCeil != null &&
-    tau != null &&
-    Number.isFinite(tau) &&
-    tau > 0 &&
-    recPool >= poolThresholdCeil;
+    poolThresholdCeil != null && tauSignificant && recPool >= poolThresholdCeil;
 
   return {
     service,
@@ -181,6 +180,7 @@ function scoreService(serviceBlock, collapseByService, poolByService) {
     protocols: scored,
     winner_protocol: winner.protocol,
     winner_composite: winner.scores.composite,
+    winner_utilization_pool_10: util10,
     envelope_stable_at_pool_10: envelopeStable,
     safe_rps_predicted_pool_10_winner: winner.predicted_safe_rps_pool_10,
     collapse_max_rps_pre_collapse: collapseRps || null,
@@ -196,11 +196,10 @@ function scoreService(serviceBlock, collapseByService, poolByService) {
         B != null && Number.isFinite(B) ? Number(B.toFixed(4)) : null,
       transport_ratio_T_lambda3_over_lambda2: T != null && Number.isFinite(T) ? Number(T.toFixed(4)) : null,
       dominance_rule_B_gt_lambda2_times_T: dominanceRuleHolds,
-      h3_transport_unlocked: tau != null && tau > 0 ? h3Unlocked : false,
-      note:
-        tau != null && tau <= 0
-          ? "HTTP/3 effective RPS ≤ HTTP/2 (τ ≤ 0); pool sizing does not unlock H3 transport superiority."
-          : null,
+      h3_transport_unlocked: h3Unlocked,
+      note: !tauSignificant
+        ? "HTTP/3 effective RPS ≤ HTTP/2 (τ not materially > 0); pool sizing does not unlock H3 transport superiority."
+        : null,
     },
   };
 }
@@ -317,12 +316,14 @@ function main() {
       service: row.service,
       winner_protocol: row.winner_protocol,
       model_best_protocol: row.model_best_protocol,
+      winner_utilization_pool_10: row.winner_utilization_pool_10,
       protocols: row.protocols.map((p) => ({
         protocol: p.protocol,
         scores: p.scores,
         rps: p.rps,
         p95_ms: p.p95_ms,
         fail_rate: p.fail_rate,
+        tail_penalty: p.tail_penalty,
       })),
       transport_dominance: row.transport_dominance,
     });
@@ -334,18 +335,26 @@ function main() {
     source_service_model: args.serviceModel,
     source_collapse: collapsePath,
     source_capacity: fs.existsSync(capacityPath) ? capacityPath : null,
-    rows: matrix.map((row) => ({
-      service: row.service,
-      http1_score: row.protocols.find((p) => p.protocol === "http1")?.scores.composite ?? null,
-      http2_score: row.protocols.find((p) => p.protocol === "http2")?.scores.composite ?? null,
-      http3_score: row.protocols.find((p) => p.protocol === "http3")?.scores.composite ?? null,
-      winner: row.winner_protocol,
-      envelope_stable_at_pool_10: row.envelope_stable_at_pool_10,
-      safe_rps_predicted_pool_10_winner: row.safe_rps_predicted_pool_10_winner,
-      collapse_max_rps_pre_collapse: row.collapse_max_rps_pre_collapse,
-      recommended_pool: row.recommended_pool,
-      transport_dominance: row.transport_dominance,
-    })),
+    rows: matrix.map((row) => {
+      const d = row.transport_dominance;
+      return {
+        service: row.service,
+        http1_score: row.protocols.find((p) => p.protocol === "http1")?.scores.composite ?? null,
+        http2_score: row.protocols.find((p) => p.protocol === "http2")?.scores.composite ?? null,
+        http3_score: row.protocols.find((p) => p.protocol === "http3")?.scores.composite ?? null,
+        winner: row.winner_protocol,
+        winner_utilization_pool_10: row.winner_utilization_pool_10,
+        envelope_stable_at_pool_10: row.envelope_stable_at_pool_10,
+        safe_rps_predicted_pool_10_winner: row.safe_rps_predicted_pool_10_winner,
+        collapse_max_rps_pre_collapse: row.collapse_max_rps_pre_collapse,
+        recommended_pool: row.recommended_pool,
+        transport_gain_tau: d?.transport_gain_tau_h3_vs_h2 ?? null,
+        pool_threshold_for_h3: d?.pool_threshold_for_h3_advantage ?? null,
+        pool_threshold_ceil: d?.pool_threshold_ceil ?? null,
+        h3_transport_unlocked: d?.h3_transport_unlocked ?? null,
+        transport_dominance: row.transport_dominance,
+      };
+    }),
   };
 
   fs.mkdirSync(outDir, { recursive: true });

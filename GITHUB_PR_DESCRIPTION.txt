@@ -746,6 +746,8 @@ make capacity-one     # combined-10 + lab + capacity + protocol happiness (score
 
 **Postgres EXPLAIN across housing DBs** (separate from ceiling): `make explain-all-dbs` or `./scripts/perf/run-all-explain.sh` / `./scripts/perf/run-perf-full-report.sh` — see **§7.5** and **§6.8**.
 
+**Operator playbook (commands + jq + readiness gate):** [`docs/perf/PERFORMANCE_LAB_COMMAND_MATRIX.md`](docs/perf/PERFORMANCE_LAB_COMMAND_MATRIX.md) — `make capacity-one`, `make declare-readiness`, fixture CI path.
+
 ---
 
 ## 8. What changed — by subsystem

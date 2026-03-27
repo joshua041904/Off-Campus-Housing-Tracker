@@ -1,58 +1,44 @@
-feat(perf-lab): protocol happiness matrix, tail-weighted scores, transport dominance
-
-PR #2 (protocol intelligence). PR #1 covered capacity / pool derivation; PR #3 will wire
-runtime pool env, ingress stream caps, and policy.
+feat(perf-lab): readiness gate, dashboards, operator matrix, CI fixture (PR #3)
 
 WHY
 ---
-  • After capacity envelopes and derive-pool-sizes.js, we still lacked a deterministic answer
-    to: which protocol is best per service, when HTTP/3 beats HTTP/2, and when backend saturation
-    masks transport gains.
-  • Raw RPS alone mis-ranks protocols when fail_rate or tail amplification is high (e.g. HTTP/2
-    at high error throughput).
+  • Protocol scoring and capacity JSONs existed, but there was no single operator playbook,
+    no automated gate, and no CI hook that could run without Colima/k6.
+  • Dominance unlock had to stay consistent when JSON rounds τ to 0 while floats still show
+    a tiny H3 gain.
 
 WHAT CHANGED
 ------------
-  1) scripts/protocol/compute-happiness.js
-     • Inputs: --service-model (ceiling service-model.json), --collapse (collapse-summary.json),
-       --out-dir; auto-reads capacity-recommendations.json from out-dir when present.
-     • Per service: merge duplicate protocol rows by max RPS; compute Throughput, Latency,
-       TailRisk (normalized penalty from p95/p50, max/p95, fail_rate), Stability (fail_rate gates),
-       Composite = 0.35T + 0.2L + 0.25Tail + 0.2S; winner; envelope @ pool=10; collapse max RPS;
-       recommended pool.
-     • Transport dominance: λ2/λ3, τ = λ3/λ2 − 1, pool_threshold = λ3/μ_http3, B = μ×pool,
-       dominance rule B > λ2×T; h3_transport_unlocked only if τ > 0 AND recommended_pool ≥
-       ceil(pool_threshold); τ ≤ 0 forces unlocked false + explanatory note.
+  1) scripts/protocol/declare-readiness.js
+     • Multi-gate readiness: utilization @ pool 10, τ vs h3_transport_unlocked, fail_rate,
+       tail_penalty vs 4× median, winner stability/composite consistency, max pool.
+     • Optional: --strict-envelope, --panic-scan, --max-pool.
 
-  2) Outputs under bench_logs/performance-lab/
-     • protocol-happiness-matrix.json
-     • protocol-superiority-scores.json
-     • protocol-ranking.md
+  2) scripts/protocol/compute-happiness.js
+     • tail_penalty per protocol; winner_utilization_pool_10; flat jq aliases on matrix rows.
+     • H3 unlock only if lambda3 > lambda2 * 1.0001 (material τ); note when not material.
 
-  3) Makefile
-     • protocol-happiness target (latest ceiling service-model + perf-lab collapse-summary).
-     • capacity-one now runs protocol-happiness after capacity-recommend (pools align with
-       dominance math).
-     • menu lists protocol-happiness under performance / modeling.
-
-  4) docs
-     • GITHUB_PR_DESCRIPTION.txt section 7.7: capacity-one + protocol-happiness.
-     • GITHUB_PR_DESCRIPTION_PR2.txt: full PR #2 body for GitHub paste (sample JSON excerpt).
+  3) scripts/protocol/build-envelope-dashboard.js → envelope-dashboard.json
+  4) scripts/protocol/build-dominance-heatmap.js → transport-dominance-heatmap.json
+  5) scripts/protocol/validate-production-readiness.sh (+ --fixture)
+  6) scripts/protocol/fixtures/perf-lab-pass/* — CI/passing smoke JSON
+  7) docs/perf/PERFORMANCE_LAB_COMMAND_MATRIX.md — official command matrix
+  8) .github/workflows/protocol-readiness.yml — fixture gate on scripts/protocol changes
+  9) Makefile: perf-lab-dashboards, declare-readiness; capacity-one chains perf-lab-dashboards
+ 10) GITHUB_PR_DESCRIPTION_PR3.txt — PR body for paste
 
 WHAT THIS DOES NOT DO
 ---------------------
-  • No DB pool env changes, no K8s deployment edits, no ingress stream cap changes — analytical
-    tooling only (PR #3).
+  • No runtime pool env or ingress changes (next PR). CI does not run make capacity-one.
 
 RUN / VALIDATION
 ----------------
-  • node scripts/protocol/compute-happiness.js --service-model <ceiling>/service-model.json \
-      --collapse bench_logs/performance-lab/collapse-summary.json --out-dir bench_logs/performance-lab
-  • make protocol-happiness / make capacity-one
-  • Verified: τ ≤ 0 ⇒ h3_transport_unlocked false + note; τ > 0 and pool ≥ threshold ⇒ true.
+  • node scripts/protocol/declare-readiness.js --perf-dir scripts/protocol/fixtures/perf-lab-pass
+  • ./scripts/protocol/validate-production-readiness.sh --fixture
+  • make capacity-one (with existing ceiling + lab data) regenerates dashboard JSON
 
 Suggested subject
 -----------------
-feat(perf-lab): protocol happiness matrix, tail-weighted scoring, transport dominance
+feat(perf-lab): declare-readiness gate, dashboards, command matrix, CI fixture
 
 Made with Tom.

@@ -1,0 +1,113 @@
+{
+  "generated_at": "2026-03-27T01:31:41.219Z",
+  "services": [
+    {
+      "service": "analytics",
+      "collapse_max_rps_pre_collapse": 131.4913401905226,
+      "safe_rps_pool10_winner": 35.94141118634462,
+      "recommended_pool": 62,
+      "pool_threshold_for_h3": 19.3538,
+      "pool_threshold_ceil": 20,
+      "transport_gain_tau": -0.1968,
+      "h3_transport_unlocked": false,
+      "winner_utilization_pool_10": 2.926793041236638,
+      "winner_protocol": "http1"
+    },
+    {
+      "service": "auth",
+      "collapse_max_rps_pre_collapse": 289.6516176378461,
+      "safe_rps_pool10_winner": 97.79027205188541,
+      "recommended_pool": 78,
+      "pool_threshold_for_h3": 35.312,
+      "pool_threshold_ceil": 36,
+      "transport_gain_tau": 0.2794,
+      "h3_transport_unlocked": true,
+      "winner_utilization_pool_10": 1.8520374124917052,
+      "winner_protocol": "http2"
+    },
+    {
+      "service": "booking",
+      "collapse_max_rps_pre_collapse": 129.88778094104552,
+      "safe_rps_pool10_winner": 41.29952540029653,
+      "recommended_pool": 58,
+      "pool_threshold_for_h3": 23.7366,
+      "pool_threshold_ceil": 24,
+      "transport_gain_tau": -0.0566,
+      "h3_transport_unlocked": false,
+      "winner_utilization_pool_10": 2.3736561764314086,
+      "winner_protocol": "http3"
+    },
+    {
+      "service": "event-layer",
+      "collapse_max_rps_pre_collapse": 207.04573408922587,
+      "safe_rps_pool10_winner": 95.24796288161352,
+      "recommended_pool": 38,
+      "pool_threshold_for_h3": 17.39,
+      "pool_threshold_ceil": 18,
+      "transport_gain_tau": 0.8196,
+      "h3_transport_unlocked": true,
+      "winner_utilization_pool_10": 1.739003987699509,
+      "winner_protocol": "http3"
+    },
+    {
+      "service": "gateway",
+      "collapse_max_rps_pre_collapse": 563.600365192936,
+      "safe_rps_pool10_winner": 619.1157565038874,
+      "recommended_pool": 10,
+      "pool_threshold_for_h3": null,
+      "pool_threshold_ceil": null,
+      "transport_gain_tau": -0.9982,
+      "h3_transport_unlocked": false,
+      "winner_utilization_pool_10": 0.6119011429597894,
+      "winner_protocol": "http1"
+    },
+    {
+      "service": "listings",
+      "collapse_max_rps_pre_collapse": 198.7305582696151,
+      "safe_rps_pool10_winner": 40.02684946831559,
+      "recommended_pool": 41,
+      "pool_threshold_for_h3": 22.6936,
+      "pool_threshold_ceil": 23,
+      "transport_gain_tau": -0.2804,
+      "h3_transport_unlocked": false,
+      "winner_utilization_pool_10": 3.9795602524116918,
+      "winner_protocol": "http2"
+    },
+    {
+      "service": "media",
+      "collapse_max_rps_pre_collapse": 14.988490802040632,
+      "safe_rps_pool10_winner": 451.87859687181935,
+      "recommended_pool": 5,
+      "pool_threshold_for_h3": 0.2955,
+      "pool_threshold_ceil": 1,
+      "transport_gain_tau": 0,
+      "h3_transport_unlocked": false,
+      "winner_utilization_pool_10": 0.026535429481812423,
+      "winner_protocol": "http2"
+    },
+    {
+      "service": "messaging",
+      "collapse_max_rps_pre_collapse": 19.980058236874747,
+      "safe_rps_pool10_winner": 552.810696886985,
+      "recommended_pool": 5,
+      "pool_threshold_for_h3": 0.4292,
+      "pool_threshold_ceil": 1,
+      "transport_gain_tau": 0,
+      "h3_transport_unlocked": false,
+      "winner_utilization_pool_10": 0.028914141277493272,
+      "winner_protocol": "http1"
+    },
+    {
+      "service": "trust",
+      "collapse_max_rps_pre_collapse": 104.59204870390141,
+      "safe_rps_pool10_winner": 26.635681990986892,
+      "recommended_pool": 42,
+      "pool_threshold_for_h3": 31.4141,
+      "pool_threshold_ceil": 32,
+      "transport_gain_tau": 0.7625,
+      "h3_transport_unlocked": true,
+      "winner_utilization_pool_10": 3.141411546790317,
+      "winner_protocol": "http3"
+    }
+  ]
+}

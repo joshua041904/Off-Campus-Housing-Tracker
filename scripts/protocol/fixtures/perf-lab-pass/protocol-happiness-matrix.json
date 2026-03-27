@@ -1,0 +1,24 @@
+{
+  "generated_at": "fixture",
+  "rows": [
+    {
+      "service": "fixture-service",
+      "winner": "http1",
+      "winner_utilization_pool_10": 0.5,
+      "envelope_stable_at_pool_10": true,
+      "safe_rps_predicted_pool_10_winner": 40,
+      "collapse_max_rps_pre_collapse": 90,
+      "recommended_pool": 10,
+      "transport_gain_tau": -0.1,
+      "pool_threshold_for_h3": 4.5,
+      "pool_threshold_ceil": 5,
+      "h3_transport_unlocked": false,
+      "transport_dominance": {
+        "transport_gain_tau_h3_vs_h2": -0.1,
+        "pool_threshold_for_h3_advantage": 4.5,
+        "pool_threshold_ceil": 5,
+        "h3_transport_unlocked": false
+      }
+    }
+  ]
+}

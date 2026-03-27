@@ -1,0 +1,53 @@
+{
+  "generated_at": "fixture",
+  "services": [
+    {
+      "service": "fixture-service",
+      "winner_protocol": "http1",
+      "protocols": [
+        {
+          "protocol": "http1",
+          "scores": {
+            "throughput": 0.9,
+            "latency": 0.9,
+            "tail_risk": 0.9,
+            "stability": 1,
+            "composite": 0.9
+          },
+          "rps": 50,
+          "p95_ms": 100,
+          "fail_rate": 0,
+          "tail_penalty": 1.0
+        },
+        {
+          "protocol": "http2",
+          "scores": {
+            "throughput": 0.7,
+            "latency": 0.7,
+            "tail_risk": 0.7,
+            "stability": 1,
+            "composite": 0.7
+          },
+          "rps": 45,
+          "p95_ms": 120,
+          "fail_rate": 0,
+          "tail_penalty": 1.1
+        },
+        {
+          "protocol": "http3",
+          "scores": {
+            "throughput": 0.6,
+            "latency": 0.6,
+            "tail_risk": 0.6,
+            "stability": 1,
+            "composite": 0.6
+          },
+          "rps": 40,
+          "p95_ms": 130,
+          "fail_rate": 0,
+          "tail_penalty": 1.2
+        }
+      ]
+    }
+  ]
+}

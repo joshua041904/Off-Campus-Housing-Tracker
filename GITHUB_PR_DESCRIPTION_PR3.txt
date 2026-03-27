@@ -1,0 +1,112 @@
+# PR #3 — Performance lab governance: readiness gate, dashboards, operator matrix
+
+**Title (suggested):** `feat(perf-lab): production readiness gate, envelope dashboard, dominance heatmap, CI fixture`
+
+**Stack position:** PR #1 capacity / pools · PR #2 protocol happiness + dominance · **PR #3 (this)** wires **governance**: automated gates, dashboard JSON, operator docs, CI smoke. **PR #4 (future)** can apply pool env + ingress caps from recommendations.
+
+---
+
+## Executive summary
+
+Adds **deterministic production-readiness evaluation** and **supporting artifacts** without changing runtime services:
+
+- `declare-readiness.js` — multi-gate check on `bench_logs/performance-lab/*.json`
+- `validate-production-readiness.sh` — operator playbook + jq samples + optional fixture mode
+- `build-envelope-dashboard.js` — `envelope-dashboard.json` for charting
+- `build-dominance-heatmap.js` — `transport-dominance-heatmap.json` (pool × μ-scale regions)
+- **GitHub Actions** — runs fixture pass on `scripts/protocol/**` changes (no cluster)
+- **Docs** — `docs/perf/PERFORMANCE_LAB_COMMAND_MATRIX.md` (official command matrix)
+
+**`make capacity-one`** now ends with **`perf-lab-dashboards`** so matrix + capacity + happiness + dashboard JSON regenerate together.
+
+---
+
+## What changed
+
+### 1. `scripts/protocol/declare-readiness.js`
+
+- Loads `protocol-happiness-matrix.json` (`rows`), `protocol-superiority-scores.json`, `collapse-summary.json` (must exist).
+- Gates (default):
+  - `winner_utilization_pool_10` ≥ 1.0 → fail; ≥ 0.85 → fail (envelope not fair for transport compare)
+  - τ / `h3_transport_unlocked` consistency (uses flat fields on matrix rows when present)
+  - `fail_rate >= 2%` per protocol; high composite with high fail rate flagged
+  - Winner must have `StabilityScore === 1`; winner must match composite argmax (tie-break p95)
+  - Tail penalty vs **4× median** of all protocol tail penalties
+  - `recommended_pool` vs `--max-pool` (default 200)
+- Flags: `--strict-envelope` (optional safe-vs-collapse comparison; **off** by default — model “safe RPS” and measured collapse are not always comparable), `--panic-scan` (scan matrix/k6 logs under `bench_logs` for `panic`, capped file count).
+
+Exit **0** + `PRODUCTION_READY=true` when clean; else exit **1** + `REASON=` lines.
+
+### 2. `scripts/protocol/compute-happiness.js` (refinements)
+
+- `tail_penalty` on each protocol in superiority output; `winner_utilization_pool_10` on matrix rows + flat aliases (`transport_gain_tau`, `pool_threshold_for_h3`, etc.) for jq.
+- **H3 unlock:** requires **material** H3 gain: `lambda3 > lambda2 * 1.0001` (avoids τ rounded to `0` in JSON but unlock still true).
+- Note text updated when τ is not materially positive.
+
+### 3. `scripts/protocol/build-envelope-dashboard.js`
+
+- Reads `protocol-happiness-matrix.json` → writes `envelope-dashboard.json`.
+
+### 4. `scripts/protocol/build-dominance-heatmap.js`
+
+- Reads ceiling `service-model.json` → per-service grid (pool 5–40, μ scale 0.5–2.0) with region labels `http2-dominant` | `http3-dominant` | `backend-bound`.
+
+### 5. `scripts/protocol/validate-production-readiness.sh`
+
+- Phase 0 artifact check; jq tables when `jq` installed; runs `declare-readiness.js`.
+- `--fixture` uses `scripts/protocol/fixtures/perf-lab-pass/` (always passing).
+
+### 6. `scripts/protocol/fixtures/perf-lab-pass/`
+
+- Minimal JSON trio for CI and local smoke.
+
+### 7. Makefile
+
+- `perf-lab-dashboards`, `declare-readiness`
+- `capacity-one` → includes `perf-lab-dashboards`
+- `make menu` lists new targets
+
+### 8. `.github/workflows/protocol-readiness.yml`
+
+- On push/PR touching `scripts/protocol/**`: Node 20 + fixture `declare-readiness` + `validate-production-readiness.sh --fixture`.
+
+### 9. `docs/perf/PERFORMANCE_LAB_COMMAND_MATRIX.md`
+
+- Phases 1–7: commands, files, jq, gates, optional k6 reruns.
+
+---
+
+## What this PR does **not** do
+
+- No Kubernetes / env / ingress changes (PR #4).
+- CI does **not** run `make capacity-one` (needs cluster + long ceiling).
+
+---
+
+## How to run locally
+
+```bash
+make capacity-one
+make declare-readiness    # expect false until lab is tuned
+./scripts/protocol/validate-production-readiness.sh --fixture
+node scripts/protocol/build-envelope-dashboard.js
+node scripts/protocol/build-dominance-heatmap.js --service-model bench_logs/ceiling/<stamp>/service-model.json
+```
+
+Read: `docs/perf/PERFORMANCE_LAB_COMMAND_MATRIX.md`
+
+---
+
+## Validation performed
+
+- `node scripts/protocol/declare-readiness.js --perf-dir scripts/protocol/fixtures/perf-lab-pass` → `PRODUCTION_READY=true`
+- `./scripts/protocol/validate-production-readiness.sh --fixture` → success
+- Regenerated real `bench_logs/performance-lab/*` with updated `compute-happiness.js`; `declare-readiness` on real data reports expected failures (utilization, fail rates, tails) until production envelope is met
+
+---
+
+## Footer
+
+This PR turns the performance lab into something you can **run**, **inspect**, and **gate** in CI (fixture path), while keeping full cluster validation an explicit operator choice.
+
+**Made with Tom.**

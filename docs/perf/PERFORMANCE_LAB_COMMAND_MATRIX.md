@@ -1,0 +1,104 @@
+# Performance lab command matrix (operator playbook)
+
+Single reference for **what to run** and **what to open** after ceiling + modeling work.
+
+## Phase 1 — Regenerate artifacts
+
+From repo root (needs cluster + k6 for a fresh ceiling; otherwise uses latest `bench_logs/ceiling/*`):
+
+```bash
+make capacity-one
+```
+
+This runs, in order:
+
+1. `performance-lab-one` — latest ceiling `results.csv` → `combined-10` → `build-performance-lab.js`
+2. `capacity-recommend` — `derive-pool-sizes.js` → `capacity-recommendations.json`, `ingress-tuning.md`, `capacity-dashboard-schema.json`
+3. `protocol-happiness` — `compute-happiness.js` → happiness matrix + superiority + `protocol-ranking.md`
+4. `perf-lab-dashboards` — `envelope-dashboard.json`, `transport-dominance-heatmap.json`
+
+Outputs live under **`bench_logs/performance-lab/`**.
+
+## Phase 2 — Files to inspect
+
+| File | Purpose |
+|------|---------|
+| `protocol-happiness-matrix.json` | Per-service scores, `winner_utilization_pool_10`, τ, `h3_transport_unlocked` |
+| `protocol-superiority-scores.json` | Per-protocol score components + `tail_penalty` |
+| `protocol-ranking.md` | Human-readable ranking |
+| `capacity-recommendations.json` | Pool / stream-cap hints |
+| `collapse-summary.json` | Collapse VU / reason / max RPS pre-collapse |
+| `envelope-dashboard.json` | Flat rows for charts |
+| `transport-dominance-heatmap.json` | Pool × μ-scale grid (regions: http2-dominant / http3-dominant / backend-bound) |
+
+## Phase 3 — Quick jq checks
+
+```bash
+# Utilization + transport unlock
+jq '.rows[] | {service, winner_utilization_pool_10, transport_gain_tau, h3_transport_unlocked, recommended_pool}' \
+  bench_logs/performance-lab/protocol-happiness-matrix.json
+
+# One service
+jq '.rows[] | select(.service=="analytics")' bench_logs/performance-lab/protocol-happiness-matrix.json
+jq '.rows[] | select(.service=="auth")' bench_logs/performance-lab/protocol-happiness-matrix.json
+```
+
+**τ / unlock rule**
+
+- If `transport_gain_tau <= 0` (or H3 not materially faster than H2 in the model), expect `h3_transport_unlocked: false`.
+- If `transport_gain_tau > 0` and `recommended_pool >= pool_threshold_ceil`, expect `h3_transport_unlocked: true`.
+
+## Phase 4 — Automated readiness gate
+
+Strict multi-gate check (often **fails** on raw lab data until pools and tails are tuned):
+
+```bash
+make declare-readiness
+# or
+node scripts/protocol/declare-readiness.js --perf-dir bench_logs/performance-lab
+```
+
+Options:
+
+- `--strict-envelope` — also fail when predicted safe RPS @ pool 10 ≥ collapse RPS (experimental; off by default because definitions differ).
+- `--panic-scan` — scan matrix/k6 `.log` files under `bench_logs` for `panic`.
+- `--max-pool N` — fail if recommended pool &gt; N (default 200).
+
+**CI smoke** (passing fixture only):
+
+```bash
+./scripts/protocol/validate-production-readiness.sh --fixture
+```
+
+## Phase 5 — Operator shell script
+
+```bash
+./scripts/protocol/validate-production-readiness.sh
+PERF_DIR=bench_logs/performance-lab ./scripts/protocol/validate-production-readiness.sh
+```
+
+## Phase 6 — Optional load re-checks
+
+After changing pool env in cluster (future PR):
+
+```bash
+DURATION=60s VUS=20 SSL_CERT_FILE="$PWD/certs/dev-root.pem" ./scripts/load/run-trust-protocol-stress.sh
+make protocol-happiness
+```
+
+Protocol matrix single cells (see script header for exact args):
+
+```bash
+SSL_CERT_FILE="$PWD/certs/dev-root.pem" ./scripts/load/run-k6-protocol-matrix.sh http2 trust
+```
+
+## Phase 7 — What “green” means
+
+`PRODUCTION_READY=true` only when **all** gates in `declare-readiness.js` pass. On typical dev/colima runs you will see `PRODUCTION_READY=false` until utilization &lt; 0.85 at pool 10, fail rates &lt; 2%, and tail penalties stay within the median-based band.
+
+Treat that as **expected** during development; use the fixture path to verify the gate wiring in CI.
+
+## See also
+
+- `GITHUB_PR_DESCRIPTION_PR2.txt` — protocol scoring + dominance (PR #2)
+- `GITHUB_PR_DESCRIPTION_PR3.txt` — governance + readiness + dashboards (PR #3)

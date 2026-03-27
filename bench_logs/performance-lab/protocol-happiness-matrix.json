@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-03-27T00:31:02.283Z",
+  "generated_at": "2026-03-27T01:24:49.959Z",
   "weights": {
     "throughput": 0.35,
     "latency": 0.2,
@@ -16,10 +16,15 @@
       "http2_score": 0.4867,
       "http3_score": 0.7727,
       "winner": "http1",
+      "winner_utilization_pool_10": 2.926793041236638,
       "envelope_stable_at_pool_10": false,
       "safe_rps_predicted_pool_10_winner": 35.94141118634462,
       "collapse_max_rps_pre_collapse": 131.4913401905226,
       "recommended_pool": 62,
+      "transport_gain_tau": -0.1968,
+      "pool_threshold_for_h3": 19.3538,
+      "pool_threshold_ceil": 20,
+      "h3_transport_unlocked": false,
       "transport_dominance": {
         "lambda_http2_rps": 163.2095014574261,
         "lambda_http3_rps": 131.09475021628228,
@@ -31,7 +36,7 @@
         "transport_ratio_T_lambda3_over_lambda2": 0.8032,
         "dominance_rule_B_gt_lambda2_times_T": true,
         "h3_transport_unlocked": false,
-        "note": "HTTP/3 effective RPS ≤ HTTP/2 (τ ≤ 0); pool sizing does not unlock H3 transport superiority."
+        "note": "HTTP/3 effective RPS ≤ HTTP/2 (τ not materially > 0); pool sizing does not unlock H3 transport superiority."
       }
     },
     {
@@ -40,10 +45,15 @@
       "http2_score": 0.9134,
       "http3_score": 0.8536,
       "winner": "http2",
+      "winner_utilization_pool_10": 1.8520374124917052,
       "envelope_stable_at_pool_10": false,
       "safe_rps_predicted_pool_10_winner": 97.79027205188541,
       "collapse_max_rps_pre_collapse": 289.6516176378461,
       "recommended_pool": 78,
+      "transport_gain_tau": 0.2794,
+      "pool_threshold_for_h3": 35.312,
+      "pool_threshold_ceil": 36,
+      "h3_transport_unlocked": true,
       "transport_dominance": {
         "lambda_http2_rps": 226.3890530222922,
         "lambda_http3_rps": 289.6516176378461,
@@ -64,10 +74,15 @@
       "http2_score": 0.7274,
       "http3_score": 0.7573,
       "winner": "http3",
+      "winner_utilization_pool_10": 2.3736561764314086,
       "envelope_stable_at_pool_10": false,
       "safe_rps_predicted_pool_10_winner": 41.29952540029653,
       "collapse_max_rps_pre_collapse": 129.88778094104552,
       "recommended_pool": 58,
+      "transport_gain_tau": -0.0566,
+      "pool_threshold_for_h3": 23.7366,
+      "pool_threshold_ceil": 24,
+      "h3_transport_unlocked": false,
       "transport_dominance": {
         "lambda_http2_rps": 129.88778094104552,
         "lambda_http3_rps": 122.53859193762463,
@@ -79,7 +94,7 @@
         "transport_ratio_T_lambda3_over_lambda2": 0.9434,
         "dominance_rule_B_gt_lambda2_times_T": true,
         "h3_transport_unlocked": false,
-        "note": "HTTP/3 effective RPS ≤ HTTP/2 (τ ≤ 0); pool sizing does not unlock H3 transport superiority."
+        "note": "HTTP/3 effective RPS ≤ HTTP/2 (τ not materially > 0); pool sizing does not unlock H3 transport superiority."
       }
     },
     {
@@ -88,10 +103,15 @@
       "http2_score": 0.8348,
       "http3_score": 0.8764,
       "winner": "http3",
+      "winner_utilization_pool_10": 1.739003987699509,
       "envelope_stable_at_pool_10": false,
       "safe_rps_predicted_pool_10_winner": 95.24796288161352,
       "collapse_max_rps_pre_collapse": 207.04573408922587,
       "recommended_pool": 38,
+      "transport_gain_tau": 0.8196,
+      "pool_threshold_for_h3": 17.39,
+      "pool_threshold_ceil": 18,
+      "h3_transport_unlocked": true,
       "transport_dominance": {
         "lambda_http2_rps": 113.78868515676206,
         "lambda_http3_rps": 207.04573408922587,
@@ -112,10 +132,15 @@
       "http2_score": 0.6271,
       "http3_score": 0.6506,
       "winner": "http1",
+      "winner_utilization_pool_10": 0.6119011429597894,
       "envelope_stable_at_pool_10": true,
       "safe_rps_predicted_pool_10_winner": 619.1157565038874,
       "collapse_max_rps_pre_collapse": 563.600365192936,
       "recommended_pool": 10,
+      "transport_gain_tau": -0.9982,
+      "pool_threshold_for_h3": null,
+      "pool_threshold_ceil": null,
+      "h3_transport_unlocked": false,
       "transport_dominance": {
         "lambda_http2_rps": 563.600365192936,
         "lambda_http3_rps": 1,
@@ -127,7 +152,7 @@
         "transport_ratio_T_lambda3_over_lambda2": 0.0018,
         "dominance_rule_B_gt_lambda2_times_T": null,
         "h3_transport_unlocked": false,
-        "note": "HTTP/3 effective RPS ≤ HTTP/2 (τ ≤ 0); pool sizing does not unlock H3 transport superiority."
+        "note": "HTTP/3 effective RPS ≤ HTTP/2 (τ not materially > 0); pool sizing does not unlock H3 transport superiority."
       }
     },
     {
@@ -136,10 +161,15 @@
       "http2_score": 0.7474,
       "http3_score": 0.6038,
       "winner": "http2",
+      "winner_utilization_pool_10": 3.9795602524116918,
       "envelope_stable_at_pool_10": false,
       "safe_rps_predicted_pool_10_winner": 40.02684946831559,
       "collapse_max_rps_pre_collapse": 198.7305582696151,
       "recommended_pool": 41,
+      "transport_gain_tau": -0.2804,
+      "pool_threshold_for_h3": 22.6936,
+      "pool_threshold_ceil": 23,
+      "h3_transport_unlocked": false,
       "transport_dominance": {
         "lambda_http2_rps": 199.11157396671848,
         "lambda_http3_rps": 143.28148443810994,
@@ -151,7 +181,7 @@
         "transport_ratio_T_lambda3_over_lambda2": 0.7196,
         "dominance_rule_B_gt_lambda2_times_T": true,
         "h3_transport_unlocked": false,
-        "note": "HTTP/3 effective RPS ≤ HTTP/2 (τ ≤ 0); pool sizing does not unlock H3 transport superiority."
+        "note": "HTTP/3 effective RPS ≤ HTTP/2 (τ not materially > 0); pool sizing does not unlock H3 transport superiority."
       }
     },
     {
@@ -160,10 +190,15 @@
       "http2_score": 0.998,
       "http3_score": 0.9861,
       "winner": "http2",
+      "winner_utilization_pool_10": 0.026535429481812423,
       "envelope_stable_at_pool_10": true,
       "safe_rps_predicted_pool_10_winner": 451.87859687181935,
       "collapse_max_rps_pre_collapse": 14.988490802040632,
       "recommended_pool": 5,
+      "transport_gain_tau": 0,
+      "pool_threshold_for_h3": 0.2955,
+      "pool_threshold_ceil": 1,
+      "h3_transport_unlocked": false,
       "transport_dominance": {
         "lambda_http2_rps": 14.988490802040632,
         "lambda_http3_rps": 14.988586191615084,
@@ -174,8 +209,8 @@
         "backend_capacity_B_mu_times_pool": 253.6454,
         "transport_ratio_T_lambda3_over_lambda2": 1,
         "dominance_rule_B_gt_lambda2_times_T": true,
-        "h3_transport_unlocked": true,
-        "note": null
+        "h3_transport_unlocked": false,
+        "note": "HTTP/3 effective RPS ≤ HTTP/2 (τ not materially > 0); pool sizing does not unlock H3 transport superiority."
       }
     },
     {
@@ -184,10 +219,15 @@
       "http2_score": 0.7255,
       "http3_score": 0.7191,
       "winner": "http1",
+      "winner_utilization_pool_10": 0.028914141277493272,
       "envelope_stable_at_pool_10": true,
       "safe_rps_predicted_pool_10_winner": 552.810696886985,
       "collapse_max_rps_pre_collapse": 19.980058236874747,
       "recommended_pool": 5,
+      "transport_gain_tau": 0,
+      "pool_threshold_for_h3": 0.4292,
+      "pool_threshold_ceil": 1,
+      "h3_transport_unlocked": false,
       "transport_dominance": {
         "lambda_http2_rps": 19.979983386643813,
         "lambda_http3_rps": 19.97974709100455,
@@ -199,7 +239,7 @@
         "transport_ratio_T_lambda3_over_lambda2": 1,
         "dominance_rule_B_gt_lambda2_times_T": true,
         "h3_transport_unlocked": false,
-        "note": "HTTP/3 effective RPS ≤ HTTP/2 (τ ≤ 0); pool sizing does not unlock H3 transport superiority."
+        "note": "HTTP/3 effective RPS ≤ HTTP/2 (τ not materially > 0); pool sizing does not unlock H3 transport superiority."
       }
     },
     {
@@ -208,10 +248,15 @@
       "http2_score": 0.7602,
       "http3_score": 0.8353,
       "winner": "http3",
+      "winner_utilization_pool_10": 3.141411546790317,
       "envelope_stable_at_pool_10": false,
       "safe_rps_predicted_pool_10_winner": 26.635681990986892,
       "collapse_max_rps_pre_collapse": 104.59204870390141,
       "recommended_pool": 42,
+      "transport_gain_tau": 0.7625,
+      "pool_threshold_for_h3": 31.4141,
+      "pool_threshold_ceil": 32,
+      "h3_transport_unlocked": true,
       "transport_dominance": {
         "lambda_http2_rps": 59.34309424611955,
         "lambda_http3_rps": 104.59204870390141,

@@ -20,7 +20,7 @@ Composite score weights: throughput 0.35, latency 0.20, tail risk 0.25, stabilit
 - **Pool threshold (λ3/μ with HTTP/3 μ) for H3 advantage band:** 20
 - **HTTP/3 transport “unlocked” (recommended pool ≥ threshold):** false
 - **Rule B > λ2×T (backend capacity vs transport-scaled load):** true
-- **Note:** HTTP/3 effective RPS ≤ HTTP/2 (τ ≤ 0); pool sizing does not unlock H3 transport superiority.
+- **Note:** HTTP/3 effective RPS ≤ HTTP/2 (τ not materially > 0); pool sizing does not unlock H3 transport superiority.
 
 ## auth
 
@@ -59,7 +59,7 @@ Composite score weights: throughput 0.35, latency 0.20, tail risk 0.25, stabilit
 - **Pool threshold (λ3/μ with HTTP/3 μ) for H3 advantage band:** 24
 - **HTTP/3 transport “unlocked” (recommended pool ≥ threshold):** false
 - **Rule B > λ2×T (backend capacity vs transport-scaled load):** true
-- **Note:** HTTP/3 effective RPS ≤ HTTP/2 (τ ≤ 0); pool sizing does not unlock H3 transport superiority.
+- **Note:** HTTP/3 effective RPS ≤ HTTP/2 (τ not materially > 0); pool sizing does not unlock H3 transport superiority.
 
 ## event-layer
 
@@ -98,7 +98,7 @@ Composite score weights: throughput 0.35, latency 0.20, tail risk 0.25, stabilit
 - **Pool threshold (λ3/μ with HTTP/3 μ) for H3 advantage band:** n/a
 - **HTTP/3 transport “unlocked” (recommended pool ≥ threshold):** false
 - **Rule B > λ2×T (backend capacity vs transport-scaled load):** n/a
-- **Note:** HTTP/3 effective RPS ≤ HTTP/2 (τ ≤ 0); pool sizing does not unlock H3 transport superiority.
+- **Note:** HTTP/3 effective RPS ≤ HTTP/2 (τ not materially > 0); pool sizing does not unlock H3 transport superiority.
 
 ## listings
 
@@ -118,7 +118,7 @@ Composite score weights: throughput 0.35, latency 0.20, tail risk 0.25, stabilit
 - **Pool threshold (λ3/μ with HTTP/3 μ) for H3 advantage band:** 23
 - **HTTP/3 transport “unlocked” (recommended pool ≥ threshold):** false
 - **Rule B > λ2×T (backend capacity vs transport-scaled load):** true
-- **Note:** HTTP/3 effective RPS ≤ HTTP/2 (τ ≤ 0); pool sizing does not unlock H3 transport superiority.
+- **Note:** HTTP/3 effective RPS ≤ HTTP/2 (τ not materially > 0); pool sizing does not unlock H3 transport superiority.
 
 ## media
 
@@ -136,8 +136,9 @@ Composite score weights: throughput 0.35, latency 0.20, tail risk 0.25, stabilit
 - **Recommended pool (capacity file or default 10):** 5
 - **HTTP/3 vs HTTP/2 τ (λ3/λ2 − 1):** 0
 - **Pool threshold (λ3/μ with HTTP/3 μ) for H3 advantage band:** 1
-- **HTTP/3 transport “unlocked” (recommended pool ≥ threshold):** true
+- **HTTP/3 transport “unlocked” (recommended pool ≥ threshold):** false
 - **Rule B > λ2×T (backend capacity vs transport-scaled load):** true
+- **Note:** HTTP/3 effective RPS ≤ HTTP/2 (τ not materially > 0); pool sizing does not unlock H3 transport superiority.
 
 ## messaging
 
@@ -157,7 +158,7 @@ Composite score weights: throughput 0.35, latency 0.20, tail risk 0.25, stabilit
 - **Pool threshold (λ3/μ with HTTP/3 μ) for H3 advantage band:** 1
 - **HTTP/3 transport “unlocked” (recommended pool ≥ threshold):** false
 - **Rule B > λ2×T (backend capacity vs transport-scaled load):** true
-- **Note:** HTTP/3 effective RPS ≤ HTTP/2 (τ ≤ 0); pool sizing does not unlock H3 transport superiority.
+- **Note:** HTTP/3 effective RPS ≤ HTTP/2 (τ not materially > 0); pool sizing does not unlock H3 transport superiority.
 
 ## trust
 

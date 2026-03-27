@@ -1,0 +1,10 @@
+[
+  {
+    "service": "fixture-service",
+    "protocols": {
+      "http1": { "collapse_vus": null, "collapse_reason": "none", "max_rps_pre_collapse": 50 },
+      "http2": { "collapse_vus": null, "collapse_reason": "none", "max_rps_pre_collapse": 45 },
+      "http3": { "collapse_vus": null, "collapse_reason": "none", "max_rps_pre_collapse": 40 }
+    }
+  }
+]
