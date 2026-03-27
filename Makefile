@@ -16,7 +16,7 @@ export PATH := $(SCRIPTS)/shims:/opt/homebrew/bin:/usr/local/bin:$(PATH)
 .PHONY: menu help up up-fast deps kubeconfig-colima cluster colima-net tls-first-time trust-ca-macos verify-curl-http3 infra-host infra-cluster \
 	metallb-fix hosts-sanity preflight-gate sslkeylog-seed ollama-note ollama-env test test-current model summarize-ceiling strict-canonical ceiling collapse-trust collapse-messaging collapse-all \
 	protocol-matrix packet-capture perf-lab perf-full generate-report graph-capacity heatmap-tail compare-run regression-guard \
-	slack-report discord-report ci ci-full ceiling-default performance-lab-interpret performance-lab-interpret-latest performance-lab-one capacity-recommend capacity-one explain-all-dbs demo demo-network demo-full demo-k3d stack images kustomize-apply \
+	slack-report discord-report ci ci-full ceiling-default performance-lab-interpret performance-lab-interpret-latest performance-lab-one capacity-recommend capacity-one protocol-happiness explain-all-dbs demo demo-network demo-full demo-k3d stack images kustomize-apply \
 	deploy-dev rollouts preflight-metallb test-e2e-integrated packet-capture-standalone
 
 # Default orchestration knobs for team "one-command" workflow.
@@ -71,7 +71,7 @@ help: ## List targets and short descriptions
 	@echo "  make performance-lab-interpret-latest  Auto-detect latest combined CSV and build outputs"
 	@echo "  make performance-lab-one  Latest ceiling run -> combined-10 + interpretation outputs"
 	@echo "  make capacity-recommend  Generate pool/ingress/dashboard outputs from performance-lab"
-	@echo "  make capacity-one        One command: performance-lab-one + capacity-recommend"
+	@echo "  make capacity-one        One command: performance-lab-one + capacity-recommend + protocol-happiness"
 	@echo "  make explain-all-dbs     EXPLAIN ANALYZE across housing Postgres (5441–5448)"
 	@echo ""
 	@echo "Advanced:"
@@ -105,6 +105,7 @@ menu: ## Friendly workflow menu (default target)
 	@echo "  make collapse-all"
 	@echo "  make performance-lab-one"
 	@echo "  make capacity-one"
+	@echo "  make protocol-happiness"
 	@echo "  make protocol-matrix"
 	@echo ""
 	@echo "SRE / deep infra:"
@@ -313,9 +314,25 @@ performance-lab-one: ## One command: latest ceiling run -> combined-10 -> perfor
 capacity-recommend: ## Generate recommended pool sizes + ingress tuning + dashboard schema
 	node $(SCRIPTS)/capacity/derive-pool-sizes.js --perf-dir "$(BENCH)/performance-lab" --min-pool "$(MIN_RECOMMENDED_POOL)"
 
-capacity-one: ## One command: latest ceiling -> interpretation -> capacity recommendations
+capacity-one: ## One command: latest ceiling -> lab + capacity JSON/MD + protocol happiness matrix
 	$(MAKE) performance-lab-one
 	$(MAKE) capacity-recommend
+	$(MAKE) protocol-happiness
+
+# ROLE: PERF — tail-weighted protocol scores + HTTP/3 dominance thresholds (needs service-model + collapse-summary)
+protocol-happiness: ## Write protocol-happiness-matrix.json, protocol-superiority-scores.json, protocol-ranking.md
+	@run="$$(ls -td $(REPO_ROOT)/bench_logs/ceiling/* 2>/dev/null | head -1)"; \
+	sm="$$run/service-model.json"; \
+	cl="$(BENCH)/performance-lab/collapse-summary.json"; \
+	if [ -z "$$run" ] || [ ! -f "$$sm" ]; then \
+		echo "❌ Need latest bench_logs/ceiling/*/service-model.json (run make ceiling first)"; \
+		exit 1; \
+	fi; \
+	if [ ! -f "$$cl" ]; then \
+		echo "❌ Missing $$cl — run make performance-lab-one first"; \
+		exit 1; \
+	fi; \
+	node $(SCRIPTS)/protocol/compute-happiness.js --service-model "$$sm" --collapse "$$cl" --out-dir "$(BENCH)/performance-lab"
 
 # ROLE: PERF — EXPLAIN across all housing Postgres instances (host ports 5441–5448; see script for DB list)
 explain-all-dbs: ## Run EXPLAIN ANALYZE for every housing DB (needs local psql + reachable Postgres)

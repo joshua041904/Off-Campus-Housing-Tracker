@@ -730,7 +730,8 @@ From repo root, `make help` lists targets. **`PATH`** includes `scripts/shims` (
 | `make performance-lab-interpret-latest` | Same as above, auto-picks latest `bench_logs/ceiling/*/combined-10/ALL_SERVICES_PROTOCOLS_VU_COMBINED.csv` |
 | `make performance-lab-one` | Latest ceiling run → `combined-10/` + full performance-lab outputs under `bench_logs/performance-lab/` |
 | `make capacity-recommend` | Reads performance-lab JSONs; writes `capacity-recommendations.json`, `ingress-tuning.md`, `capacity-dashboard-schema.json` (tune floor with `MIN_RECOMMENDED_POOL`, default `5`) |
-| `make capacity-one` | **`performance-lab-one` + `capacity-recommend`** — end-to-end from latest ceiling stamp to capacity artifacts |
+| `make capacity-one` | **`performance-lab-one` + `capacity-recommend` + `protocol-happiness`** — lab, pool/ingress artifacts, and tail-weighted protocol matrix / dominance JSON + `protocol-ranking.md` |
+| `make protocol-happiness` | **`compute-happiness.js`** — reads latest ceiling `service-model.json` + `performance-lab/collapse-summary.json` (+ optional `capacity-recommendations.json`); writes `protocol-happiness-matrix.json`, `protocol-superiority-scores.json`, `protocol-ranking.md` |
 | `make explain-all-dbs` | **`run-all-explain.sh`** — EXPLAIN ANALYZE across **8** housing Postgres databases (ports **5441–5448** per script; requires `psql` + reachable DBs on `PGHOST`, default `127.0.0.1`) → `bench_logs/explain-all-*.md` |
 
 **Typical full re-measure + model + capacity (all DB-backed services in the sweep):**
@@ -738,7 +739,7 @@ From repo root, `make help` lists targets. **`PATH`** includes `scripts/shims` (
 ```bash
 cd /path/to/Off-Campus-Housing-Tracker
 make ceiling          # long run; needs edge/cluster + k6 ready
-make capacity-one     # combined-10 + lab + pool / ingress / dashboard schema
+make capacity-one     # combined-10 + lab + capacity + protocol happiness (scores + ranking MD)
 ```
 
 **Override sweep knobs (optional):** via Make variables `CEILING_SERVICES`, `CEILING_PROTOCOLS`, `CEILING_VUS_STEPS`, `CEILING_DURATION` (see `Makefile` `ceiling` target). Alternatively run the script directly: `SERVICES="trust,media" PROTOCOLS=... ./scripts/load/run-service-ceiling.sh` (see script header).

@@ -3,19 +3,119 @@
     "service": "analytics",
     "protocols": {
       "http3": {
-        "collapse_vus": 30,
-        "collapse_reason": "rps_stall",
-        "max_rps_pre_collapse": 95.05210382377945
+        "collapse_vus": 40,
+        "collapse_reason": "p95>=1000",
+        "max_rps_pre_collapse": 131.09475021628228
       },
       "http2": {
-        "collapse_vus": 30,
+        "collapse_vus": 40,
+        "collapse_reason": "fail_rate>=0.01",
+        "max_rps_pre_collapse": 99.0609896359186
+      },
+      "http1": {
+        "collapse_vus": 60,
         "collapse_reason": "p95>=1000|rps_stall",
-        "max_rps_pre_collapse": 92.39414617183277
+        "max_rps_pre_collapse": 131.4913401905226
+      }
+    }
+  },
+  {
+    "service": "auth",
+    "protocols": {
+      "http3": {
+        "collapse_vus": null,
+        "collapse_reason": "none",
+        "max_rps_pre_collapse": 289.6516176378461
+      },
+      "http2": {
+        "collapse_vus": 40,
+        "collapse_reason": "rps_stall",
+        "max_rps_pre_collapse": 226.3890530222922
       },
       "http1": {
         "collapse_vus": 20,
+        "collapse_reason": "p95>=1000",
+        "max_rps_pre_collapse": 4.8804186597885835
+      }
+    }
+  },
+  {
+    "service": "booking",
+    "protocols": {
+      "http3": {
+        "collapse_vus": 40,
+        "collapse_reason": "p95>=1000",
+        "max_rps_pre_collapse": 122.53859193762463
+      },
+      "http2": {
+        "collapse_vus": 60,
+        "collapse_reason": "p95>=1000",
+        "max_rps_pre_collapse": 129.88778094104552
+      },
+      "http1": {
+        "collapse_vus": 40,
+        "collapse_reason": "p95>=1000",
+        "max_rps_pre_collapse": 110.76668090382421
+      }
+    }
+  },
+  {
+    "service": "event-layer",
+    "protocols": {
+      "http3": {
+        "collapse_vus": 50,
         "collapse_reason": "rps_stall",
-        "max_rps_pre_collapse": 61.24991535763528
+        "max_rps_pre_collapse": 207.04573408922587
+      },
+      "http2": {
+        "collapse_vus": 20,
+        "collapse_reason": "p95>=1000",
+        "max_rps_pre_collapse": 113.78868515676206
+      },
+      "http1": {
+        "collapse_vus": 10,
+        "collapse_reason": "p95>=1000",
+        "max_rps_pre_collapse": 1.6481548085400235
+      }
+    }
+  },
+  {
+    "service": "gateway",
+    "protocols": {
+      "http3": {
+        "collapse_vus": 10,
+        "collapse_reason": "no_metrics",
+        "max_rps_pre_collapse": 1
+      },
+      "http2": {
+        "collapse_vus": null,
+        "collapse_reason": "none",
+        "max_rps_pre_collapse": 563.600365192936
+      },
+      "http1": {
+        "collapse_vus": 50,
+        "collapse_reason": "rps_stall",
+        "max_rps_pre_collapse": 473.5470487864292
+      }
+    }
+  },
+  {
+    "service": "listings",
+    "protocols": {
+      "http3": {
+        "collapse_vus": 50,
+        "collapse_reason": "p95>=1000|rps_stall",
+        "max_rps_pre_collapse": 143.28148443810994
+      },
+      "http2": {
+        "collapse_vus": 50,
+        "collapse_reason": "rps_stall",
+        "max_rps_pre_collapse": 198.7305582696151
+      },
+      "http1": {
+        "collapse_vus": 20,
+        "collapse_reason": "fail_rate>=0.01",
+        "max_rps_pre_collapse": 122.2017322511765
       }
     }
   },
@@ -23,19 +123,19 @@
     "service": "media",
     "protocols": {
       "http3": {
-        "collapse_vus": 15,
+        "collapse_vus": 30,
         "collapse_reason": "rps_stall",
-        "max_rps_pre_collapse": 14.969732448466903
+        "max_rps_pre_collapse": 14.98832434514054
       },
       "http2": {
-        "collapse_vus": 15,
+        "collapse_vus": 30,
         "collapse_reason": "rps_stall",
-        "max_rps_pre_collapse": 14.987810634851387
+        "max_rps_pre_collapse": 14.988490802040632
       },
       "http1": {
-        "collapse_vus": 15,
-        "collapse_reason": "rps_stall",
-        "max_rps_pre_collapse": 14.88476538940467
+        "collapse_vus": 10,
+        "collapse_reason": "p95>=1000",
+        "max_rps_pre_collapse": 12.275877170138145
       }
     }
   },
@@ -43,19 +143,39 @@
     "service": "messaging",
     "protocols": {
       "http3": {
-        "collapse_vus": 15,
-        "collapse_reason": "p95>=1000|rps_stall",
-        "max_rps_pre_collapse": 19.784963812256382
+        "collapse_vus": 30,
+        "collapse_reason": "rps_stall",
+        "max_rps_pre_collapse": 19.97974709100455
       },
       "http2": {
-        "collapse_vus": 15,
+        "collapse_vus": 30,
         "collapse_reason": "rps_stall",
-        "max_rps_pre_collapse": 19.947937876934986
+        "max_rps_pre_collapse": 19.979983386643813
       },
       "http1": {
-        "collapse_vus": 15,
+        "collapse_vus": 30,
         "collapse_reason": "rps_stall",
-        "max_rps_pre_collapse": 19.980112052660722
+        "max_rps_pre_collapse": 19.980058236874747
+      }
+    }
+  },
+  {
+    "service": "trust",
+    "protocols": {
+      "http3": {
+        "collapse_vus": 50,
+        "collapse_reason": "p95>=1000",
+        "max_rps_pre_collapse": 104.59204870390141
+      },
+      "http2": {
+        "collapse_vus": 30,
+        "collapse_reason": "p95>=1000",
+        "max_rps_pre_collapse": 59.34309424611955
+      },
+      "http1": {
+        "collapse_vus": 10,
+        "collapse_reason": "fail_rate>=0.01",
+        "max_rps_pre_collapse": 62.47413830289752
       }
     }
   }

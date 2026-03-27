@@ -1,0 +1,5 @@
+service,protocol,vus,p95_ms,rps,fail_rate,collapse,reason,severity,why
+event-layer,http1,10,1534.2612999999963,1.6481548085400235,0,1,p95>=1000,medium,p95>=1000
+gateway,http3,10,,1,k6 exited 2,1,no_metrics,medium,no_metrics
+media,http1,10,9693.190799999998,12.275877170138145,0,1,p95>=1000,medium,p95>=1000
+trust,http1,10,203.46609999999978,62.47413830289752,0.6822056473095365,1,fail_rate>=0.01,high,fail_rate>=0.01

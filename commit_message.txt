@@ -1,78 +1,58 @@
-perf(lab,make,docs): performance-lab pipeline, reviewer Golden Path, tiered make menu
+feat(perf-lab): protocol happiness matrix, tail-weighted scores, transport dominance
+
+PR #2 (protocol intelligence). PR #1 covered capacity / pool derivation; PR #3 will wire
+runtime pool env, ingress stream caps, and policy.
 
 WHY
 ---
-  • Ceiling runs produce `results.csv` and (after flattening) combined CSVs, but teams need a
-    single path from raw sweep → interpretation artifacts → derived pool / ingress guidance without
-    hand-rolled shell.
-  • `derive-service-model.js` previously mis-parsed `--pools` as a positional CSV path.
-  • Reviewers and operators rely on `GITHUB_PR_DESCRIPTION.txt` for copy/paste flows; the new
-    Make targets should be documented next to the existing script-only recipes.
-  • EXPLAIN coverage for all housing Postgres instances should be one command, consistent with
-    `scripts/perf/run-all-explain.sh` (ports 5441–5448 in the script).
-  • The PR body read like an infra platform dump; reviewers needed one default validation path,
-    a modes table, and explicit “advanced perf” labels so standard review does not require
-    understanding ceiling/capacity tooling.
+  • After capacity envelopes and derive-pool-sizes.js, we still lacked a deterministic answer
+    to: which protocol is best per service, when HTTP/3 beats HTTP/2, and when backend saturation
+    masks transport gains.
+  • Raw RPS alone mis-ranks protocols when fail_rate or tail amplification is high (e.g. HTTP/2
+    at high error throughput).
 
 WHAT CHANGED
 ------------
-  1) Interpretation pipeline (`scripts/perf/build-performance-lab.js`)
-     • Input: `ALL_SERVICES_PROTOCOLS_VU_COMBINED.csv` (or path via Make).
-     • Output dir: `bench_logs/performance-lab/`.
-     • Writes: `service-classification.json`, `per-service-best-protocol.json`,
-       `collapse-summary.json`, `protocol-merit.json`, `service-models.json` (DB-bound classes),
-       `final-classification.json`, `performance-lab-report.md`.
-     • Classification, protocol merit (throughput / latency / stability / intensity), headroom
-       estimates for DB-bound services.
+  1) scripts/protocol/compute-happiness.js
+     • Inputs: --service-model (ceiling service-model.json), --collapse (collapse-summary.json),
+       --out-dir; auto-reads capacity-recommendations.json from out-dir when present.
+     • Per service: merge duplicate protocol rows by max RPS; compute Throughput, Latency,
+       TailRisk (normalized penalty from p95/p50, max/p95, fail_rate), Stability (fail_rate gates),
+       Composite = 0.35T + 0.2L + 0.25Tail + 0.2S; winner; envelope @ pool=10; collapse max RPS;
+       recommended pool.
+     • Transport dominance: λ2/λ3, τ = λ3/λ2 − 1, pool_threshold = λ3/μ_http3, B = μ×pool,
+       dominance rule B > λ2×T; h3_transport_unlocked only if τ > 0 AND recommended_pool ≥
+       ceil(pool_threshold); τ ≤ 0 forces unlocked false + explanatory note.
 
-  2) Combined-10 generation (`scripts/perf/build-combined-10.js`)
-     • Builds `combined-10/` under a ceiling stamp from that run’s `results.csv`, including
-       `ALL_SERVICES_PROTOCOLS_VU_COMBINED.csv`.
+  2) Outputs under bench_logs/performance-lab/
+     • protocol-happiness-matrix.json
+     • protocol-superiority-scores.json
+     • protocol-ranking.md
 
-  3) Capacity recommendations (`scripts/capacity/derive-pool-sizes.js`)
-     • Reads performance-lab JSONs; emits `capacity-recommendations.json`,
-       `ingress-tuning.md`, `capacity-dashboard-schema.json`.
-     • `--min-pool` floor (default 5) avoids unrealistic tiny pool suggestions for low-μ services;
-       wired as `MIN_RECOMMENDED_POOL` in the Makefile `capacity-recommend` target.
+  3) Makefile
+     • protocol-happiness target (latest ceiling service-model + perf-lab collapse-summary).
+     • capacity-one now runs protocol-happiness after capacity-recommend (pools align with
+       dominance math).
+     • menu lists protocol-happiness under performance / modeling.
 
-  4) Makefile — perf / lab / capacity / DB EXPLAIN + menu UX
-     • Targets: `performance-lab-interpret`, `performance-lab-interpret-latest`,
-       `performance-lab-one`, `capacity-recommend`, `capacity-one`, `explain-all-dbs` (see prior
-       commits for full list); `help` / `.PHONY` unchanged in spirit; `PATH` still prefixes
-       `scripts/shims`.
-     • `menu` (default goal): tiered echo groups — Core (`up`, `up-fast`, `strict-canonical`,
-       `test-current`), Performance / modeling (`collapse-all`, `performance-lab-one`,
-       `capacity-one`, `protocol-matrix`), SRE / deep infra (`packet-capture`, `demo-network`,
-       `demo-k3d`), plus “Also common” and output paths; footer states `make help` is still the
-       full flat list (no targets removed).
+  4) docs
+     • GITHUB_PR_DESCRIPTION.txt section 7.7: capacity-one + protocol-happiness.
+     • GITHUB_PR_DESCRIPTION_PR2.txt: full PR #2 body for GitHub paste (sample JSON excerpt).
 
-  5) CLI fix (`scripts/load/derive-service-model.js`)
-     • Positional CSV and `--pools` flag values no longer collide (avoids “CSV not found: 10,20,…”).
-
-  6) Documentation (`GITHUB_PR_DESCRIPTION.txt`) — runbook + reviewer clarity
-     • Top-of-doc and section 1: pointer to Reviewer Golden Path.
-     • Section 2: **Reviewer Golden Path** (`make up-fast` then `make strict-canonical`, first-time
-       `make up` note) and **Modes of operation** table (daily dev, PR validation, `test-current`,
-       `capacity-one`, `make ci`; default when unsure: `strict-canonical`).
-     • Review owners: reviewers need not master the full performance lab; validate owned services
-       after the Golden Path.
-     • Table of contents and section 5 decision tree: link / lead with Golden Path.
-     • Sections 4.10, 6.8, 7.5, 7.7: lead with “Advanced performance tooling — not required for
-       standard PR review” (7.7 adds ceiling/collapse/capacity scope note).
-     • Earlier additions retained: section 7.7 Make target table, `explain-all-dbs`, sweep overrides,
-       cross-links to EXPLAIN and perf scripts.
+WHAT THIS DOES NOT DO
+---------------------
+  • No DB pool env changes, no K8s deployment edits, no ingress stream cap changes — analytical
+    tooling only (PR #3).
 
 RUN / VALIDATION
 ----------------
-  • `make performance-lab-interpret CSV=<combined-csv>` or `make performance-lab-one` after a
-    ceiling run produces `bench_logs/performance-lab/*`.
-  • `make capacity-recommend` / `make capacity-one` regenerates capacity artifacts from those inputs.
-  • `make explain-all-dbs` writes `bench_logs/explain-all-*.md` (per-DB skips if host port down).
-  • Reviewer smoke: `make menu` shows tiered groups; `make help` still lists all targets.
-  • Spot-check: `bash -n` on touched shell scripts as needed.
+  • node scripts/protocol/compute-happiness.js --service-model <ceiling>/service-model.json \
+      --collapse bench_logs/performance-lab/collapse-summary.json --out-dir bench_logs/performance-lab
+  • make protocol-happiness / make capacity-one
+  • Verified: τ ≤ 0 ⇒ h3_transport_unlocked false + note; τ > 0 and pool ≥ threshold ⇒ true.
 
 Suggested subject
 -----------------
-docs(make): reviewer Golden Path + modes table; tiered menu; mark advanced perf sections
+feat(perf-lab): protocol happiness matrix, tail-weighted scoring, transport dominance
 
 Made with Tom.

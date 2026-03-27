@@ -1,26 +1,74 @@
 [
   {
     "service": "analytics",
-    "classification": "DB_POOL_LIMITED",
+    "classification": "DB_POOL_LIMITED_TRANSPORT_SENSITIVE",
+    "best_protocol": "http1",
+    "best_protocol_max_rps_pre_collapse": 131.4913401905226,
+    "collapse_spread_vus": 20,
+    "protocol_rps_variance_cv": 0.3162
+  },
+  {
+    "service": "auth",
+    "classification": "TRANSPORT_SENSITIVE",
     "best_protocol": "http3",
-    "best_protocol_max_rps_pre_collapse": 95.05210382377945,
-    "collapse_spread_vus": 10,
-    "protocol_rps_variance_cv": 0.1238
+    "best_protocol_max_rps_pre_collapse": 289.6516176378461,
+    "collapse_spread_vus": 20,
+    "protocol_rps_variance_cv": 0.4393
+  },
+  {
+    "service": "booking",
+    "classification": "TRANSPORT_SENSITIVE",
+    "best_protocol": "http2",
+    "best_protocol_max_rps_pre_collapse": 129.88778094104552,
+    "collapse_spread_vus": 20,
+    "protocol_rps_variance_cv": 0.2108
+  },
+  {
+    "service": "event-layer",
+    "classification": "TRANSPORT_SENSITIVE",
+    "best_protocol": "http3",
+    "best_protocol_max_rps_pre_collapse": 207.04573408922587,
+    "collapse_spread_vus": 40,
+    "protocol_rps_variance_cv": 0.8198
+  },
+  {
+    "service": "gateway",
+    "classification": "TRANSPORT_SENSITIVE",
+    "best_protocol": "http2",
+    "best_protocol_max_rps_pre_collapse": 563.600365192936,
+    "collapse_spread_vus": 40,
+    "protocol_rps_variance_cv": 0.3298
+  },
+  {
+    "service": "listings",
+    "classification": "DB_POOL_LIMITED_TRANSPORT_SENSITIVE",
+    "best_protocol": "http2",
+    "best_protocol_max_rps_pre_collapse": 198.7305582696151,
+    "collapse_spread_vus": 30,
+    "protocol_rps_variance_cv": 0.2184
   },
   {
     "service": "media",
     "classification": "FANOUT_AMPLIFIED",
     "best_protocol": "http2",
-    "best_protocol_max_rps_pre_collapse": 14.987810634851387,
-    "collapse_spread_vus": 0,
-    "protocol_rps_variance_cv": 0.0022
+    "best_protocol_max_rps_pre_collapse": 14.988490802040632,
+    "collapse_spread_vus": 20,
+    "protocol_rps_variance_cv": 0.0302
   },
   {
     "service": "messaging",
     "classification": "FANOUT_AMPLIFIED",
     "best_protocol": "http1",
-    "best_protocol_max_rps_pre_collapse": 19.980112052660722,
+    "best_protocol_max_rps_pre_collapse": 19.980058236874747,
     "collapse_spread_vus": 0,
-    "protocol_rps_variance_cv": 0.0824
+    "protocol_rps_variance_cv": 0.0012
+  },
+  {
+    "service": "trust",
+    "classification": "DB_POOL_LIMITED_TRANSPORT_SENSITIVE",
+    "best_protocol": "http3",
+    "best_protocol_max_rps_pre_collapse": 104.59204870390141,
+    "collapse_spread_vus": 40,
+    "protocol_rps_variance_cv": 0.159
   }
 ]
