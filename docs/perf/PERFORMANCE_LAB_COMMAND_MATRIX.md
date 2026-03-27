@@ -45,6 +45,23 @@ Outputs live under **`bench_logs/performance-lab/`** (plus the **`PERF_LAB_CANON
 - `make strict-envelope-check` — same check locally.
 - After changing pools or ingress limits, update **`strict-envelope.json`** to match what you deploy.
 
+## Transport lab (edge H2 / H3 strict / gRPC)
+
+Requires a reachable cluster (MetalLB + Caddy + `curl` with `--http3-only` recommended).
+
+| Command | Purpose |
+|---------|---------|
+| `make full-edge-transport-validation` | All services → `bench_logs/transport-lab/per-service/*.json` + `transport-validation-report.json` |
+| `make transport-lab` | Edge suite (unless `SKIP_FULL_EDGE=1`) + endpoint coverage + optional k6 collapse smoke + `final-transport-artifact.json` |
+| `make endpoint-coverage` | Heuristic `endpoint-coverage-report.json` (static; safe on CI) |
+| `make collapse-smoke` | k6 gateway health with strict thresholds (`scripts/load/k6-gateway-collapse-smoke.js`) |
+
+QUIC analyzers live under `scripts/lib/`; with `TRANSPORT_LAB_QUIC=1`, `run-transport-lab.sh` writes `transport-lab/quic/analysis/dominance-map.json` and compose sets `quic_pipeline: "integrated"`. Otherwise `quic_pipeline` is `"not_integrated"`.
+
+Declare readiness with a composed artifact:
+
+`node scripts/protocol/declare-readiness.js --perf-dir bench_logs/performance-lab --transport-artifact bench_logs/transport-lab/final-transport-artifact.json`
+
 ## Advisory — adaptive pools (Option 2)
 
 With observed RPS JSON (service → λ) and `service-models.json` μ:

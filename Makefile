@@ -13,10 +13,10 @@ export PATH := $(SCRIPTS)/shims:/opt/homebrew/bin:/usr/local/bin:$(PATH)
 
 .DEFAULT_GOAL := menu
 
-.PHONY: menu help up up-fast deps kubeconfig-colima cluster colima-net tls-first-time trust-ca-macos verify-curl-http3 infra-host infra-cluster \
+.PHONY: menu help up up-fast deps kubeconfig-colima cluster colima-net tls-first-time trust-ca-macos verify-curl-http3 verify-docker-ports infra-host infra-cluster \
 	metallb-fix hosts-sanity preflight-gate sslkeylog-seed ollama-note ollama-env test test-current model summarize-ceiling strict-canonical ceiling collapse-trust collapse-messaging collapse-all \
 	protocol-matrix packet-capture perf-lab perf-full generate-report graph-capacity heatmap-tail compare-run regression-guard \
-	slack-report discord-report ci ci-full ceiling-default performance-lab-interpret performance-lab-interpret-latest performance-lab-one capacity-recommend capacity-one protocol-happiness transport-routing-hints transport-routing-hints-sync-k8s perf-lab-dashboards bundle-performance-lab-10 strict-envelope-check adaptive-pool-suggest declare-readiness explain-all-dbs demo demo-network demo-full demo-k3d stack images kustomize-apply \
+	slack-report discord-report ci ci-full certify ceiling-default performance-lab-interpret performance-lab-interpret-latest performance-lab-one capacity-recommend capacity-one protocol-happiness transport-routing-hints transport-routing-hints-sync-k8s perf-lab-dashboards bundle-performance-lab-10 strict-envelope-check adaptive-pool-suggest declare-readiness shellcheck-preflight transport-lab full-edge-transport-validation endpoint-coverage collapse-smoke explain-all-dbs demo demo-network demo-full demo-k3d stack images kustomize-apply \
 	deploy-dev rollouts preflight-metallb test-e2e-integrated packet-capture-standalone
 
 # Default orchestration knobs for team "one-command" workflow.
@@ -385,6 +385,31 @@ adaptive-pool-suggest: ## Usage: make adaptive-pool-suggest OBSERVED_RPS_JSON=/p
 # ROLE: PERF — automated production-readiness gate (strict; often fails on raw lab until tuned)
 declare-readiness: ## Run declare-readiness.js on bench_logs/performance-lab (see also: scripts/protocol/fixtures)
 	node $(SCRIPTS)/protocol/declare-readiness.js --perf-dir "$(BENCH)/performance-lab"
+
+shellcheck-preflight: ## ShellCheck scripts/run-preflight-scale-and-all-suites.sh (install shellcheck if missing)
+	@command -v shellcheck >/dev/null 2>&1 || { echo "Install shellcheck (brew install shellcheck / apt install shellcheck)"; exit 1; }
+	shellcheck $(SCRIPTS)/run-preflight-scale-and-all-suites.sh
+
+# ROLE: DEV — after docker compose up: assert 5441–5448 + 6380 are published (see docker-compose.yml)
+verify-docker-ports: ## Require mapped host ports for OCH Postgres + Redis (docker ps)
+	bash $(SCRIPTS)/ci/verify-docker-ports.sh
+
+# ROLE: PERF / SRE — MetalLB edge H2/H3 strict + gRPC roll-up (needs live cluster + curl --http3-only)
+full-edge-transport-validation: ## Write bench_logs/transport-lab/transport-validation-report.json
+	bash $(SCRIPTS)/protocol/full-edge-transport-validation.sh "$(BENCH)/transport-lab"
+
+transport-lab: ## transport-lab/ + final-transport-artifact.json; optional QUIC: TRANSPORT_LAB_QUIC=1 (see scripts/transport/run-transport-lab.sh)
+	bash $(SCRIPTS)/transport/run-transport-lab.sh
+
+# ROLE: CI / SRE — single red/green OCH transport certification (strict-quic + H2 collapse gate)
+certify: ## Full certification: extract anomalies → unit → strict e2e → transport-lab → declare-readiness
+	bash $(SCRIPTS)/ci/run-full-certification.sh
+
+endpoint-coverage: ## Heuristic route inventory vs tests → bench_logs/performance-lab/endpoint-coverage-report.json
+	node $(SCRIPTS)/protocol/endpoint-coverage-analyze.js --repo-root "$(REPO_ROOT)" --out "$(BENCH)/performance-lab/endpoint-coverage-report.json"
+
+collapse-smoke: ## k6 gateway health H2/H3 smoke (fail_rate<1%, p95<800 on H2 script)
+	bash $(SCRIPTS)/protocol/collapse-smoke-h2-h3.sh "$(BENCH)/transport-lab"
 
 # ROLE: PERF — EXPLAIN across all housing Postgres instances (host ports 5441–5448; see script for DB list)
 explain-all-dbs: ## Run EXPLAIN ANALYZE for every housing DB (needs local psql + reachable Postgres)

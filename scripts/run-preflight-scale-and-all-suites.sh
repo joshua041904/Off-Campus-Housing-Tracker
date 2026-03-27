@@ -2,9 +2,12 @@
 # Pre-test: preflight → API ready → scale → reissue CA+leaf → re-ensure API →
 # verify Caddy strict TLS (no curl 60) → strict TLS check → pod/DB/Redis → all suites.
 # Must be run with bash (uses process substitution, [[ ]], etc.). Re-exec with bash if invoked as sh.
-if [ -z "${BASH_VERSION:-}" ]; then
+# shellcheck disable=SC2155
+if [[ -z "${BASH_VERSION:-}" ]]; then
   exec bash "$0" "$@"
 fi
+set -euo pipefail
+IFS=$'\n\t'
 #
 # Breakdown (what this script does):
 #   1. Context: When REQUIRE_COLIMA=0 (e.g. k3d), keeps current context and uses in-cluster Caddy verify (no port-forward). When REQUIRE_COLIMA=1, prefers Colima context and host/tunnel-based verify.
@@ -148,6 +151,8 @@ fi
 #     PREFLIGHT_OPEN_PROTOCOL_CSV=0 — do not open protocol-comparison.csv in Cursor/VS Code after step 9 (default 1)
 #     PREFLIGHT_OPEN_PROTOCOL_CSV_IN_CI=1 — open from CI runners too (default: skip open when CI= is set)
 #     PREFLIGHT_PERF_ARTIFACTS_ON_EARLY_EXIT=1 — when PREFLIGHT_EXIT_AFTER_HOUSING_SUITES=1, still run step 9 before exit (default 0)
+#     PREFLIGHT_TRANSPORT_LAB=1 — after step 9 perf packaging, run scripts/transport/run-transport-lab.sh → bench_logs/transport-lab/ + final-transport-artifact.json
+#     PREFLIGHT_TRANSPORT_LAB_QUIC=1 — with PREFLIGHT_TRANSPORT_LAB=1, set TRANSPORT_LAB_QUIC=1 (tcpdump udp/443 + scripts/lib QUIC analyzers; often needs sudo)
 #
 #   Step 7a invokes scripts/run-housing-k6-edge-smoke.sh. Preflight also calls _preflight_export_k6_orchestration_defaults
 #   (after sourcing k6-suite-resource-hooks.sh) so K6_ORCHESTRATION_VU_SCENARIO, K6_SUITE_GATEWAY_DRAIN, POST_DRAIN_SLEEP,
@@ -284,8 +289,6 @@ fi
 #   7c    In-cluster k6 (Pod → Caddy ClusterIP; no host/VM). RUN_K6=1 and RUN_K6_IN_CLUSTER=1 (default). K6_IN_CLUSTER_DURATION=30s. Set RUN_K6_IN_CLUSTER=0 to skip.
 #   8     All 7 housing pgbench sweeps (ports 5441–5447; media 5448 optional), EXPLAIN, observation-deck summary. RUN_PGBENCH=1.
 #   9     Perf artifacts (default on): run-k6-protocol-matrix.sh → extract-protocol-matrix.js (protocol-comparison.csv) → retry CSV if missing (9a2b, before flatten) → build-canonical-bundle.sh → optional flatten (preserves protocol-comparison.csv at run root) → open CSV in editor (see PREFLIGHT_PERF_* / PREFLIGHT_OPEN_PROTOCOL_CSV_*). Runs even when RUN_PGBENCH=0. Skipped when RUN_SUITES=0 or PREFLIGHT_EXIT_AFTER_HOUSING_SUITES=1 unless PREFLIGHT_PERF_ARTIFACTS_ON_EARLY_EXIT=1.
-
-set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -759,6 +762,14 @@ for e in list(os.listdir(run_dir)):
         except FileNotFoundError:
             pass
 PY
+  fi
+
+  if [[ "${PREFLIGHT_TRANSPORT_LAB:-0}" == "1" ]]; then
+    _phase_start "9_transport_lab"
+    say "9d. Transport lab → $REPO_ROOT/bench_logs/transport-lab (QUIC capture: PREFLIGHT_TRANSPORT_LAB_QUIC=1)"
+    export TRANSPORT_LAB_QUIC="${PREFLIGHT_TRANSPORT_LAB_QUIC:-0}"
+    chmod +x "$SCRIPT_DIR/transport/run-transport-lab.sh" 2>/dev/null || true
+    (cd "$REPO_ROOT" && bash "$SCRIPT_DIR/transport/run-transport-lab.sh") || warn "9d run-transport-lab.sh had issues (non-fatal)"
   fi
 
   _preflight_open_protocol_comparison_csv "$_pf_csv"
@@ -1626,6 +1637,18 @@ if ! _phase_a_only; then
         sleep 2
       done
     done
+    # nc only proves TCP accept; Postgres may still reject queries ("starting up"). Wait for readiness.
+    if command -v pg_isready >/dev/null 2>&1; then
+      for port in 5441 5442 5443 5444 5445 5446 5447 5448; do
+        for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do
+          pg_isready -h 127.0.0.1 -p "$port" -U postgres >/dev/null 2>&1 && break
+          sleep 1
+        done
+      done
+      ok "Postgres pg_isready (5441–5448)"
+    else
+      info "pg_isready not in PATH; schema inspect step will retry psql internally"
+    fi
   else
     warn "Docker or docker-compose missing; skip starting Postgres"
   fi
@@ -1636,7 +1659,7 @@ if ! _phase_a_only; then
   if [[ "${PREFLIGHT_AUTH_PRISMA_MIGRATE:-0}" == "1" ]] && command -v pnpm >/dev/null 2>&1; then
     say "3b4a. PREFLIGHT_AUTH_PRISMA_MIGRATE=1 — prisma migrate deploy (auth-service)..."
     _url="${POSTGRES_URL_AUTH:-postgresql://postgres:postgres@127.0.0.1:5441/auth}"
-    if ( cd "$REPO_ROOT" && POSTGRES_URL_AUTH="$_url" pnpm -C services/auth-service exec prisma migrate deploy --skip-generate ); then
+    if { cd "$REPO_ROOT" && POSTGRES_URL_AUTH="$_url" pnpm -C services/auth-service exec prisma migrate deploy --skip-generate; }; then
       ok "Auth prisma migrate deploy completed"
     else
       warn "Auth prisma migrate deploy failed (check POSTGRES_URL_AUTH and Postgres on 5441)"
@@ -1649,7 +1672,7 @@ if ! _phase_a_only; then
     if "$SCRIPT_DIR/inspect-external-db-schemas.sh" "$REPO_ROOT/bench_logs" 2>/dev/null; then
       ok "External DB schema inspection passed (markdown report written to bench_logs/)"
     else
-      warn "External DB schema inspection reported mismatches. Check latest bench_logs/schema-report-*.md"
+      warn "External DB schema inspection failed (DB unreachable and/or missing tables). See bench_logs/schema-report-*.md for psql errors vs mismatches."
     fi
   fi
 fi
@@ -3021,7 +3044,11 @@ if [[ "${RUN_PGBENCH:-0}" == "1" ]]; then
   # Observation deck: write preflight summary + JSON into run folder (and copy latest to bench_logs for deck)
   if [[ -f "$SCRIPT_DIR/write-preflight-summary-md.sh" ]]; then
     say "Writing preflight summary and observation-deck JSON..."
-    PGBENCH_LOG_DIR="$PREFLIGHT_RUN_DIR" EXPLAIN_DIR="$PREFLIGHT_RUN_DIR/explain" SUITE_LOG_DIR="${SUITE_LOG_DIR:-}" BENCH_LOGS="$PREFLIGHT_RUN_DIR" "$SCRIPT_DIR/write-preflight-summary-md.sh" 2>/dev/null || true
+    export PGBENCH_LOG_DIR="$PREFLIGHT_RUN_DIR"
+    export EXPLAIN_DIR="$PREFLIGHT_RUN_DIR/explain"
+    export SUITE_LOG_DIR="${SUITE_LOG_DIR:-}"
+    export BENCH_LOGS="$PREFLIGHT_RUN_DIR"
+    "$SCRIPT_DIR/write-preflight-summary-md.sh" 2>/dev/null || true
     if [[ -f "$PREFLIGHT_RUN_DIR/PREFLIGHT_SUMMARY.md" ]]; then
       cp -f "$PREFLIGHT_RUN_DIR/PREFLIGHT_SUMMARY.md" "$REPO_ROOT/bench_logs/PREFLIGHT_SUMMARY.md" 2>/dev/null || true
       cp -f "$PREFLIGHT_RUN_DIR/preflight-results.json" "$REPO_ROOT/bench_logs/preflight-results.json" 2>/dev/null || true

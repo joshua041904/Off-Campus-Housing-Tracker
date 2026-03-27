@@ -15,7 +15,7 @@
   "scripts": {
     "build": "pnpm -r run build",
     "dev": "pnpm -r --parallel dev",
-    "test": "pnpm --filter @common/utils --filter media-service --filter messaging-service --filter event-layer-verification run test",
+    "test": "pnpm --filter @common/utils --filter auth-service --filter api-gateway --filter booking-service --filter listings-service --filter analytics-service --filter trust-service --filter notification-service --filter cron-jobs --filter media-service --filter messaging-service --filter event-layer-verification run test",
     "test:integration": "pnpm --filter messaging-service --filter media-service run test:integration",
     "lint": "pnpm -r lint || true",
     "format": "pnpm -r format || true",

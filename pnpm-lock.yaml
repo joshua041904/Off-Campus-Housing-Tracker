@@ -88,6 +88,9 @@ importers:
       typescript:
         specifier: ^5.5.4
         version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@20.19.19)
 
   services/api-gateway:
     dependencies:
@@ -128,6 +131,9 @@ importers:
       typescript:
         specifier: ^5.5.4
         version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@20.19.19)
 
   services/auth-service:
     dependencies:
@@ -210,6 +216,9 @@ importers:
       typescript:
         specifier: ^5.5.4
         version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@20.19.19)
 
   services/booking-service:
     dependencies:
@@ -250,6 +259,9 @@ importers:
       typescript:
         specifier: ^5.5.4
         version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@20.19.19)
 
   services/common:
     dependencies:
@@ -300,6 +312,9 @@ importers:
       typescript:
         specifier: ^5.5.4
         version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@20.19.19)
 
   services/event-layer-verification:
     devDependencies:
@@ -343,6 +358,9 @@ importers:
       typescript:
         specifier: ^5.5.4
         version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@20.19.19)
 
   services/media-service:
     dependencies:
@@ -478,6 +496,9 @@ importers:
       typescript:
         specifier: ^5.5.4
         version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@20.19.19)
 
   services/trust-service:
     dependencies:
@@ -512,6 +533,9 @@ importers:
       typescript:
         specifier: ^5.5.4
         version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@20.19.19)
 
   webapp:
     dependencies:

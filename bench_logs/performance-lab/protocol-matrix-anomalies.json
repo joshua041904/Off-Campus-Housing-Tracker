@@ -1,0 +1,61 @@
+{
+  "generated_at": "2026-03-27T20:03:14.203Z",
+  "rule": "http2_p95_ms > 3 * http1_p95_ms (same service, protocol matrix)",
+  "any_http2_collapse_anomaly": true,
+  "by_service": {
+    "analytics": {
+      "http2_anomaly": true,
+      "http1_p95_ms": 221.73975000000002,
+      "http2_p95_ms": 4740.292599999996,
+      "ratio_h2_over_h1": 21.3777
+    },
+    "auth": {
+      "http2_anomaly": false,
+      "http1_p95_ms": 71.35859999999995,
+      "http2_p95_ms": 180.87249999999997,
+      "ratio_h2_over_h1": 2.5347
+    },
+    "booking": {
+      "http2_anomaly": true,
+      "http1_p95_ms": 142.54799999999997,
+      "http2_p95_ms": 4424.435099999999,
+      "ratio_h2_over_h1": 31.0382
+    },
+    "event-layer": {
+      "http2_anomaly": false,
+      "http1_p95_ms": 71.45759999999989,
+      "http2_p95_ms": 74.3854,
+      "ratio_h2_over_h1": 1.041
+    },
+    "gateway": {
+      "http2_anomaly": false,
+      "http1_p95_ms": 16.3025,
+      "http2_p95_ms": 23.801899999999947,
+      "ratio_h2_over_h1": 1.46
+    },
+    "listings": {
+      "http2_anomaly": true,
+      "http1_p95_ms": 65.76729999999999,
+      "http2_p95_ms": 351.452,
+      "ratio_h2_over_h1": 5.3439
+    },
+    "media": {
+      "http2_anomaly": false,
+      "http1_p95_ms": 61.38169999999999,
+      "http2_p95_ms": 80.71699999999993,
+      "ratio_h2_over_h1": 1.315
+    },
+    "messaging": {
+      "http2_anomaly": false,
+      "http1_p95_ms": 101.29599999999998,
+      "http2_p95_ms": 194.86979999999994,
+      "ratio_h2_over_h1": 1.9238
+    },
+    "trust": {
+      "http2_anomaly": true,
+      "http1_p95_ms": 112.1171,
+      "http2_p95_ms": 887.1072999999999,
+      "ratio_h2_over_h1": 7.9123
+    }
+  }
+}

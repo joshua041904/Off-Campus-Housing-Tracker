@@ -5,7 +5,9 @@
   "scripts": {
     "build": "bash scripts/prisma-generate-retry.sh && tsc -b && node scripts/rewrite-prisma-imports.js",
     "dev": "tsx watch src/server.ts",
-    "start": "node dist/server.js"
+    "start": "node dist/server.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@common/utils": "workspace:*",
@@ -35,6 +37,7 @@
     "@types/qrcode": "^1.5.5",
     "prisma": "6.17.1",
     "tsx": "^4.16.2",
-    "typescript": "^5.5.4"
+    "typescript": "^5.5.4",
+    "vitest": "^2.1.0"
   }
 }

@@ -47,9 +47,23 @@ const suiteProjects = [
     name: "05-optional-screenshots",
     testMatch: ["ui-screenshots.spec.ts"],
   },
+  {
+    name: "06-service-verticals",
+    testMatch: [
+      "**/*.full.spec.ts",
+      "gateway.routing.spec.ts",
+      "edge.failure-modes.spec.ts",
+      "transport.protocol.spec.ts",
+    ],
+  },
+  {
+    name: "07-system-integrity",
+    testMatch: ["system-integrity.spec.ts"],
+  },
 ] as const;
 
 export default defineConfig({
+  globalSetup: "./playwright.global-setup.ts",
   testDir: "./e2e",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,

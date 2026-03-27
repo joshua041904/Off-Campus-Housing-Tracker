@@ -4,6 +4,11 @@
  *
  * Usage:
  *   node scripts/protocol/declare-readiness.js [--perf-dir DIR] [--max-pool N] [--panic-scan] [--strict-envelope]
+ *   [--strict-quic] [--strict-quic-min-score N]  With --transport-artifact: require QUIC dominance-map integration (and optional score floor)
+ *   [--transport-artifact PATH]  Optional: bench_logs/transport-lab/final-transport-artifact.json (cluster transport lab)
+ *
+ * With --transport-artifact: fails if protocol_integrity.any_http2_collapse_anomaly === true (matrix http2 p95 > 3× http1),
+ * or the same flag is true in perf-dir protocol-matrix-anomalies.json (from extract-protocol-matrix.js) when the artifact omits protocol_integrity.
  *
  * Exits 0 and prints PRODUCTION_READY=true when all gates pass; else exit 1 and lists REASON= lines.
  */
@@ -11,13 +16,24 @@ const fs = require("fs");
 const path = require("path");
 
 function parseArgs() {
-  const out = { perfDir: "", maxPool: 200, panicScan: false, strictEnvelope: false };
+  const out = {
+    perfDir: "",
+    maxPool: 200,
+    panicScan: false,
+    strictEnvelope: false,
+    transportArtifact: "",
+    strictQuic: false,
+    strictQuicMinScore: 0.6,
+  };
   const a = process.argv.slice(2);
   for (let i = 0; i < a.length; i += 1) {
     if (a[i] === "--perf-dir") out.perfDir = path.resolve(a[++i] || "");
     else if (a[i] === "--max-pool") out.maxPool = Number(a[++i]) || 200;
     else if (a[i] === "--panic-scan") out.panicScan = true;
     else if (a[i] === "--strict-envelope") out.strictEnvelope = true;
+    else if (a[i] === "--strict-quic") out.strictQuic = true;
+    else if (a[i] === "--strict-quic-min-score") out.strictQuicMinScore = Number(a[++i]) || 0.6;
+    else if (a[i] === "--transport-artifact") out.transportArtifact = path.resolve(a[++i] || "");
   }
   return out;
 }
@@ -37,6 +53,9 @@ function main() {
   const repoRoot = path.resolve(__dirname, "../..");
   const perfDir = args.perfDir || path.join(repoRoot, "bench_logs", "performance-lab");
   const failures = [];
+  if (args.strictQuic && !args.transportArtifact) {
+    failures.push("declare-readiness: --strict-quic requires --transport-artifact");
+  }
 
   const matrixPath = path.join(perfDir, "protocol-happiness-matrix.json");
   const supPath = path.join(perfDir, "protocol-superiority-scores.json");
@@ -174,6 +193,79 @@ function main() {
   }
 
   /** Optional: k6 / matrix logs — word "panic" (enable with --panic-scan) */
+  if (args.transportArtifact) {
+    const tap = args.transportArtifact;
+    if (!fs.existsSync(tap)) {
+      failures.push(`missing transport artifact ${tap}`);
+    } else {
+      let art;
+      try {
+        art = readJson(tap);
+      } catch {
+        failures.push(`invalid JSON transport artifact ${tap}`);
+        art = null;
+      }
+      if (art) {
+        const g = art.global || {};
+        /** Transport gates: HTTP/2 matrix collapse → QUIC integration → QUIC dominance (strict) — order matters. */
+        const pint = art.protocol_integrity;
+        const anomaliesPath = path.join(perfDir, "protocol-matrix-anomalies.json");
+        let http2MatrixCollapse =
+          pint && pint.any_http2_collapse_anomaly === true;
+        if (!http2MatrixCollapse && fs.existsSync(anomaliesPath)) {
+          try {
+            const ax = readJson(anomaliesPath);
+            if (ax.any_http2_collapse_anomaly === true) http2MatrixCollapse = true;
+          } catch {
+            /* ignore malformed anomalies file */
+          }
+        }
+        if (http2MatrixCollapse) {
+          failures.push("HTTP/2 collapse anomaly detected (protocol matrix: http2 p95 > 3× http1 p95)");
+        }
+        if (args.strictQuic) {
+          const qp = art.quic_pipeline ?? g.quic_pipeline;
+          if (qp !== "integrated") failures.push("QUIC pipeline not integrated (--strict-quic)");
+          const envMin = process.env.STRICT_QUIC_MIN_SCORE;
+          const minScore =
+            envMin != null && envMin !== "" && !Number.isNaN(Number(envMin))
+              ? Number(envMin)
+              : args.strictQuicMinScore;
+          const ms = art.quic?.mean_dominance_score;
+          if (ms != null && Number.isFinite(ms) && Number.isFinite(minScore) && ms < minScore) {
+            failures.push(
+              `QUIC mean_dominance_score ${ms} < ${minScore} (--strict-quic / STRICT_QUIC_MIN_SCORE)`,
+            );
+          }
+        }
+        if (g.transport_validation_all_ok === false) {
+          failures.push("transport artifact: transport_validation_all_ok is false");
+        }
+        if (g.endpoint_coverage_untested_heuristic > 0 && process.env.STRICT_ENDPOINT_COVERAGE === "1") {
+          failures.push(
+            `transport artifact: endpoint_coverage_untested_heuristic=${g.endpoint_coverage_untested_heuristic} (STRICT_ENDPOINT_COVERAGE=1)`,
+          );
+        }
+        if (g.collapse_smoke_ok === false) {
+          failures.push("transport artifact: collapse_smoke_ok is false");
+        }
+        if (g.production_ready === false) {
+          failures.push("transport artifact: global.production_ready is false");
+        }
+        const ps = art.per_service || {};
+        for (const [svc, row] of Object.entries(ps)) {
+          const t = row.transport;
+          if (t && t.downgrade_detected) {
+            failures.push(`${svc}: transport.downgrade_detected in artifact`);
+          }
+          if (t && t.overall_ok === false) {
+            failures.push(`${svc}: transport.overall_ok false in artifact`);
+          }
+        }
+      }
+    }
+  }
+
   if (args.panicScan) {
     const bench = path.join(repoRoot, "bench_logs");
     const panicHits = [];

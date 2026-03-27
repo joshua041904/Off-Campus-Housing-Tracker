@@ -1,52 +1,44 @@
-feat(perf): strict envelope deploy gate, adaptive pool suggest, H2 default hints (τ<0)
+ci(och): och-ci contract, certification script, H2 anomaly gate, port + QUIC invariants
 
 WHY
 ---
-  • Operators needed production to fail fast when lab-recommended pools or stream caps exceed
-    what is declared for k8s/ingress, without waiting for load regressions.
-  • τ<0 services should not chase HTTP/3 as the default edge path; adaptive λ-based pool hints
-    support a future controller without blocking on metrics plumbing today.
+  • Lock separation: docker-compose (infra), k3s (runtime), GitHub CI (no private cluster),
+    local make certify (full edge + transport-lab + declare-readiness).
+  • Remove phantom failures: pnpm without action-setup, strict Playwright on unreachable edge,
+    local-stack workflow implying wrong architecture.
+  • Enforce HTTP/2 matrix collapse in CI before spending matrix minutes; align declare-readiness
+    with extract-protocol-matrix output when transport artifact omits protocol_integrity.
 
 WHAT CHANGED
 ------------
-  1) infra/k8s/base/config/strict-envelope.json
-     • Declared configured_db_pool_max per service + ingress http2/http3 max concurrent streams.
+  • .github/workflows/ci.yml — och-ci: protocol-anomaly → build → test → transport-validation →
+    quic-hostname-invariant; playwright-strict if vars.RUN_STRICT_PLAYWRIGHT == true; OCH matrices.
+  • .github/workflows/docker-build.yml — och-docker-build matrix (services + webapp).
+  • Remove .github/workflows/local-integration.yml.
+  • .github/workflows/protocol-validation.yml — shellcheck CI scripts; pnpm 9.11.0; path filters.
+  • scripts/ci/run-full-certification.sh — certify order; CI=true exits after pnpm test; docker
+    required when not CI.
+  • scripts/ci/verify-docker-ports.sh — host ports 5441–5448, 6380 (docker ps).
+  • scripts/ci/verify-quic-hostname-invariant.sh — no raw-IP https BASE_URL defaults in scripts/load.
+  • scripts/perf/extract-protocol-matrix.js — EXTRACT_PROTOCOL_MATRIX_FROM_CSV CSV fallback; comment fix.
+  • scripts/protocol/declare-readiness.js — fold in protocol-matrix-anomalies.json when needed.
+  • Makefile — certify, verify-docker-ports.
+  • webapp — PLAYWRIGHT_STRICT_HTTP3 on strict e2e scripts; system-integrity state assertions.
+  • docs/LOCAL_DEV.md — CI section matches och-ci / removed local workflow.
 
-  2) scripts/protocol/strict-envelope-check.js
-     • Fails if recommended_pool > configured_db_pool_max or stream_cap > ingress cap.
-     • Skips when capacity-recommendations.json is missing unless --require-lab.
+NOT IN THIS COMMIT
+------------------
+  • Fixing any_http2_collapse_anomaly (pool / H2 tuning — separate performance work).
+  • python-ai-service Docker matrix row (no Dockerfile in tree yet).
 
-  3) scripts/deploy-dev.sh
-     • Runs strict-envelope-check before kustomize apply; SKIP_STRICT_ENVELOPE=1 to bypass.
-
-  4) scripts/protocol/adaptive-pool-suggest.js
-     • pool >= ceil(λ / (μ * util)) with default util=0.75; --observed-rps JSON input.
-
-  5) scripts/protocol/build-transport-default-hints.js + Makefile transport-routing-hints*
-     • transport-default-hints.json from protocol-happiness-matrix; --also-k8s writes
-       infra/k8s/base/config/transport-routing-defaults.json.
-
-  6) Makefile: capacity-one chains transport-routing-hints; strict-envelope-check;
-     adaptive-pool-suggest (OBSERVED_RPS_JSON=…).
-
-  7) scripts/protocol/fixtures: capacity-recommendations.json, strict-envelope-ci.json,
-     example-observed-rps.json — CI + examples.
-
-  8) .github/workflows/protocol-readiness.yml — strict-envelope job step + path filter.
-
-  9) scripts/protocol/validate-production-readiness.sh — strict envelope phase (fixture uses CI envelope).
-
- 10) docs/perf/PERFORMANCE_LAB_COMMAND_MATRIX.md — new rows + deploy/adaptive sections.
-
-RUN / VALIDATION
-----------------
-  • node scripts/protocol/strict-envelope-check.js --perf-dir bench_logs/performance-lab
-  • ./scripts/protocol/validate-production-readiness.sh --fixture
-  • make adaptive-pool-suggest OBSERVED_RPS_JSON=scripts/protocol/fixtures/example-observed-rps.json
-  • make transport-routing-hints-sync-k8s   # refresh k8s JSON when τ policy changes
+RUN
+---
+  • make verify-docker-ports
+  • make certify
+  • EXTRACT_PROTOCOL_MATRIX_FROM_CSV=1 node scripts/perf/extract-protocol-matrix.js
 
 Suggested subject
 -----------------
-feat(perf): strict envelope gate, adaptive pool suggest, transport H2 hints
+ci(och): deterministic och-ci, certify script, collapse + port + QUIC invariants
 
 Made with Tom.
