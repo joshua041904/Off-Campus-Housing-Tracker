@@ -59,5 +59,19 @@ else
 fi
 
 echo ""
+echo "=== Strict envelope (lab vs infra/k8s/base/config/strict-envelope.json) ==="
+if [[ "$FIXTURE" -eq 1 ]]; then
+  node "$SCRIPT_DIR/strict-envelope-check.js" \
+    --perf-dir "$PERF_DIR" \
+    --envelope "$SCRIPT_DIR/fixtures/strict-envelope-ci.json" \
+    --require-lab
+else
+  node "$SCRIPT_DIR/strict-envelope-check.js" --perf-dir "$PERF_DIR" || {
+    echo "Strict envelope failed — update strict-envelope.json / cluster or refresh lab (see Makefile strict-envelope-check)."
+    exit 1
+  }
+fi
+
+echo ""
 echo "Done. Optional: node $SCRIPT_DIR/build-envelope-dashboard.js --perf-dir \"$PERF_DIR\""
 echo "Optional: node $SCRIPT_DIR/build-dominance-heatmap.js --service-model <ceiling>/service-model.json --out-dir \"$PERF_DIR\""

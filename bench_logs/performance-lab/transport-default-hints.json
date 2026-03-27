@@ -1,0 +1,71 @@
+{
+  "generated_at": "2026-03-27T01:57:35.458Z",
+  "note": "Services with tau < 0: do not prioritize HTTP/3 as default; use HTTP/2 unless product requires QUIC.",
+  "prefer_http2_default": [
+    {
+      "service": "analytics",
+      "transport_gain_tau": -0.1968,
+      "h3_transport_unlocked": false,
+      "winner": "http1",
+      "hint": "prefer_http2_default"
+    },
+    {
+      "service": "booking",
+      "transport_gain_tau": -0.0566,
+      "h3_transport_unlocked": false,
+      "winner": "http3",
+      "hint": "prefer_http2_default"
+    },
+    {
+      "service": "gateway",
+      "transport_gain_tau": -0.9982,
+      "h3_transport_unlocked": false,
+      "winner": "http1",
+      "hint": "prefer_http2_default"
+    },
+    {
+      "service": "listings",
+      "transport_gain_tau": -0.2804,
+      "h3_transport_unlocked": false,
+      "winner": "http2",
+      "hint": "prefer_http2_default"
+    }
+  ],
+  "non_negative_tau": [
+    {
+      "service": "auth",
+      "transport_gain_tau": 0.2794,
+      "h3_transport_unlocked": true,
+      "winner": "http2",
+      "hint": "h3_may_be_worthwhile"
+    },
+    {
+      "service": "event-layer",
+      "transport_gain_tau": 0.8196,
+      "h3_transport_unlocked": true,
+      "winner": "http3",
+      "hint": "h3_may_be_worthwhile"
+    },
+    {
+      "service": "media",
+      "transport_gain_tau": 0,
+      "h3_transport_unlocked": false,
+      "winner": "http2",
+      "hint": "h3_may_be_worthwhile"
+    },
+    {
+      "service": "messaging",
+      "transport_gain_tau": 0,
+      "h3_transport_unlocked": false,
+      "winner": "http1",
+      "hint": "h3_may_be_worthwhile"
+    },
+    {
+      "service": "trust",
+      "transport_gain_tau": 0.7625,
+      "h3_transport_unlocked": true,
+      "winner": "http3",
+      "hint": "h3_may_be_worthwhile"
+    }
+  ]
+}

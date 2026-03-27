@@ -15,9 +15,12 @@ This runs, in order:
 1. `performance-lab-one` — latest ceiling `results.csv` → `combined-10` → `build-performance-lab.js`
 2. `capacity-recommend` — `derive-pool-sizes.js` → `capacity-recommendations.json`, `ingress-tuning.md`, `capacity-dashboard-schema.json`
 3. `protocol-happiness` — `compute-happiness.js` → happiness matrix + superiority + `protocol-ranking.md`
-4. `perf-lab-dashboards` — `envelope-dashboard.json`, `transport-dominance-heatmap.json`
+4. `transport-routing-hints` — `build-transport-default-hints.js` → `transport-default-hints.json` (negative τ → prefer HTTP/2 as default)
+5. `perf-lab-dashboards` — `envelope-dashboard.json`, `transport-dominance-heatmap.json`
 
-Outputs live under **`bench_logs/performance-lab/`**.
+Each of those targets (and `make performance-lab-interpret` / `performance-lab-interpret-latest` when used alone) also runs **`bundle-performance-lab-10`**, which merges the loose artifacts into exactly **10 files** under **`bench_logs/performance-lab/PERF_LAB_CANONICAL_10/`** (full JSON/Markdown content preserved — merge only, no truncation). Run `make bundle-performance-lab-10` anytime to refresh that folder from the current `performance-lab/` tree.
+
+Outputs live under **`bench_logs/performance-lab/`** (plus the **`PERF_LAB_CANONICAL_10/`** handoff bundle).
 
 ## Phase 2 — Files to inspect
 
@@ -30,6 +33,27 @@ Outputs live under **`bench_logs/performance-lab/`**.
 | `collapse-summary.json` | Collapse VU / reason / max RPS pre-collapse |
 | `envelope-dashboard.json` | Flat rows for charts |
 | `transport-dominance-heatmap.json` | Pool × μ-scale grid (regions: http2-dominant / http3-dominant / backend-bound) |
+| `PERF_LAB_CANONICAL_10/*` | Ten-file bundle (`01-manifest.json` … `10-transport-dominance-heatmap.json`) — same data as the rows above, repacked for sharing |
+| `transport-default-hints.json` | Per-service τ and `prefer_http2_default` where HTTP/3 is not a transport win |
+| `infra/k8s/base/config/strict-envelope.json` | Declared `configured_db_pool_max` + ingress stream ceilings — must cover `capacity-recommendations.json` |
+| `infra/k8s/base/config/transport-routing-defaults.json` | Slim list `prefer_http2_default_for_services` — refresh with `make transport-routing-hints-sync-k8s` when policy changes |
+
+## Deploy gate — strict envelope
+
+`scripts/deploy-dev.sh` runs **`strict-envelope-check.js`** before `kubectl apply` when `capacity-recommendations.json` exists (unless `SKIP_STRICT_ENVELOPE=1`). It fails if `recommended_pool > configured_db_pool_max` for any service or if recommended HTTP/2 or HTTP/3 stream caps exceed `ingress.*_max_concurrent_streams`.
+
+- `make strict-envelope-check` — same check locally.
+- After changing pools or ingress limits, update **`strict-envelope.json`** to match what you deploy.
+
+## Advisory — adaptive pools (Option 2)
+
+With observed RPS JSON (service → λ) and `service-models.json` μ:
+
+```bash
+make adaptive-pool-suggest OBSERVED_RPS_JSON=scripts/protocol/fixtures/example-observed-rps.json
+```
+
+Uses target utilization **0.75** (override via script `--util`). Output is suggestions only — compare with `capacity-recommendations.json` before changing prod.
 
 ## Phase 3 — Quick jq checks
 

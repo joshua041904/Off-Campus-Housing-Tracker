@@ -1,0 +1,14 @@
+{
+  "generated_at": "fixture",
+  "recommendations": [
+    {
+      "service": "fixture-service",
+      "classification": "FIXTURE",
+      "recommended_pool": 10,
+      "recommended_max_inflight": 10,
+      "recommended_http2_stream_cap": 16,
+      "recommended_http3_stream_cap": 16,
+      "recommended_safe_rps": 40
+    }
+  ]
+}

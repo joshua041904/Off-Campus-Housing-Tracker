@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-03-27T01:24:49.953Z",
-  "source_service_model": "bench_logs/ceiling/20260326-155712/service-model.json",
+  "generated_at": "2026-03-27T01:47:54.853Z",
+  "source_service_model": "/Users/tom/Off-Campus-Housing-Tracker/bench_logs/ceiling/20260326-155712/service-model.json",
   "services": [
     {
       "service": "analytics",

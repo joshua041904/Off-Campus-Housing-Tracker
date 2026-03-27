@@ -3,9 +3,10 @@
 # External infra (Postgres 5441–5448, Kafka, Redis) must be up; run bootstrap-all-dbs.sh or restore-auth-db.sh first.
 #
 # Usage: ./scripts/deploy-dev.sh
-#   SKIP_SMOKE=1     — do not run smoke test after deploy
-#   SKIP_K6=1        — do not run k6 after smoke
-#   DEPLOY_OVERLAY=  — kustomize overlay (default: overlays/dev)
+#   SKIP_SMOKE=1           — do not run smoke test after deploy
+#   SKIP_K6=1              — do not run k6 after smoke
+#   SKIP_STRICT_ENVELOPE=1 — skip lab vs strict-envelope.json check (unsafe for prod)
+#   DEPLOY_OVERLAY=        — kustomize overlay (default: overlays/dev)
 
 set -euo pipefail
 
@@ -46,6 +47,16 @@ KUST_DIR="$REPO_ROOT/infra/k8s"
 if [[ -d "$KUST_DIR/base/config" ]]; then
   kubectl apply -f "$KUST_DIR/base/config/app-config.yaml" -n "$NS" 2>/dev/null || true
   ok "ConfigMap app-config applied"
+fi
+
+# 4b) Strict envelope — lab recommendations must not exceed declared pools / ingress stream caps
+if [[ "${SKIP_STRICT_ENVELOPE:-0}" != "1" ]] && command -v node &>/dev/null; then
+  say "Strict envelope check (capacity-recommendations vs infra/k8s/base/config/strict-envelope.json)..."
+  if ! node "$REPO_ROOT/scripts/protocol/strict-envelope-check.js" --perf-dir "$REPO_ROOT/bench_logs/performance-lab"; then
+    warn "Failed. Refresh strict-envelope.json and cluster pools, run make capacity-one, or set SKIP_STRICT_ENVELOPE=1 (not for production)."
+    exit 1
+  fi
+  ok "Strict envelope OK"
 fi
 
 # 5) Apply manifests (kustomize or raw)

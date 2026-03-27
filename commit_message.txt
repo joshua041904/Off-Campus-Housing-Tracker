@@ -1,44 +1,52 @@
-feat(perf-lab): readiness gate, dashboards, operator matrix, CI fixture (PR #3)
+feat(perf): strict envelope deploy gate, adaptive pool suggest, H2 default hints (τ<0)
 
 WHY
 ---
-  • Protocol scoring and capacity JSONs existed, but there was no single operator playbook,
-    no automated gate, and no CI hook that could run without Colima/k6.
-  • Dominance unlock had to stay consistent when JSON rounds τ to 0 while floats still show
-    a tiny H3 gain.
+  • Operators needed production to fail fast when lab-recommended pools or stream caps exceed
+    what is declared for k8s/ingress, without waiting for load regressions.
+  • τ<0 services should not chase HTTP/3 as the default edge path; adaptive λ-based pool hints
+    support a future controller without blocking on metrics plumbing today.
 
 WHAT CHANGED
 ------------
-  1) scripts/protocol/declare-readiness.js
-     • Multi-gate readiness: utilization @ pool 10, τ vs h3_transport_unlocked, fail_rate,
-       tail_penalty vs 4× median, winner stability/composite consistency, max pool.
-     • Optional: --strict-envelope, --panic-scan, --max-pool.
+  1) infra/k8s/base/config/strict-envelope.json
+     • Declared configured_db_pool_max per service + ingress http2/http3 max concurrent streams.
 
-  2) scripts/protocol/compute-happiness.js
-     • tail_penalty per protocol; winner_utilization_pool_10; flat jq aliases on matrix rows.
-     • H3 unlock only if lambda3 > lambda2 * 1.0001 (material τ); note when not material.
+  2) scripts/protocol/strict-envelope-check.js
+     • Fails if recommended_pool > configured_db_pool_max or stream_cap > ingress cap.
+     • Skips when capacity-recommendations.json is missing unless --require-lab.
 
-  3) scripts/protocol/build-envelope-dashboard.js → envelope-dashboard.json
-  4) scripts/protocol/build-dominance-heatmap.js → transport-dominance-heatmap.json
-  5) scripts/protocol/validate-production-readiness.sh (+ --fixture)
-  6) scripts/protocol/fixtures/perf-lab-pass/* — CI/passing smoke JSON
-  7) docs/perf/PERFORMANCE_LAB_COMMAND_MATRIX.md — official command matrix
-  8) .github/workflows/protocol-readiness.yml — fixture gate on scripts/protocol changes
-  9) Makefile: perf-lab-dashboards, declare-readiness; capacity-one chains perf-lab-dashboards
- 10) GITHUB_PR_DESCRIPTION_PR3.txt — PR body for paste
+  3) scripts/deploy-dev.sh
+     • Runs strict-envelope-check before kustomize apply; SKIP_STRICT_ENVELOPE=1 to bypass.
 
-WHAT THIS DOES NOT DO
----------------------
-  • No runtime pool env or ingress changes (next PR). CI does not run make capacity-one.
+  4) scripts/protocol/adaptive-pool-suggest.js
+     • pool >= ceil(λ / (μ * util)) with default util=0.75; --observed-rps JSON input.
+
+  5) scripts/protocol/build-transport-default-hints.js + Makefile transport-routing-hints*
+     • transport-default-hints.json from protocol-happiness-matrix; --also-k8s writes
+       infra/k8s/base/config/transport-routing-defaults.json.
+
+  6) Makefile: capacity-one chains transport-routing-hints; strict-envelope-check;
+     adaptive-pool-suggest (OBSERVED_RPS_JSON=…).
+
+  7) scripts/protocol/fixtures: capacity-recommendations.json, strict-envelope-ci.json,
+     example-observed-rps.json — CI + examples.
+
+  8) .github/workflows/protocol-readiness.yml — strict-envelope job step + path filter.
+
+  9) scripts/protocol/validate-production-readiness.sh — strict envelope phase (fixture uses CI envelope).
+
+ 10) docs/perf/PERFORMANCE_LAB_COMMAND_MATRIX.md — new rows + deploy/adaptive sections.
 
 RUN / VALIDATION
 ----------------
-  • node scripts/protocol/declare-readiness.js --perf-dir scripts/protocol/fixtures/perf-lab-pass
+  • node scripts/protocol/strict-envelope-check.js --perf-dir bench_logs/performance-lab
   • ./scripts/protocol/validate-production-readiness.sh --fixture
-  • make capacity-one (with existing ceiling + lab data) regenerates dashboard JSON
+  • make adaptive-pool-suggest OBSERVED_RPS_JSON=scripts/protocol/fixtures/example-observed-rps.json
+  • make transport-routing-hints-sync-k8s   # refresh k8s JSON when τ policy changes
 
 Suggested subject
 -----------------
-feat(perf-lab): declare-readiness gate, dashboards, command matrix, CI fixture
+feat(perf): strict envelope gate, adaptive pool suggest, transport H2 hints
 
 Made with Tom.

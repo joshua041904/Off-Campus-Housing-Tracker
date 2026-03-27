@@ -7,10 +7,12 @@ on:
     branches: [main, master]
     paths:
       - "scripts/protocol/**"
+      - "infra/k8s/base/config/strict-envelope.json"
       - ".github/workflows/protocol-readiness.yml"
   pull_request:
     paths:
       - "scripts/protocol/**"
+      - "infra/k8s/base/config/strict-envelope.json"
       - ".github/workflows/protocol-readiness.yml"
 
 jobs:
@@ -29,3 +31,10 @@ jobs:
 
       - name: Operator script smoke (--fixture)
         run: ./scripts/protocol/validate-production-readiness.sh --fixture
+
+      - name: Strict envelope vs fixture lab (must pass)
+        run: |
+          node scripts/protocol/strict-envelope-check.js \
+            --perf-dir scripts/protocol/fixtures/perf-lab-pass \
+            --envelope scripts/protocol/fixtures/strict-envelope-ci.json \
+            --require-lab

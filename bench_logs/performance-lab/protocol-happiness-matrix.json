@@ -1,13 +1,13 @@
 {
-  "generated_at": "2026-03-27T01:24:49.959Z",
+  "generated_at": "2026-03-27T01:47:54.856Z",
   "weights": {
     "throughput": 0.35,
     "latency": 0.2,
     "tailRisk": 0.25,
     "stability": 0.2
   },
-  "source_service_model": "bench_logs/ceiling/20260326-155712/service-model.json",
-  "source_collapse": "bench_logs/performance-lab/collapse-summary.json",
+  "source_service_model": "/Users/tom/Off-Campus-Housing-Tracker/bench_logs/ceiling/20260326-155712/service-model.json",
+  "source_collapse": "/Users/tom/Off-Campus-Housing-Tracker/bench_logs/performance-lab/collapse-summary.json",
   "source_capacity": "/Users/tom/Off-Campus-Housing-Tracker/bench_logs/performance-lab/capacity-recommendations.json",
   "rows": [
     {

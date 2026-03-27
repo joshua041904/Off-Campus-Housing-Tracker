@@ -16,7 +16,7 @@ export PATH := $(SCRIPTS)/shims:/opt/homebrew/bin:/usr/local/bin:$(PATH)
 .PHONY: menu help up up-fast deps kubeconfig-colima cluster colima-net tls-first-time trust-ca-macos verify-curl-http3 infra-host infra-cluster \
 	metallb-fix hosts-sanity preflight-gate sslkeylog-seed ollama-note ollama-env test test-current model summarize-ceiling strict-canonical ceiling collapse-trust collapse-messaging collapse-all \
 	protocol-matrix packet-capture perf-lab perf-full generate-report graph-capacity heatmap-tail compare-run regression-guard \
-	slack-report discord-report ci ci-full ceiling-default performance-lab-interpret performance-lab-interpret-latest performance-lab-one capacity-recommend capacity-one protocol-happiness perf-lab-dashboards declare-readiness explain-all-dbs demo demo-network demo-full demo-k3d stack images kustomize-apply \
+	slack-report discord-report ci ci-full ceiling-default performance-lab-interpret performance-lab-interpret-latest performance-lab-one capacity-recommend capacity-one protocol-happiness transport-routing-hints transport-routing-hints-sync-k8s perf-lab-dashboards bundle-performance-lab-10 strict-envelope-check adaptive-pool-suggest declare-readiness explain-all-dbs demo demo-network demo-full demo-k3d stack images kustomize-apply \
 	deploy-dev rollouts preflight-metallb test-e2e-integrated packet-capture-standalone
 
 # Default orchestration knobs for team "one-command" workflow.
@@ -71,7 +71,7 @@ help: ## List targets and short descriptions
 	@echo "  make performance-lab-interpret-latest  Auto-detect latest combined CSV and build outputs"
 	@echo "  make performance-lab-one  Latest ceiling run -> combined-10 + interpretation outputs"
 	@echo "  make capacity-recommend  Generate pool/ingress/dashboard outputs from performance-lab"
-	@echo "  make capacity-one        One command: performance-lab-one + capacity-recommend + protocol-happiness"
+	@echo "  make capacity-one        One command: lab + capacity + happiness + H2 hints + dashboards + 10-file bundle"
 	@echo "  make explain-all-dbs     EXPLAIN ANALYZE across housing Postgres (5441–5448)"
 	@echo ""
 	@echo "Advanced:"
@@ -107,6 +107,9 @@ menu: ## Friendly workflow menu (default target)
 	@echo "  make capacity-one"
 	@echo "  make protocol-happiness"
 	@echo "  make perf-lab-dashboards"
+	@echo "  make bundle-performance-lab-10"
+	@echo "  make strict-envelope-check"
+	@echo "  make transport-routing-hints-sync-k8s"
 	@echo "  make declare-readiness"
 	@echo "  make protocol-matrix"
 	@echo ""
@@ -289,6 +292,7 @@ performance-lab-interpret: ## Build classification + merit + collapse + final re
 		exit 1; \
 	fi
 	node $(SCRIPTS)/perf/build-performance-lab.js --input "$(CSV)" --out-dir "$(BENCH)/performance-lab" --pools "$(POOL_SIZES)"
+	node $(SCRIPTS)/perf/bundle-performance-lab-10.js --perf-dir "$(BENCH)/performance-lab"
 
 performance-lab-interpret-latest: ## Build interpretation outputs from latest combined-10 CSV automatically
 	@csv="$$(ls -t $(REPO_ROOT)/bench_logs/ceiling/*/combined-10/ALL_SERVICES_PROTOCOLS_VU_COMBINED.csv 2>/dev/null | head -1)"; \
@@ -298,6 +302,7 @@ performance-lab-interpret-latest: ## Build interpretation outputs from latest co
 	fi; \
 	echo "Using $$csv"; \
 	node $(SCRIPTS)/perf/build-performance-lab.js --input "$$csv" --out-dir "$(BENCH)/performance-lab" --pools "$(POOL_SIZES)"
+	node $(SCRIPTS)/perf/bundle-performance-lab-10.js --perf-dir "$(BENCH)/performance-lab"
 
 performance-lab-one: ## One command: latest ceiling run -> combined-10 -> performance-lab outputs
 	@run="$$(ls -td $(REPO_ROOT)/bench_logs/ceiling/* 2>/dev/null | head -1)"; \
@@ -312,14 +317,20 @@ performance-lab-one: ## One command: latest ceiling run -> combined-10 -> perfor
 	echo "Using run $$run"; \
 	node $(SCRIPTS)/perf/build-combined-10.js --run-dir "$$run"; \
 	node $(SCRIPTS)/perf/build-performance-lab.js --input "$$run/combined-10/ALL_SERVICES_PROTOCOLS_VU_COMBINED.csv" --out-dir "$(BENCH)/performance-lab" --pools "$(POOL_SIZES)"
+	node $(SCRIPTS)/perf/bundle-performance-lab-10.js --perf-dir "$(BENCH)/performance-lab"
 
 capacity-recommend: ## Generate recommended pool sizes + ingress tuning + dashboard schema
 	node $(SCRIPTS)/capacity/derive-pool-sizes.js --perf-dir "$(BENCH)/performance-lab" --min-pool "$(MIN_RECOMMENDED_POOL)"
+	node $(SCRIPTS)/perf/bundle-performance-lab-10.js --perf-dir "$(BENCH)/performance-lab"
 
-capacity-one: ## One command: latest ceiling -> lab + capacity + protocol happiness + dashboard JSON
+bundle-performance-lab-10: ## Merge bench_logs/performance-lab into PERF_LAB_CANONICAL_10/ (10 files, full content)
+	node $(SCRIPTS)/perf/bundle-performance-lab-10.js --perf-dir "$(BENCH)/performance-lab"
+
+capacity-one: ## One command: latest ceiling -> lab + capacity + happiness + τ<0 H2 hints + dashboards + 10-file bundle
 	$(MAKE) performance-lab-one
 	$(MAKE) capacity-recommend
 	$(MAKE) protocol-happiness
+	$(MAKE) transport-routing-hints
 	$(MAKE) perf-lab-dashboards
 
 # ROLE: PERF — tail-weighted protocol scores + HTTP/3 dominance thresholds (needs service-model + collapse-summary)
@@ -336,6 +347,16 @@ protocol-happiness: ## Write protocol-happiness-matrix.json, protocol-superiorit
 		exit 1; \
 	fi; \
 	node $(SCRIPTS)/protocol/compute-happiness.js --service-model "$$sm" --collapse "$$cl" --out-dir "$(BENCH)/performance-lab"
+	node $(SCRIPTS)/perf/bundle-performance-lab-10.js --perf-dir "$(BENCH)/performance-lab"
+
+# ROLE: PERF — τ<0 → prefer HTTP/2 defaults (transport-default-hints.json; optional k8s list)
+transport-routing-hints: ## From protocol-happiness-matrix → bench_logs/performance-lab/transport-default-hints.json
+	node $(SCRIPTS)/protocol/build-transport-default-hints.js --perf-dir "$(BENCH)/performance-lab"
+	node $(SCRIPTS)/perf/bundle-performance-lab-10.js --perf-dir "$(BENCH)/performance-lab"
+
+transport-routing-hints-sync-k8s: ## Same + write infra/k8s/base/config/transport-routing-defaults.json (commit when routing policy changes)
+	node $(SCRIPTS)/protocol/build-transport-default-hints.js --perf-dir "$(BENCH)/performance-lab" --also-k8s
+	node $(SCRIPTS)/perf/bundle-performance-lab-10.js --perf-dir "$(BENCH)/performance-lab"
 
 # ROLE: PERF — envelope-dashboard.json + transport-dominance-heatmap.json (needs latest ceiling service-model)
 perf-lab-dashboards: ## JSON for dashboards / heatmaps from performance-lab + latest ceiling service-model
@@ -347,6 +368,19 @@ perf-lab-dashboards: ## JSON for dashboards / heatmaps from performance-lab + la
 		exit 1; \
 	fi; \
 	node $(SCRIPTS)/protocol/build-dominance-heatmap.js --service-model "$$sm" --out-dir "$(BENCH)/performance-lab"
+	node $(SCRIPTS)/perf/bundle-performance-lab-10.js --perf-dir "$(BENCH)/performance-lab"
+
+# ROLE: PERF — lab recommendations vs declared caps (used by scripts/deploy-dev.sh)
+strict-envelope-check: ## Fail if recommended_pool or stream caps exceed strict-envelope.json
+	node $(SCRIPTS)/protocol/strict-envelope-check.js --perf-dir "$(BENCH)/performance-lab"
+
+# ROLE: PERF — suggest pools from observed λ (JSON) and μ; default util=0.75 (advisory)
+adaptive-pool-suggest: ## Usage: make adaptive-pool-suggest OBSERVED_RPS_JSON=/path/to.json
+	@if [ -z "$(OBSERVED_RPS_JSON)" ]; then \
+		echo "❌ Set OBSERVED_RPS_JSON=path/to/observed-rps.json (e.g. scripts/protocol/fixtures/example-observed-rps.json)"; \
+		exit 1; \
+	fi
+	node $(SCRIPTS)/protocol/adaptive-pool-suggest.js --perf-dir "$(BENCH)/performance-lab" --observed-rps "$(OBSERVED_RPS_JSON)" --util 0.75 --min-pool "$(MIN_RECOMMENDED_POOL)"
 
 # ROLE: PERF — automated production-readiness gate (strict; often fails on raw lab until tuned)
 declare-readiness: ## Run declare-readiness.js on bench_logs/performance-lab (see also: scripts/protocol/fixtures)

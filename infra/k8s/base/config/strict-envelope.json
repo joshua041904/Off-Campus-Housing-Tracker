@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "description": "Declared DB pool max and edge HTTP/2–HTTP/3 concurrent stream ceilings. Must satisfy capacity-recommendations.json from the performance lab (configured_pool >= recommended_pool; ingress caps >= recommended stream caps). Sync with k8s Deployments and ingress/Caddy when you change prod.",
+  "services": {
+    "analytics": { "configured_db_pool_max": 100 },
+    "auth": { "configured_db_pool_max": 100 },
+    "booking": { "configured_db_pool_max": 80 },
+    "event-layer": { "configured_db_pool_max": 50 },
+    "gateway": {
+      "configured_db_pool_max": null,
+      "configured_gateway_proxy_max_inflight": 512
+    },
+    "listings": { "configured_db_pool_max": 50 },
+    "media": { "configured_db_pool_max": 20 },
+    "messaging": { "configured_db_pool_max": 60 },
+    "trust": { "configured_db_pool_max": 50 }
+  },
+  "ingress": {
+    "http2_max_concurrent_streams": 128,
+    "http3_max_concurrent_streams": 128
+  }
+}

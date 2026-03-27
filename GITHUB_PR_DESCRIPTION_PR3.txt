@@ -1,5 +1,7 @@
 # PR #3 — Performance lab governance: readiness gate, dashboards, operator matrix
 
+**Standalone PR:** Paste **only** this file as the GitHub/GitLab description for **PR #3**. It is self-contained; do not concatenate with `GITHUB_PR_DESCRIPTION.txt` or `GITHUB_PR_DESCRIPTION_PR2.txt` (those belong to earlier PRs or the main onboarding doc).
+
 **Title (suggested):** `feat(perf-lab): production readiness gate, envelope dashboard, dominance heatmap, CI fixture`
 
 **Stack position:** PR #1 capacity / pools · PR #2 protocol happiness + dominance · **PR #3 (this)** wires **governance**: automated gates, dashboard JSON, operator docs, CI smoke. **PR #4 (future)** can apply pool env + ingress caps from recommendations.
