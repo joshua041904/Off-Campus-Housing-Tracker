@@ -1,44 +1,72 @@
-ci(och): och-ci contract, certification script, H2 anomaly gate, port + QUIC invariants
+feat(och): edge Grafana subpath, transport observability, gateway 404 + listings 400 + Kafka daily_metrics
 
 WHY
 ---
-  • Lock separation: docker-compose (infra), k3s (runtime), GitHub CI (no private cluster),
-    local make certify (full edge + transport-lab + declare-readiness).
-  • Remove phantom failures: pnpm without action-setup, strict Playwright on unreachable edge,
-    local-stack workflow implying wrong architecture.
-  • Enforce HTTP/2 matrix collapse in CI before spending matrix minutes; align declare-readiness
-    with extract-protocol-matrix output when transport artifact omits protocol_integrity.
+  • Port-forward is a debug tool; Grafana should ride the same TLS/HTTP2/HTTP3 edge as the app.
+  • Unknown /api routes should be 404, not 401, when no service owns the prefix.
+  • Invalid listing IDs must be 400 before Postgres ::uuid throws 500.
+  • HTTP listing create must emit the same ListingCreatedV1 Kafka envelope as gRPC so analytics can
+    project daily_metrics (E2E system-integrity expects new_listings to move).
+  • Docker builds must not pick up local *.tsbuildinfo (incremental emit gaps).
+  • Prometheus SLO rules must use prom-client label `code`, not fictional `status`.
+  • Dev machines without standalone `kustomize` should still apply overlays via kubectl.
 
 WHAT CHANGED
 ------------
-  • .github/workflows/ci.yml — och-ci: protocol-anomaly → build → test → transport-validation →
-    quic-hostname-invariant; playwright-strict if vars.RUN_STRICT_PLAYWRIGHT == true; OCH matrices.
-  • .github/workflows/docker-build.yml — och-docker-build matrix (services + webapp).
-  • Remove .github/workflows/local-integration.yml.
-  • .github/workflows/protocol-validation.yml — shellcheck CI scripts; pnpm 9.11.0; path filters.
-  • scripts/ci/run-full-certification.sh — certify order; CI=true exits after pnpm test; docker
-    required when not CI.
-  • scripts/ci/verify-docker-ports.sh — host ports 5441–5448, 6380 (docker ps).
-  • scripts/ci/verify-quic-hostname-invariant.sh — no raw-IP https BASE_URL defaults in scripts/load.
-  • scripts/perf/extract-protocol-matrix.js — EXTRACT_PROTOCOL_MATRIX_FROM_CSV CSV fallback; comment fix.
-  • scripts/protocol/declare-readiness.js — fold in protocol-matrix-anomalies.json when needed.
-  • Makefile — certify, verify-docker-ports.
-  • webapp — PLAYWRIGHT_STRICT_HTTP3 on strict e2e scripts; system-integrity state assertions.
-  • docs/LOCAL_DEV.md — CI section matches och-ci / removed local workflow.
+  Edge / Caddy
+  • Caddyfile + infra/k8s/caddy-h3-configmap.yaml — handle_path /grafana/* → grafana.observability;
+    API upstream encode + transport keepalive/buffers (synced).
+  • infra/k8s/reference/envoy-quic-downstream.example.yaml — optional Envoy QUIC reference.
 
-NOT IN THIS COMMIT
-------------------
-  • Fixing any_http2_collapse_anomaly (pool / H2 tuning — separate performance work).
-  • python-ai-service Docker matrix row (no Dockerfile in tree yet).
+  Observability
+  • grafana-dashboard-providers.yaml, grafana-dashboards-transport.yaml, grafana-dashboards.yaml
+    (unwrap legacy JSON to schemaVersion 38; transport dashboard).
+  • grafana-deploy.yaml — projected dashboard volumes, GF_SERVER_ROOT_URL/SERVE_FROM_SUB_PATH,
+    grafana/grafana:11.5.2.
+  • prometheus-deploy.yaml — scrape envoy-test-pods (/stats/prometheus).
+  • prometheus-rules-och-slo.yaml (+ grafana-dashboards CM / och-slo-prometheusrule) — code label fix;
+    och-transport-edge recording rules + alerts.
+  • infra/grafana/och-transport-edge.json — repo copy of transport dashboard.
+
+  Scripts
+  • scripts/transport/http3-concurrent-curl-stress.sh — concurrent HTTP/3 curl stress.
+  • scripts/rollout-restart-och-after-pool-tuning.sh — envoy-test + optional ingress envoy restart.
+  • scripts/deploy-dev.sh, Makefile — kubectl kustomize fallback for overlays.
+
+  Services
+  • api-gateway/server.ts — unknown /api/* first-segment guard → 404 before auth.
+  • listings-service — listing-kafka.ts; HTTP+grpc publish ListingCreatedV1 + listed_at_day;
+    GET /listings/:id UUID guard → 400.
+  • analytics-service — consumers/listingEventsConsumer.ts (kafkajs dep); server.ts starts consumer;
+    daily_metrics upsert with processed_events dedupe.
+  • listings, trust, analytics, messaging db.ts — InstanceType<typeof Pool> for attachConcurrencyGuard.
+
+  Webapp E2E
+  • gateway.routing.spec.ts — expect 404 unknown route.
+  • listings.full.spec.ts — expect 400 bad id.
+  • analytics.full.spec.ts — healthz poll; daily-metrics allows 502.
+  • system-integrity.spec.ts — calendarDateYmd + e2eApiBase for daily-metrics URL.
+
+  Build
+  • .dockerignore — **/*.tsbuildinfo.
 
 RUN
 ---
-  • make verify-docker-ports
-  • make certify
-  • EXTRACT_PROTOCOL_MATRIX_FROM_CSV=1 node scripts/perf/extract-protocol-matrix.js
+  SERVICES="api-gateway listings-service analytics-service" bash scripts/build-housing-images-k3s.sh
+  kubectl kustomize infra/k8s/overlays/dev | kubectl apply -f -
+  bash scripts/rollout-caddy.sh
+  kubectl rollout restart deployment/grafana -n observability
+  kubectl rollout restart deployment/api-gateway deployment/listings-service deployment/analytics-service \
+    -n off-campus-housing-tracker
+  # Grafana: https://off-campus-housing.test/grafana/
+  bash scripts/run-playwright-e2e-preflight.sh   # needs Kafka for daily_metrics increment
+
+PR body
+-------
+  See GITHUB_PR_DESCRIPTION_PR5.txt (standalone description for PR #5).
 
 Suggested subject
 -----------------
-ci(och): deterministic och-ci, certify script, collapse + port + QUIC invariants
+feat(och): Grafana on edge, transport rules, gateway/listings/analytics contracts, listing Kafka → metrics
 
 Made with Tom.

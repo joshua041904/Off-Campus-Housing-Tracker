@@ -33,9 +33,8 @@ test.describe("listings (gateway vertical)", () => {
     expect([401, 403]).toContain(r.status());
   });
 
-  test("GET /api/listings/listings/bad-id-format → 4xx", async ({ request }) => {
+  test("GET /api/listings/listings/bad-id-format → 400", async ({ request }) => {
     const r = await request.get(edgePath("/api/listings/listings/not-a-uuid"));
-    expect(r.status()).toBeGreaterThanOrEqual(400);
-    expect(r.status()).toBeLessThan(500);
+    expect(r.status()).toBe(400);
   });
 });

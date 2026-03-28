@@ -16,7 +16,7 @@
     "trust": { "configured_db_pool_max": 50 }
   },
   "ingress": {
-    "http2_max_concurrent_streams": 128,
-    "http3_max_concurrent_streams": 128
+    "http2_max_concurrent_streams": 1000,
+    "http3_max_concurrent_streams": 1000
   }
 }

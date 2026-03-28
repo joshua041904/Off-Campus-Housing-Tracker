@@ -9,6 +9,7 @@ on:
       - "scripts/protocol/**"
       - "scripts/transport/**"
       - "scripts/ci/**"
+      - "scripts/recycle-och-postgres-compose.sh"
       - "scripts/lib/**"
       - "scripts/run-preflight-scale-and-all-suites.sh"
       - "scripts/perf/extract-protocol-matrix.js"
@@ -23,6 +24,7 @@ on:
       - "scripts/protocol/**"
       - "scripts/transport/**"
       - "scripts/ci/**"
+      - "scripts/recycle-och-postgres-compose.sh"
       - "scripts/lib/**"
       - "scripts/run-preflight-scale-and-all-suites.sh"
       - "scripts/perf/extract-protocol-matrix.js"
@@ -46,7 +48,7 @@ jobs:
       - name: ShellCheck certification script
         run: shellcheck scripts/ci/run-full-certification.sh
       - name: ShellCheck CI invariant scripts
-        run: shellcheck scripts/ci/verify-docker-ports.sh scripts/ci/verify-quic-hostname-invariant.sh
+        run: shellcheck scripts/ci/verify-docker-ports.sh scripts/ci/verify-quic-hostname-invariant.sh scripts/recycle-och-postgres-compose.sh
 
   transport-quic-pipeline:
     runs-on: ubuntu-latest

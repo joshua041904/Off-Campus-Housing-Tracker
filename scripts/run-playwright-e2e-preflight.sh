@@ -8,6 +8,8 @@
 #   SKIP_PLAYWRIGHT_E2E=1  — exit 0 immediately
 #   E2E_API_BASE           — must be https (default https://off-campus-housing.test)
 #   NODE_EXTRA_CA_CERTS    — default REPO_ROOT/certs/dev-root.pem (for curl --cacert + Node TLS)
+#   PLAYWRIGHT_VERTICAL_STRICT / PLAYWRIGHT_STRICT_HTTP3 — set by run-preflight-scale-and-all-suites.sh by default
+#     (PREFLIGHT_PLAYWRIGHT_STRICT_HTTP3=1) for CI parity with webapp `test:e2e:strict-verticals-and-integrity`.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

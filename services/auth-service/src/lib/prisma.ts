@@ -20,7 +20,7 @@ const connectionString = process.env.POSTGRES_URL_AUTH || '';
 // k6 tests can generate: 20 VUs × 2 req/s = 40 concurrent requests
 // Each request needs a DB connection, and requests take 2-3s each
 // With connection_limit=100, we can handle burst load better
-// Database max_connections=500 (configured in docker-compose.yml), so 100 is safe
+// Database max_connections=400 per Postgres instance (docker-compose.yml), so 100 is safe for this single service
 const connectionLimit = 100; // High concurrency: authentication and user operations
 const poolTimeout = 30; // Increased timeout to handle connection pool contention under load
 

@@ -5,8 +5,8 @@
   "type": "commonjs",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "ROLLUP_DISABLE_NATIVE=true vitest run",
+    "test:watch": "ROLLUP_DISABLE_NATIVE=true vitest"
   },
   "devDependencies": {
     "typescript": "^5.5.4",

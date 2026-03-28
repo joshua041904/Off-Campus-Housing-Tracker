@@ -8,165 +8,264 @@ metadata:
 data:
   microservices-overview.json: |
     {
-      "dashboard": {
-        "title": "Microservices Overview",
-        "tags": ["microservices", "overview"],
-        "timezone": "browser",
-        "panels": [
+      "annotations": { "list": [] },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 0,
+      "id": null,
+      "links": [],
+      "liveNow": false,
+      "panels": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+          "id": 1,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "sum(rate(http_requests_total[5m])) by (service)",
+              "legendFormat": "{{service}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Request Rate",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+          "id": 2,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "sum(rate(http_requests_total{code=~\"5..\"}[5m])) by (service)",
+              "legendFormat": "{{service}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Error Rate",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+          "id": 3,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service))",
+              "legendFormat": "p95 {{service}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Response Time (p95)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+          "id": 4,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service))",
+              "legendFormat": "p99 {{service}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Response Time (p99)",
+          "type": "timeseries"
+        }
+      ],
+      "refresh": "30s",
+      "schemaVersion": 38,
+      "style": "dark",
+      "tags": ["microservices", "overview", "och"],
+      "templating": {
+        "list": [
           {
-            "id": 1,
-            "title": "Request Rate",
-            "type": "graph",
-            "targets": [
-              {
-                "expr": "sum(rate(http_requests_total[5m])) by (service)",
-                "legendFormat": "{{service}}"
-              }
-            ],
-            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
-          },
-          {
-            "id": 2,
-            "title": "Error Rate",
-            "type": "graph",
-            "targets": [
-              {
-                "expr": "sum(rate(http_requests_total{status=~\"5..\"}[5m])) by (service)",
-                "legendFormat": "{{service}}"
-              }
-            ],
-            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
-          },
-          {
-            "id": 3,
-            "title": "Response Time (p95)",
-            "type": "graph",
-            "targets": [
-              {
-                "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service))",
-                "legendFormat": "p95 {{service}}"
-              }
-            ],
-            "yaxes": [{"format": "s"}],
-            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
-          },
-          {
-            "id": 4,
-            "title": "Response Time (p99)",
-            "type": "graph",
-            "targets": [
-              {
-                "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service))",
-                "legendFormat": "p99 {{service}}"
-              }
-            ],
-            "yaxes": [{"format": "s"}],
-            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+            "current": { "selected": false, "text": "Prometheus", "value": "Prometheus" },
+            "hide": 0,
+            "label": "Datasource",
+            "name": "DS_PROMETHEUS",
+            "options": [],
+            "query": "prometheus",
+            "refresh": 1,
+            "regex": "",
+            "type": "datasource"
           }
         ]
-      }
+      },
+      "time": { "from": "now-6h", "to": "now" },
+      "timepicker": {},
+      "timezone": "browser",
+      "title": "Microservices Overview",
+      "uid": "och-microservices-overview",
+      "version": 1
     }
   distributed-tracing.json: |
     {
-      "dashboard": {
-        "title": "Distributed Tracing",
-        "tags": ["tracing", "jaeger"],
-        "panels": [
+      "annotations": { "list": [] },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 0,
+      "id": null,
+      "links": [],
+      "liveNow": false,
+      "panels": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+          "id": 1,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "sum(rate(jaeger_spans_total[5m])) by (service_name)",
+              "legendFormat": "{{service_name}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Trace Count",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+          "id": 2,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "sum(rate(jaeger_spans_total{error=\"true\"}[5m])) by (service_name)",
+              "legendFormat": "{{service_name}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Error Rate",
+          "type": "timeseries"
+        }
+      ],
+      "refresh": "30s",
+      "schemaVersion": 38,
+      "style": "dark",
+      "tags": ["tracing", "jaeger", "och"],
+      "templating": {
+        "list": [
           {
-            "id": 1,
-            "title": "Trace Count",
-            "type": "graph",
-            "targets": [
-              {
-                "expr": "sum(rate(jaeger_spans_total[5m])) by (service_name)",
-                "legendFormat": "{{service_name}}"
-              }
-            ]
-          },
-          {
-            "id": 2,
-            "title": "Error Rate",
-            "type": "graph",
-            "targets": [
-              {
-                "expr": "sum(rate(jaeger_spans_total{error=\"true\"}[5m])) by (service_name)",
-                "legendFormat": "{{service_name}}"
-              }
-            ]
+            "current": { "selected": false, "text": "Prometheus", "value": "Prometheus" },
+            "hide": 0,
+            "label": "Datasource",
+            "name": "DS_PROMETHEUS",
+            "options": [],
+            "query": "prometheus",
+            "refresh": 1,
+            "regex": "",
+            "type": "datasource"
           }
         ]
-      }
+      },
+      "time": { "from": "now-6h", "to": "now" },
+      "timepicker": {},
+      "timezone": "browser",
+      "title": "Distributed Tracing",
+      "uid": "och-distributed-tracing",
+      "version": 1
     }
   housing-uptime.json: |
     {
-      "dashboard": {
-        "title": "Housing uptime (Prometheus scrape SLI)",
-        "tags": ["uptime", "housing", "sli", "prometheus"],
-        "timezone": "browser",
-        "templating": {
-          "list": [
+      "annotations": { "list": [] },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 0,
+      "id": null,
+      "links": [],
+      "liveNow": false,
+      "panels": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "min": 0, "max": 1.05, "unit": "short" }, "overrides": [] },
+          "gridPos": { "h": 9, "w": 24, "x": 0, "y": 0 },
+          "id": 20,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
             {
-              "name": "svc",
-              "type": "textbox",
-              "label": "Service filter (regex)",
-              "query": "",
-              "current": { "value": ".*", "text": ".*" },
-              "options": [{ "value": ".*", "text": ".*" }]
+              "expr": "avg_over_time(up{job=\"housing-pods\",service=~\"$svc\"}[5m])",
+              "legendFormat": "{{service}} ({{kubernetes_pod_name}})",
+              "refId": "A"
             }
-          ]
+          ],
+          "title": "Smoothed availability — avg_over_time(up[5m]) on matching services (reduces single-scrape blips)",
+          "type": "timeseries"
         },
-        "panels": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "min": 0, "max": 1.05, "unit": "short" }, "overrides": [] },
+          "gridPos": { "h": 9, "w": 24, "x": 0, "y": 9 },
+          "id": 21,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "min_over_time(up{job=\"housing-pods\",service=~\"$svc\"}[1h])",
+              "legendFormat": "{{service}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Strict 1h window — min_over_time(up[1h]); 0 means at least one failed scrape in the hour",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "min": 0, "max": 1.1, "unit": "short" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 18 },
+          "id": 22,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "up{job=\"housing-pods\",service=~\"$svc\"}",
+              "legendFormat": "{{service}} @ {{kubernetes_pod_name}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Raw up{job=\"housing-pods\"} (per scrape)",
+          "type": "timeseries"
+        }
+      ],
+      "refresh": "30s",
+      "schemaVersion": 38,
+      "style": "dark",
+      "tags": ["uptime", "housing", "sli", "prometheus", "och"],
+      "templating": {
+        "list": [
           {
-            "id": 20,
-            "title": "Smoothed availability — avg_over_time(up[5m]) on matching services (reduces single-scrape blips)",
-            "type": "graph",
-            "lines": true,
-            "linewidth": 2,
-            "fill": 1,
-            "targets": [
-              {
-                "expr": "avg_over_time(up{job=\"housing-pods\",service=~\"$svc\"}[5m])",
-                "legendFormat": "{{service}} ({{kubernetes_pod_name}})",
-                "refId": "A"
-              }
-            ],
-            "yaxes": [{ "min": 0, "max": 1.05, "format": "short" }],
-            "gridPos": { "h": 9, "w": 24, "x": 0, "y": 0 }
+            "current": { "selected": false, "text": "Prometheus", "value": "Prometheus" },
+            "hide": 0,
+            "label": "Datasource",
+            "name": "DS_PROMETHEUS",
+            "options": [],
+            "query": "prometheus",
+            "refresh": 1,
+            "regex": "",
+            "type": "datasource"
           },
           {
-            "id": 21,
-            "title": "Strict 1h window — min_over_time(up[1h]); 0 means at least one failed scrape in the hour",
-            "type": "graph",
-            "lines": true,
-            "linewidth": 2,
-            "targets": [
-              {
-                "expr": "min_over_time(up{job=\"housing-pods\",service=~\"$svc\"}[1h])",
-                "legendFormat": "{{service}}",
-                "refId": "A"
-              }
-            ],
-            "yaxes": [{ "min": 0, "max": 1.05 }],
-            "gridPos": { "h": 9, "w": 24, "x": 0, "y": 9 }
-          },
-          {
-            "id": 22,
-            "title": "Raw up{job=\"housing-pods\"} (per scrape)",
-            "type": "graph",
-            "bars": false,
-            "lines": true,
-            "linewidth": 1,
-            "targets": [
-              {
-                "expr": "up{job=\"housing-pods\",service=~\"$svc\"}",
-                "legendFormat": "{{service}} @ {{kubernetes_pod_name}}",
-                "refId": "A"
-              }
-            ],
-            "yaxes": [{ "min": 0, "max": 1.1 }],
-            "gridPos": { "h": 8, "w": 24, "x": 0, "y": 18 }
+            "name": "svc",
+            "type": "textbox",
+            "label": "Service filter (regex)",
+            "query": "",
+            "current": { "value": ".*", "text": ".*" },
+            "options": [{ "value": ".*", "text": ".*" }]
           }
         ]
-      }
+      },
+      "time": { "from": "now-6h", "to": "now" },
+      "timepicker": {},
+      "timezone": "browser",
+      "title": "Housing uptime (Prometheus scrape SLI)",
+      "uid": "och-housing-uptime",
+      "version": 1
     }
-

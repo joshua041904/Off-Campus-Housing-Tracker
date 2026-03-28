@@ -10,8 +10,8 @@ const conn =
   (process.env.DATABASE_HOST
     ? `postgresql://${process.env.PG_USER || 'postgres'}:${process.env.PG_PASSWORD || 'postgres'}@${process.env.DATABASE_HOST}:${mediaPort}/${mediaDb}?connect_timeout=10`
     : `postgresql://postgres:postgres@127.0.0.1:${mediaPort}/${mediaDb}?connect_timeout=10`)
-const poolMaxRaw = Number(process.env.MEDIA_DB_POOL_MAX || '10')
-const poolMax = Number.isFinite(poolMaxRaw) && poolMaxRaw > 0 ? Math.floor(poolMaxRaw) : 10
+const poolMaxRaw = Number(process.env.MEDIA_DB_POOL_MAX || '50')
+const poolMax = Number.isFinite(poolMaxRaw) && poolMaxRaw > 0 ? Math.floor(poolMaxRaw) : 50
 const inflightLimitRaw = Number(process.env.MAX_DB_CONCURRENCY || String(poolMax))
 const inflightLimit = Number.isFinite(inflightLimitRaw) && inflightLimitRaw > 0 ? Math.floor(inflightLimitRaw) : poolMax
 

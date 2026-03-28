@@ -1,6 +1,5 @@
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
-import { PrismaClient } from "../prisma/generated/client/index.js";
 import {
   kafka,
   registerHealthService,
@@ -8,6 +7,7 @@ import {
   createOchStrictMtlsServerCredentials,
 } from "@common/utils";
 import { randomUUID } from "node:crypto";
+import { prisma } from "./lib/prisma.js";
 
 const BOOKING_PROTO = resolveProtoPath("booking.proto");
 const packageDefinition = protoLoader.loadSync(BOOKING_PROTO, {
@@ -17,11 +17,11 @@ const packageDefinition = protoLoader.loadSync(BOOKING_PROTO, {
   defaults: true,
   oneofs: true,
 });
+
 const bookingProto = (grpc.loadPackageDefinition(packageDefinition) as any).booking;
 
 const BOOKING_EVENTS_TOPIC = process.env.BOOKING_EVENTS_TOPIC || "dev.booking.events.v1";
 const SERVICE_NAME = "booking-service";
-const prisma = new PrismaClient();
 const producer = kafka.producer();
 let producerReady = false;
 

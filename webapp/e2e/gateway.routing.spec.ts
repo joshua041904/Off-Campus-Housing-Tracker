@@ -20,6 +20,6 @@ test.describe("gateway routing", () => {
 
   test("unknown /api/gateway-test-missing-route → 404", async ({ request }) => {
     const r = await request.get(edgePath("/api/gateway-test-missing-route-404"));
-    expect([404, 502]).toContain(r.status());
+    expect(r.status()).toBe(404);
   });
 });

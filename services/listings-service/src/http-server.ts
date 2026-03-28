@@ -1,6 +1,7 @@
 import express, { type NextFunction, type Request, type Response } from "express";
 import { httpCounter, register } from "@common/utils";
 import { pool } from "./db.js";
+import { publishListingEvent } from "./listing-kafka.js";
 import { buildListingsSearchQuery, parseAmenitySlugs } from "./search-listings-query.js";
 
 type AuthedRequest = Request & { userId?: string };
@@ -64,6 +65,10 @@ function formatListedAt(row: Record<string, unknown>): string | null {
   if (typeof v === "string") return v.slice(0, 10);
   return new Date(v as Date).toISOString().slice(0, 10);
 }
+
+/** UUID v4 (RFC) — reject invalid ids before Postgres casts (avoids 500 on bad input). */
+const LISTING_ID_UUID_RX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function rowToJson(row: Record<string, unknown>) {
   return {
@@ -157,12 +162,17 @@ export function createListingsHttpApp() {
   app.get("/search", searchListingsPublic);
 
   app.get("/listings/:id", async (req, res) => {
+    const id = String(req.params.id || "").trim();
+    if (!LISTING_ID_UUID_RX.test(id)) {
+      res.status(400).json({ error: "Invalid listing id format" });
+      return;
+    }
     try {
       const result = await pool.query(
         `SELECT id, user_id, title, description, price_cents, amenities, smoke_free, pet_friendly, furnished,
                 status::text AS status, created_at, listed_at, latitude, longitude
          FROM listings.listings WHERE id = $1::uuid AND (deleted_at IS NULL)`,
-        [req.params.id]
+        [id]
       );
       if (!result.rows[0]) {
         res.status(404).json({ error: "not found" });
@@ -215,7 +225,15 @@ export function createListingsHttpApp() {
           lng,
         ]
       );
-      res.status(201).json(rowToJson(r.rows[0]));
+      const row = r.rows[0];
+      void publishListingEvent("ListingCreatedV1", String(row.id), {
+        listing_id: row.id,
+        user_id: row.user_id,
+        title: row.title,
+        price_cents: row.price_cents,
+        listed_at_day: formatListedAt(row) || new Date().toISOString().slice(0, 10),
+      });
+      res.status(201).json(rowToJson(row));
     } catch (e) {
       console.error("[listings HTTP create]", e);
       res.status(500).json({ error: "internal" });

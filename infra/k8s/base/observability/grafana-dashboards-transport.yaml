@@ -1,0 +1,110 @@
+# Transport / edge dashboard (Prometheus recording rules: och:gateway_* ; Envoy stats when scraped).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-transport
+  namespace: observability
+  labels:
+    grafana_dashboard: "1"
+data:
+  och-transport-edge.json: |
+    {
+      "annotations": { "list": [] },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 1,
+      "id": null,
+      "links": [],
+      "liveNow": false,
+      "panels": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+          "id": 1,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "och:gateway_5xx_ratio_5m",
+              "legendFormat": "gateway 5xx / all (5m)",
+              "refId": "A"
+            }
+          ],
+          "title": "API gateway — 5xx ratio (5m)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+          "id": 2,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "och:gateway_502_ratio_5m",
+              "legendFormat": "gateway 502 / all (5m)",
+              "refId": "A"
+            }
+          ],
+          "title": "API gateway — 502 ratio (5m)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+          "id": 3,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "sum(rate(envoy_http3_downstream_rx_reset[5m]))",
+              "legendFormat": "envoy h3 downstream rx reset / s",
+              "refId": "A"
+            }
+          ],
+          "title": "Envoy HTTP/3 downstream reset rate (if Envoy terminates QUIC)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+          "id": 4,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "sum(rate(envoy_cluster_upstream_cx_overflow[5m]))",
+              "legendFormat": "envoy upstream cx overflow / s",
+              "refId": "A"
+            }
+          ],
+          "title": "Envoy cluster upstream connection overflow",
+          "type": "timeseries"
+        }
+      ],
+      "refresh": "30s",
+      "schemaVersion": 38,
+      "style": "dark",
+      "tags": ["och", "transport", "http3", "edge"],
+      "templating": {
+        "list": [
+          {
+            "current": { "selected": false, "text": "Prometheus", "value": "Prometheus" },
+            "hide": 0,
+            "label": "Datasource",
+            "name": "DS_PROMETHEUS",
+            "options": [],
+            "query": "prometheus",
+            "refresh": 1,
+            "regex": "",
+            "type": "datasource"
+          }
+        ]
+      },
+      "time": { "from": "now-6h", "to": "now" },
+      "timepicker": {},
+      "timezone": "browser",
+      "title": "OCH — transport / edge",
+      "uid": "och-transport-edge",
+      "version": 1
+    }

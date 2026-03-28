@@ -7,9 +7,9 @@
     "build": "prisma generate && tsc -p tsconfig.json",
     "dev": "tsx watch src/server.ts",
     "start": "node dist/server.js",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:integration": "vitest run tests/integration",
+    "test": "ROLLUP_DISABLE_NATIVE=true vitest run",
+    "test:watch": "ROLLUP_DISABLE_NATIVE=true vitest",
+    "test:integration": "ROLLUP_DISABLE_NATIVE=true vitest run tests/integration",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio"

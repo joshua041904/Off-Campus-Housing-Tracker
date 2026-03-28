@@ -135,6 +135,36 @@ That moves protocol discussion from opinion to **reproducible math** on the same
 
 ---
 
+## Review assignments (small tasks — new to the perf lab)
+
+Teammates are **not expected** to read everything. Pick your lane; skip boxes that feel redundant after the first few. Overlap is fine.
+
+### Joshua — **story, Makefile, “what ships to prod?”**
+
+- [ ] Read the **Executive summary** and **What this PR does not do** (2 min) — confirm this PR is **math + JSON only**, no K8s/env/runtime changes.
+- [ ] Open **`Makefile`** and search for **`protocol-happiness`** and **`capacity-one`** — note that **`capacity-one`** pulls in happiness so pools and dominance stay aligned.
+- [ ] Run **`make menu`** (or grep the Makefile) and find where **`protocol-happiness`** is listed — sanity-check discoverability for operators.
+- [ ] Skim **`bench_logs/performance-lab/protocol-ranking.md`** after a local **`make protocol-happiness`** (or use the sample JSON in this PR) — one service: identify **winner** and **`h3_transport_unlocked`** in plain English.
+- [ ] **Optional:** Read **Architectural impact** — be ready to ask “so what decision does this unblock?” in review.
+
+### Arkar — **scripts, JSON shape, τ / unlock logic**
+
+- [ ] Open **`scripts/protocol/compute-happiness.js`** — find where **CompositeScore** weights are defined (`0.35·T + 0.2·L + …`) — confirm they sum to **1.0** (conceptually).
+- [ ] In the same file, trace **`h3_transport_unlocked`**: when **τ ≤ 0** vs **τ > 0** + pool vs threshold — match to the **Important correctness fix** bullet in this doc.
+- [ ] Open **`bench_logs/performance-lab/protocol-happiness-matrix.json`** (or fixture from a teammate) — pick **one service** and list: **`winner`**, **`transport_gain_tau_h3_vs_h2`**, **`h3_transport_unlocked`**, **`recommended_pool`**.
+- [ ] Open **`protocol-superiority-scores.json`** for that service — find **`tail_penalty`** on at least two protocols — confirm **winner** matches composite story.
+- [ ] **Optional:** Grep **`capacity-recommendations`** in **`compute-happiness.js`** — see how recommended pool is ingested when the file exists.
+
+### Franco — **product / SLO lens, tails, “who wins HTTP/3?”**
+
+- [ ] Read **Why this exists** — rewrite in one sentence why **RPS alone** is not enough for protocol choice.
+- [ ] Read **Reviewer FAQ** item on **tail risk 0.25** — note how that connects to user-visible latency spikes.
+- [ ] In the **Sample output** blocks: for **analytics**, explain why **`h3_transport_unlocked: false`** is the *correct* interpretation when τ is negative.
+- [ ] In the **auth** sample: explain why **`h3_transport_unlocked: true`** requires both **τ > 0** and pool clearing threshold (even if you only paraphrase from the doc).
+- [ ] **Optional:** Skim **`protocol-ranking.md`** — flag any wording that would confuse PM or support; suggest one clarification comment on the PR.
+
+---
+
 ## Reviewer FAQ (preemptive)
 
 **Why weight tail risk at 0.25?**  

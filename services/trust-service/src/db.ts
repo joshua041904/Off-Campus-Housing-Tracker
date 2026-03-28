@@ -9,9 +9,9 @@ const conn =
   process.env.POSTGRES_URL_TRUST ||
   `postgresql://${process.env.DB_USER || "postgres"}:${process.env.DB_PASSWORD || "postgres"}@${process.env.DB_HOST || "127.0.0.1"}:${trustPort}/${process.env.DB_NAME || "trust"}`;
 
-/** Default 20: k6 matrix / gateway fan-out can exceed 10 concurrent DB clients; tune via TRUST_DB_POOL_MAX. */
-const poolMaxRaw = Number(process.env.TRUST_DB_POOL_MAX ?? "20");
-const poolMax = Number.isFinite(poolMaxRaw) && poolMaxRaw > 0 ? Math.floor(poolMaxRaw) : 20;
+/** Default raised for gateway + H2 multiplexed load; tune via TRUST_DB_POOL_MAX. */
+const poolMaxRaw = Number(process.env.TRUST_DB_POOL_MAX ?? "50");
+const poolMax = Number.isFinite(poolMaxRaw) && poolMaxRaw > 0 ? Math.floor(poolMaxRaw) : 50;
 const inflightLimitRaw = Number(process.env.MAX_DB_CONCURRENCY ?? `${poolMax}`);
 const inflightLimit = Number.isFinite(inflightLimitRaw) && inflightLimitRaw > 0 ? Math.floor(inflightLimitRaw) : poolMax;
 
@@ -21,7 +21,7 @@ export const pool = new Pool({
   connectionTimeoutMillis: 10_000,
 });
 
-function attachConcurrencyGuard(target: Pool, maxInflight: number): void {
+function attachConcurrencyGuard(target: InstanceType<typeof Pool>, maxInflight: number): void {
   const originalQuery = target.query.bind(target) as (...args: any[]) => Promise<any>;
   let inflight = 0;
   const waiters: Array<() => void> = [];

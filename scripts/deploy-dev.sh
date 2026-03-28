@@ -61,11 +61,15 @@ fi
 
 # 5) Apply manifests (kustomize or raw)
 DEPLOY_OVERLAY="${DEPLOY_OVERLAY:-overlays/dev}"
-if [[ -d "$KUST_DIR/$DEPLOY_OVERLAY" ]] && command -v kustomize &>/dev/null 2>&1; then
+if [[ -d "$KUST_DIR/$DEPLOY_OVERLAY" ]]; then
   say "Applying kustomize $DEPLOY_OVERLAY..."
-  kustomize build "$KUST_DIR/$DEPLOY_OVERLAY" | kubectl apply -f - || true
+  if command -v kustomize &>/dev/null 2>&1; then
+    kustomize build "$KUST_DIR/$DEPLOY_OVERLAY" | kubectl apply -f - || true
+  else
+    kubectl kustomize "$KUST_DIR/$DEPLOY_OVERLAY" | kubectl apply -f - || true
+  fi
 else
-  info "No kustomize overlay or kustomize not found; apply base manifests manually."
+  info "No kustomize overlay; apply base manifests manually."
   if [[ -d "$KUST_DIR/base" ]]; then
     for d in config auth-service; do
       [[ -d "$KUST_DIR/base/$d" ]] && kubectl apply -k "$KUST_DIR/base/$d" -n "$NS" 2>/dev/null || true

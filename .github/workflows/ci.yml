@@ -1,4 +1,5 @@
-# OCH — no cluster on ubuntu-latest. Order: protocol-anomaly → build → test → transport-validation → QUIC invariant; Playwright optional (self-hosted).
+# OCH — no cluster on ubuntu-latest. Structural jobs run in parallel with protocol-anomaly;
+# final aggregate gate fails the workflow if anomaly or any required job failed (nothing silently skipped).
 name: och-ci
 
 on:
@@ -33,7 +34,6 @@ jobs:
   build:
     name: Build (${{ matrix.service }})
     runs-on: ubuntu-latest
-    needs: protocol-anomaly
     strategy:
       fail-fast: false
       matrix:
@@ -116,6 +116,22 @@ jobs:
           test "$code" -eq 2
           printf '%s\n' "$out" | grep -q 'no pcap provided'
 
+  slo-policy:
+    name: SLO policy (error budget fixture gate)
+    runs-on: ubuntu-latest
+    needs: transport-validation
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Check checked-in uptime summary vs 99.5% target
+        run: node scripts/slo/check-error-budget.js
+      - name: Deploy freeze check (no-op without PROM_URL)
+        run: node scripts/slo/check-burn-rate.js
+        env:
+          PROM_URL: ${{ vars.OCH_PROMETHEUS_URL }}
+
   quic-hostname-invariant:
     name: Enforce QUIC hostname invariant
     runs-on: ubuntu-latest
@@ -144,3 +160,39 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: cd webapp && pnpm exec playwright install chromium --with-deps
       - run: cd webapp && pnpm run test:e2e:strict-verticals-and-integrity
+
+  och-ci-gate:
+    name: Aggregate gate (performance + structural)
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - protocol-anomaly
+      - build
+      - test
+      - transport-validation
+      - slo-policy
+      - quic-hostname-invariant
+      - playwright-strict
+    steps:
+      - name: Enforce job results
+        env:
+          PROTOCOL_ANOMALY: ${{ needs.protocol-anomaly.result }}
+          BUILD: ${{ needs.build.result }}
+          TEST: ${{ needs.test.result }}
+          TV: ${{ needs.transport-validation.result }}
+          SLO: ${{ needs.slo-policy.result }}
+          QUIC: ${{ needs.quic-hostname-invariant.result }}
+          PW: ${{ needs.playwright-strict.result }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$1"; exit 1; }
+          [ "$PROTOCOL_ANOMALY" = success ] || fail "protocol-anomaly: $PROTOCOL_ANOMALY (HTTP/2 matrix collapse or missing artifacts — tuning required)"
+          [ "$BUILD" = success ] || fail "build matrix: $BUILD"
+          [ "$TEST" = success ] || fail "test matrix: $TEST"
+          [ "$TV" = success ] || fail "transport-validation: $TV"
+          [ "$SLO" = success ] || fail "slo-policy: $SLO"
+          [ "$QUIC" = success ] || fail "quic-hostname-invariant: $QUIC"
+          if [ "$PW" != skipped ]; then
+            [ "$PW" = success ] || fail "playwright-strict: $PW"
+          fi
+          echo "och-ci: all required jobs succeeded."

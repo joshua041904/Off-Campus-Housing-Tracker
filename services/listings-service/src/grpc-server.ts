@@ -1,12 +1,7 @@
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
-import { randomUUID } from "node:crypto";
-import {
-  registerHealthService,
-  resolveProtoPath,
-  kafka,
-  createOchStrictMtlsServerCredentials,
-} from "@common/utils";
+import { registerHealthService, resolveProtoPath, createOchStrictMtlsServerCredentials } from "@common/utils";
+import { publishListingEvent } from "./listing-kafka.js";
 import { pool } from "./db.js";
 import { buildListingsSearchQuery, parseAmenitySlugs } from "./search-listings-query.js";
 
@@ -20,57 +15,6 @@ const packageDefinition = protoLoader.loadSync(LISTINGS_PROTO, {
 });
 
 const listingsProto = grpc.loadPackageDefinition(packageDefinition) as any;
-const ENV_PREFIX = process.env.ENV_PREFIX || "dev";
-// Must match topics created by scripts/create-kafka-event-topics.sh (${ENV_PREFIX}.listing.events)
-const LISTING_EVENTS_TOPIC = process.env.LISTING_EVENTS_TOPIC || `${ENV_PREFIX}.listing.events`;
-const SERVICE_NAME = "listings-service";
-
-const producer = kafka.producer();
-let producerReady = false;
-
-async function ensureProducer(): Promise<void> {
-  if (producerReady) return;
-  try {
-    const connectMs = Number(process.env.KAFKA_CONNECT_TIMEOUT_MS || "2500");
-    await Promise.race([
-      producer.connect(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("kafka connect timeout")), connectMs)),
-    ]);
-    producerReady = true;
-  } catch {
-    /* non-fatal */
-  }
-}
-
-async function publishListingEvent(eventType: string, aggregateId: string, payload: Record<string, unknown>): Promise<void> {
-  try {
-    await ensureProducer();
-    if (!producerReady) return;
-    await producer.send({
-      topic: LISTING_EVENTS_TOPIC,
-      messages: [
-        {
-          key: aggregateId,
-          value: JSON.stringify({
-            metadata: {
-              event_id: randomUUID(),
-              event_type: eventType,
-              aggregate_id: aggregateId,
-              aggregate_type: "listing",
-              occurred_at: new Date().toISOString(),
-              producer: SERVICE_NAME,
-              version: "1",
-            },
-            payload,
-          }),
-        },
-      ],
-    });
-  } catch {
-    /* non-fatal */
-  }
-}
-
 function amenitiesToStrings(raw: unknown): string[] {
   if (Array.isArray(raw)) return raw.map(String);
   if (raw && typeof raw === "object") return Object.values(raw as object).map(String);
@@ -176,11 +120,16 @@ const listingsService = {
       .query(query, values)
       .then((result) => {
         const row = result.rows[0];
+        const listedDay =
+          row.listed_at != null
+            ? new Date(row.listed_at as string | Date).toISOString().slice(0, 10)
+            : new Date().toISOString().slice(0, 10);
         void publishListingEvent("ListingCreatedV1", row.id, {
           listing_id: row.id,
           user_id: row.user_id,
           title: row.title,
           price_cents: row.price_cents,
+          listed_at_day: listedDay,
         });
         callback(null, rowToResponse(row));
       })

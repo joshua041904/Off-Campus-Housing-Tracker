@@ -107,6 +107,39 @@ Read: `docs/perf/PERFORMANCE_LAB_COMMAND_MATRIX.md`
 
 ---
 
+## Review assignments (small tasks — new to the perf lab)
+
+You do **not** need cluster access or a green real lab to review most of this PR. Tasks are bite-sized; check boxes as you go. Overlap between reviewers is OK.
+
+### Joshua — **CI, operator flow, safety boundaries**
+
+- [ ] Read **Executive summary** + **What this PR does not do** — confirm: **no K8s changes**, CI does **not** run **`make capacity-one`** on GitHub.
+- [ ] Open **`.github/workflows/protocol-readiness.yml`** — note **trigger paths** (`scripts/protocol/**`, etc.) — when does this workflow run?
+- [ ] In that workflow, confirm jobs use **Node 20** and run **`declare-readiness`** against **`scripts/protocol/fixtures/perf-lab-pass`** (fixture = always-passing smoke).
+- [ ] Read **`scripts/protocol/validate-production-readiness.sh`** header / first 40 lines — what does **`--fixture`** do in one sentence?
+- [ ] Run locally (5 min): **`./scripts/protocol/validate-production-readiness.sh --fixture`** — confirm exit **0**.
+- [ ] **Optional:** List one reason **`declare-readiness`** on *real* `bench_logs` might print **`PRODUCTION_READY=false`** without it being a “bug.”
+
+### Arkar — **gates, scripts, JSON outputs**
+
+- [ ] Open **`scripts/protocol/declare-readiness.js`** — skim the list of **failure pushes** (`failures.push`) — pick **three** distinct gate types (e.g. utilization, fail_rate, tail_penalty).
+- [ ] Run: **`node scripts/protocol/declare-readiness.js --perf-dir scripts/protocol/fixtures/perf-lab-pass`** — confirm stdout includes **`PRODUCTION_READY=true`** and exit code **0**.
+- [ ] Run the same with **`--help`** or read **`parseArgs`** — note flags **`--strict-envelope`**, **`--panic-scan`**, **`--max-pool`** (what they’re for at a high level).
+- [ ] Open **`scripts/protocol/fixtures/perf-lab-pass/`** — identify the **three** JSON files the fixture expects — map each to the “real” files under **`bench_logs/performance-lab/`**.
+- [ ] **`build-envelope-dashboard.js`**: read top ~30 lines — input file → output file name.
+- [ ] **`build-dominance-heatmap.js`**: read top ~30 lines — required arg (**`--service-model`**) and what the grid represents (pool × μ).
+- [ ] **Optional:** Grep **`compute-happiness`** in this PR’s diff — note **`tail_penalty`** / **`1.0001`** H3 materiality tweak — why it matters for false unlock.
+
+### Franco — **docs, dashboards, “who runs this?”**
+
+- [ ] Open **`docs/perf/PERFORMANCE_LAB_COMMAND_MATRIX.md`** — read **phases 1–3** only — write a **3-bullet** “day in the life” of an operator regenerating lab artifacts.
+- [ ] From **How to run locally** in this PR — run **`make declare-readiness`** *if* you have perf-lab JSON already; if not, state “skipped — no bench data” and instead run only the **fixture** commands above.
+- [ ] Open **`envelope-dashboard.json`** (if generated locally) or read **`build-envelope-dashboard.js` output description** — what would you chart from it (one chart idea)?
+- [ ] Skim **heatmap** output concept (**`http2-dominant` | `http3-dominant` | `backend-bound`**) — in one sentence, who benefits (SRE vs PM)?
+- [ ] **Optional:** Suggest **one** addition to **`PERFORMANCE_LAB_COMMAND_MATRIX.md`** (e.g. “when to run fixture vs real”) as a PR comment.
+
+---
+
 ## Footer
 
 This PR turns the performance lab into something you can **run**, **inspect**, and **gate** in CI (fixture path), while keeping full cluster validation an explicit operator choice.

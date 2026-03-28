@@ -1,0 +1,19 @@
+# File provisioning so Grafana loads JSON from /var/lib/grafana/dashboards/default (merged ConfigMaps).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-providers
+  namespace: observability
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: och-file
+        orgId: 1
+        folder: OCH
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 30
+        allowUiUpdates: true
+        options:
+          path: /var/lib/grafana/dashboards/default

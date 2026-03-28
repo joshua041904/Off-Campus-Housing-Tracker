@@ -1,6 +1,7 @@
 import express, { type NextFunction, type Request, type Response } from "express";
 import { kafka, register, httpCounter } from "@common/utils";
-import { Prisma, PrismaClient } from "../prisma/generated/client/index.js";
+import { Prisma } from "../prisma/generated/client/index.js";
+import { prisma } from "./lib/prisma.js";
 import { randomUUID } from "node:crypto";
 import { startGrpcServer } from "./grpc-server.js";
 
@@ -11,7 +12,6 @@ const GRPC_PORT = Number(process.env.GRPC_PORT || "50063");
 const BOOKING_EVENTS_TOPIC = process.env.BOOKING_EVENTS_TOPIC || "dev.booking.events.v1";
 const SERVICE_NAME = "booking-service";
 
-const prisma = new PrismaClient();
 const producer = kafka.producer();
 let producerReady = false;
 

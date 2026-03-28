@@ -7,7 +7,10 @@ resources:
   - namespace.yaml
   - otel-collector-deploy.yaml
   - jaeger-deploy.yaml
+  - prometheus-rules-och-slo.yaml
   - prometheus-deploy.yaml
+  - grafana-dashboard-providers.yaml
+  - grafana-dashboards-transport.yaml
   - grafana-deploy.yaml
   - grafana-dashboards.yaml
   # ServiceMonitor/PodMonitor require Prometheus Operator CRDs. Excluded from default apply so
@@ -17,6 +20,10 @@ resources:
   - newrelic-secret.yaml
   - splunk-secret.yaml
 
+# Optional (not in resources — require extra CRDs / Alertmanager):
+#   och-slo-prometheusrule.yaml     — Prometheus Operator PrometheusRule
+#   alertmanager-slo-route-example.yaml — Slack route/receiver example Secret
+#
 # Replace placeholder values for production:
 #   New Relic: kubectl create secret generic newrelic-secret --from-literal=license-key='YOUR_KEY' -n observability --dry-run=client -o yaml | kubectl apply -f -
 #   Splunk:    Update splunk-secret hec-url and hec-token, or: kubectl create secret generic splunk-secret --from-literal=hec-url='https://...' --from-literal=hec-token='...' -n observability --dry-run=client -o yaml | kubectl apply -f -

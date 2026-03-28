@@ -1,0 +1,170 @@
+# Prometheus rule groups for OCH SLO / burn rate (vanilla Prometheus).
+# Mounted into the prometheus deployment via prometheus-deploy.yaml (rule_files).
+#
+# Metrics assumed (already used in grafana-dashboards ConfigMap):
+#   - http_requests_total{service,code,...}  (prom-client label is `code`, not `status`)
+#   - http_request_duration_seconds_bucket{service,...} — optional `protocol` label for asymmetry panels
+#
+# Requires TSDB retention >= 30d for [30d] rules (see prometheus-deploy retention flag).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules-och-slo
+  namespace: observability
+  labels:
+    app: prometheus
+    och.dev/role: slo-rules
+data:
+  och-slo.yml: |
+    groups:
+
+    - name: och-slo-recording
+      interval: 30s
+      rules:
+      - record: och:service_availability_30d
+        expr: |
+          sum(rate(http_requests_total{code=~"2..",maintenance!="true"}[30d])) by (service)
+          /
+          clamp_min(sum(rate(http_requests_total{maintenance!="true"}[30d])) by (service), 1e-12)
+
+      - record: och:service_error_rate_5m
+        expr: |
+          sum(rate(http_requests_total{code!~"2..",maintenance!="true"}[5m])) by (service)
+          /
+          clamp_min(sum(rate(http_requests_total{maintenance!="true"}[5m])) by (service), 1e-12)
+
+      - record: och:service_error_rate_1h
+        expr: |
+          sum(rate(http_requests_total{code!~"2..",maintenance!="true"}[1h])) by (service)
+          /
+          clamp_min(sum(rate(http_requests_total{maintenance!="true"}[1h])) by (service), 1e-12)
+
+      - record: och:service_error_budget_burn_rate_5m
+        expr: och:service_error_rate_5m / 0.005
+
+      - record: och:service_error_budget_burn_rate_1h
+        expr: och:service_error_rate_1h / 0.005
+
+      # Absolute headroom vs monthly error budget (same scale as 0.005 = 100% of budget). May go negative if over budget.
+      - record: och:service_error_budget_remaining_ratio
+        expr: 0.005 - och:service_error_rate_1h
+
+      # Heuristic “hours of budget left” if the 1h error *rate* stayed constant (illustrative only).
+      - record: och:service_budget_remaining_ratio_1h
+        expr: clamp_min(0.005 - och:service_error_rate_1h, 0) / 0.005
+
+      - record: och:service_time_to_budget_exhaustion_hours_heuristic
+        expr: |
+          (
+            clamp_min(0.005 - och:service_error_rate_1h, 0)
+            /
+            clamp_min(och:service_error_rate_1h, 1e-9)
+          ) * 720
+
+    - name: och-slo-burn-alerts
+      rules:
+      # 99.5% SLO → error budget 0.005. Google-style multi-window: BOTH windows must fire.
+      - alert: OCHCriticalBurnRate
+        expr: |
+          (
+            och:service_error_rate_5m > (0.005 * 14.4)
+          )
+          and
+          (
+            och:service_error_rate_1h > (0.005 * 6)
+          )
+        for: 5m
+        labels:
+          severity: critical
+          slo: "99.5%"
+        annotations:
+          summary: "Critical SLO burn (multi-window)"
+          description: "Service {{ $labels.service }} is burning error budget fast and sustainably (5m + 1h windows)."
+
+      - alert: OCHWarningBurnRate
+        expr: och:service_error_rate_1h > (0.005 * 3)
+        for: 30m
+        labels:
+          severity: warning
+          slo: "99.5%"
+        annotations:
+          summary: "Warning SLO burn (1h)"
+          description: "Service {{ $labels.service }} error rate elevated vs 99.5% SLO budget (1h window)."
+
+    - name: och-slo-violation-alerts
+      rules:
+      - alert: OCHSLOViolation
+        expr: och:service_availability_30d < 0.995
+        for: 5m
+        labels:
+          severity: critical
+          slo: "99.5%"
+        annotations:
+          summary: "SLO violation (30d rolling)"
+          description: "Service {{ $labels.service }} availability below 99.5% over 30 days (2xx / all requests)."
+
+      - alert: OCHBudgetExhaustionImminent
+        expr: |
+          och:service_time_to_budget_exhaustion_hours_heuristic > 0
+          and
+          och:service_time_to_budget_exhaustion_hours_heuristic < 72
+        for: 10m
+        labels:
+          severity: warning
+          slo: "99.5%"
+        annotations:
+          summary: "Error budget exhaustion imminent (heuristic)"
+          description: "Service {{ $labels.service }} — heuristic time-to-exhaustion under 72h at current 1h error rate (see policy doc)."
+
+    # Edge / transport stress (api-gateway Prometheus counter; Caddy terminates QUIC in this repo).
+    # Envoy QUIC metrics below only apply if you terminate HTTP/3 on Envoy — see infra/k8s/reference/envoy-quic-downstream.example.yaml
+    - name: och-transport-edge
+      interval: 30s
+      rules:
+      - record: och:gateway_5xx_ratio_5m
+        expr: |
+          sum(rate(http_requests_total{service="gateway",code=~"5.."}[5m]))
+          /
+          clamp_min(sum(rate(http_requests_total{service="gateway"}[5m])), 1e-9)
+      - record: och:gateway_502_ratio_5m
+        expr: |
+          sum(rate(http_requests_total{service="gateway",code="502"}[5m]))
+          /
+          clamp_min(sum(rate(http_requests_total{service="gateway"}[5m])), 1e-9)
+      - alert: OCHGatewayEdge5xxHigh
+        expr: och:gateway_5xx_ratio_5m > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          och.dev/layer: transport-edge
+        annotations:
+          summary: "API gateway 5xx share elevated (possible Caddy→gateway saturation / upstream 502)"
+          description: "gateway http_requests_total 5xx ratio (5m) > 5%. Check Caddy upstream pools, gateway keep-alive, DB pools, and concurrent HTTP/3 load (scripts/transport/http3-concurrent-curl-stress.sh)."
+      - alert: OCHGatewayEdge502Spike
+        expr: och:gateway_502_ratio_5m > 0.02
+        for: 3m
+        labels:
+          severity: warning
+          och.dev/layer: transport-edge
+        annotations:
+          summary: "API gateway 502 spike (bad gateway / upstream reset)"
+          description: "502 ratio over 5m > 2%. Often multiplexing + upstream limits under Playwright/k6; verify Caddy transport buffers and gateway GATEWAY_HTTP_AGENT_MAX_SOCKETS."
+      # Fires only when Envoy exposes HTTP/3 metrics (not used for edge QUIC in default OCH topology).
+      - alert: OCHEnvoyHTTP3DownstreamResetRate
+        expr: sum(rate(envoy_http3_downstream_rx_reset[5m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+          och.dev/layer: transport-quic
+        annotations:
+          summary: "Envoy HTTP/3 downstream reset rate high"
+          description: "If you terminate QUIC on Envoy, investigate stream/flow-control limits. Default stack uses Caddy for HTTP/3 — this alert is inert until those series exist."
+      - alert: OCHEnvoyClusterUpstreamCxOverflow
+        expr: sum(rate(envoy_cluster_upstream_cx_overflow[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+          och.dev/layer: transport-envoy
+        annotations:
+          summary: "Envoy cluster connection overflow"
+          description: "Upstream connection pool saturation — tune circuit_breakers / max_connections or reduce client concurrency."

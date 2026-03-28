@@ -1,5 +1,6 @@
 # External infra only. k3s runs all application services (auth, listings, api-gateway, webapp, etc.).
 # Postgres 8: 5441–5448 (auth, listings, bookings, messaging, notification, trust, analytics, media) | Redis: 6380 | Kafka SSL: 29094 | Zookeeper: 2182 | MinIO: 9000/9001
+# Each Postgres instance: max_connections=400 so many services × ~40 pool slots do not exhaust the server under HTTP/2 multiplexing.
 # Flow: docker compose up -d → bootstrap-all-dbs.sh → verify-bootstrap.sh → start k3s → deploy-dev.sh
 
 services:
@@ -85,6 +86,7 @@ services:
 
   postgres-auth:
     image: postgres:16-alpine
+    command: ["postgres", "-c", "max_connections=400"]
     environment:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: auth
@@ -102,6 +104,7 @@ services:
 
   postgres-listings:
     image: postgres:16-alpine
+    command: ["postgres", "-c", "max_connections=400"]
     environment:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: listings
@@ -119,6 +122,7 @@ services:
 
   postgres-bookings:
     image: postgres:16-alpine
+    command: ["postgres", "-c", "max_connections=400"]
     environment:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: bookings
@@ -136,6 +140,7 @@ services:
 
   postgres-messaging:
     image: postgres:16-alpine
+    command: ["postgres", "-c", "max_connections=400"]
     environment:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: messaging
@@ -153,6 +158,7 @@ services:
 
   postgres-notification:
     image: postgres:16-alpine
+    command: ["postgres", "-c", "max_connections=400"]
     environment:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: notification
@@ -170,6 +176,7 @@ services:
 
   postgres-trust:
     image: postgres:16-alpine
+    command: ["postgres", "-c", "max_connections=400"]
     environment:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: trust
@@ -187,6 +194,7 @@ services:
 
   postgres-analytics:
     image: postgres:16-alpine
+    command: ["postgres", "-c", "max_connections=400"]
     environment:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: analytics
@@ -204,6 +212,7 @@ services:
 
   postgres-media:
     image: postgres:16-alpine
+    command: ["postgres", "-c", "max_connections=400"]
     environment:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: media

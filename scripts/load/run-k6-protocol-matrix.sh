@@ -80,6 +80,7 @@ K6_SCRIPT="${K6_SCRIPT:-$REPO_ROOT/scripts/load/k6-gateway-health.js}"
 H3_SCRIPT="$REPO_ROOT/scripts/load/k6-gateway-health-http3.js"
 K6_BIN="${K6_BIN:-k6}"
 K6_MATRIX_DURATION="${K6_MATRIX_DURATION:-${DURATION:-20s}}"
+# VU / duration parity: http1, http2, and http3 legs all use the same K6_MATRIX_VUS + K6_MATRIX_DURATION (fair collapse comparison).
 K6_MATRIX_VUS="${K6_MATRIX_VUS:-${VUS:-6}}"
 
 say() { printf "\n\033[1m%s\033[0m\n" "$*"; }

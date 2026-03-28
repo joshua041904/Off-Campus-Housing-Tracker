@@ -1,8 +1,16 @@
 import { expect, test } from "@playwright/test";
-import { apiGatewayReady, registerViaUi, uniqueE2eEmail } from "./helpers";
+import { apiGatewayReady, e2eApiBase, registerViaUi, uniqueE2eEmail } from "./helpers";
 
 function authHeaders(token: string): Record<string, string> {
   return { Authorization: `Bearer ${token}` };
+}
+
+/** Local calendar YYYY-MM-DD — matches browser date inputs and analytics listed_at_day from listing create. */
+function calendarDateYmd(d = new Date()): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 test.describe("system integrity (multi-service vertical)", () => {
@@ -24,8 +32,9 @@ test.describe("system integrity (multi-service vertical)", () => {
     expect(token, "och_token after register").toBeTruthy();
     const h = authHeaders(token!);
 
-    const today = new Date().toISOString().slice(0, 10);
-    const dailyUrl = `/api/analytics/daily-metrics?date=${encodeURIComponent(today)}`;
+    const today = calendarDateYmd();
+    const base = e2eApiBase();
+    const dailyUrl = `${base}/api/analytics/daily-metrics?date=${encodeURIComponent(today)}`;
     const beforeRes = await request.get(dailyUrl);
     expect(beforeRes.ok(), await beforeRes.text()).toBeTruthy();
     const before = (await beforeRes.json()) as { new_listings?: number };

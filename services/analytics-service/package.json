@@ -8,8 +8,8 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "ROLLUP_DISABLE_NATIVE=true vitest run",
+    "test:watch": "ROLLUP_DISABLE_NATIVE=true vitest"
   },
   "dependencies": {
     "@common/utils": "workspace:*",
@@ -17,6 +17,7 @@
     "@grpc/proto-loader": "^0.7.10",
     "dotenv": "^16.3.0",
     "express": "^4.19.2",
+    "kafkajs": "^2.2.4",
     "pg": "^8.11.0"
   },
   "devDependencies": {

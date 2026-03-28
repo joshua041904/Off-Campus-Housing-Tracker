@@ -6,5 +6,11 @@ if (!url) {
 }
 
 export const pool = url
-  ? new pg.Pool({ connectionString: url, max: 10, connectionTimeoutMillis: 8000 })
+  ? new pg.Pool({
+      connectionString: url,
+      max: Number(process.env.NOTIFICATION_DB_POOL_MAX ?? "50") || 50,
+      min: Number(process.env.NOTIFICATION_DB_POOL_MIN ?? "5") || 5,
+      idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: 8000,
+    })
   : (null as unknown as pg.Pool);

@@ -13,7 +13,7 @@ export PATH := $(SCRIPTS)/shims:/opt/homebrew/bin:/usr/local/bin:$(PATH)
 
 .DEFAULT_GOAL := menu
 
-.PHONY: menu help up up-fast deps kubeconfig-colima cluster colima-net tls-first-time trust-ca-macos verify-curl-http3 verify-docker-ports infra-host infra-cluster \
+.PHONY: menu help up up-fast deps kubeconfig-colima cluster colima-net tls-first-time trust-ca-macos verify-curl-http3 verify-docker-ports recycle-postgres-infra infra-host infra-cluster \
 	metallb-fix hosts-sanity preflight-gate sslkeylog-seed ollama-note ollama-env test test-current model summarize-ceiling strict-canonical ceiling collapse-trust collapse-messaging collapse-all \
 	protocol-matrix packet-capture perf-lab perf-full generate-report graph-capacity heatmap-tail compare-run regression-guard \
 	slack-report discord-report ci ci-full certify ceiling-default performance-lab-interpret performance-lab-interpret-latest performance-lab-one capacity-recommend capacity-one protocol-happiness transport-routing-hints transport-routing-hints-sync-k8s perf-lab-dashboards bundle-performance-lab-10 strict-envelope-check adaptive-pool-suggest declare-readiness shellcheck-preflight transport-lab full-edge-transport-validation endpoint-coverage collapse-smoke explain-all-dbs demo demo-network demo-full demo-k3d stack images kustomize-apply \
@@ -394,6 +394,10 @@ shellcheck-preflight: ## ShellCheck scripts/run-preflight-scale-and-all-suites.s
 verify-docker-ports: ## Require mapped host ports for OCH Postgres + Redis (docker ps)
 	bash $(SCRIPTS)/ci/verify-docker-ports.sh
 
+# ROLE: DEV — recreate 8 Postgres containers so compose `command:` (e.g. max_connections) applies; keeps volumes
+recycle-postgres-infra: ## Safe stop/rm/up for OCH Postgres + optional psql max_connections check
+	bash $(SCRIPTS)/recycle-och-postgres-compose.sh
+
 # ROLE: PERF / SRE — MetalLB edge H2/H3 strict + gRPC roll-up (needs live cluster + curl --http3-only)
 full-edge-transport-validation: ## Write bench_logs/transport-lab/transport-validation-report.json
 	bash $(SCRIPTS)/protocol/full-edge-transport-validation.sh "$(BENCH)/transport-lab"
@@ -532,8 +536,8 @@ ci-full: ## CI-safe full perf + regression guard
 images: ## Build housing :dev images and load into Colima/k3s (./scripts/build-housing-images-k3s.sh)
 	bash $(SCRIPTS)/build-housing-images-k3s.sh
 
-kustomize-apply: ## kustomize build infra/k8s/overlays/dev | kubectl apply -f -
-	cd $(REPO_ROOT) && kustomize build infra/k8s/overlays/dev | kubectl apply -f -
+kustomize-apply: ## Apply dev overlay (kubectl kustomize, or kustomize if installed)
+	cd $(REPO_ROOT) && (command -v kustomize >/dev/null && kustomize build infra/k8s/overlays/dev || kubectl kustomize infra/k8s/overlays/dev) | kubectl apply -f -
 
 deploy-dev: ## Apply + smoke + rollout wait (./scripts/deploy-dev.sh)
 	bash $(SCRIPTS)/deploy-dev.sh

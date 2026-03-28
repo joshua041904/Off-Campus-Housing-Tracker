@@ -13,6 +13,11 @@ static_resources:
           "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
           stat_prefix: grpc_json
           codec_type: AUTO
+          # Downstream HTTP/2 from clients (gateway multiplexing): larger windows reduce stream stalls under Playwright/k6 load.
+          http2_protocol_options:
+            max_concurrent_streams: 1000
+            initial_stream_window_size: 6553600
+            initial_connection_window_size: 10485760
           route_config:
             name: local_route
             virtual_hosts:
@@ -67,7 +72,17 @@ static_resources:
     connect_timeout: 5s
     type: LOGICAL_DNS
     lb_policy: ROUND_ROBIN
-    http2_protocol_options: {}
+    http2_protocol_options:
+      max_concurrent_streams: 1000
+      initial_stream_window_size: 6553600
+      initial_connection_window_size: 10485760
+    per_connection_buffer_limit_bytes: 33554432
+    circuit_breakers:
+      thresholds:
+      - priority: DEFAULT
+        max_connections: 1000
+        max_pending_requests: 1000
+        max_requests: 2000
     load_assignment:
       cluster_name: auth_service
       endpoints:
@@ -92,7 +107,17 @@ static_resources:
     connect_timeout: 5s
     type: LOGICAL_DNS
     lb_policy: ROUND_ROBIN
-    http2_protocol_options: {}
+    http2_protocol_options:
+      max_concurrent_streams: 1000
+      initial_stream_window_size: 6553600
+      initial_connection_window_size: 10485760
+    per_connection_buffer_limit_bytes: 33554432
+    circuit_breakers:
+      thresholds:
+      - priority: DEFAULT
+        max_connections: 1000
+        max_pending_requests: 1000
+        max_requests: 2000
     load_assignment:
       cluster_name: messaging_service
       endpoints:
@@ -117,7 +142,17 @@ static_resources:
     connect_timeout: 5s
     type: LOGICAL_DNS
     lb_policy: ROUND_ROBIN
-    http2_protocol_options: {}
+    http2_protocol_options:
+      max_concurrent_streams: 1000
+      initial_stream_window_size: 6553600
+      initial_connection_window_size: 10485760
+    per_connection_buffer_limit_bytes: 33554432
+    circuit_breakers:
+      thresholds:
+      - priority: DEFAULT
+        max_connections: 1000
+        max_pending_requests: 1000
+        max_requests: 2000
     load_assignment:
       cluster_name: listings_service
       endpoints:
@@ -142,7 +177,17 @@ static_resources:
     connect_timeout: 5s
     type: LOGICAL_DNS
     lb_policy: ROUND_ROBIN
-    http2_protocol_options: {}
+    http2_protocol_options:
+      max_concurrent_streams: 1000
+      initial_stream_window_size: 6553600
+      initial_connection_window_size: 10485760
+    per_connection_buffer_limit_bytes: 33554432
+    circuit_breakers:
+      thresholds:
+      - priority: DEFAULT
+        max_connections: 1000
+        max_pending_requests: 1000
+        max_requests: 2000
     load_assignment:
       cluster_name: analytics_service
       endpoints:
@@ -167,7 +212,17 @@ static_resources:
     connect_timeout: 5s
     type: LOGICAL_DNS
     lb_policy: ROUND_ROBIN
-    http2_protocol_options: {}
+    http2_protocol_options:
+      max_concurrent_streams: 1000
+      initial_stream_window_size: 6553600
+      initial_connection_window_size: 10485760
+    per_connection_buffer_limit_bytes: 33554432
+    circuit_breakers:
+      thresholds:
+      - priority: DEFAULT
+        max_connections: 1000
+        max_pending_requests: 1000
+        max_requests: 2000
     load_assignment:
       cluster_name: booking_service
       endpoints:
@@ -192,7 +247,17 @@ static_resources:
     connect_timeout: 5s
     type: LOGICAL_DNS
     lb_policy: ROUND_ROBIN
-    http2_protocol_options: {}
+    http2_protocol_options:
+      max_concurrent_streams: 1000
+      initial_stream_window_size: 6553600
+      initial_connection_window_size: 10485760
+    per_connection_buffer_limit_bytes: 33554432
+    circuit_breakers:
+      thresholds:
+      - priority: DEFAULT
+        max_connections: 1000
+        max_pending_requests: 1000
+        max_requests: 2000
     load_assignment:
       cluster_name: notification_service
       endpoints:
@@ -217,7 +282,17 @@ static_resources:
     connect_timeout: 5s
     type: LOGICAL_DNS
     lb_policy: ROUND_ROBIN
-    http2_protocol_options: {}
+    http2_protocol_options:
+      max_concurrent_streams: 1000
+      initial_stream_window_size: 6553600
+      initial_connection_window_size: 10485760
+    per_connection_buffer_limit_bytes: 33554432
+    circuit_breakers:
+      thresholds:
+      - priority: DEFAULT
+        max_connections: 1000
+        max_pending_requests: 1000
+        max_requests: 2000
     load_assignment:
       cluster_name: trust_service
       endpoints:

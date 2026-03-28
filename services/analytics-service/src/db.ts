@@ -7,8 +7,8 @@ const analyticsPort = process.env.ANALYTICS_DB_PORT || "5447";
 const conn =
   process.env.POSTGRES_URL_ANALYTICS ||
   `postgresql://${process.env.DB_USER || "postgres"}:${process.env.DB_PASSWORD || "postgres"}@${process.env.DB_HOST || "127.0.0.1"}:${analyticsPort}/${process.env.DB_NAME || "analytics"}`;
-const poolMaxRaw = Number(process.env.ANALYTICS_DB_POOL_MAX ?? "10");
-const poolMax = Number.isFinite(poolMaxRaw) && poolMaxRaw > 0 ? Math.floor(poolMaxRaw) : 10;
+const poolMaxRaw = Number(process.env.ANALYTICS_DB_POOL_MAX ?? "50");
+const poolMax = Number.isFinite(poolMaxRaw) && poolMaxRaw > 0 ? Math.floor(poolMaxRaw) : 50;
 const inflightLimitRaw = Number(process.env.MAX_DB_CONCURRENCY ?? `${poolMax}`);
 const inflightLimit = Number.isFinite(inflightLimitRaw) && inflightLimitRaw > 0 ? Math.floor(inflightLimitRaw) : poolMax;
 
@@ -18,7 +18,7 @@ export const pool = new Pool({
   connectionTimeoutMillis: 10_000,
 });
 
-function attachConcurrencyGuard(target: Pool, maxInflight: number): void {
+function attachConcurrencyGuard(target: InstanceType<typeof Pool>, maxInflight: number): void {
   const originalQuery = target.query.bind(target) as (...args: any[]) => Promise<any>;
   let inflight = 0;
   const waiters: Array<() => void> = [];

@@ -1,0 +1,12 @@
+{
+  "_comment": "Fixture for CI SLO gate (scripts/slo/check-error-budget.js). Replace with real exporter output for production enforcement.",
+  "api-gateway": { "availability_percent": 99.7 },
+  "auth-service": { "availability_percent": 99.6 },
+  "listings-service": { "availability_percent": 99.6 },
+  "booking-service": { "availability_percent": 99.6 },
+  "messaging-service": { "availability_percent": 99.6 },
+  "trust-service": { "availability_percent": 99.6 },
+  "analytics-service": { "availability_percent": 99.6 },
+  "media-service": { "availability_percent": 99.6 },
+  "notification-service": { "availability_percent": 99.6 }
+}

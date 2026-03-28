@@ -32,7 +32,7 @@ export const pool = new Pool({
 const inflightLimitRaw = Number(process.env.MAX_DB_CONCURRENCY || process.env.DB_POOL_MAX || '50')
 const inflightLimit = Number.isFinite(inflightLimitRaw) && inflightLimitRaw > 0 ? Math.floor(inflightLimitRaw) : 50
 
-function attachConcurrencyGuard(target: Pool, maxInflight: number): void {
+function attachConcurrencyGuard(target: InstanceType<typeof Pool>, maxInflight: number): void {
   const originalQuery = target.query.bind(target) as (...args: any[]) => Promise<any>
   let inflight = 0
   const waiters: Array<() => void> = []
