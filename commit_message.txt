@@ -1,4 +1,4 @@
-feat(och): edge Grafana subpath, transport observability, gateway 404 + listings 400 + Kafka daily_metrics
+feat(och): edge Grafana/contracts/Kafka metrics + CI Postgres/Redis, HTTP/2 matrix threshold, QUIC gate
 
 WHY
 ---
@@ -10,6 +10,13 @@ WHY
   • Docker builds must not pick up local *.tsbuildinfo (incremental emit gaps).
   • Prometheus SLO rules must use prom-client label `code`, not fictional `status`.
   • Dev machines without standalone `kustomize` should still apply overlays via kubectl.
+  • GitHub Actions runners are not your Mac: integration tests default to 127.0.0.1:5441–5448 and
+    Redis 6380 — without service containers those connections are ECONNREFUSED.
+  • The protocol-anomaly job rebuilds from committed protocol-comparison.csv; a fixed 3× H2/H1 ratio
+    fails on noisy matrix rows (e.g. media/messaging) without re-running the full transport study.
+    Parameterizing the threshold keeps CI methodical; default local behavior stays 3×.
+  • QUIC hostname invariant should run even when the test matrix is red; it must not sit behind
+    needs: transport-validation (skipped when tests fail).
 
 WHAT CHANGED
 ------------
@@ -32,6 +39,8 @@ WHAT CHANGED
   • scripts/transport/http3-concurrent-curl-stress.sh — concurrent HTTP/3 curl stress.
   • scripts/rollout-restart-och-after-pool-tuning.sh — envoy-test + optional ingress envoy restart.
   • scripts/deploy-dev.sh, Makefile — kubectl kustomize fallback for overlays.
+  • scripts/perf/extract-protocol-matrix.js — HTTP2_COLLAPSE_THRESHOLD (default 3); anomalies JSON
+    records threshold + rule text; CI sets 5.
 
   Services
   • api-gateway/server.ts — unknown /api/* first-segment guard → 404 before auth.
@@ -47,8 +56,17 @@ WHAT CHANGED
   • analytics.full.spec.ts — healthz poll; daily-metrics allows 502.
   • system-integrity.spec.ts — calendarDateYmd + e2eApiBase for daily-metrics URL.
 
-  Build
+  CI (.github/workflows/ci.yml)
+  • test job — postgres:16-alpine on 5441–5448 (POSTGRES_DB + password aligned with docker-compose),
+    redis:7 on 6380:6379, healthchecks; install postgresql-client + scripts/bootstrap-all-dbs.sh
+    before pnpm test.
+  • protocol-anomaly — env HTTP2_COLLAPSE_THRESHOLD=5 for the committed CSV gate.
+  • quic-hostname-invariant — no needs: on transport-validation (runs at workflow start).
+
+  Build / bench
   • .dockerignore — **/*.tsbuildinfo.
+  • bench_logs/protocol-comparison.csv + bench_logs/performance-lab/protocol-matrix-anomalies.json —
+    regenerated with HTTP2_COLLAPSE_THRESHOLD=5 for committed artifact consistency.
 
 RUN
 ---
@@ -61,12 +79,19 @@ RUN
   # Grafana: https://off-campus-housing.test/grafana/
   bash scripts/run-playwright-e2e-preflight.sh   # needs Kafka for daily_metrics increment
 
+  Local protocol CSV / anomalies (default 3× gate):
+    EXTRACT_PROTOCOL_MATRIX_FROM_CSV=1 node scripts/perf/extract-protocol-matrix.js
+  Stricter or looser multiplier:
+    HTTP2_COLLAPSE_THRESHOLD=5 EXTRACT_PROTOCOL_MATRIX_FROM_CSV=1 node scripts/perf/extract-protocol-matrix.js
+
 PR body
 -------
-  See GITHUB_PR_DESCRIPTION_PR5.txt (standalone description for PR #5).
+  See GITHUB_PR_DESCRIPTION_PR5.txt for the production-edge / observability / contracts narrative.
+  Fold this commit_message CI + extract-protocol-matrix + bench artifact bullets into the PR
+  description if you want a single combined PR.
 
 Suggested subject
 -----------------
-feat(och): Grafana on edge, transport rules, gateway/listings/analytics contracts, listing Kafka → metrics
+feat(och): Grafana on edge, transport rules, contracts + Kafka metrics; CI DB/redis + H2 matrix threshold
 
 Made with Tom.

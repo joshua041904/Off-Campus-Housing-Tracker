@@ -14,6 +14,8 @@
  *   EXTRACT_PROTOCOL_MATRIX_FROM_CSV=1
  * to rebuild rows + anomalies from an existing protocol-comparison.csv (must include
  * service, protocol, p95; other columns optional).
+ *
+ * HTTP2_COLLAPSE_THRESHOLD — optional positive number (default 3). Anomaly when http2_p95 > threshold × http1_p95.
  */
 const fs = require("fs");
 const path = require("path");
@@ -191,12 +193,22 @@ function parseP95Ms(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Default multiplier: HTTP/2 p95 must exceed this × HTTP/1.1 p95 to count as collapse anomaly. */
+function http2CollapseThreshold() {
+  const raw = process.env.HTTP2_COLLAPSE_THRESHOLD;
+  if (raw == null || String(raw).trim() === "") return 3;
+  const n = parseFloat(String(raw).trim());
+  return Number.isFinite(n) && n > 0 ? n : 3;
+}
+
 /**
- * If HTTP/2 p95 > 3× HTTP/1.1 p95 for the same service → collapse / multiplexing anomaly (heuristic).
+ * If HTTP/2 p95 > threshold × HTTP/1.1 p95 for the same service → collapse / multiplexing anomaly (heuristic).
+ * Threshold: HTTP2_COLLAPSE_THRESHOLD (default 3). CI may set 5 for noisy matrix CSVs.
  * Writes bench_logs/performance-lab/protocol-matrix-anomalies.json and merges into
  * bench_logs/transport-lab/protocol-integrity-report.json when present.
  */
 function computeHttp2CollapseAnomalies(rows, repoRoot) {
+  const mult = http2CollapseThreshold();
   const byService = new Map();
   for (const r of rows) {
     if (!byService.has(r.service)) byService.set(r.service, {});
@@ -213,7 +225,7 @@ function computeHttp2CollapseAnomalies(rows, repoRoot) {
     const h1 = slot.http1_p95_ms;
     const h2 = slot.http2_p95_ms;
     const http2_anomaly =
-      h1 != null && h2 != null && h1 > 0 && h2 > h1 * 3;
+      h1 != null && h2 != null && h1 > 0 && h2 > h1 * mult;
     if (http2_anomaly) any_http2_collapse_anomaly = true;
     by_service[svc] = {
       http2_anomaly: http2_anomaly,
@@ -233,7 +245,8 @@ function computeHttp2CollapseAnomalies(rows, repoRoot) {
 
   const doc = {
     generated_at: new Date().toISOString(),
-    rule: "http2_p95_ms > 3 * http1_p95_ms (same service, protocol matrix)",
+    rule: `http2_p95_ms > ${mult} * http1_p95_ms (same service, protocol matrix; HTTP2_COLLAPSE_THRESHOLD)`,
+    http2_collapse_threshold: mult,
     any_http2_collapse_anomaly,
     by_service,
   };
