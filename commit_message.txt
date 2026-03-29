@@ -1,67 +1,75 @@
-feat(och): gateway E2E traffic shaper, Redis weighted budget (Lua), transport-watchdog; Playwright stability
+feat(och): E2E traffic stack + shared HTTP guard; fix(ci) listings /create + cron-jobs; Playwright + main baseline docs
 
 WHY
 ---
-  • Parallel Playwright workers against a dev cluster can stampede the API gateway and backends;
-    ad-hoc 503s and timeouts looked like “flaky tests” in GitHub issues but were often real
-    concurrency saturation plus brittle UI locators.
-  • We need a single place to smooth ingress (semaphore + optional cluster-wide weighted cap in
-    Redis) and a signal when the gateway transport path is unhealthy (sidecar → Redis throttle).
-  • UI tests that targeted generic inputs across the whole /listings page broke whenever layout
-    or duplicate fields changed; success banners without stable hooks were race-prone.
-  • TypeScript: the Redis client from createClient() carries module generics that did not match
-    a bare RedisClientType import — middleware must accept the same client type the server uses.
+  • After PR #15 (feature/system-build → main), listings-service failed CI with TS1472/TS1005: the
+    POST /create handler was truncated — outer try/catch and app.post(...) never closed, and
+    `return app` appeared inside the route. INSERT also referenced undefined `lat`/`lng`.
+  • cron-jobs Docker/CI could hit `sh: tsc: not found` when `tsc` was not resolved from PATH;
+    `pnpm exec tsc` pins the compiler to the package.
+  • Parallel Playwright workers can stampede the gateway/backends; we add ingress smoothing
+    (shaper + optional Redis weighted budget + watchdog throttle) and dev-only doubled HTTP caps.
+  • UI E2E flakes tied to saturation and brittle locators: stable testids, section-scoped flows,
+    HTTPS-only E2E base URL normalization, strict-edge script with dev CA.
+  • Redis middleware typing: use ReturnType<typeof createClient> so gateway code matches the
+    concrete client from createClient(), not a mismatched RedisClientType generic.
+  • Integration branch `feature/system-build` is merged (PR #15); perf/docs should baseline on
+    `main` and the remote feature branch was removed to avoid stale checkouts.
 
 WHAT CHANGED
 ------------
-  API gateway (services/api-gateway)
-  • E2E traffic shaper (E2E_TRAFFIC_SHAPER*) — bounded concurrency + queue; probes/metrics paths
-    skip shaping (gateway-traffic-skip).
-  • Cluster-wide weighted budget — redis.eval Lua (atomic try/release); per-route segment weights;
-    503 when over cap; fail-open if Redis unavailable.
-  • Watchdog throttle poller — reads Redis key set by sidecar; halves shaper capacity when set.
-  • server.ts wires shaper + cluster middleware before createHttpConcurrencyGuard when enabled;
-    Redis typing uses ReturnType<typeof createClient> for cluster-weight + watchdog modules.
+  fix(ci) — listings-service (services/listings-service/src/http-server.ts)
+  • Close POST /create with outer catch, handler `},`, and `app.post` `);` before `return app`.
+  • Derive `lat`/`lng` from JSON body for INSERT placeholders $11/$12.
 
-  Transport watchdog (services/transport-watchdog)
-  • Small Node service: polls gateway readyz, sets/deletes Redis throttle key with TTL.
-  • Dockerfile (build from repo root); pnpm --filter transport-watchdog run build from monorepo root.
-
-  Kubernetes
-  • api-gateway deployment — second container transport-watchdog; env for REDIS + probe URL/key.
-  • overlays/dev/patches/gateway-traffic-shaper-cluster-weight.yaml — enable shaper, cluster weight,
-    watchdog poll on gateway app container.
-  • overlays/dev/patches/e2e-high-cap-mode-env.yaml — E2E_HIGH_CAP_MODE=1 on services using
-    createHttpConcurrencyGuard (dev / Playwright clusters only).
+  fix(ci) — cron-jobs (services/cron-jobs/package.json)
+  • `"build": "pnpm exec tsc -p tsconfig.json"` for reliable compiler resolution.
 
   Common (services/common)
-  • createHttpConcurrencyGuard — E2E_HIGH_CAP_MODE / PLAYWRIGHT_CONCURRENCY_BOOST doubles the
-    numeric default when per-service HTTP_MAX_CONCURRENT is unset (explicit env still wins).
+  • `createHttpConcurrencyGuard` in `http-concurrency-guard.ts` — exported from index;
+    E2E_HIGH_CAP_MODE / PLAYWRIGHT_CONCURRENCY_BOOST doubles numeric default when per-service
+    HTTP_MAX_CONCURRENT is unset.
 
-  Playwright / webapp (addresses flaky E2E reports)
-  • listings/page.tsx — data-testid="listing-created-banner" on the post-create success message.
-  • listing-and-analytics-journey.spec.ts — scope the “Post a listing” form via a section that
-    contains that heading, so tests survive layout tweaks and deploy lag vs local source; assert
-    banner via getByTestId; generous timeouts on create/search/analytics flows.
-  • Related specs (listings-filters-maps, system-integrity, analytics.deterministic) — assert
-    listing-created-banner and listings error surfaces with stable testids where applicable.
-  • webapp/playwright.config.ts — normalizeE2E_API_BASE: HTTPS edge only; reject legacy
-    http://127.0.0.1:4020-style bases so pages and API match the same host as CI/docs expect.
-  • scripts/webapp-playwright-strict-edge.sh — NODE_EXTRA_CA_CERTS (dev-root.pem) + E2E_API_BASE
-    via edge helpers for strict TLS runs against off-campus-housing.test.
+  Services using shared guard
+  • analytics, auth, booking, listings, messaging, notification, trust — HTTP middleware uses
+    @common guard where applicable; messaging drops duplicate local guard module.
+
+  API gateway (services/api-gateway)
+  • gateway-traffic-skip, e2e-traffic-shaper, cluster-weight-budget (Redis Lua EVAL try/release),
+    watchdog-throttle-poll; server.ts wires optional shaper + cluster middleware; Redis types via
+    ReturnType<typeof createClient>.
+
+  Transport watchdog (services/transport-watchdog)
+  • Sidecar: polls gateway readyz, sets/deletes Redis throttle key; Dockerfile from repo root;
+    workspace build: `pnpm --filter transport-watchdog run build`.
+
+  Kubernetes / scripts
+  • api-gateway deploy: transport-watchdog container; dev patches for E2E_HIGH_CAP_MODE,
+    E2E_TRAFFIC_SHAPER / GATEWAY_CLUSTER_WEIGHT_* / GATEWAY_WATCHDOG_POLL.
+  • build-housing-images-k3s.sh includes transport-watchdog; scripts/rebuild-traffic-control-stack.sh.
+
+  Playwright / webapp
+  • listing-created-banner testid; journey/spec updates; playwright.config normalizeE2E_API_BASE;
+    webapp-playwright-strict-edge.sh (NODE_EXTRA_CA_CERTS + edge URL).
 
   CI
-  • .github/workflows/docker-build.yml — matrix entry for transport-watchdog image.
+  • docker-build.yml matrix: transport-watchdog.
+
+  Docs / issue templates
+  • Perf and PR workflow docs: baseline branch references use `main` (former feature/system-build
+    line merged in PR #15); GITHUB_ISSUES_EXECUTABLE.txt aligned.
+
+  Bench / infra (as in branch)
+  • protocol-matrix / bench artifact updates, haproxy/k8s reference tweaks where committed.
 
 RUN
 ---
-  Rebuild images that embed @common createHttpConcurrencyGuard + gateway + sidecar, load into cluster,
-  apply dev overlay (E2E_HIGH_CAP_MODE + traffic patches):
+  Rebuild and roll out (gateway + services that embed the guard + sidecar):
 
     SERVICES="api-gateway auth-service booking-service listings-service messaging-service \
 analytics-service trust-service notification-service" \
       ./scripts/rebuild-och-images-and-rollout.sh
-    ./scripts/rebuild-traffic-control-stack.sh   # api-gateway + transport-watchdog only
+    ./scripts/rebuild-traffic-control-stack.sh
 
     kubectl apply -k infra/k8s/overlays/dev
 
@@ -69,15 +77,28 @@ analytics-service trust-service notification-service" \
 
     ./scripts/webapp-playwright-strict-edge.sh
 
+  Verify typecheck (representative):
+
+    pnpm -C services/common build
+    pnpm -C services/listings-service exec tsc --noEmit
+    pnpm -C services/cron-jobs run build
+    pnpm -C services/api-gateway exec tsc --noEmit
+
 PR body
 -------
-  Summarize for reviewers: (1) gateway shaping + Redis Lua budget + watchdog throttle loop,
-  (2) dev-only env for doubled service HTTP caps and gateway traffic patch,
-  (3) Playwright fixes — stable testids, section-scoped locators, HTTPS-only base URL normalization,
-  strict-edge helper for CA trust — tied to the flaky / saturation class of GitHub E2E issues.
+  Lead with the CI unblock: listings /create brace and lat/lng fix + cron-jobs `pnpm exec tsc`.
+  Then: shared HTTP concurrency guard, gateway E2E shaper + Redis weighted budget (Lua) + transport
+  watchdog sidecar, dev kustomize patches, Playwright stability, docker-build for sidecar image.
+  Note: `main` is the integration baseline; `feature/system-build` merged (PR #15) and remote
+  branch removed — docs updated accordingly.
 
-Suggested subject
------------------
-feat(och): gateway E2E shaper, Redis weighted budget, transport-watchdog; Playwright stability
+Suggested subjects (pick one style)
+-----------------------------------
+  Single squash / one-liner:
+    feat(och): E2E traffic + HTTP guard; fix listings /create + cron-jobs tsc; Playwright + dev k8s
+
+  If keeping two commits on the branch:
+    fix(ci): repair listings POST /create braces, lat/lng; cron-jobs pnpm exec tsc
+    feat(och): E2E traffic stack, shared createHttpConcurrencyGuard, transport-watchdog, trust merge
 
 Made with Tom.
