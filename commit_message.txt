@@ -24,6 +24,15 @@ WHAT CHANGED
   • Close POST /create with outer catch, handler `},`, and `app.post` `);` before `return app`.
   • Derive `lat`/`lng` from JSON body for INSERT placeholders $11/$12.
 
+  listings-service — unit tests & README
+  • Vitest: **validation.test.ts** (listing id, user id, CreateListing, search filters, UUID helper),
+    **search-listings-query.test.ts** (amenity CSV parsing, SQL builder, sort fallback, ILIKE escaping,
+    filters), **http-app.test.ts** (Express app factory; **vi.mock** listing-kafka + analytics-sync to
+    avoid loading Kafka native code in the test runner).
+  • Removed placeholder **smoke.test.ts**. **package.json** test script sets **KAFKAJS_NO_PARTITIONER_WARNING=1**.
+  • README: default **HTTP 4012 / gRPC 50062**, grpcurl example uses valid variant UUID + correct port,
+    new “Unit tests” section before dev server steps.
+
   fix(ci) — cron-jobs (services/cron-jobs/package.json)
   • `"build": "pnpm exec tsc -p tsconfig.json"` for reliable compiler resolution.
 
@@ -90,6 +99,7 @@ analytics-service trust-service notification-service" \
 
     pnpm -C services/common build
     pnpm -C services/listings-service exec tsc --noEmit
+    pnpm -C services/listings-service test
     pnpm -C services/cron-jobs run build
     pnpm -C services/api-gateway exec tsc --noEmit
     cd webapp && pnpm exec playwright test --list

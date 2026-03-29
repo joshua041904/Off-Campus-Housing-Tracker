@@ -52,24 +52,34 @@ PGPASSWORD=postgres psql -h 127.0.0.1 -p 5442 -U postgres -d listings -f infra/d
 PGPASSWORD=postgres psql -h 127.0.0.1 -p 5442 -U postgres -d listings -f infra/db/04-listings-processed-events.sql
 ```
 
-### 3. Start the listings-service
+### 3. Unit tests (no DB required)
+
+From repo root:
+
+```bash
+pnpm --filter listings-service test
+```
+
+Covers `validation.ts`, `search-listings-query.ts`, and HTTP app construction (`createListingsHttpApp`). CI runs this via the `listings-service` matrix job.
+
+### 4. Start the listings-service
 
 ```bash
 pnpm --filter listings-service dev
 ```
 
-You should see:
+Default ports: **HTTP 4012**, **gRPC 50062** (override with `HTTP_PORT` / `GRPC_PORT`).
 
-Listings service gRPC server running on port 50052
+You should see logs for both HTTP and gRPC listeners.
 
-### 4. Test CreateListing
+### 5. Test CreateListing (gRPC)
 
 ```bash
 grpcurl -plaintext \
  -import-path ./proto \
  -proto listings.proto \
  -d '{
-"user_id": "11111111-1111-1111-1111-111111111111",
+"user_id": "11111111-1111-4111-8111-111111111111",
 "title": "Test Apartment",
 "description": "Nice place near campus",
 "price_cents": 120000,
@@ -80,7 +90,7 @@ grpcurl -plaintext \
 "effective_from": "2026-04-01",
 "effective_until": "2026-08-31"
 }' \
- localhost:50052 listings.ListingsService/CreateListing
+ localhost:50062 listings.ListingsService/CreateListing
 ```
 
 Expected Response:
@@ -100,7 +110,7 @@ Expected Response:
 "createdAt": "2026-03-20T15:56:19.080Z"
 }
 
-### 5. Verify insertion
+### 6. Verify insertion
 
 ```bash
 PGPASSWORD=postgres psql -h 127.0.0.1 -p 5442 -U postgres -d listings

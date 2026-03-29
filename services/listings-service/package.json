@@ -8,8 +8,8 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "test": "ROLLUP_DISABLE_NATIVE=true vitest run",
-    "test:watch": "ROLLUP_DISABLE_NATIVE=true vitest"
+    "test": "ROLLUP_DISABLE_NATIVE=true KAFKAJS_NO_PARTITIONER_WARNING=1 vitest run",
+    "test:watch": "ROLLUP_DISABLE_NATIVE=true KAFKAJS_NO_PARTITIONER_WARNING=1 vitest"
   },
   "dependencies": {
     "@common/utils": "workspace:*",
