@@ -1,0 +1,114 @@
+# Doubles HTTP concurrency guard defaults when unset (see createHttpConcurrencyGuard E2E_HIGH_CAP_MODE).
+# Production overlays should omit this; dev / Playwright clusters only.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: off-campus-housing-tracker
+spec:
+  template:
+    spec:
+      containers:
+        - name: app
+          env:
+            - name: E2E_HIGH_CAP_MODE
+              value: "1"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+  namespace: off-campus-housing-tracker
+spec:
+  template:
+    spec:
+      containers:
+        - name: app
+          env:
+            - name: E2E_HIGH_CAP_MODE
+              value: "1"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: booking-service
+  namespace: off-campus-housing-tracker
+spec:
+  template:
+    spec:
+      containers:
+        - name: app
+          env:
+            - name: E2E_HIGH_CAP_MODE
+              value: "1"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: listings-service
+  namespace: off-campus-housing-tracker
+spec:
+  template:
+    spec:
+      containers:
+        - name: app
+          env:
+            - name: E2E_HIGH_CAP_MODE
+              value: "1"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: messaging-service
+  namespace: off-campus-housing-tracker
+spec:
+  template:
+    spec:
+      containers:
+        - name: app
+          env:
+            - name: E2E_HIGH_CAP_MODE
+              value: "1"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analytics-service
+  namespace: off-campus-housing-tracker
+spec:
+  template:
+    spec:
+      containers:
+        - name: app
+          env:
+            - name: E2E_HIGH_CAP_MODE
+              value: "1"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trust-service
+  namespace: off-campus-housing-tracker
+spec:
+  template:
+    spec:
+      containers:
+        - name: app
+          env:
+            - name: E2E_HIGH_CAP_MODE
+              value: "1"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+  namespace: off-campus-housing-tracker
+spec:
+  template:
+    spec:
+      containers:
+        - name: app
+          env:
+            - name: E2E_HIGH_CAP_MODE
+              value: "1"

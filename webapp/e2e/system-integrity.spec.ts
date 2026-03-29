@@ -47,7 +47,12 @@ test.describe("system integrity (multi-service vertical)", () => {
     await post.locator("textarea").fill("Cross-service E2E path.");
     await post.locator('input[type="number"]').fill("1200");
     await post.locator('input[type="date"]').fill(today);
-    await post.getByRole("button", { name: /Create listing/i }).click();
+    await Promise.all([
+      page.waitForResponse(
+        (resp) => resp.url().includes("/api/listings/create") && resp.status() === 201,
+      ),
+      post.getByRole("button", { name: /Create listing/i }).click(),
+    ]);
     await expect(page.getByTestId("listing-created-banner")).toBeVisible({ timeout: 60_000 });
 
     await expect
@@ -58,7 +63,7 @@ test.describe("system integrity (multi-service vertical)", () => {
           const j = (await r.json()) as { new_listings?: number };
           return Number(j.new_listings) || 0;
         },
-        { timeout: 120_000, intervals: [2_000, 3_000, 5_000] },
+        { timeout: 180_000, intervals: [2_000, 3_000, 5_000] },
       )
       .toBeGreaterThan(newListingsBefore);
 

@@ -3,7 +3,7 @@ import express, {
   type Request,
   type Response,
 } from "express";
-import { httpCounter, register } from "@common/utils";
+import { httpCounter, register, createHttpConcurrencyGuard } from "@common/utils";
 import { pool } from "./db.js";
 
 type AuthedRequest = Request & { userId?: string };
@@ -83,6 +83,14 @@ export function createTrustHttpApp() {
     res.setHeader("Content-Type", register.contentType);
     res.end(await register.metrics());
   });
+
+  app.use(
+    createHttpConcurrencyGuard({
+      envVar: "TRUST_HTTP_MAX_CONCURRENT",
+      defaultMax: 60,
+      serviceLabel: "trust-service",
+    }),
+  );
 
   app.post(
     "/report-abuse",

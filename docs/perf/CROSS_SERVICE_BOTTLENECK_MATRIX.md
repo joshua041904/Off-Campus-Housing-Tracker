@@ -2,7 +2,7 @@
 
 **Purpose:** Separate **local** per-service tails from **cross-service contention** (gateway, DB, shared CPU). Update this doc when you have new isolation or full-grid numbers — **one change per optimization iteration**, then re-measure.
 
-**Branch / context:** `feature/system-build` — application-layer performance (p95/p99, amplification, SQL plans), not transport correctness.
+**Branch / context:** `main` — application-layer performance (p95/p99, amplification, SQL plans), not transport correctness.
 
 ---
 

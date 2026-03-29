@@ -16,7 +16,7 @@ cd /tmp/och-review-listings-validation && pnpm install && pnpm --filter listings
 
 (Equivalent to `git checkout -b review-listings-validation origin/fix/listings-validation-response-handling` in a clean clone.) **Build: passed** on review tip.
 
-**Phase B:** k6 from repo root on **`feature/system-build`** workspace against live edge `https://off-campus-housing.test` — see §G. **Deployed cluster may not yet include the PR image**; malformed “prefer 400” checks are the canary for rollout.
+**Phase B:** k6 from repo root on **`main`** workspace against live edge `https://off-campus-housing.test` — see §G. **Deployed cluster may not yet include the PR image**; malformed “prefer 400” checks are the canary for rollout.
 
 **Do not merge** the teammate PR until Phase B is re-run against a **listings image built from this branch** if you need proof of 400 behavior under abuse load.
 
@@ -175,7 +175,7 @@ flowchart LR
 
 ## F. Integration note (other branches)
 
-If **`feature/system-build`** (or another integration branch) added **latitude/longitude** to listings create, compare that with **`fix/listings-validation-response-handling`** before merging — the PR tip’s HTTP/gRPC INSERTs match **`e37a775`** column lists, not necessarily every experimental branch.
+If **`main`** (or another integration branch) added **latitude/longitude** to listings create, compare that with **`fix/listings-validation-response-handling`** before merging — the PR tip’s HTTP/gRPC INSERTs match **`e37a775`** column lists, not necessarily every experimental branch.
 
 ---
 
@@ -183,7 +183,7 @@ If **`feature/system-build`** (or another integration branch) added **latitude/l
 
 **Environment:** Local k6 → edge `https://off-campus-housing.test`, `SSL_CERT_FILE=$PWD/certs/dev-root.pem`.  
 **Log file:** `bench_logs/perf-teammate-pr-phase-b-20260324-154300.log`  
-**Date:** 2026-03-24 (run on **`feature/system-build`** tree; cluster image may differ from PR tip).
+**Date:** 2026-03-24 (run on **`main`** tree; cluster image may differ from PR tip).
 
 ### G.1 Listings health (`k6-listings-health.js`, default 20s, 6 VUs)
 

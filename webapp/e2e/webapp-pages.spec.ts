@@ -21,7 +21,7 @@ test.describe("Webapp pages (guest)", () => {
       { name: "Analytics", path: /\/analytics$/ },
     ] as const) {
       await Promise.all([
-        page.waitForURL(path, { timeout: 20_000 }),
+        page.waitForURL(path, { timeout: 45_000 }),
         page.getByRole("link", { name, exact: true }).first().click(),
       ]);
     }

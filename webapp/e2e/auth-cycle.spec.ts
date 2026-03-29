@@ -19,8 +19,19 @@ test("register, sign out, login again", async ({ page, request }) => {
   await page.goto("/login");
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
-  await page.locator('[data-testid="login-form"]').getByRole("button", { name: /sign in/i }).click();
-  await expect(page).toHaveURL(/\/dashboard$/, { timeout: 30_000 });
+  const loginForm = page.locator('[data-testid="login-form"]');
+  await Promise.all([
+    page.waitForResponse(
+      (resp) =>
+        resp.url().includes("auth/login") &&
+        resp.request().method() === "POST" &&
+        resp.status() === 200,
+      { timeout: 60_000 },
+    ),
+    // requestSubmit() is more reliable than role click when React state wraps the native submit path.
+    loginForm.evaluate((el) => (el as HTMLFormElement).requestSubmit()),
+  ]);
+  await page.waitForURL(/\/dashboard$/, { timeout: 60_000 });
 
   await page.getByRole("link", { name: "Analytics" }).click();
   await expect(page.getByTestId("analytics-heading")).toBeVisible();

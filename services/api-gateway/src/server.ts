@@ -18,7 +18,7 @@ import compression from "compression";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
 import { createProxyMiddleware } from "http-proxy-middleware";
-import { register, httpCounter } from "@common/utils";
+import { register, httpCounter, createHttpConcurrencyGuard } from "@common/utils";
 import { verifyJwt, type JwtPayload as TokenPayload } from "@common/utils/auth";
 import {
   createAuthClient,
@@ -30,6 +30,9 @@ import type { ServerResponse as NodeServerResponse } from "http";
 import { Agent as HttpAgent } from "http";
 import type { Socket } from "net";
 import { analyticsDailyMetricsCoalescedHandler, proxyInflightMiddleware } from "./proxy-limits.js";
+import { createE2eTrafficShaperMiddleware } from "./e2e-traffic-shaper.js";
+import { createClusterWeightBudgetMiddleware } from "./cluster-weight-budget.js";
+import { startWatchdogThrottlePoller } from "./watchdog-throttle-poll.js";
 
 /** HTTP/1.1 keep-alive to housing upstreams: high concurrency from Caddy H2/H3 multiplexing + Playwright workers. */
 const _gwMaxSockets = Number.parseInt(process.env.GATEWAY_HTTP_AGENT_MAX_SOCKETS ?? "1000", 10);
@@ -208,10 +211,27 @@ if (FAKE_AUTH) {
 const REDIS_URL = process.env.REDIS_URL || "redis://redis:6379";
 const redis = createClient({ url: REDIS_URL, socket: { connectTimeout: 10_000 } });
 redis.on("error", (e: unknown) => console.error("gateway redis error:", e));
+
+const e2eTrafficShaperOn =
+  process.env.E2E_TRAFFIC_SHAPER === "1" || process.env.E2E_TRAFFIC_SHAPER === "true";
+const clusterWeightBudgetOn =
+  process.env.GATEWAY_CLUSTER_WEIGHT_ENABLED === "1" || process.env.GATEWAY_CLUSTER_WEIGHT_ENABLED === "true";
+const WATCHDOG_THROTTLE_KEY = process.env.GATEWAY_WATCHDOG_THROTTLE_KEY || "och:gw:watchdog_throttle";
+
 (async () => {
   try {
     await redis.connect();
     console.log("gateway redis connected");
+    const pollWatchdogThrottle =
+      e2eTrafficShaperOn ||
+      clusterWeightBudgetOn ||
+      process.env.GATEWAY_WATCHDOG_POLL === "1" ||
+      process.env.GATEWAY_WATCHDOG_POLL === "true";
+    if (pollWatchdogThrottle) {
+      const pollMs = Math.max(2000, Number.parseInt(process.env.GATEWAY_WATCHDOG_POLL_MS ?? "5000", 10) || 5000);
+      startWatchdogThrottlePoller(redis, WATCHDOG_THROTTLE_KEY, pollMs);
+      console.log(`[gateway] watchdog throttle poll key=${WATCHDOG_THROTTLE_KEY} every ${pollMs}ms`);
+    }
   } catch (e) {
     console.error("gateway redis connect failed:", e);
   }
@@ -259,6 +279,27 @@ app.get("/metrics", async (_req, res) => {
   res.setHeader("Content-Type", register.contentType);
   res.end(await register.metrics());
 });
+
+if (e2eTrafficShaperOn) {
+  const maxC = Math.max(4, Number.parseInt(process.env.E2E_TRAFFIC_SHAPER_MAX ?? "50", 10) || 50);
+  app.use(createE2eTrafficShaperMiddleware({ maxConcurrent: maxC }));
+  console.log(`[gateway] E2E_TRAFFIC_SHAPER on (base maxConcurrent=${maxC})`);
+}
+
+if (clusterWeightBudgetOn) {
+  const cap = Math.max(50, Number.parseInt(process.env.GATEWAY_CLUSTER_WEIGHT_CAP ?? "500", 10) || 500);
+  const wkey = process.env.GATEWAY_CLUSTER_WEIGHT_KEY || "och:cluster:weight:sum";
+  app.use(createClusterWeightBudgetMiddleware({ redis, key: wkey, cap }));
+  console.log(`[gateway] GATEWAY_CLUSTER_WEIGHT_ENABLED key=${wkey} cap=${cap}`);
+}
+
+app.use(
+  createHttpConcurrencyGuard({
+    envVar: "GATEWAY_HTTP_MAX_CONCURRENT",
+    defaultMax: 500,
+    serviceLabel: "api-gateway",
+  }),
+);
 
 app.use((req: Request, _res: Response, next: NextFunction) => {
   for (const [k, v] of Object.entries(req.query)) {

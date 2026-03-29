@@ -6,3 +6,5 @@ resources:
 patches:
   - path: patches/listings-analytics-sync-env.yaml
   - path: patches/analytics-analytics-sync-env.yaml
+  - path: patches/e2e-high-cap-mode-env.yaml
+  - path: patches/gateway-traffic-shaper-cluster-weight.yaml

@@ -1,5 +1,5 @@
 import express, { type NextFunction, type Request, type Response } from "express";
-import { kafka, register, httpCounter } from "@common/utils";
+import { kafka, register, httpCounter, createHttpConcurrencyGuard } from "@common/utils";
 import { Prisma } from "../prisma/generated/client/index.js";
 import { prisma } from "./lib/prisma.js";
 import { randomUUID } from "node:crypto";
@@ -88,6 +88,14 @@ app.get("/metrics", async (_req, res) => {
   res.setHeader("Content-Type", register.contentType);
   res.end(await register.metrics());
 });
+
+app.use(
+  createHttpConcurrencyGuard({
+    envVar: "BOOKING_HTTP_MAX_CONCURRENT",
+    defaultMax: 75,
+    serviceLabel: "booking-service",
+  }),
+);
 
 app.post("/create", requireUser, async (req: AuthedRequest, res: Response) => {
   try {

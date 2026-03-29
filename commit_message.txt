@@ -1,97 +1,83 @@
-feat(och): edge Grafana/contracts/Kafka metrics + CI Postgres/Redis, HTTP/2 matrix threshold, QUIC gate
+feat(och): gateway E2E traffic shaper, Redis weighted budget (Lua), transport-watchdog; Playwright stability
 
 WHY
 ---
-  • Port-forward is a debug tool; Grafana should ride the same TLS/HTTP2/HTTP3 edge as the app.
-  • Unknown /api routes should be 404, not 401, when no service owns the prefix.
-  • Invalid listing IDs must be 400 before Postgres ::uuid throws 500.
-  • HTTP listing create must emit the same ListingCreatedV1 Kafka envelope as gRPC so analytics can
-    project daily_metrics (E2E system-integrity expects new_listings to move).
-  • Docker builds must not pick up local *.tsbuildinfo (incremental emit gaps).
-  • Prometheus SLO rules must use prom-client label `code`, not fictional `status`.
-  • Dev machines without standalone `kustomize` should still apply overlays via kubectl.
-  • GitHub Actions runners are not your Mac: integration tests default to 127.0.0.1:5441–5448 and
-    Redis 6380 — without service containers those connections are ECONNREFUSED.
-  • The protocol-anomaly job rebuilds from committed protocol-comparison.csv; a fixed 3× H2/H1 ratio
-    fails on noisy matrix rows (e.g. media/messaging) without re-running the full transport study.
-    Parameterizing the threshold keeps CI methodical; default local behavior stays 3×.
-  • QUIC hostname invariant should run even when the test matrix is red; it must not sit behind
-    needs: transport-validation (skipped when tests fail).
+  • Parallel Playwright workers against a dev cluster can stampede the API gateway and backends;
+    ad-hoc 503s and timeouts looked like “flaky tests” in GitHub issues but were often real
+    concurrency saturation plus brittle UI locators.
+  • We need a single place to smooth ingress (semaphore + optional cluster-wide weighted cap in
+    Redis) and a signal when the gateway transport path is unhealthy (sidecar → Redis throttle).
+  • UI tests that targeted generic inputs across the whole /listings page broke whenever layout
+    or duplicate fields changed; success banners without stable hooks were race-prone.
+  • TypeScript: the Redis client from createClient() carries module generics that did not match
+    a bare RedisClientType import — middleware must accept the same client type the server uses.
 
 WHAT CHANGED
 ------------
-  Edge / Caddy
-  • Caddyfile + infra/k8s/caddy-h3-configmap.yaml — handle_path /grafana/* → grafana.observability;
-    API upstream encode + transport keepalive/buffers (synced).
-  • infra/k8s/reference/envoy-quic-downstream.example.yaml — optional Envoy QUIC reference.
+  API gateway (services/api-gateway)
+  • E2E traffic shaper (E2E_TRAFFIC_SHAPER*) — bounded concurrency + queue; probes/metrics paths
+    skip shaping (gateway-traffic-skip).
+  • Cluster-wide weighted budget — redis.eval Lua (atomic try/release); per-route segment weights;
+    503 when over cap; fail-open if Redis unavailable.
+  • Watchdog throttle poller — reads Redis key set by sidecar; halves shaper capacity when set.
+  • server.ts wires shaper + cluster middleware before createHttpConcurrencyGuard when enabled;
+    Redis typing uses ReturnType<typeof createClient> for cluster-weight + watchdog modules.
 
-  Observability
-  • grafana-dashboard-providers.yaml, grafana-dashboards-transport.yaml, grafana-dashboards.yaml
-    (unwrap legacy JSON to schemaVersion 38; transport dashboard).
-  • grafana-deploy.yaml — projected dashboard volumes, GF_SERVER_ROOT_URL/SERVE_FROM_SUB_PATH,
-    grafana/grafana:11.5.2.
-  • prometheus-deploy.yaml — scrape envoy-test-pods (/stats/prometheus).
-  • prometheus-rules-och-slo.yaml (+ grafana-dashboards CM / och-slo-prometheusrule) — code label fix;
-    och-transport-edge recording rules + alerts.
-  • infra/grafana/och-transport-edge.json — repo copy of transport dashboard.
+  Transport watchdog (services/transport-watchdog)
+  • Small Node service: polls gateway readyz, sets/deletes Redis throttle key with TTL.
+  • Dockerfile (build from repo root); pnpm --filter transport-watchdog run build from monorepo root.
 
-  Scripts
-  • scripts/transport/http3-concurrent-curl-stress.sh — concurrent HTTP/3 curl stress.
-  • scripts/rollout-restart-och-after-pool-tuning.sh — envoy-test + optional ingress envoy restart.
-  • scripts/deploy-dev.sh, Makefile — kubectl kustomize fallback for overlays.
-  • scripts/perf/extract-protocol-matrix.js — HTTP2_COLLAPSE_THRESHOLD (default 3); anomalies JSON
-    records threshold + rule text; CI sets 5.
+  Kubernetes
+  • api-gateway deployment — second container transport-watchdog; env for REDIS + probe URL/key.
+  • overlays/dev/patches/gateway-traffic-shaper-cluster-weight.yaml — enable shaper, cluster weight,
+    watchdog poll on gateway app container.
+  • overlays/dev/patches/e2e-high-cap-mode-env.yaml — E2E_HIGH_CAP_MODE=1 on services using
+    createHttpConcurrencyGuard (dev / Playwright clusters only).
 
-  Services
-  • api-gateway/server.ts — unknown /api/* first-segment guard → 404 before auth.
-  • listings-service — listing-kafka.ts; HTTP+grpc publish ListingCreatedV1 + listed_at_day;
-    GET /listings/:id UUID guard → 400.
-  • analytics-service — consumers/listingEventsConsumer.ts (kafkajs dep); server.ts starts consumer;
-    daily_metrics upsert with processed_events dedupe.
-  • listings, trust, analytics, messaging db.ts — InstanceType<typeof Pool> for attachConcurrencyGuard.
+  Common (services/common)
+  • createHttpConcurrencyGuard — E2E_HIGH_CAP_MODE / PLAYWRIGHT_CONCURRENCY_BOOST doubles the
+    numeric default when per-service HTTP_MAX_CONCURRENT is unset (explicit env still wins).
 
-  Webapp E2E
-  • gateway.routing.spec.ts — expect 404 unknown route.
-  • listings.full.spec.ts — expect 400 bad id.
-  • analytics.full.spec.ts — healthz poll; daily-metrics allows 502.
-  • system-integrity.spec.ts — calendarDateYmd + e2eApiBase for daily-metrics URL.
+  Playwright / webapp (addresses flaky E2E reports)
+  • listings/page.tsx — data-testid="listing-created-banner" on the post-create success message.
+  • listing-and-analytics-journey.spec.ts — scope the “Post a listing” form via a section that
+    contains that heading, so tests survive layout tweaks and deploy lag vs local source; assert
+    banner via getByTestId; generous timeouts on create/search/analytics flows.
+  • Related specs (listings-filters-maps, system-integrity, analytics.deterministic) — assert
+    listing-created-banner and listings error surfaces with stable testids where applicable.
+  • webapp/playwright.config.ts — normalizeE2E_API_BASE: HTTPS edge only; reject legacy
+    http://127.0.0.1:4020-style bases so pages and API match the same host as CI/docs expect.
+  • scripts/webapp-playwright-strict-edge.sh — NODE_EXTRA_CA_CERTS (dev-root.pem) + E2E_API_BASE
+    via edge helpers for strict TLS runs against off-campus-housing.test.
 
-  CI (.github/workflows/ci.yml)
-  • test job — postgres:16-alpine on 5441–5448 (POSTGRES_DB + password aligned with docker-compose),
-    redis:7 on 6380:6379, healthchecks; install postgresql-client + scripts/bootstrap-all-dbs.sh
-    before pnpm test.
-  • protocol-anomaly — env HTTP2_COLLAPSE_THRESHOLD=5 for the committed CSV gate.
-  • quic-hostname-invariant — no needs: on transport-validation (runs at workflow start).
-
-  Build / bench
-  • .dockerignore — **/*.tsbuildinfo.
-  • bench_logs/protocol-comparison.csv + bench_logs/performance-lab/protocol-matrix-anomalies.json —
-    regenerated with HTTP2_COLLAPSE_THRESHOLD=5 for committed artifact consistency.
+  CI
+  • .github/workflows/docker-build.yml — matrix entry for transport-watchdog image.
 
 RUN
 ---
-  SERVICES="api-gateway listings-service analytics-service" bash scripts/build-housing-images-k3s.sh
-  kubectl kustomize infra/k8s/overlays/dev | kubectl apply -f -
-  bash scripts/rollout-caddy.sh
-  kubectl rollout restart deployment/grafana -n observability
-  kubectl rollout restart deployment/api-gateway deployment/listings-service deployment/analytics-service \
-    -n off-campus-housing-tracker
-  # Grafana: https://off-campus-housing.test/grafana/
-  bash scripts/run-playwright-e2e-preflight.sh   # needs Kafka for daily_metrics increment
+  Rebuild images that embed @common createHttpConcurrencyGuard + gateway + sidecar, load into cluster,
+  apply dev overlay (E2E_HIGH_CAP_MODE + traffic patches):
 
-  Local protocol CSV / anomalies (default 3× gate):
-    EXTRACT_PROTOCOL_MATRIX_FROM_CSV=1 node scripts/perf/extract-protocol-matrix.js
-  Stricter or looser multiplier:
-    HTTP2_COLLAPSE_THRESHOLD=5 EXTRACT_PROTOCOL_MATRIX_FROM_CSV=1 node scripts/perf/extract-protocol-matrix.js
+    SERVICES="api-gateway auth-service booking-service listings-service messaging-service \
+analytics-service trust-service notification-service" \
+      ./scripts/rebuild-och-images-and-rollout.sh
+    ./scripts/rebuild-traffic-control-stack.sh   # api-gateway + transport-watchdog only
+
+    kubectl apply -k infra/k8s/overlays/dev
+
+  Local strict Playwright (edge TLS):
+
+    ./scripts/webapp-playwright-strict-edge.sh
 
 PR body
 -------
-  See GITHUB_PR_DESCRIPTION_PR5.txt for the production-edge / observability / contracts narrative.
-  Fold this commit_message CI + extract-protocol-matrix + bench artifact bullets into the PR
-  description if you want a single combined PR.
+  Summarize for reviewers: (1) gateway shaping + Redis Lua budget + watchdog throttle loop,
+  (2) dev-only env for doubled service HTTP caps and gateway traffic patch,
+  (3) Playwright fixes — stable testids, section-scoped locators, HTTPS-only base URL normalization,
+  strict-edge helper for CA trust — tied to the flaky / saturation class of GitHub E2E issues.
 
 Suggested subject
 -----------------
-feat(och): Grafana on edge, transport rules, contracts + Kafka metrics; CI DB/redis + H2 matrix threshold
+feat(och): gateway E2E shaper, Redis weighted budget, transport-watchdog; Playwright stability
 
 Made with Tom.

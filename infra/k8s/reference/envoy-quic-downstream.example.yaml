@@ -33,10 +33,11 @@ static_resources:
                 "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
                 stat_prefix: ingress_http
                 codec_type: AUTO
+                # Tighter HTTP/3 stream cap reduces head-of-line / userland starvation under burst (tune per Envoy version).
                 http3_protocol_options:
-                  max_concurrent_streams: 1000
-                  initial_stream_window_size: 6553600
-                  initial_connection_window_size: 10485760
+                  max_concurrent_streams: 80
+                  initial_stream_window_size: 65536
+                  initial_connection_window_size: 1048576
                 http2_protocol_options:
                   max_concurrent_streams: 1000
                   initial_stream_window_size: 6553600

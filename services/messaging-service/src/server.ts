@@ -14,8 +14,8 @@
  */
 import express from 'express'
 import os from 'os'
+import { createHttpConcurrencyGuard } from '@common/utils'
 import { startGrpcServer } from './grpc-server.js'
-import { messagingHttpConcurrencyGuard } from './http-concurrency-guard.js'
 import { makeRedis } from './lib/cache.js'
 import { requireUser } from './lib/auth.js'
 import forumRouter from './routes/forum.js'
@@ -29,11 +29,18 @@ const redis = makeRedis()
 const app = express()
 
 app.use(express.json({ limit: '1mb' }))
-app.use(messagingHttpConcurrencyGuard)
 
 app.get(['/healthz', '/health'], (_req, res) => {
   res.status(200).json({ ok: true })
 })
+
+app.use(
+  createHttpConcurrencyGuard({
+    envVar: 'MESSAGING_HTTP_MAX_CONCURRENT',
+    defaultMax: 40,
+    serviceLabel: 'messaging-service',
+  }),
+)
 
 // Authenticated forum + messages routes.
 // Messaging routes require x-user-id (provided by api-gateway after JWT verification).

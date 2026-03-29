@@ -1,4 +1,4 @@
-# PR review notes: `fix/listings-validation-response-handling` vs `feature/system-build`
+# PR review notes: `fix/listings-validation-response-handling` vs `main`
 
 **Full deep review (hot-path cost, diagrams, DB protection, k6 tables):** [LISTINGS_VALIDATION_DEEP_REVIEW.md](./LISTINGS_VALIDATION_DEEP_REVIEW.md)
 
@@ -85,4 +85,4 @@ Compare p95 to **pre-PR** on same cluster. Small regression → profile `validat
 ## 10. Branch strategy
 
 - Review and k6 on **`fix/listings-validation-response-handling`** (or merge target).
-- Keep **`feature/system-build`** perf experiments **rebased** after this PR merges, or use a dedicated **`perf/k6-baseline-*`** branch for Issue 9 logs so results stay comparable.
+- Keep **`main`** (or a dedicated **`perf/k6-baseline-*`** branch) **rebased** after this PR merges for Issue 9 logs so results stay comparable.

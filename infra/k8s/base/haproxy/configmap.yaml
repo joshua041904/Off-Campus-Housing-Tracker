@@ -9,15 +9,16 @@ data:
     global
       log stdout format raw local0
       # Bounded process-wide connections (avoids unbounded fan-in vs defaults).
-      maxconn 2000
+      maxconn 4096
       tune.bufsize 32768
+      # Atomic cross-pod weighted limits: Redis Lua in api-gateway (GATEWAY_CLUSTER_WEIGHT_ENABLED), not HAProxy Lua.
 
     defaults
       mode http
       log global
       option httplog
       option http-keep-alive
-      maxconn 1000
+      maxconn 2000
       timeout connect 5s
       timeout client  60s
       timeout server  60s
@@ -30,7 +31,7 @@ data:
       hold valid 10s
 
     frontend fe_api
-      bind *:8081 maxconn 800
+      bind *:8081 maxconn 1000
       http-request set-header X-Forwarded-Proto https if { ssl_fc }
       http-request set-header X-Forwarded-Proto http  if !{ ssl_fc }
       http-request set-header X-Forwarded-Host   %[req.hdr(Host)]
@@ -45,7 +46,7 @@ data:
       # Only send traffic to ready pods; inter/fall/rise reduce 503 during rotation when backends restart.
       default-server inter 3s fall 2 rise 3
       # init-addr none + resolvers k8s: resolve at runtime via CoreDNS so health checks see api-gateway
-      server api api-gateway.off-campus-housing-tracker.svc.cluster.local:4020 check maxconn 400 init-addr none resolvers k8s
+      server api api-gateway.off-campus-housing-tracker.svc.cluster.local:4020 check maxconn 600 init-addr none resolvers k8s
 
     listen stats
       bind *:8404

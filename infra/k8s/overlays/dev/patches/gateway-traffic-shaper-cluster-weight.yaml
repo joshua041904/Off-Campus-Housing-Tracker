@@ -1,0 +1,24 @@
+# E2E traffic shaper + Redis cluster weighted budget (Lua EVAL) for parallel Playwright; watchdog poll for throttle key.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: off-campus-housing-tracker
+spec:
+  template:
+    spec:
+      containers:
+        - name: app
+          env:
+            - name: E2E_TRAFFIC_SHAPER
+              value: "1"
+            - name: E2E_TRAFFIC_SHAPER_MAX
+              value: "55"
+            - name: GATEWAY_CLUSTER_WEIGHT_ENABLED
+              value: "1"
+            - name: GATEWAY_CLUSTER_WEIGHT_CAP
+              value: "600"
+            - name: GATEWAY_CLUSTER_WEIGHT_KEY
+              value: "och:cluster:weight:sum"
+            - name: GATEWAY_WATCHDOG_POLL
+              value: "1"

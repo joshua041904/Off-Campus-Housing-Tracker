@@ -13,7 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
-DEFAULT_SERVICES="auth-service listings-service booking-service messaging-service trust-service analytics-service media-service notification-service api-gateway"
+DEFAULT_SERVICES="auth-service listings-service booking-service messaging-service trust-service analytics-service media-service notification-service api-gateway transport-watchdog"
 SERVICES="${SERVICES:-$DEFAULT_SERVICES}"
 # Allow SERVICES=api-gateway,listings-service (commas → spaces)
 SERVICES="${SERVICES//,/ }"

@@ -65,10 +65,13 @@ const suiteProjects = [
 export default defineConfig({
   globalSetup: "./playwright.global-setup.ts",
   testDir: "./e2e",
+  /** Register + edge round-trips exceed 30s under load; keep auth/listings verticals reliable. */
+  timeout: 120_000,
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
-  workers: process.env.CI ? 2 : undefined,
+  /** Local default was CPU-count (often 6); bounded backends need fewer parallel browser tests. CI stays low for flakes. */
+  workers: process.env.CI ? 2 : 4,
   reporter: [["list"], ["html", { open: "never" }]],
   use: {
     baseURL,

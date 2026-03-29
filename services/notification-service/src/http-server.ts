@@ -1,5 +1,5 @@
 import express, { type Application, type NextFunction, type Request, type Response } from "express";
-import { httpCounter, register } from "@common/utils";
+import { httpCounter, register, createHttpConcurrencyGuard } from "@common/utils";
 import { pool } from "./db.js";
 
 type AuthedRequest = Request & { userId?: string };
@@ -46,6 +46,14 @@ export function createNotificationHttpApp(): Application {
   app.post("/internal/cron/heartbeat", async (_req, res) => {
     res.json({ ok: true, at: new Date().toISOString() });
   });
+
+  app.use(
+    createHttpConcurrencyGuard({
+      envVar: "NOTIFICATION_HTTP_MAX_CONCURRENT",
+      defaultMax: 60,
+      serviceLabel: "notification-service",
+    }),
+  );
 
   app.get("/preferences", requireUser, async (req: AuthedRequest, res: Response) => {
     if (!pool) return res.status(503).json({ error: "db unavailable" });

@@ -12,10 +12,23 @@ test("register → search history → watchlist add/remove (needs full stack)", 
 
   await registerViaUi(page, email, password);
 
+  // Dashboard disables submit while initial search-history + watchlist refresh runs.
+  await expect(page.getByTestId("search-submit")).toBeEnabled({ timeout: 60_000 });
   await page.getByTestId("search-query").fill("studio near campus e2e");
   await page.getByTestId("search-max-km").fill("4");
-  await page.getByTestId("search-submit").click();
-  await expect(page.getByText(/Search saved to history/i)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("search-submit")).toBeEnabled({ timeout: 10_000 });
+  await Promise.all([
+    page.waitForResponse(
+      (r) =>
+        r.url().includes("/api/booking/search-history") &&
+        !r.url().includes("search-history/list") &&
+        r.request().method() === "POST" &&
+        (r.status() === 200 || r.status() === 201),
+      { timeout: 60_000 },
+    ),
+    page.getByTestId("search-submit").click(),
+  ]);
+  await expect(page.getByText(/Search saved to history/i)).toBeVisible({ timeout: 30_000 });
 
   // Table should list the row we just saved (refresh avoids any residual race with initial load fetch).
   await page.getByRole("button", { name: "Refresh" }).click();
@@ -35,7 +48,15 @@ test("register → search history → watchlist add/remove (needs full stack)", 
   await page.goto("/listings");
   await expect(page.getByRole("heading", { name: /Browse listings/i })).toBeVisible();
   await page.getByTestId("listings-search-q").fill("e2e");
-  await page.getByTestId("listings-search-submit").click();
+  await Promise.all([
+    page.waitForResponse(
+      (resp) => resp.url().includes("/api/listings/search") && resp.status() === 200,
+    ),
+    page.getByTestId("listings-search-submit").click(),
+  ]);
+  await expect(page.getByTestId("listings-results")).toHaveAttribute("aria-busy", "false", {
+    timeout: 15_000,
+  });
   await expect(page.getByTestId("listings-results")).toBeVisible({ timeout: 15_000 });
 
   await page.goto("/trust");

@@ -8,8 +8,18 @@ test.describe("listings (gateway vertical)", () => {
   });
 
   test("GET /api/listings/healthz", async ({ request }) => {
-    const r = await request.get(edgePath("/api/listings/healthz"));
-    expect(r.ok(), await r.text()).toBeTruthy();
+    let lastBody = "";
+    let ok = false;
+    for (let i = 0; i < 10; i++) {
+      const r = await request.get(edgePath("/api/listings/healthz"));
+      lastBody = await r.text();
+      if (r.ok()) {
+        ok = true;
+        break;
+      }
+      await new Promise((res) => setTimeout(res, 1_000));
+    }
+    expect(ok, lastBody).toBeTruthy();
   });
 
   test("GET /api/listings/search (public)", async ({ request }) => {

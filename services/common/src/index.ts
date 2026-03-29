@@ -1,4 +1,5 @@
 export * from "./metrics.js";
+export * from "./http-concurrency-guard.js";
 export * from "./logger.js";
 export * from "./auth.js";
 export * from "./kafka.js";

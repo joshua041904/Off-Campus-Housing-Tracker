@@ -32,7 +32,13 @@ test.describe("Register → listing → analytics (two audiences)", () => {
     await post.locator("textarea").fill("Near campus, laundry in unit.");
     await post.locator('input[type="number"]').fill("1100");
     await post.locator('input[type="date"]').fill(new Date().toISOString().slice(0, 10));
-    await post.getByRole("button", { name: /Create listing/i }).click();
+    await Promise.all([
+      page.waitForResponse(
+        (resp) => resp.url().includes("/api/listings/create") && resp.status() === 201,
+        { timeout: 90_000 },
+      ),
+      post.getByRole("button", { name: /Create listing/i }).click(),
+    ]);
     await expect(page.getByTestId("listing-created-banner")).toBeVisible({ timeout: 45_000 });
 
     await page.getByTestId("listings-search-q").fill(slug);

@@ -1,6 +1,6 @@
 /* cspell:ignore healthz */
 import express, { type Request, type Response, type NextFunction } from "express";
-import { register, httpCounter } from "@common/utils";
+import { register, httpCounter, createHttpConcurrencyGuard } from "@common/utils";
 import { signJwt, verifyJwt, type JwtPayload as TokenPayload } from "@common/utils/auth";
 import { randomUUID } from "node:crypto";
 import { createClient } from "redis";
@@ -120,6 +120,14 @@ app.get("/healthz", async (_req: Request, res: Response) => {
     cache: cacheStats,
   });
 });
+
+app.use(
+  createHttpConcurrencyGuard({
+    envVar: "AUTH_HTTP_MAX_CONCURRENT",
+    defaultMax: 60,
+    serviceLabel: "auth-service",
+  }),
+);
 
 app.post("/register", async (req: Request, res: Response) => {
   try {

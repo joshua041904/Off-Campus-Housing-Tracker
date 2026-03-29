@@ -34,14 +34,19 @@ test("listings and trust pages render for guests", async ({ page, request }) => 
   await expect(page.getByRole("heading", { name: /Browse listings/i })).toBeVisible();
   await expect(page.getByTestId("listings-results")).toBeVisible();
   await expect(page.getByTestId("listings-results")).toHaveAttribute("aria-busy", "false", { timeout: 60_000 });
-  // Empty DB is valid; cards if seeded; API errors use data-testid listings-api-error (outside results div).
+  // Empty DB is valid; cards if seeded; upstream errors may show both empty copy and listings-api-error — avoid strict .or().
   const results = page.getByTestId("listings-results");
-  await expect(
-    results
-      .getByText(/No listings match|empty index/i)
-      .or(results.locator("div.font-medium").first())
-      .or(page.getByTestId("listings-api-error")),
-  ).toBeVisible({ timeout: 15_000 });
+  await expect
+    .poll(
+      async () => {
+        if (await page.getByTestId("listings-api-error").isVisible()) return "ok";
+        if (await results.getByText(/No listings match|empty index/i).isVisible()) return "ok";
+        if (await results.locator("div.font-medium").first().isVisible()) return "ok";
+        return null;
+      },
+      { timeout: 15_000 },
+    )
+    .toBe("ok");
 
   await page.goto("/trust");
   await expect(page.getByRole("heading", { name: /Trust & safety/i })).toBeVisible();

@@ -47,15 +47,31 @@ test.describe("Listings filters & maps", () => {
 
     await post.getByRole("checkbox", { name: /^Garage$/ }).check();
 
-    await post.getByRole("button", { name: /Create listing/i }).click();
+    await Promise.all([
+      page.waitForResponse(
+        (resp) => resp.url().includes("/api/listings/create") && resp.status() === 201,
+        { timeout: 90_000 },
+      ),
+      post.getByRole("button", { name: /Create listing/i }).click(),
+    ]);
     await expect(page.getByTestId("listing-created-banner")).toBeVisible({ timeout: 45_000 });
 
     const garageFilter = page.getByTestId("listings-filter-garage");
     if ((await garageFilter.count()) > 0) {
       await garageFilter.check();
-      await page.getByTestId("listings-search-submit").click();
+      await Promise.all([
+        page.waitForResponse(
+          (resp) => resp.url().includes("/api/listings/search") && resp.status() === 200,
+        ),
+        page.getByTestId("listings-search-submit").click(),
+      ]);
     } else {
-      await page.getByTestId("listings-search-submit").click();
+      await Promise.all([
+        page.waitForResponse(
+          (resp) => resp.url().includes("/api/listings/search") && resp.status() === 200,
+        ),
+        page.getByTestId("listings-search-submit").click(),
+      ]);
     }
     await expect(page.getByTestId("listings-results")).toContainText("Map test", { timeout: 25_000 });
 
@@ -88,6 +104,7 @@ test.describe("Listings filters & maps", () => {
     page,
     request,
   }) => {
+    test.setTimeout(180_000);
     test.skip(!(await apiGatewayHealthy(request)), "edge not reachable");
     await page.goto("/listings");
     await expect(page.getByTestId("listings-results")).toHaveAttribute("aria-busy", "false", { timeout: 60_000 });
@@ -97,9 +114,15 @@ test.describe("Listings filters & maps", () => {
     await page.locator('label:has-text("Max price")').locator("..").locator('input[type="number"]').fill("5000");
     await page.getByTestId("listings-sort").selectOption("price_asc");
     await page.getByTestId("listings-new-within").selectOption("30");
-    await page.getByTestId("listings-search-submit").click();
+    await Promise.all([
+      page.waitForResponse(
+        (resp) => resp.url().includes("/api/listings/search") && resp.status() === 200,
+        { timeout: 120_000 },
+      ),
+      page.getByTestId("listings-search-submit").click(),
+    ]);
 
-    await expect(page.getByTestId("listings-results")).toHaveAttribute("aria-busy", "false", { timeout: 30_000 });
+    await expect(page.getByTestId("listings-results")).toHaveAttribute("aria-busy", "false", { timeout: 60_000 });
     await expect(page.locator('[data-testid="listings-api-error"]')).toHaveCount(0);
   });
 
@@ -116,7 +139,12 @@ test.describe("Listings filters & maps", () => {
       await form.locator('label:has-text("In-unit laundry")').locator('input[type="checkbox"]').check();
       await form.locator('label:has-text("Dishwasher")').locator('input[type="checkbox"]').check();
     }
-    await page.getByTestId("listings-search-submit").click();
+    await Promise.all([
+      page.waitForResponse(
+        (resp) => resp.url().includes("/api/listings/search") && resp.status() === 200,
+      ),
+      page.getByTestId("listings-search-submit").click(),
+    ]);
     await expect(page.getByTestId("listings-results")).toHaveAttribute("aria-busy", "false", { timeout: 30_000 });
     await expect(page.locator('[data-testid="listings-api-error"]')).toHaveCount(0);
   });
@@ -131,8 +159,22 @@ test.describe("Listings filters & maps", () => {
 
     const detailInput = page.getByTestId("listings-detail-id").or(page.getByPlaceholder("listing UUID"));
     await detailInput.fill(id);
-    await page.getByTestId("listings-detail-load").or(page.getByRole("button", { name: /^Load$/ })).click();
-    const detailPre = page.locator("pre").filter({ hasText: id.slice(0, 8) });
+    const idLower = id.toLowerCase();
+    const detailRespP = page.waitForResponse(
+      (resp) =>
+        resp.url().includes("/api/listings/listings/") &&
+        resp.url().toLowerCase().includes(idLower) &&
+        resp.request().method() === "GET",
+    );
+    await Promise.all([
+      detailRespP,
+      page.getByTestId("listings-detail-load").or(page.getByRole("button", { name: /^Load$/ })).click(),
+    ]);
+    const detailResp = await detailRespP;
+    expect(detailResp.ok(), await detailResp.text()).toBeTruthy();
+    const detailPre = page
+      .getByTestId("listings-detail-json")
+      .or(page.locator("pre").filter({ hasText: id.slice(0, 8) }));
     await expect(detailPre).toBeVisible({ timeout: 25_000 });
     await expect(detailPre).toContainText(`"id"`);
   });
@@ -156,11 +198,21 @@ test.describe("Listings filters & maps", () => {
     await page.getByTestId("listings-create-price").fill("1200");
     await page.getByTestId("listings-create-effective-from").fill(new Date().toISOString().slice(0, 10));
     await page.locator('section').filter({ has: page.getByRole("heading", { name: /^Post a listing$/ }) }).getByRole("checkbox", { name: /^Pet-friendly$/ }).check();
-    await page.getByTestId("listings-create-submit").click();
+    await Promise.all([
+      page.waitForResponse(
+        (resp) => resp.url().includes("/api/listings/create") && resp.status() === 201,
+      ),
+      page.getByTestId("listings-create-submit").click(),
+    ]);
     await expect(page.getByTestId("listing-created-banner")).toBeVisible({ timeout: 45_000 });
 
     await page.locator('label:has-text("Pet-friendly")').first().locator('input[type="checkbox"]').check();
-    await page.getByTestId("listings-search-submit").click();
+    await Promise.all([
+      page.waitForResponse(
+        (resp) => resp.url().includes("/api/listings/search") && resp.status() === 200,
+      ),
+      page.getByTestId("listings-search-submit").click(),
+    ]);
     await expect(page.getByTestId("listings-results")).toContainText(title, { timeout: 25_000 });
     await expect(page.locator('[data-testid="listings-api-error"]')).toHaveCount(0);
   });

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import express, { type NextFunction, type Request, type Response } from "express";
-import { httpCounter, register } from "@common/utils";
+import { httpCounter, register, createHttpConcurrencyGuard } from "@common/utils";
 import { pool } from "./db.js";
 import { publishListingEvent } from "./listing-kafka.js";
 import { syncListingCreatedToAnalytics } from "./analytics-sync.js";
@@ -157,6 +157,14 @@ export function createListingsHttpApp() {
     res.setHeader("Content-Type", register.contentType);
     res.end(await register.metrics());
   });
+
+  app.use(
+    createHttpConcurrencyGuard({
+      envVar: "LISTINGS_HTTP_MAX_CONCURRENT",
+      defaultMax: 80,
+      serviceLabel: "listings-service",
+    }),
+  );
 
   /** Public browse + search (gateway strips /api/listings → GET / or GET /search). */
   const searchListingsPublic = async (req: Request, res: Response) => {

@@ -2,7 +2,7 @@
 
 **Suggested title:** `docs(perf): listings validation review playbook, k6 concurrency/malformed/dual probes, preflight k6 orchestration defaults`
 
-**Base branch:** `feature/system-build` → open PR against `main` (or your integration branch).
+**Base branch:** `main` — open PRs against `main` (integration work from the former `feature/system-build` line is merged).
 
 ---
 
@@ -33,7 +33,7 @@ This change adds a **disciplined Phase A → B → C** performance workflow for 
 
 ### Builds
 
-- `pnpm --filter listings-service build` on **`feature/system-build`**: **pass**
+- `pnpm --filter listings-service build` on **`main`**: **pass**
 - Isolated **`git worktree`** on **`origin/fix/listings-validation-response-handling`** (`pnpm install` + `pnpm --filter listings-service build`): **pass** (worktree removed after)
 
 ### k6 (edge `https://off-campus-housing.test`, `SSL_CERT_FILE=certs/dev-root.pem`)
@@ -54,7 +54,7 @@ Full log: `bench_logs/perf-phase-b-k6-20260324-151811.log`
 
 ## Suggested reviewer checklist
 
-- [ ] Skim `LISTINGS_VALIDATION_DEEP_REVIEW.md` §F (geo / scope vs `feature/system-build`) — confirm with listings PR author if needed.
+- [ ] Skim `LISTINGS_VALIDATION_DEEP_REVIEW.md` §F (geo / scope vs `main`) — confirm with listings PR author if needed.
 - [ ] Run `pnpm run k6:listings:concurrency` and `pnpm run k6:listings:malformed` against your edge after deploy.
 - [ ] Confirm preflight header comments match hook order in `k6-suite-resource-hooks.sh`.
 

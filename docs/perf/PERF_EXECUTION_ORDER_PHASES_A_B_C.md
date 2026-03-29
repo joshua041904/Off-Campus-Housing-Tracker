@@ -6,7 +6,7 @@ Use this so **tail latency (Issue 9)**, **cross-service analysis (Issue 10)**, a
 
 | Branch | Role |
 |--------|------|
-| `feature/system-build` | Your integration / perf baseline branch |
+| `main` | Integration / perf baseline (former `feature/system-build` merged) |
 | `fix/listings-validation-response-handling` | Teammate PR — **review here first** |
 
 **Rule:** Do perf baselines and Issue 9/10 **after** validating the PR on its own branch. Do **not** merge the teammate branch into a perf experiment branch until you have a clean review + optional standalone k6 delta. Prefer **separate** `perf/analysis-*` branches for long-running experiments if needed.
@@ -20,11 +20,11 @@ Use this so **tail latency (Issue 9)**, **cross-service analysis (Issue 10)**, a
 1. **Checkout the PR branch** (read-only review or local checkout):
    ```bash
    git fetch origin
-   git checkout fix/listings-validation-response-handling   # or: git diff feature/system-build..origin/fix/listings-validation-response-handling
+   git checkout fix/listings-validation-response-handling   # or: git diff main..origin/fix/listings-validation-response-handling
    ```
-2. **Diff vs your baseline** (`feature/system-build`):
+2. **Diff vs your baseline** (`main`):
    ```bash
-   git diff feature/system-build..HEAD -- services/listings-service
+   git diff main..HEAD -- services/listings-service
    ```
 3. **Focus:** `src/validation.ts`, HTTP + gRPC handler call sites, order of validation vs auth vs DB.
 4. **Confirm:** no DB inside validation; sync-only validation; shared module for HTTP + gRPC (single validation path, not triple duplicate).

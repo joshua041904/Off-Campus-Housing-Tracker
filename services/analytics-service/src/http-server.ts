@@ -1,5 +1,5 @@
 import express, { type Application, type NextFunction, type Request, type Response } from "express";
-import { httpCounter, register } from "@common/utils";
+import { httpCounter, register, createHttpConcurrencyGuard } from "@common/utils";
 import { pool } from "./db.js";
 import { bookingReadPool } from "./booking-read-pool.js";
 import { analyzeListingFeelText } from "./ollama.js";
@@ -71,6 +71,36 @@ export function createAnalyticsHttpApp(): Application {
     res.end(await register.metrics());
   });
 
+  /**
+   * Internal ingestion must run BEFORE the HTTP concurrency guard.
+   * Listings-service sync posts here; counting it against ANALYTICS_HTTP_MAX_CONCURRENT can 503 under load
+   * and drop events → daily_metrics never updates (E2E system-integrity).
+   */
+  app.post("/internal/ingest/listing-created", internalListingIngestGuard, async (req, res) => {
+    const body = req.body as { event_id?: string; listed_at_day?: string };
+    const eventId = String(body?.event_id || "").trim();
+    const day = String(body?.listed_at_day || "").trim().slice(0, 10);
+    if (!/^[0-9a-f-]{36}$/i.test(eventId) || !/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+      res.status(400).json({ error: "event_id (uuid) and listed_at_day (YYYY-MM-DD) required" });
+      return;
+    }
+    try {
+      await applyListingCreatedForAnalytics(pool, eventId, day);
+      res.status(204).end();
+    } catch (e) {
+      console.error("[internal/ingest/listing-created]", e);
+      res.status(500).json({ error: "internal" });
+    }
+  });
+
+  app.use(
+    createHttpConcurrencyGuard({
+      envVar: "ANALYTICS_HTTP_MAX_CONCURRENT",
+      defaultMax: 60,
+      serviceLabel: "analytics-service",
+    }),
+  );
+
   /** Public aggregate read (gateway OPEN route). */
   app.get("/daily-metrics", async (req, res) => {
     try {
@@ -108,27 +138,6 @@ export function createAnalyticsHttpApp(): Application {
       });
     } catch (e) {
       console.error("[daily-metrics]", e);
-      res.status(500).json({ error: "internal" });
-    }
-  });
-
-  /**
-   * Deterministic path when ANALYTICS_SYNC_MODE=1: listings-service POSTs after create with the same
-   * event_id that will appear on Kafka, so processed_events dedupes and metrics are not double-counted.
-   */
-  app.post("/internal/ingest/listing-created", internalListingIngestGuard, async (req, res) => {
-    const body = req.body as { event_id?: string; listed_at_day?: string };
-    const eventId = String(body?.event_id || "").trim();
-    const day = String(body?.listed_at_day || "").trim().slice(0, 10);
-    if (!/^[0-9a-f-]{36}$/i.test(eventId) || !/^\d{4}-\d{2}-\d{2}$/.test(day)) {
-      res.status(400).json({ error: "event_id (uuid) and listed_at_day (YYYY-MM-DD) required" });
-      return;
-    }
-    try {
-      await applyListingCreatedForAnalytics(pool, eventId, day);
-      res.status(204).end();
-    } catch (e) {
-      console.error("[internal/ingest/listing-created]", e);
       res.status(500).json({ error: "internal" });
     }
   });
