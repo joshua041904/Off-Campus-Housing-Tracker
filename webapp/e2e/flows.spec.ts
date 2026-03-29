@@ -1,6 +1,9 @@
 import { expect, test } from "@playwright/test";
 import { apiGatewayReady, registerViaUi, uniqueE2eEmail } from "./helpers";
 
+/** Heavy flow (booking + listings + trust); serial avoids overlapping with other infra-heavy tests in the same worker pool. */
+test.describe.configure({ mode: "serial" });
+
 test("register → search history → watchlist add/remove (needs full stack)", async ({ page, request }) => {
   test.skip(
     !(await apiGatewayReady(request)),

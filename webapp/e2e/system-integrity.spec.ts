@@ -14,6 +14,8 @@ function calendarDateYmd(d = new Date()): string {
 }
 
 test.describe("system integrity (multi-service vertical)", () => {
+  test.describe.configure({ mode: "serial" });
+
   test("register → listing → analytics daily_metrics → trust flag → notification prefs", async ({
     page,
     request,

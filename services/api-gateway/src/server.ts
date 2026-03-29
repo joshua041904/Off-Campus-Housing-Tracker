@@ -30,6 +30,7 @@ import type { ServerResponse as NodeServerResponse } from "http";
 import { Agent as HttpAgent } from "http";
 import type { Socket } from "net";
 import { analyticsDailyMetricsCoalescedHandler, proxyInflightMiddleware } from "./proxy-limits.js";
+import { createE2eTestModeInflightCapMiddleware } from "./e2e-test-mode-inflight-cap.js";
 import { createE2eTrafficShaperMiddleware } from "./e2e-traffic-shaper.js";
 import { createClusterWeightBudgetMiddleware } from "./cluster-weight-budget.js";
 import { startWatchdogThrottlePoller } from "./watchdog-throttle-poll.js";
@@ -212,6 +213,8 @@ const REDIS_URL = process.env.REDIS_URL || "redis://redis:6379";
 const redis = createClient({ url: REDIS_URL, socket: { connectTimeout: 10_000 } });
 redis.on("error", (e: unknown) => console.error("gateway redis error:", e));
 
+const e2eTestInflightCapOn =
+  process.env.GATEWAY_E2E_TEST_INFLIGHT_CAP === "1" || process.env.GATEWAY_E2E_TEST_INFLIGHT_CAP === "true";
 const e2eTrafficShaperOn =
   process.env.E2E_TRAFFIC_SHAPER === "1" || process.env.E2E_TRAFFIC_SHAPER === "true";
 const clusterWeightBudgetOn =
@@ -253,7 +256,15 @@ app.use(
     ],
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "x-e2e-test", "X-Trace-Id"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Requested-With",
+      "x-e2e-test",
+      "x-test-mode",
+      "X-Test-Mode",
+      "X-Trace-Id",
+    ],
     exposedHeaders: ["X-Trace-Id"],
   })
 );
@@ -279,6 +290,12 @@ app.get("/metrics", async (_req, res) => {
   res.setHeader("Content-Type", register.contentType);
   res.end(await register.metrics());
 });
+
+if (e2eTestInflightCapOn) {
+  const testInflightMax = Math.max(4, Number.parseInt(process.env.GATEWAY_E2E_TEST_INFLIGHT_MAX ?? "60", 10) || 60);
+  app.use(createE2eTestModeInflightCapMiddleware({ maxConcurrent: testInflightMax }));
+  console.log(`[gateway] GATEWAY_E2E_TEST_INFLIGHT_CAP on (labeled E2E maxConcurrent=${testInflightMax}, over cap → 429)`);
+}
 
 if (e2eTrafficShaperOn) {
   const maxC = Math.max(4, Number.parseInt(process.env.E2E_TRAFFIC_SHAPER_MAX ?? "50", 10) || 50);
@@ -319,7 +336,7 @@ const limiter = rateLimit({
   legacyHeaders: false,
   skip: (req) => {
     // E2E only: header from Playwright — do not use NODE_ENV=test here (would disable limits for all traffic).
-    const e2eBypass = req.get("x-e2e-test") === "1";
+    const e2eBypass = req.get("x-e2e-test") === "1" || req.get("x-test-mode") === "1";
     const p = gatewayPathOnly(req);
     // Public auth must never be starved by the global limiter (register/login flakiness under parallel workers).
     if (

@@ -8,6 +8,8 @@ import {
 } from "./helpers";
 
 test.describe("Listings filters & maps", () => {
+  test.describe.configure({ mode: "serial" });
+
   test("guest sees extended search filters and sort controls", async ({ page }) => {
     await page.goto("/listings");
     await expect(page.getByTestId("listings-results")).toHaveAttribute("aria-busy", "false", { timeout: 60_000 });

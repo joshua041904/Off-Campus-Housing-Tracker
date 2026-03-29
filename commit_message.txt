@@ -7,8 +7,10 @@ WHY
     `return app` appeared inside the route. INSERT also referenced undefined `lat`/`lng`.
   • cron-jobs Docker/CI could hit `sh: tsc: not found` when `tsc` was not resolved from PATH;
     `pnpm exec tsc` pins the compiler to the package.
-  • Parallel Playwright workers can stampede the gateway/backends; we add ingress smoothing
-    (shaper + optional Redis weighted budget + watchdog throttle) and dev-only doubled HTTP caps.
+  • Parallel Playwright workers can stampede the gateway/backends; we shape load with a traffic
+    shaper, optional Redis weighted budget, watchdog throttle, and a **labeled** E2E inflight cap
+    (429 when over cap) — not by cutting workers to 2. Heavy spec files run in **serial** mode;
+    Playwright stays at **4 workers** with **x-test-mode** + **x-e2e-test** on all browser requests.
   • UI E2E flakes tied to saturation and brittle locators: stable testids, section-scoped flows,
     HTTPS-only E2E base URL normalization, strict-edge script with dev CA.
   • Redis middleware typing: use ReturnType<typeof createClient> so gateway code matches the
@@ -35,8 +37,10 @@ WHAT CHANGED
     @common guard where applicable; messaging drops duplicate local guard module.
 
   API gateway (services/api-gateway)
-  • gateway-traffic-skip, e2e-traffic-shaper, cluster-weight-budget (Redis Lua EVAL try/release),
-    watchdog-throttle-poll; server.ts wires optional shaper + cluster middleware; Redis types via
+  • gateway-traffic-skip, **e2e-test-mode-inflight-cap** (requests with x-test-mode or x-e2e-test:
+    max concurrent default 60, over cap → **429** + Retry-After; env GATEWAY_E2E_TEST_INFLIGHT_CAP /
+    GATEWAY_E2E_TEST_INFLIGHT_MAX), e2e-traffic-shaper, cluster-weight-budget (Redis Lua EVAL),
+    watchdog-throttle-poll; CORS + rate-limit skip honor **x-test-mode**; Redis types via
     ReturnType<typeof createClient>.
 
   Transport watchdog (services/transport-watchdog)
@@ -45,12 +49,17 @@ WHAT CHANGED
 
   Kubernetes / scripts
   • api-gateway deploy: transport-watchdog container; dev patches for E2E_HIGH_CAP_MODE,
-    E2E_TRAFFIC_SHAPER / GATEWAY_CLUSTER_WEIGHT_* / GATEWAY_WATCHDOG_POLL.
+    E2E_TRAFFIC_SHAPER / GATEWAY_CLUSTER_WEIGHT_* / GATEWAY_WATCHDOG_POLL /
+    GATEWAY_E2E_TEST_INFLIGHT_CAP + GATEWAY_E2E_TEST_INFLIGHT_MAX.
   • build-housing-images-k3s.sh includes transport-watchdog; scripts/rebuild-traffic-control-stack.sh.
 
   Playwright / webapp
+  • **workers: 4** (fixed); **test.describe.configure({ mode: "serial" })** on heavy files:
+    flows.spec.ts, listings-filters-maps.spec.ts, system-integrity.spec.ts.
+  • extraHTTPHeaders: **x-test-mode: 1** (with x-e2e-test) for gateway labeled-cap + rate-limit bypass.
   • listing-created-banner testid; journey/spec updates; playwright.config normalizeE2E_API_BASE;
     webapp-playwright-strict-edge.sh (NODE_EXTRA_CA_CERTS + edge URL).
+  • run-playwright-e2e-preflight.sh documents edge recovery window as cluster idle-stability gate.
 
   CI
   • docker-build.yml matrix: transport-watchdog.
@@ -83,12 +92,14 @@ analytics-service trust-service notification-service" \
     pnpm -C services/listings-service exec tsc --noEmit
     pnpm -C services/cron-jobs run build
     pnpm -C services/api-gateway exec tsc --noEmit
+    cd webapp && pnpm exec playwright test --list
 
 PR body
 -------
   Lead with the CI unblock: listings /create brace and lat/lng fix + cron-jobs `pnpm exec tsc`.
-  Then: shared HTTP concurrency guard, gateway E2E shaper + Redis weighted budget (Lua) + transport
-  watchdog sidecar, dev kustomize patches, Playwright stability, docker-build for sidecar image.
+  Then: shared HTTP concurrency guard, gateway **labeled E2E inflight cap (429)** + E2E shaper +
+  Redis weighted budget (Lua) + transport watchdog sidecar, dev kustomize patches, Playwright
+  **4 workers + serial heavy suites + x-test-mode**, docker-build for sidecar image.
   Note: `main` is the integration baseline; `feature/system-build` merged (PR #15) and remote
   branch removed — docs updated accordingly.
 

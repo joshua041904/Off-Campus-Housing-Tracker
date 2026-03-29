@@ -22,3 +22,7 @@ spec:
               value: "och:cluster:weight:sum"
             - name: GATEWAY_WATCHDOG_POLL
               value: "1"
+            - name: GATEWAY_E2E_TEST_INFLIGHT_CAP
+              value: "1"
+            - name: GATEWAY_E2E_TEST_INFLIGHT_MAX
+              value: "60"

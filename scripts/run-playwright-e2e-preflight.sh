@@ -3,6 +3,7 @@
 # Invokes scripts/webapp-playwright-strict-edge.sh → playwright test (webapp/e2e — multiple spec files).
 # Optional: E2E_SCREENSHOTS=1 ./scripts/webapp-playwright-strict-edge.sh e2e/ui-screenshots.spec.ts → webapp/e2e/screenshots/*.png
 # No kubectl port-forward; no http://127.0.0.1:4020 — legacy E2E_API_BASE values are ignored.
+# PLAYWRIGHT_EDGE_RECOVERY_STABLE_SEC (default 30) acts as a cluster/edge idle-stability gate before tests run.
 #
 # Usage: ./scripts/run-playwright-e2e-preflight.sh
 #   SKIP_PLAYWRIGHT_E2E=1  — exit 0 immediately

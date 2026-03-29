@@ -70,8 +70,11 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
-  /** Local default was CPU-count (often 6); bounded backends need fewer parallel browser tests. CI stays low for flakes. */
-  workers: process.env.CI ? 2 : 4,
+  /**
+   * Fixed 4 workers: load is shaped by gateway (E2E shaper + X-Test-Mode inflight cap) and serial
+   * heavy Playwright files — not by starving parallelism.
+   */
+  workers: 4,
   reporter: [["list"], ["html", { open: "never" }]],
   use: {
     baseURL,
@@ -79,6 +82,7 @@ export default defineConfig({
     ignoreHTTPSErrors: true,
     extraHTTPHeaders: {
       "x-e2e-test": "1",
+      "x-test-mode": "1",
     },
     trace: "on-first-retry",
   },
