@@ -24,14 +24,20 @@ WHAT CHANGED
   • Close POST /create with outer catch, handler `},`, and `app.post` `);` before `return app`.
   • Derive `lat`/`lng` from JSON body for INSERT placeholders $11/$12.
 
-  listings-service — unit tests & README
-  • Vitest: **validation.test.ts** (listing id, user id, CreateListing, search filters, UUID helper),
-    **search-listings-query.test.ts** (amenity CSV parsing, SQL builder, sort fallback, ILIKE escaping,
-    filters), **http-app.test.ts** (Express app factory; **vi.mock** listing-kafka + analytics-sync to
-    avoid loading Kafka native code in the test runner).
-  • Removed placeholder **smoke.test.ts**. **package.json** test script sets **KAFKAJS_NO_PARTITIONER_WARNING=1**.
-  • README: default **HTTP 4012 / gRPC 50062**, grpcurl example uses valid variant UUID + correct port,
-    new “Unit tests” section before dev server steps.
+  listings-service — unit + HTTP/Postgres integration & README
+  • Vitest unit: **validation.test.ts**, **search-listings-query.test.ts**, **http-app.test.ts** (Kafka/
+    analytics **vi.mock**). Default **vitest.config** excludes **\*.integration.test.ts**.
+  • **vitest.integration.config.ts** + **pnpm run test:integration**: **listings-http.integration.test.ts**
+    loads **createListingsHttpApp** after setting **POSTGRES_URL_LISTINGS** (default 127.0.0.1:5442);
+    **POST /create**, **GET /listings/:id**, **GET /search** + SQL row check; **describe.skipIf** when DB
+    or **listings.listings** missing (exit 0). **ANALYTICS_SYNC_MODE=0** for tests. gRPC not covered
+    (strict mTLS only — use grpcurl + certs against a real server).
+  • **test:all** = unit + integration. **supertest** devDependency.
+  • CI: after `bootstrap-all-dbs.sh`, **listings-service** matrix runs **test** then **test:integration**
+    with **POSTGRES_URL_LISTINGS** on port 5442.
+  • README documents unit vs integration, docker-compose **5442**, and gRPC limitation.
+  • Removed placeholder **smoke.test.ts**. **KAFKAJS_NO_PARTITIONER_WARNING=1** on test scripts.
+  • README: **HTTP 4012 / gRPC 50062**, grpcurl UUID + port fix, unit + integration sections.
 
   fix(ci) — cron-jobs (services/cron-jobs/package.json)
   • `"build": "pnpm exec tsc -p tsconfig.json"` for reliable compiler resolution.
@@ -100,6 +106,7 @@ analytics-service trust-service notification-service" \
     pnpm -C services/common build
     pnpm -C services/listings-service exec tsc --noEmit
     pnpm -C services/listings-service test
+    pnpm -C services/listings-service run test:integration
     pnpm -C services/cron-jobs run build
     pnpm -C services/api-gateway exec tsc --noEmit
     cd webapp && pnpm exec playwright test --list

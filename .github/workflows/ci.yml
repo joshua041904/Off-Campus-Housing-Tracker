@@ -234,6 +234,13 @@ jobs:
           sudo apt-get install -y postgresql-client
           PGPASSWORD=postgres bash scripts/bootstrap-all-dbs.sh
       - run: pnpm -C services/${{ matrix.service }} test --if-present
+      - name: listings-service Postgres + HTTP integration
+        if: matrix.service == 'listings-service'
+        env:
+          POSTGRES_URL_LISTINGS: postgresql://postgres:postgres@127.0.0.1:5442/listings
+          ANALYTICS_SYNC_MODE: "0"
+          KAFKA_CONNECT_TIMEOUT_MS: "100"
+        run: pnpm -C services/listings-service run test:integration
 
   transport-validation:
     name: Transport validation (Python tooling)

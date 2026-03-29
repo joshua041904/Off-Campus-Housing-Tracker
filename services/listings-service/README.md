@@ -60,7 +60,29 @@ From repo root:
 pnpm --filter listings-service test
 ```
 
-Covers `validation.ts`, `search-listings-query.ts`, and HTTP app construction (`createListingsHttpApp`). CI runs this via the `listings-service` matrix job.
+Covers `validation.ts`, `search-listings-query.ts`, and HTTP app construction (`createListingsHttpApp` with mocked Kafka/analytics). Vitest excludes `*.integration.test.ts`.
+
+### 3b. HTTP + Postgres integration (real DB)
+
+Use the same Postgres as docker-compose (**5442**, DB `listings`) after `scripts/bootstrap-all-dbs.sh` (or the SQL files under **infra/db** for listings).
+
+```bash
+# From repo root — runs in a separate Vitest process so DB URL is set before modules load
+POSTGRES_URL_LISTINGS=postgresql://postgres:postgres@127.0.0.1:5442/listings \
+  pnpm --filter listings-service run test:integration
+```
+
+Or:
+
+```bash
+pnpm --filter listings-service run test:all
+```
+
+These hit **POST /create**, **GET /listings/:id**, **GET /search** against `createListingsHttpApp()` and verify a row in `listings.listings`. If nothing is listening on 5442 or the schema is missing, the suite is **skipped** (exit 0).
+
+**gRPC** is not exercised here: the gRPC server uses **strict mTLS only** (no plaintext test hook). Use **grpcurl** with service certs against a running pod for RPC contract checks.
+
+CI runs **test** + **test:integration** for the `listings-service` matrix row (Postgres service on 5442 + bootstrap).
 
 ### 4. Start the listings-service
 
