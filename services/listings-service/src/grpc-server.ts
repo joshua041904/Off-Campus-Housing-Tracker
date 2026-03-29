@@ -7,6 +7,18 @@ import { syncListingCreatedToAnalytics } from "./analytics-sync.js";
 import { pool } from "./db.js";
 import { buildListingsSearchQuery, parseAmenitySlugs } from "./search-listings-query.js";
 
+import { validateCreateListingInput, validateListingId } from "./validation.js";
+
+// Logs per-request gRPC latency and marks requests over 100ms as slow.
+function logGrpcTiming(method: string, start: number) {
+  const ms = Date.now() - start;
+  const slow = ms > 100;
+
+  console.log(
+    `[listings gRPC] ${slow ? "SLOW REQUEST " : ""}method=${method} latency_ms=${ms}`,
+  );
+}
+
 const LISTINGS_PROTO = resolveProtoPath("listings.proto");
 const packageDefinition = protoLoader.loadSync(LISTINGS_PROTO, {
   keepCase: true,
@@ -19,7 +31,8 @@ const packageDefinition = protoLoader.loadSync(LISTINGS_PROTO, {
 const listingsProto = grpc.loadPackageDefinition(packageDefinition) as any;
 function amenitiesToStrings(raw: unknown): string[] {
   if (Array.isArray(raw)) return raw.map(String);
-  if (raw && typeof raw === "object") return Object.values(raw as object).map(String);
+  if (raw && typeof raw === "object")
+    return Object.values(raw as object).map(String);
   return [];
 }
 
@@ -35,24 +48,34 @@ function rowToResponse(row: Record<string, unknown>) {
     pet_friendly: Boolean(row.pet_friendly),
     furnished: row.furnished != null ? Boolean(row.furnished) : false,
     status: String(row.status ?? "active"),
-    created_at: row.created_at ? new Date(row.created_at as string | Date).toISOString() : new Date().toISOString(),
+    created_at: row.created_at
+      ? new Date(row.created_at as string | Date).toISOString()
+      : new Date().toISOString(),
   };
 }
 
 const listingsService = {
-  CreateListing(call: grpc.ServerUnaryCall<any, any>, callback: grpc.sendUnaryData<any>) {
+  CreateListing(
+    call: grpc.ServerUnaryCall<any, any>,
+    callback: grpc.sendUnaryData<any>,
+  ) {
+    const start = Date.now();
     const req = call.request;
-    if (!req.user_id || !req.title || !req.effective_from || req.price_cents <= 0) {
+
+    const validation = validateCreateListingInput(req, { requireUserId: true });
+    if (!validation.ok) {
+      logGrpcTiming("CreateListing", start);
       callback({
         code: grpc.status.INVALID_ARGUMENT,
-        message: "user_id, title, effective_from, and positive price_cents are required",
+        message: validation.message,
       });
       return;
     }
 
-    const lat =
+    const input = validation.value;
+     const lat =
       req.latitude != null && Number.isFinite(Number(req.latitude)) ? Number(req.latitude) : null;
-    const lng =
+     const lng =
       req.longitude != null && Number.isFinite(Number(req.longitude)) ? Number(req.longitude) : null;
 
     const query = `
@@ -104,16 +127,16 @@ const listingsService = {
   `;
 
     const values = [
-      req.user_id,
-      req.title,
-      req.description || "",
-      req.price_cents,
-      JSON.stringify(req.amenities ?? []),
-      req.smoke_free,
-      req.pet_friendly,
-      req.furnished,
-      req.effective_from,
-      req.effective_until || "",
+      input.user_id,
+      input.title,
+      input.description,
+      input.price_cents,
+      JSON.stringify(input.amenities),
+      input.smoke_free,
+      input.pet_friendly,
+      input.furnished,
+      input.effective_from,
+      input.effective_until,
       lat,
       lng,
     ];
@@ -146,20 +169,35 @@ const listingsService = {
           },
           eventId,
         );
+        logGrpcTiming("CreateListing", start);
         callback(null, rowToResponse(row));
       })
       .catch((error) => {
         console.error("[CreateListing]", error);
-        callback({ code: grpc.status.INTERNAL, message: "failed to create listing" });
+        logGrpcTiming("CreateListing", start);
+        callback({
+          code: grpc.status.INTERNAL,
+          message: "failed to create listing",
+        });
       });
   },
 
-  GetListing(call: grpc.ServerUnaryCall<any, any>, callback: grpc.sendUnaryData<any>) {
-    const id = String(call.request?.listing_id || "").trim();
-    if (!id) {
-      callback({ code: grpc.status.INVALID_ARGUMENT, message: "listing_id required" });
+  GetListing(
+    call: grpc.ServerUnaryCall<any, any>,
+    callback: grpc.sendUnaryData<any>,
+  ) {
+    const start = Date.now();
+    const validation = validateListingId(call.request?.listing_id);
+    if (!validation.ok) {
+      logGrpcTiming("GetListing", start);
+      callback({
+        code: grpc.status.INVALID_ARGUMENT,
+        message: validation.message,
+      });
       return;
     }
+
+    const id = validation.value;
     pool
       .query(
         `SELECT id, user_id, title, description, price_cents, amenities, smoke_free, pet_friendly, furnished, status::text AS status, created_at
@@ -167,26 +205,42 @@ const listingsService = {
          WHERE id = $1::uuid
            AND (deleted_at IS NULL)
          LIMIT 1`,
-        [id]
+        [id],
       )
       .then((res) => {
         if (!res.rows[0]) {
-          callback({ code: grpc.status.NOT_FOUND, message: "listing not found" });
+          logGrpcTiming("GetListing", start);
+          callback({
+            code: grpc.status.NOT_FOUND,
+            message: "listing not found",
+          });
           return;
         }
+        logGrpcTiming("GetListing", start);
         callback(null, rowToResponse(res.rows[0]));
       })
       .catch((e) => {
         console.error("[GetListing]", e);
+        logGrpcTiming("GetListing", start);
         callback({ code: grpc.status.INTERNAL, message: "internal" });
       });
   },
 
-  SearchListings(call: grpc.ServerUnaryCall<any, any>, callback: grpc.sendUnaryData<any>) {
+  SearchListings(
+    call: grpc.ServerUnaryCall<any, any>,
+    callback: grpc.sendUnaryData<any>,
+  ) {
+    const start = Date.now();
     const req = call.request || {};
     const q = String(req.query || "").trim();
-    const minP = req.min_price != null && req.min_price !== "" ? Number(req.min_price) : null;
-    const maxP = req.max_price != null && req.max_price !== "" ? Number(req.max_price) : null;
+    const minP =
+      req.min_price != null && req.min_price !== ""
+        ? Number(req.min_price)
+        : null;
+    const maxP =
+      req.max_price != null && req.max_price !== ""
+        ? Number(req.max_price)
+        : null;
     const smoke = Boolean(req.smoke_free);
     const pets = Boolean(req.pet_friendly);
     const furnished = Boolean(req.furnished);
@@ -211,10 +265,12 @@ const listingsService = {
     pool
       .query(sql, params)
       .then((res) => {
+        logGrpcTiming("SearchListings", start);
         callback(null, { listings: res.rows.map((r) => rowToResponse(r)) });
       })
       .catch((e) => {
         console.error("[SearchListings]", e);
+        logGrpcTiming("SearchListings", start);
         callback({ code: grpc.status.INTERNAL, message: "search failed" });
       });
   },
@@ -246,14 +302,18 @@ export function startGrpcServer(port: number): grpc.Server {
     process.exit(1);
   }
 
-  server.bindAsync(`0.0.0.0:${port}`, credentials, (err: Error | null, boundPort: number) => {
-    if (err) {
-      console.error("[listings gRPC] bind error:", err);
-      return;
-    }
-    server.start();
-    console.log(`[listings gRPC] listening on ${boundPort}`);
-  });
+  server.bindAsync(
+    `0.0.0.0:${port}`,
+    credentials,
+    (err: Error | null, boundPort: number) => {
+      if (err) {
+        console.error("[listings gRPC] bind error:", err);
+        return;
+      }
+      server.start();
+      console.log(`[listings gRPC] listening on ${boundPort}`);
+    },
+  );
 
   return server;
 }
