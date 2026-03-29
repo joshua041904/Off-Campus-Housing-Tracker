@@ -307,7 +307,11 @@ app.post("/watchlist/remove", requireUser, async (req: AuthedRequest, res: Respo
       where: { userId: req.userId!, listingId, isActive: true },
       data: { isActive: false, removedAt: new Date() },
     });
-    res.json({ ok: true, removed: updated.count });
+    res.json({
+      ok: true,
+      removed: updated.count,
+      message: "Removed from watchlist",
+    });
   } catch (error) {
     console.error("[booking] watchlist remove failed", error);
     res.status(500).json({ error: "internal" });

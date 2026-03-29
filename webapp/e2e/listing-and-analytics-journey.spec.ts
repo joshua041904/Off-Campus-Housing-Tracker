@@ -33,7 +33,7 @@ test.describe("Register → listing → analytics (two audiences)", () => {
     await post.locator('input[type="number"]').fill("1100");
     await post.locator('input[type="date"]').fill(new Date().toISOString().slice(0, 10));
     await post.getByRole("button", { name: /Create listing/i }).click();
-    await expect(page.getByText(/Listing created/i)).toBeVisible({ timeout: 45_000 });
+    await expect(page.getByTestId("listing-created-banner")).toBeVisible({ timeout: 45_000 });
 
     await page.getByTestId("listings-search-q").fill(slug);
     await page.getByTestId("listings-search-submit").click();

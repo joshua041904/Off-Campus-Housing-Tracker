@@ -29,8 +29,14 @@ async function ensureProducer(): Promise<void> {
 export async function publishListingEvent(
   eventType: string,
   aggregateId: string,
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
+  /** When set (e.g. sync ingest + Kafka must share id for analytics processed_events dedupe), must be UUID. */
+  eventIdOverride?: string
 ): Promise<void> {
+  const event_id =
+    eventIdOverride && /^[0-9a-f-]{36}$/i.test(eventIdOverride.trim())
+      ? eventIdOverride.trim()
+      : randomUUID();
   try {
     await ensureProducer();
     if (!producerReady) return;
@@ -41,7 +47,7 @@ export async function publishListingEvent(
           key: aggregateId,
           value: JSON.stringify({
             metadata: {
-              event_id: randomUUID(),
+              event_id,
               event_type: eventType,
               aggregate_id: aggregateId,
               aggregate_type: "listing",

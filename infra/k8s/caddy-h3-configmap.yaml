@@ -23,9 +23,9 @@ data:
       servers {
         protocols h1 h2 h3
         timeouts {
-          idle 2m
-          read_body 2m
-          write 2m
+          idle 5m
+          read_body 3m
+          write 3m
         }
         enable_full_duplex
         max_header_size 1MiB

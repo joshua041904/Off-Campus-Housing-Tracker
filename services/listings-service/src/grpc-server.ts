@@ -1,7 +1,9 @@
+import { randomUUID } from "node:crypto";
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import { registerHealthService, resolveProtoPath, createOchStrictMtlsServerCredentials } from "@common/utils";
 import { publishListingEvent } from "./listing-kafka.js";
+import { syncListingCreatedToAnalytics } from "./analytics-sync.js";
 import { pool } from "./db.js";
 import { buildListingsSearchQuery, parseAmenitySlugs } from "./search-listings-query.js";
 
@@ -118,19 +120,32 @@ const listingsService = {
 
     pool
       .query(query, values)
-      .then((result) => {
+      .then(async (result) => {
         const row = result.rows[0];
         const listedDay =
           row.listed_at != null
             ? new Date(row.listed_at as string | Date).toISOString().slice(0, 10)
             : new Date().toISOString().slice(0, 10);
-        void publishListingEvent("ListingCreatedV1", row.id, {
-          listing_id: row.id,
-          user_id: row.user_id,
-          title: row.title,
-          price_cents: row.price_cents,
-          listed_at_day: listedDay,
-        });
+        const eventId = randomUUID();
+        try {
+          await syncListingCreatedToAnalytics({ eventId, listedAtDay: listedDay });
+        } catch (e) {
+          console.error("[CreateListing] analytics sync", e);
+          callback({ code: grpc.status.INTERNAL, message: "analytics projection sync failed" });
+          return;
+        }
+        void publishListingEvent(
+          "ListingCreatedV1",
+          row.id,
+          {
+            listing_id: row.id,
+            user_id: row.user_id,
+            title: row.title,
+            price_cents: row.price_cents,
+            listed_at_day: listedDay,
+          },
+          eventId,
+        );
         callback(null, rowToResponse(row));
       })
       .catch((error) => {

@@ -1,0 +1,14 @@
+# Enables POST /internal/ingest/listing-created for listings-service sync path (dev / Playwright clusters).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analytics-service
+  namespace: off-campus-housing-tracker
+spec:
+  template:
+    spec:
+      containers:
+        - name: app
+          env:
+            - name: ANALYTICS_SYNC_MODE
+              value: "1"

@@ -137,8 +137,12 @@ export default function DashboardPage() {
     setErr(null);
     setLoading(true);
     try {
-      await watchlistRemove(token, id);
-      setMsg("Removed from watchlist.");
+      const out = await watchlistRemove(token, id);
+      const text =
+        typeof out.message === "string" && out.message.trim().length > 0
+          ? out.message.trim()
+          : "Removed from watchlist.";
+      setMsg(text.endsWith(".") ? text : `${text}.`);
       await refreshAll();
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : "Remove failed");

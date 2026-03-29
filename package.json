@@ -10,7 +10,7 @@
   "pnpm": {
     "overrides": {
       "@smithy/types": "^4.13.1",
-      "rollup": "4.9.6"
+      "rollup": "npm:@rollup/wasm-node@4.9.6"
     }
   },
   "scripts": {

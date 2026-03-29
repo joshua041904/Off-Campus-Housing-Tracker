@@ -94,7 +94,13 @@ export async function watchlistAdd(token: string, listingId: string, source?: st
   return data;
 }
 
-export async function watchlistRemove(token: string, listingId: string) {
+export type WatchlistRemoveResult = {
+  ok?: boolean;
+  removed?: number;
+  message?: string;
+};
+
+export async function watchlistRemove(token: string, listingId: string): Promise<WatchlistRemoveResult> {
   const res = await apiFetch("/api/booking/watchlist/remove", {
     method: "POST",
     token,
@@ -102,7 +108,7 @@ export async function watchlistRemove(token: string, listingId: string) {
   });
   const data = await parseJson(res);
   if (!res.ok) throw new Error((data as ApiError)?.error || `watchlist remove ${res.status}`);
-  return data;
+  return data as WatchlistRemoveResult;
 }
 
 export async function watchlistList(token: string) {

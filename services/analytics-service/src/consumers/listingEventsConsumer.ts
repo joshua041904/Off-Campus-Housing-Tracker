@@ -4,6 +4,7 @@
 import { kafka } from "@common/utils";
 import type { Consumer } from "kafkajs";
 import type { Pool } from "pg";
+import { applyListingCreatedForAnalytics } from "../listing-metrics-projection.js";
 
 const PREFIX = process.env.ENV_PREFIX || "dev";
 const TOPIC = process.env.LISTING_EVENTS_TOPIC || `${PREFIX}.listing.events`;
@@ -19,18 +20,6 @@ function parseEnvelope(buf: Buffer): Envelope | null {
     return JSON.parse(buf.toString("utf8")) as Envelope;
   } catch {
     return null;
-  }
-}
-
-async function claimEvent(pool: Pool, eventId: string): Promise<boolean> {
-  try {
-    const ins = await pool.query(
-      `INSERT INTO analytics.processed_events (event_id) VALUES ($1::uuid) ON CONFLICT (event_id) DO NOTHING`,
-      [eventId]
-    );
-    return (ins.rowCount ?? 0) > 0;
-  } catch {
-    return false;
   }
 }
 
@@ -82,24 +71,15 @@ export async function startListingEventsConsumer(pool: Pool | null): Promise<Con
         if (!eventId || !/^[0-9a-f-]{36}$/i.test(eventId)) return;
         if (eventType !== "ListingCreatedV1") return;
 
-        const ok = await claimEvent(pool, eventId);
-        if (!ok) return;
-
         const payload = (env.payload || {}) as Record<string, unknown>;
         const listedDay = String(payload.listed_at_day || "").trim().slice(0, 10);
-        const day =
-          /^\d{4}-\d{2}-\d{2}$/.test(listedDay) ? listedDay : dayFromOccurredAt(String(meta?.occurred_at || ""));
+        const day = /^\d{4}-\d{2}-\d{2}$/.test(listedDay)
+          ? listedDay
+          : dayFromOccurredAt(String(meta?.occurred_at || ""));
         try {
-          await pool.query(
-            `INSERT INTO analytics.daily_metrics (date, new_listings)
-             VALUES ($1::date, 1)
-             ON CONFLICT (date) DO UPDATE SET
-               new_listings = analytics.daily_metrics.new_listings + 1,
-               updated_at = now()`,
-            [day]
-          );
+          await applyListingCreatedForAnalytics(pool, eventId, day);
         } catch (e) {
-          console.error("[analytics-listing-kafka] daily_metrics upsert failed", e);
+          console.error("[analytics-listing-kafka] projection failed", e);
         }
       },
     });

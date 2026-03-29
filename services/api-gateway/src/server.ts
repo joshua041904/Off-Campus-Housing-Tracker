@@ -9,7 +9,9 @@
  * else needs Authorization: Bearer so the gateway can set x-user-id for upstreams.
  * Unknown /api/* paths (no mounted service prefix) return 404 before the guard so clients see not-found, not 401.
  */
+import { randomUUID } from "crypto";
 import express, { type Request, type Response, type NextFunction } from "express";
+import type { ClientRequest } from "http";
 import * as grpc from "@grpc/grpc-js";
 import helmet from "helmet";
 import compression from "compression";
@@ -62,6 +64,10 @@ const NOTIFICATION_HTTP =
   process.env.NOTIFICATION_HTTP || "http://notification-service.off-campus-housing-tracker.svc.cluster.local:4015";
 
 type AuthedRequest = Request & { user?: { sub?: string; email?: string; jti?: string } };
+type GatewayRequest = Request & { traceId?: string };
+
+const TRACE_ID_RX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function sendJson502(res: NodeServerResponse | Socket, msg: string) {
   if ("setHeader" in res) {
@@ -227,10 +233,19 @@ app.use(
     ],
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "x-e2e-test"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "x-e2e-test", "X-Trace-Id"],
+    exposedHeaders: ["X-Trace-Id"],
   })
 );
 app.use(compression() as any);
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const incoming = (req.get("x-trace-id") || "").trim();
+  const traceId = TRACE_ID_RX.test(incoming) ? incoming : randomUUID();
+  (req as GatewayRequest).traceId = traceId;
+  res.setHeader("X-Trace-Id", traceId);
+  next();
+});
 
 app.get("/whoami", (_req, res) => res.json({ pod: process.env.HOSTNAME || require("os").hostname() }));
 // Liveness: process is up and HTTP stack works (do not depend on auth).
@@ -264,6 +279,17 @@ const limiter = rateLimit({
   skip: (req) => {
     // E2E only: header from Playwright — do not use NODE_ENV=test here (would disable limits for all traffic).
     const e2eBypass = req.get("x-e2e-test") === "1";
+    const p = gatewayPathOnly(req);
+    // Public auth must never be starved by the global limiter (register/login flakiness under parallel workers).
+    if (
+      req.method === "POST" &&
+      (p === "/api/auth/register" ||
+        p === "/auth/register" ||
+        p === "/api/auth/login" ||
+        p === "/auth/login")
+    ) {
+      return true;
+    }
     return (
       e2eBypass ||
       req.path === "/healthz" ||
@@ -382,7 +408,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   res.status(404).json({ error: "not found" });
 });
 
-// ----- Auth guard (after public auth + health mounts; before service proxies) -----
+// ----- Auth guard (after public auth + health mounts; before service proxies). Register/login stay above this; the global limiter also skips those POST paths. -----
 app.use(async (req: AuthedRequest, res: Response, next: NextFunction) => {
   if (isGetHealthzBypass(req)) return next();
   if (isOpenRoute(req)) return next();
@@ -416,6 +442,10 @@ const proxyOpts = (target: string, pathRewrite: Record<string, string>, proxyTim
     error(err: any, _req: Request, res: Response) {
       console.error("[gw] proxy error:", err?.message);
       sendJson502(res as NodeServerResponse, "upstream error");
+    },
+    proxyReq(proxyReq: ClientRequest, req: Request) {
+      const tid = (req as GatewayRequest).traceId;
+      if (tid) proxyReq.setHeader("X-Trace-Id", tid);
     },
   },
 });

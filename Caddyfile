@@ -15,10 +15,11 @@
 	}
 	servers {
 		protocols h1 h2 h3
+		# Longer idle/write under H3 multiplexing + parallel Playwright / load tools (avoid premature stream close).
 		timeouts {
-			idle 2m
-			read_body 2m
-			write 2m
+			idle 5m
+			read_body 3m
+			write 3m
 		}
 		enable_full_duplex
 		# Avoid tight default header cap under large cookies / tracing headers during suite load.

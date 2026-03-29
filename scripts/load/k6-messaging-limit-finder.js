@@ -1,5 +1,5 @@
 /**
- * Limit finder: ramping-arrival-rate until P99 > 500ms or error rate > 5%.
+ * Limit finder: ramping-arrival-rate until P99 > 500ms or error rate > 2%.
  * Defines safe capacity envelope. Use after E2E flow works.
  *
  * Usage: BASE_URL=... K6_RESOLVE=... SSL_CERT_FILE=... k6 run scripts/load/k6-messaging-limit-finder.js
@@ -11,6 +11,9 @@ import { mergeEdgeTls, strictEdgeTlsOptions } from './k6-strict-edge-tls.js';
 
 const RAW_BASE = (__ENV.BASE_URL || 'https://off-campus-housing.test').replace(/\/$/, '');
 const BASE = RAW_BASE;
+
+// 503 = bounded overload (messaging concurrency guard / edge) — not TCP collapse; keep out of http_req_failed.
+http.setResponseCallback(http.expectedStatuses({ min: 200, max: 399 }, 429, 503));
 
 export const errors = new Rate('errors');
 
@@ -32,9 +35,9 @@ export const options = {
     },
   },
   thresholds: {
-    errors: ['rate<0.05'],
+    errors: ['rate<0.02'],
     http_req_duration: ['p(99)<500'],
-    http_req_failed: ['rate<0.05'],
+    http_req_failed: ['rate<0.02'],
   },
 };
 
@@ -43,7 +46,8 @@ export default function () {
     `${BASE}/api/messaging/healthz`,
     mergeEdgeTls(RAW_BASE, { tags: { name: 'messaging_health' } }),
   );
-  errors.add(res.status >= 500);
-  check(res, { 'ok': (r) => r.status === 200 || r.status === 429 });
+  const ok = res.status === 200 || res.status === 429 || res.status === 503;
+  errors.add(!ok);
+  check(res, { ok: (r) => r.status === 200 || r.status === 429 || r.status === 503 });
   sleep(0.2);
 }

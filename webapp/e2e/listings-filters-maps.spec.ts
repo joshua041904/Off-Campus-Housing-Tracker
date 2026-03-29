@@ -48,7 +48,7 @@ test.describe("Listings filters & maps", () => {
     await post.getByRole("checkbox", { name: /^Garage$/ }).check();
 
     await post.getByRole("button", { name: /Create listing/i }).click();
-    await expect(page.getByText(/Listing created/i)).toBeVisible({ timeout: 45_000 });
+    await expect(page.getByTestId("listing-created-banner")).toBeVisible({ timeout: 45_000 });
 
     const garageFilter = page.getByTestId("listings-filter-garage");
     if ((await garageFilter.count()) > 0) {
@@ -157,7 +157,7 @@ test.describe("Listings filters & maps", () => {
     await page.getByTestId("listings-create-effective-from").fill(new Date().toISOString().slice(0, 10));
     await page.locator('section').filter({ has: page.getByRole("heading", { name: /^Post a listing$/ }) }).getByRole("checkbox", { name: /^Pet-friendly$/ }).check();
     await page.getByTestId("listings-create-submit").click();
-    await expect(page.getByText(/Listing created/i)).toBeVisible({ timeout: 45_000 });
+    await expect(page.getByTestId("listing-created-banner")).toBeVisible({ timeout: 45_000 });
 
     await page.locator('label:has-text("Pet-friendly")').first().locator('input[type="checkbox"]').check();
     await page.getByTestId("listings-search-submit").click();

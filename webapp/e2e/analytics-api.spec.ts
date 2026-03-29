@@ -2,6 +2,13 @@ import { expect, test } from "@playwright/test";
 import { apiGatewayHealthy, e2eApiBase } from "./helpers";
 
 test.describe("Analytics API (gateway)", () => {
+  test("GET analytics healthz is public", async ({ request }) => {
+    test.skip(!(await apiGatewayHealthy(request)), "edge API not reachable");
+    const base = e2eApiBase();
+    const r = await request.get(`${base}/api/analytics/healthz`);
+    expect(r.ok(), await r.text()).toBeTruthy();
+  });
+
   test("GET daily-metrics returns JSON", async ({ request }) => {
     test.skip(!(await apiGatewayHealthy(request)), "edge API not reachable — set E2E_API_BASE and ensure https://off-campus-housing.test (or override) resolves");
     const base = e2eApiBase();
@@ -10,6 +17,17 @@ test.describe("Analytics API (gateway)", () => {
     expect(r.ok(), await r.text()).toBeTruthy();
     const body = (await r.json()) as Record<string, unknown>;
     expect(body).toHaveProperty("date");
+  });
+
+  test("GET daily-metrics includes X-Trace-Id from gateway", async ({ request }) => {
+    test.skip(!(await apiGatewayHealthy(request)), "edge API not reachable");
+    const base = e2eApiBase();
+    const date = new Date().toISOString().slice(0, 10);
+    const r = await request.get(`${base}/api/analytics/daily-metrics?date=${encodeURIComponent(date)}`);
+    expect(r.ok(), await r.text()).toBeTruthy();
+    const headers = r.headers();
+    const tid = headers["x-trace-id"] || headers["X-Trace-Id"];
+    expect(tid, "gateway should echo/propagate trace id").toBeTruthy();
   });
 
   test("POST listing-feel returns analysis (Ollama or stub)", async ({ request }) => {

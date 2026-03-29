@@ -15,6 +15,21 @@ env:
   PYTHON_VERSION: "3.11"
 
 jobs:
+  rollup-wasm-guard:
+    name: Rollup WASM only (no @rollup/rollup-* in pnpm tree)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.11.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: bash scripts/ci/verify-no-rollup-native-packages.sh
+
   protocol-anomaly:
     name: Protocol matrix anomaly check
     runs-on: ubuntu-latest
@@ -292,6 +307,7 @@ jobs:
     runs-on: ubuntu-latest
     if: always()
     needs:
+      - rollup-wasm-guard
       - protocol-anomaly
       - build
       - test
@@ -302,6 +318,7 @@ jobs:
     steps:
       - name: Enforce job results
         env:
+          ROLLUP_GUARD: ${{ needs.rollup-wasm-guard.result }}
           PROTOCOL_ANOMALY: ${{ needs.protocol-anomaly.result }}
           BUILD: ${{ needs.build.result }}
           TEST: ${{ needs.test.result }}
@@ -312,6 +329,7 @@ jobs:
         run: |
           set -euo pipefail
           fail() { echo "::error::$1"; exit 1; }
+          [ "$ROLLUP_GUARD" = success ] || fail "rollup-wasm-guard: $ROLLUP_GUARD (native @rollup/rollup-* leaked into node_modules — use @rollup/wasm-node override)"
           [ "$PROTOCOL_ANOMALY" = success ] || fail "protocol-anomaly: $PROTOCOL_ANOMALY (HTTP/2 matrix collapse or missing artifacts — tuning required)"
           [ "$BUILD" = success ] || fail "build matrix: $BUILD"
           [ "$TEST" = success ] || fail "test matrix: $TEST"

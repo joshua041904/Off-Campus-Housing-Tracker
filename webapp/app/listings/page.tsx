@@ -536,7 +536,11 @@ export default function ListingsPage() {
           </p>
         )}
 
-        {msg && <p className="mt-6 text-sm font-medium text-emerald-700">{msg}</p>}
+        {msg && (
+          <p data-testid="listing-created-banner" className="mt-6 text-sm font-medium text-emerald-700">
+            {msg}
+          </p>
+        )}
         {err && (
           <p data-testid="listings-api-error" className="mt-2 text-sm text-red-600">
             {err}

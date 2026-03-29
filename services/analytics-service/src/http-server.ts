@@ -3,6 +3,7 @@ import { httpCounter, register } from "@common/utils";
 import { pool } from "./db.js";
 import { bookingReadPool } from "./booking-read-pool.js";
 import { analyzeListingFeelText } from "./ollama.js";
+import { applyListingCreatedForAnalytics } from "./listing-metrics-projection.js";
 
 type Authed = Request & { userId?: string };
 
@@ -23,9 +24,32 @@ function requireSelfUser(req: Authed, res: Response, next: NextFunction) {
   next();
 }
 
+function internalListingIngestGuard(req: Request, res: Response, next: NextFunction): void {
+  if (process.env.ANALYTICS_SYNC_MODE !== "1") {
+    res.status(404).json({ error: "not found" });
+    return;
+  }
+  const token = (process.env.ANALYTICS_INTERNAL_INGEST_TOKEN || "").trim();
+  if (token && (req.get("x-internal-ingest-token") || "").trim() !== token) {
+    res.status(403).json({ error: "forbidden" });
+    return;
+  }
+  next();
+}
+
 export function createAnalyticsHttpApp(): Application {
   const app = express();
   app.use(express.json({ limit: "512kb" }));
+  app.use((req: Request, _res: Response, next: NextFunction) => {
+    const traceId = req.get("x-trace-id") || "none";
+    const internalCall = req.get("x-internal-call") || "";
+    if (req.path.startsWith("/internal/") || internalCall) {
+      console.log(
+        `[analytics-http] traceId=${traceId} x-internal-call=${internalCall} ${req.method} ${req.path}`,
+      );
+    }
+    next();
+  });
   app.use((req, res, next) => {
     res.on("finish", () =>
       httpCounter.inc({ service: "analytics", route: req.path, method: req.method, code: res.statusCode })
@@ -84,6 +108,27 @@ export function createAnalyticsHttpApp(): Application {
       });
     } catch (e) {
       console.error("[daily-metrics]", e);
+      res.status(500).json({ error: "internal" });
+    }
+  });
+
+  /**
+   * Deterministic path when ANALYTICS_SYNC_MODE=1: listings-service POSTs after create with the same
+   * event_id that will appear on Kafka, so processed_events dedupes and metrics are not double-counted.
+   */
+  app.post("/internal/ingest/listing-created", internalListingIngestGuard, async (req, res) => {
+    const body = req.body as { event_id?: string; listed_at_day?: string };
+    const eventId = String(body?.event_id || "").trim();
+    const day = String(body?.listed_at_day || "").trim().slice(0, 10);
+    if (!/^[0-9a-f-]{36}$/i.test(eventId) || !/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+      res.status(400).json({ error: "event_id (uuid) and listed_at_day (YYYY-MM-DD) required" });
+      return;
+    }
+    try {
+      await applyListingCreatedForAnalytics(pool, eventId, day);
+      res.status(204).end();
+    } catch (e) {
+      console.error("[internal/ingest/listing-created]", e);
       res.status(500).json({ error: "internal" });
     }
   });

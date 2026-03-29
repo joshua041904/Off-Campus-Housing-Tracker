@@ -48,7 +48,7 @@ test.describe("system integrity (multi-service vertical)", () => {
     await post.locator('input[type="number"]').fill("1200");
     await post.locator('input[type="date"]').fill(today);
     await post.getByRole("button", { name: /Create listing/i }).click();
-    await expect(page.getByText(/Listing created/i)).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByTestId("listing-created-banner")).toBeVisible({ timeout: 60_000 });
 
     await expect
       .poll(

@@ -1,7 +1,9 @@
+import { randomUUID } from "node:crypto";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { httpCounter, register } from "@common/utils";
 import { pool } from "./db.js";
 import { publishListingEvent } from "./listing-kafka.js";
+import { syncListingCreatedToAnalytics } from "./analytics-sync.js";
 import { buildListingsSearchQuery, parseAmenitySlugs } from "./search-listings-query.js";
 
 type AuthedRequest = Request & { userId?: string };
@@ -70,6 +72,29 @@ function formatListedAt(row: Record<string, unknown>): string | null {
 const LISTING_ID_UUID_RX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+function truthyQuery(v: unknown): boolean {
+  if (Array.isArray(v)) return v.some((x) => truthyQuery(x));
+  const s = String(v ?? "").trim().toLowerCase();
+  return s === "1" || s === "true" || s === "yes";
+}
+
+/** Accept ?in_unit_laundry=true&dishwasher=true style params in addition to amenities= CSV. */
+function amenitySlugsFromBooleanQuery(q: Request["query"]): string[] {
+  const out: string[] = [];
+  const add = (slug: string) => {
+    if (!out.includes(slug)) out.push(slug);
+  };
+  for (const [k, v] of Object.entries(q)) {
+    if (!truthyQuery(v)) continue;
+    const key = k.toLowerCase();
+    if (key === "laundry" || key === "in_unit_laundry") add("in_unit_laundry");
+    else if (key === "dishwasher") add("dishwasher");
+    else if (key === "garage") add("garage");
+    else if (key === "parking") add("parking");
+  }
+  return out;
+}
+
 function rowToJson(row: Record<string, unknown>) {
   return {
     id: row.id,
@@ -129,6 +154,9 @@ export function createListingsHttpApp() {
       const amenityRaw = [String(req.query.amenity || ""), String(req.query.amenities || "")]
         .filter(Boolean)
         .join(",");
+      const amenitySlugs = [
+        ...new Set([...parseAmenitySlugs(amenityRaw), ...amenitySlugsFromBooleanQuery(req.query)]),
+      ];
       const qStr = String(req.query.q || "").trim();
       const { sql, params } = buildListingsSearchQuery({
         q: qStr,
@@ -137,7 +165,7 @@ export function createListingsHttpApp() {
         smoke: req.query.smoke_free === "1" || req.query.smoke_free === "true",
         pets: req.query.pet_friendly === "1" || req.query.pet_friendly === "true",
         furnished: req.query.furnished === "1" || req.query.furnished === "true" || req.query.furnished === "yes",
-        amenitySlugs: parseAmenitySlugs(amenityRaw),
+        amenitySlugs,
         newWithin,
         sort: String(req.query.sort || "created_desc").trim(),
       });
@@ -226,13 +254,27 @@ export function createListingsHttpApp() {
         ]
       );
       const row = r.rows[0];
-      void publishListingEvent("ListingCreatedV1", String(row.id), {
-        listing_id: row.id,
-        user_id: row.user_id,
-        title: row.title,
-        price_cents: row.price_cents,
-        listed_at_day: formatListedAt(row) || new Date().toISOString().slice(0, 10),
-      });
+      const eventId = randomUUID();
+      const listedDay = formatListedAt(row) || new Date().toISOString().slice(0, 10);
+      try {
+        await syncListingCreatedToAnalytics({ eventId, listedAtDay: listedDay });
+      } catch (e) {
+        console.error("[listings HTTP create] analytics sync", e);
+        res.status(500).json({ error: "analytics projection sync failed" });
+        return;
+      }
+      void publishListingEvent(
+        "ListingCreatedV1",
+        String(row.id),
+        {
+          listing_id: row.id,
+          user_id: row.user_id,
+          title: row.title,
+          price_cents: row.price_cents,
+          listed_at_day: listedDay,
+        },
+        eventId,
+      );
       res.status(201).json(rowToJson(row));
     } catch (e) {
       console.error("[listings HTTP create]", e);
