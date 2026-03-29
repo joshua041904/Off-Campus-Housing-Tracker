@@ -257,6 +257,13 @@ export function createListingsHttpApp() {
         }
 
         const input = validation.value;
+        const latRaw = body.latitude;
+        const lngRaw = body.longitude;
+        const lat =
+          latRaw != null && latRaw !== "" && Number.isFinite(Number(latRaw)) ? Number(latRaw) : null;
+        const lng =
+          lngRaw != null && lngRaw !== "" && Number.isFinite(Number(lngRaw)) ? Number(lngRaw) : null;
+
         const r = await pool.query(
           `INSERT INTO listings.listings (
           user_id, title, description, price_cents, amenities, smoke_free, pet_friendly, furnished,
@@ -269,54 +276,58 @@ $11, $12
           amenities, smoke_free, pet_friendly, furnished,
           status::text AS status, created_at,
           listed_at, latitude, longitude`,
-[
-  input.user_id,
-  input.title,
-  input.description,
-  input.price_cents,
-  JSON.stringify(input.amenities),
-  input.smoke_free,
-  input.pet_friendly,
-  input.furnished,
-  input.effective_from,
-  input.effective_until,
-  lat,
-  lng,
-],
-);
+          [
+            input.user_id,
+            input.title,
+            input.description,
+            input.price_cents,
+            JSON.stringify(input.amenities),
+            input.smoke_free,
+            input.pet_friendly,
+            input.furnished,
+            input.effective_from,
+            input.effective_until,
+            lat,
+            lng,
+          ],
+        );
 
-const row = r.rows[0];
+        const row = r.rows[0];
 
-const eventId = randomUUID();
-const listedDay =
-  formatListedAt(row) ||
-  new Date().toISOString().slice(0, 10);
+        const eventId = randomUUID();
+        const listedDay = formatListedAt(row) || new Date().toISOString().slice(0, 10);
 
-try {
-  await syncListingCreatedToAnalytics({
-    eventId,
-    listedAtDay: listedDay,
-  });
-} catch (e) {
-  console.error("[listings HTTP create] analytics sync", e);
-  res.status(500).json({ error: "analytics projection sync failed" });
-  return;
-}
+        try {
+          await syncListingCreatedToAnalytics({
+            eventId,
+            listedAtDay: listedDay,
+          });
+        } catch (e) {
+          console.error("[listings HTTP create] analytics sync", e);
+          res.status(500).json({ error: "analytics projection sync failed" });
+          return;
+        }
 
-void publishListingEvent(
-  "ListingCreatedV1",
-  String(row.id),
-  {
-    listing_id: row.id,
-    user_id: row.user_id,
-    title: row.title,
-    price_cents: row.price_cents,
-    listed_at_day: listedDay,
-  },
-  eventId,
-);
+        void publishListingEvent(
+          "ListingCreatedV1",
+          String(row.id),
+          {
+            listing_id: row.id,
+            user_id: row.user_id,
+            title: row.title,
+            price_cents: row.price_cents,
+            listed_at_day: listedDay,
+          },
+          eventId,
+        );
 
-res.status(201).json(rowToJson(row));
+        res.status(201).json(rowToJson(row));
+      } catch (e) {
+        console.error("[listings HTTP create]", e);
+        res.status(500).json({ error: "internal" });
+      }
+    },
+  );
 
   return app;
 }

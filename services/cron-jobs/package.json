@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "main": "dist/jobs.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "pnpm exec tsc -p tsconfig.json",
     "start": "NODE_ENV=production node dist/jobs.js",
     "dev": "tsx watch src/jobs.ts",
     "prepare": "pnpm run build",
