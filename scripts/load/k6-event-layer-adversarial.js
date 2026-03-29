@@ -24,8 +24,7 @@ export const adversarialAccepted = new Rate("event_layer_adversarial_accepted");
 
 http.setResponseCallback(http.expectedStatuses({ min: 200, max: 599 }));
 
-export const options = {
-  ...strictEdgeTlsOptions(RAW_BASE),
+export const options = Object.assign({}, strictEdgeTlsOptions(RAW_BASE), {
   vus: VUS,
   duration: DUR,
   thresholds: {
@@ -33,13 +32,17 @@ export const options = {
     http_req_duration: ["p(95)<2500", "p(99)<6000", "p(100)<15000"],
     event_layer_adversarial_accepted: ["rate>0.70"],
   },
-};
+});
 
 const api = (p) => `${BASE}${HAS_API ? "" : "/api"}${p}`;
 
 function baseParams(extra = {}) {
-  const p = { tags: { event_layer: "true", ...extra.tags }, timeout: "12s", ...extra };
-  delete p.tags?.tags;
+  const p = Object.assign({}, extra);
+  p.timeout = p.timeout || "12s";
+  p.tags = Object.assign({ event_layer: "true" }, extra.tags || {});
+  if (p.tags && p.tags.tags) {
+    delete p.tags.tags;
+  }
   return mergeEdgeTls(RAW_BASE, p);
 }
 

@@ -137,8 +137,9 @@ _check_social() {
 }
 
 # --- Ensure messaging schema/outbox (Kafka payload support) ---
-# Preflight also runs DB setup; this block keeps standalone runs consistent.
-if [[ -f "$SCRIPT_DIR/ensure-messaging-schema.sh" ]]; then
+# Preflight sets SKIP_ENSURE_MESSAGING_SCHEMA=1 (schema expected from bring-up / migrations; avoids psql DDL spam each run).
+# Standalone: omit skip, or run: PGHOST=127.0.0.1 PGPASSWORD=postgres ./scripts/ensure-messaging-schema.sh
+if [[ "${SKIP_ENSURE_MESSAGING_SCHEMA:-0}" != "1" ]] && [[ -f "$SCRIPT_DIR/ensure-messaging-schema.sh" ]]; then
   say "Ensuring messaging schema (port 5444) and outbox..."
   chmod +x "$SCRIPT_DIR/ensure-messaging-schema.sh" 2>/dev/null || true
   if "$SCRIPT_DIR/ensure-messaging-schema.sh" 2>/dev/null; then

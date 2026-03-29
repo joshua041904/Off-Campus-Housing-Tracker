@@ -606,6 +606,23 @@ _run_suite "rotation" "$SCRIPT_DIR/rotation-suite.sh" || { FAILED=$((FAILED + 1)
 # Order: rotation updates certs/dev-root.pem → k6 uses that CA so we never skip TLS verification.
 if [[ "${RUN_K6:-0}" == "1" ]] && command -v k6 >/dev/null 2>&1; then
   say "5b. k6 load (after CA/leaf rotation; strict TLS — trust certs/dev-root.pem to prove new cert works)"
+  if [[ -z "${K6_SUITE_RESOURCE_LOG:-}" ]] && [[ "${K6_SUITE_RESOURCE_LOG_AUTO:-1}" == "1" ]]; then
+    if [[ -n "${PREFLIGHT_RUN_DIR:-}" ]]; then
+      export K6_SUITE_RESOURCE_LOG="$PREFLIGHT_RUN_DIR/k6-suite-resources-run-all.log"
+    else
+      export K6_SUITE_RESOURCE_LOG="$REPO_ROOT/bench_logs/k6-suite-resources-$(date +%Y%m%d-%H%M%S).log"
+    fi
+    mkdir -p "$(dirname "$K6_SUITE_RESOURCE_LOG")"
+    {
+      echo "# run-all-test-suites — k6 kubectl top snapshots (contention evidence)"
+      echo "# $(date -Iseconds)"
+    } >>"$K6_SUITE_RESOURCE_LOG"
+    info "k6 resource snapshots also appended to: $K6_SUITE_RESOURCE_LOG"
+  fi
+  if [[ "${K6_SUITE_STABILITY_AGGRESSIVE:-0}" == "1" ]]; then
+    export K6_SUITE_RESTART_ENVOY_AFTER_CAR="${K6_SUITE_RESTART_ENVOY_AFTER_CAR:-1}"
+    info "K6_SUITE_STABILITY_AGGRESSIVE=1 → K6_SUITE_RESTART_ENVOY_AFTER_CAR=${K6_SUITE_RESTART_ENVOY_AFTER_CAR}"
+  fi
   K6_CA_ROOT="$(cd "$REPO_ROOT" 2>/dev/null && pwd)/certs/dev-root.pem"
   mkdir -p "$(dirname "$K6_CA_ROOT")"
   # If rotation didn't sync certs/dev-root.pem (e.g. k3d path), try once to populate from K8s so k6 has a CA
@@ -683,6 +700,7 @@ if [[ "${RUN_K6:-0}" == "1" ]] && command -v k6 >/dev/null 2>&1; then
       _k6_base="${BASE_URL:-https://${HOST}:${PORT}}"
       _k6_resolve=()
       [[ -n "${K6_RESOLVE:-}" ]] && _k6_resolve=(--resolve "$K6_RESOLVE") || true
+      k6_suite_before_k6_block "k6-post-rotation-single-load"
       ( env SSL_CERT_FILE="$K6_CA_ABSOLUTE" BASE_URL="$_k6_base" MODE=rate RATE=50 DURATION="$K6_DURATION" VUS="$K6_VUS" \
         k6 run "${_k6_resolve[@]}" "$K6_SCRIPT" 2>&1 | tee "$SUITE_LOG_DIR/k6-load.log" ) || warn "k6 load had issues"
       k6_suite_after_k6_block "k6-post-rotation-single" 1 || warn "k6 suite resource hook failed (node CPU ≥ threshold or cooldown)"

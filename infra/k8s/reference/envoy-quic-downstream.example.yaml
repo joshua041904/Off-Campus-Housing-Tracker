@@ -1,0 +1,78 @@
+# Reference only — NOT wired into the default OCH stack.
+# In this repo, Caddy terminates TLS + QUIC; Envoy (envoy-test) is used for gRPC routing.
+# Use this if you move HTTP/3 termination to Envoy (curl 55 / stream starvation tuning).
+#
+# Key ideas:
+# - udp_listener_config.quic_options on the same listener address as TCP 443 (dual stack).
+# - QuicDownstreamTransport + TLS certs.
+# - HCM http3_protocol_options + http2_protocol_options: higher max_concurrent_streams + windows.
+# - Upstream cluster: http2_protocol_options + circuit_breakers.
+#
+# Validate against your Envoy version; field names differ slightly across minor releases.
+
+static_resources:
+  listeners:
+    - name: https_quic_h2_h1
+      address:
+        socket_address: { address: 0.0.0.0, port_value: 443 }
+      udp_listener_config:
+        quic_options: {}
+      filter_chains:
+        - transport_socket:
+            name: envoy.transport_sockets.quic
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.transport_sockets.quic.v3.QuicDownstreamTransport
+              downstream_tls_context:
+                common_tls_context:
+                  tls_certificates:
+                    - certificate_chain: { filename: "/etc/envoy/tls/tls.crt" }
+                      private_key: { filename: "/etc/envoy/tls/tls.key" }
+          filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: ingress_http
+                codec_type: AUTO
+                http3_protocol_options:
+                  max_concurrent_streams: 1000
+                  initial_stream_window_size: 6553600
+                  initial_connection_window_size: 10485760
+                http2_protocol_options:
+                  max_concurrent_streams: 1000
+                  initial_stream_window_size: 6553600
+                  initial_connection_window_size: 10485760
+                route_config:
+                  name: local_route
+                  virtual_hosts:
+                    - name: backend
+                      domains: ["*"]
+                      routes:
+                        - match: { prefix: "/" }
+                          route: { cluster: api_gateway }
+                http_filters:
+                  - name: envoy.filters.http.router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+  clusters:
+    - name: api_gateway
+      type: STRICT_DNS
+      connect_timeout: 2s
+      lb_policy: ROUND_ROBIN
+      http2_protocol_options:
+        max_concurrent_streams: 1000
+        initial_stream_window_size: 6553600
+        initial_connection_window_size: 10485760
+      circuit_breakers:
+        thresholds:
+          - priority: DEFAULT
+            max_connections: 1000
+            max_pending_requests: 1000
+            max_requests: 2000
+      load_assignment:
+        cluster_name: api_gateway
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address: { address: api-gateway, port_value: 3000 }

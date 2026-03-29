@@ -1,0 +1,100 @@
+# Optional: Prometheus Operator / kube-prometheus-stack only.
+# This repo's default stack uses vanilla Prometheus + prometheus-rules-och-slo ConfigMap.
+# Install into a cluster that has PrometheusRule CRD and a Prometheus selecting `role: och-slo`.
+#
+#   kubectl apply -f infra/k8s/base/observability/och-slo-prometheusrule.yaml
+#
+# Adjust namespace / labels to match your Prometheus operator `ruleSelector`.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: och-slo-rules
+  namespace: observability
+  labels:
+    role: och-slo
+    release: prometheus-operator
+spec:
+  groups:
+    - name: och-slo-recording
+      interval: 30s
+      rules:
+        - record: och:service_availability_30d
+          expr: |
+            sum(rate(http_requests_total{code=~"2..",maintenance!="true"}[30d])) by (service)
+            /
+            clamp_min(sum(rate(http_requests_total{maintenance!="true"}[30d])) by (service), 1e-12)
+        - record: och:service_error_rate_5m
+          expr: |
+            sum(rate(http_requests_total{code!~"2..",maintenance!="true"}[5m])) by (service)
+            /
+            clamp_min(sum(rate(http_requests_total{maintenance!="true"}[5m])) by (service), 1e-12)
+        - record: och:service_error_rate_1h
+          expr: |
+            sum(rate(http_requests_total{code!~"2..",maintenance!="true"}[1h])) by (service)
+            /
+            clamp_min(sum(rate(http_requests_total{maintenance!="true"}[1h])) by (service), 1e-12)
+        - record: och:service_error_budget_burn_rate_5m
+          expr: och:service_error_rate_5m / 0.005
+        - record: och:service_error_budget_burn_rate_1h
+          expr: och:service_error_rate_1h / 0.005
+        - record: och:service_error_budget_remaining_ratio
+          expr: 0.005 - och:service_error_rate_1h
+        - record: och:service_budget_remaining_ratio_1h
+          expr: clamp_min(0.005 - och:service_error_rate_1h, 0) / 0.005
+        - record: och:service_time_to_budget_exhaustion_hours_heuristic
+          expr: |
+            (
+              clamp_min(0.005 - och:service_error_rate_1h, 0)
+              /
+              clamp_min(och:service_error_rate_1h, 1e-9)
+            ) * 720
+    - name: och-slo-burn-alerts
+      rules:
+        - alert: OCHCriticalBurnRate
+          expr: |
+            (
+              och:service_error_rate_5m > (0.005 * 14.4)
+            )
+            and
+            (
+              och:service_error_rate_1h > (0.005 * 6)
+            )
+          for: 5m
+          labels:
+            severity: critical
+            slo: "99.5%"
+          annotations:
+            summary: "Critical SLO burn (multi-window)"
+            description: "Service {{ $labels.service }} is burning error budget fast and sustainably."
+        - alert: OCHWarningBurnRate
+          expr: och:service_error_rate_1h > (0.005 * 3)
+          for: 30m
+          labels:
+            severity: warning
+            slo: "99.5%"
+          annotations:
+            summary: "Warning SLO burn (1h)"
+            description: "Service {{ $labels.service }} error rate elevated vs 99.5% SLO budget."
+    - name: och-slo-violation-alerts
+      rules:
+        - alert: OCHSLOViolation
+          expr: och:service_availability_30d < 0.995
+          for: 5m
+          labels:
+            severity: critical
+            slo: "99.5%"
+          annotations:
+            summary: "SLO violation (30d rolling)"
+            description: "Service {{ $labels.service }} availability below 99.5% over 30 days."
+        - alert: OCHBudgetExhaustionImminent
+          expr: |
+            och:service_time_to_budget_exhaustion_hours_heuristic > 0
+            and
+            och:service_time_to_budget_exhaustion_hours_heuristic < 72
+          for: 10m
+          labels:
+            severity: warning
+            slo: "99.5%"
+          annotations:
+            summary: "Error budget exhaustion imminent (heuristic)"
+            description: "Service {{ $labels.service }} — heuristic time-to-exhaustion under 72h."

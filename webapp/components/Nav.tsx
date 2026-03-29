@@ -7,36 +7,36 @@ import { clearStoredToken } from "@/lib/auth-storage";
 export function Nav({ email }: { email?: string | null }) {
   const router = useRouter();
   return (
-    <header className="border-b border-amber-900/20 bg-stone-950/80 backdrop-blur-sm">
-      <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3">
-        <Link href="/" className="font-semibold tracking-tight text-amber-100">
+    <header className="border-b border-teal-200/60 bg-white/80 backdrop-blur-md">
+      <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-4">
+        <Link href="/" className="font-semibold tracking-tight text-teal-900">
           OCH Housing
         </Link>
-        <nav className="flex flex-wrap items-center gap-3 text-sm text-stone-300">
-          <Link href="/listings" className="hover:text-amber-200">
+        <nav className="flex flex-wrap items-center gap-3 text-sm font-medium text-slate-600">
+          <Link href="/listings" className="hover:text-teal-700">
             Listings
           </Link>
-          <Link href="/mission" className="hover:text-amber-200">
+          <Link href="/mission" className="hover:text-teal-700">
             Mission
           </Link>
-          <Link href="/trust" className="hover:text-amber-200">
+          <Link href="/trust" className="hover:text-teal-700">
             Trust
           </Link>
-          <Link href="/analytics" className="hover:text-amber-200">
+          <Link href="/analytics" className="hover:text-teal-700">
             Analytics
           </Link>
           {email ? (
             <>
-              <span className="hidden sm:inline truncate max-w-[200px]" title={email ?? ""}>
+              <span className="hidden max-w-[200px] truncate text-slate-500 sm:inline" title={email ?? ""}>
                 {email}
               </span>
-              <Link href="/dashboard" className="hover:text-amber-200">
+              <Link href="/dashboard" className="hover:text-teal-700">
                 Dashboard
               </Link>
               <button
                 type="button"
                 data-testid="nav-sign-out"
-                className="rounded-md border border-stone-600 px-2 py-1 hover:bg-stone-800"
+                className="rounded-md border border-slate-300 px-2 py-1.5 text-slate-700 hover:bg-slate-50"
                 onClick={() => {
                   clearStoredToken();
                   router.push("/login");
@@ -48,12 +48,12 @@ export function Nav({ email }: { email?: string | null }) {
             </>
           ) : (
             <>
-              <Link href="/login" className="hover:text-amber-200">
+              <Link href="/login" className="hover:text-teal-700">
                 Log in
               </Link>
               <Link
                 href="/register"
-                className="rounded-md bg-amber-600/90 px-3 py-1.5 font-medium text-stone-950 hover:bg-amber-500"
+                className="rounded-md bg-teal-600 px-3 py-1.5 text-white shadow-sm hover:bg-teal-500"
               >
                 Register
               </Link>

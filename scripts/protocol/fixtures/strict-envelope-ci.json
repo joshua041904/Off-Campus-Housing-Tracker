@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "description": "CI fixture — paired with perf-lab-pass/capacity-recommendations.json",
+  "services": {
+    "fixture-service": { "configured_db_pool_max": 10 }
+  },
+  "ingress": {
+    "http2_max_concurrent_streams": 128,
+    "http3_max_concurrent_streams": 128
+  }
+}

@@ -71,7 +71,12 @@ warn() { echo "⚠️  $*"; }
 fail() { echo "❌ $*" >&2; exit 1; }
 info() { echo "ℹ️  $*"; }
 
-LATENCY_DIR="${REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}/bench_logs/latency-$(date +%Y%m%d-%H%M%S)"
+REPO_ROOT="${REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+if [[ -n "${PREFLIGHT_RUN_DIR:-}" ]]; then
+  LATENCY_DIR="${LATENCY_DIR:-$PREFLIGHT_RUN_DIR/latency}"
+else
+  LATENCY_DIR="${LATENCY_DIR:-$REPO_ROOT/bench_logs/latency-$(date +%Y%m%d-%H%M%S)}"
+fi
 LATENCY_CSV="$LATENCY_DIR/service-latency.csv"
 mkdir -p "$LATENCY_DIR"
 echo "service,protocol,http_code,time_total_ms" > "$LATENCY_CSV"
@@ -92,7 +97,6 @@ PY
   echo "${service},${protocol},${code:-000},${ms}" >> "$LATENCY_CSV"
 }
 
-REPO_ROOT="${REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 mkdir -p "$REPO_ROOT/certs"
 CA_CERT=""
 # CA from cluster or repo
@@ -1545,4 +1549,9 @@ else
   info "Test 18 skipped (SKIP_BOOKING_IN_HOUSING_SUITE=1)"
 fi
 
-say "=== Housing HTTP/2 + HTTP/3 suite done ==="
+# Preflight sets SKIP_HOUSING_HTTP_SUITE_DONE_BANNER=1 to avoid redundant footer line every run.
+# Use if/fi (not [[ ... ]] && say): when the banner is skipped, [[ false ]] && … would make the
+# script's last command exit 1 and preflight would think the whole suite failed (skips k6 + Playwright).
+if [[ "${SKIP_HOUSING_HTTP_SUITE_DONE_BANNER:-0}" != "1" ]]; then
+  say "=== Housing HTTP/2 + HTTP/3 suite done ==="
+fi

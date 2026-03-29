@@ -9,20 +9,28 @@
   "packageManager": "pnpm@9.11.0",
   "pnpm": {
     "overrides": {
-      "@smithy/types": "^4.13.1"
+      "@smithy/types": "^4.13.1",
+      "rollup": "npm:@rollup/wasm-node@4.9.6"
     }
   },
   "scripts": {
     "build": "pnpm -r run build",
     "dev": "pnpm -r --parallel dev",
-    "test": "pnpm --filter @common/utils --filter media-service --filter messaging-service --filter event-layer-verification run test",
-    "test:integration": "pnpm --filter messaging-service --filter media-service run test:integration",
+    "test": "ROLLUP_DISABLE_NATIVE=true pnpm --filter @common/utils --filter auth-service --filter api-gateway --filter booking-service --filter listings-service --filter analytics-service --filter trust-service --filter notification-service --filter cron-jobs --filter media-service --filter messaging-service --filter event-layer-verification run test",
+    "test:integration": "ROLLUP_DISABLE_NATIVE=true pnpm --filter messaging-service --filter media-service run test:integration",
     "lint": "pnpm -r lint || true",
     "format": "pnpm -r format || true",
     "full-pipeline": "bash scripts/run-full-pipeline.sh",
     "run-full-pipeline": "bash scripts/run-full-pipeline.sh",
     "reissue": "bash scripts/reissue-ca-and-leaf-load-all-services.sh",
     "rebuild:och:rollout": "bash scripts/rebuild-och-images-and-rollout.sh",
+    "rebuild:housing:colima": "bash scripts/rebuild-housing-colima.sh",
+    "rebuild:service:auth": "SERVICES=auth-service bash scripts/rebuild-och-images-and-rollout.sh",
+    "rebuild:service:trust": "SERVICES=trust-service bash scripts/rebuild-och-images-and-rollout.sh",
+    "rebuild:service:listings": "SERVICES=listings-service bash scripts/rebuild-och-images-and-rollout.sh",
+    "rebuild:service:analytics": "SERVICES=analytics-service bash scripts/rebuild-och-images-and-rollout.sh",
+    "rebuild:service:media": "SERVICES=media-service bash scripts/rebuild-och-images-and-rollout.sh",
+    "rebuild:service:search": "SERVICES=listings-service bash scripts/rebuild-och-images-and-rollout.sh",
     "rebuild:gateway:rollout": "SERVICES=api-gateway bash scripts/rebuild-och-images-and-rollout.sh",
     "kafka-ssl": "bash scripts/kafka-ssl-from-dev-root.sh",
     "verify-tls": "bash scripts/verify-caddy-strict-tls.sh",
@@ -37,7 +45,19 @@
     "test:e2e:integrated": "bash scripts/run-playwright-e2e-preflight.sh",
     "bench:redis-lua": "bash scripts/benchmark-redis-lua-vs-plain.sh",
     "test:webapp:e2e": "NODE_EXTRA_CA_CERTS=$PWD/certs/dev-root.pem pnpm --filter webapp exec playwright test",
-    "test:housing-wiring": "bash scripts/test-housing-stack-wiring.sh"
+    "test:webapp:e2e:smoke": "NODE_EXTRA_CA_CERTS=$PWD/certs/dev-root.pem pnpm --filter webapp exec playwright test --project=01-guest-shell --project=04-analytics",
+    "test:webapp:e2e:listings": "NODE_EXTRA_CA_CERTS=$PWD/certs/dev-root.pem pnpm --filter webapp exec playwright test --project=03-listings",
+    "test:webapp:e2e:auth-booking": "NODE_EXTRA_CA_CERTS=$PWD/certs/dev-root.pem pnpm --filter webapp exec playwright test --project=02-auth-booking",
+    "test:housing-wiring": "bash scripts/test-housing-stack-wiring.sh",
+    "k6:listings:concurrency": "bash -c 'SSL_CERT_FILE=\"${SSL_CERT_FILE:-$PWD/certs/dev-root.pem}\" k6 run scripts/load/k6-listings-concurrency.js'",
+    "k6:messaging:concurrency": "bash -c 'SSL_CERT_FILE=\"${SSL_CERT_FILE:-$PWD/certs/dev-root.pem}\" k6 run scripts/load/k6-messaging-concurrency.js'",
+    "k6:analytics:concurrency": "bash -c 'SSL_CERT_FILE=\"${SSL_CERT_FILE:-$PWD/certs/dev-root.pem}\" k6 run scripts/load/k6-analytics-concurrency.js'",
+    "k6:booking:concurrency": "bash -c 'SSL_CERT_FILE=\"${SSL_CERT_FILE:-$PWD/certs/dev-root.pem}\" k6 run scripts/load/k6-booking-concurrency.js'",
+    "k6:trust:concurrency": "bash -c 'SSL_CERT_FILE=\"${SSL_CERT_FILE:-$PWD/certs/dev-root.pem}\" k6 run scripts/load/k6-trust-concurrency.js'",
+    "k6:media:concurrency": "bash -c 'SSL_CERT_FILE=\"${SSL_CERT_FILE:-$PWD/certs/dev-root.pem}\" k6 run scripts/load/k6-media-concurrency.js'",
+    "k6:listings:search-slowpath": "bash -c 'SSL_CERT_FILE=\"${SSL_CERT_FILE:-$PWD/certs/dev-root.pem}\" k6 run scripts/load/k6-listings-search-slowpath.js'",
+    "k6:dual:contention": "bash -c 'SSL_CERT_FILE=\"${SSL_CERT_FILE:-$PWD/certs/dev-root.pem}\" k6 run scripts/perf/k6-dual-service-contention.js'",
+    "k6:listings:malformed": "bash -c 'SSL_CERT_FILE=\"${SSL_CERT_FILE:-$PWD/certs/dev-root.pem}\" k6 run scripts/load/k6-listings-malformed.js'"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

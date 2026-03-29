@@ -1,0 +1,10 @@
+{
+  "analytics": 80,
+  "auth": 150,
+  "booking": 90,
+  "event-layer": 120,
+  "listings": 100,
+  "media": 10,
+  "messaging": 15,
+  "trust": 60
+}

@@ -29,6 +29,38 @@ export const pool = new Pool({
   keepAliveInitialDelayMillis: 10000,
 })
 
+const inflightLimitRaw = Number(process.env.MAX_DB_CONCURRENCY || process.env.DB_POOL_MAX || '50')
+const inflightLimit = Number.isFinite(inflightLimitRaw) && inflightLimitRaw > 0 ? Math.floor(inflightLimitRaw) : 50
+
+function attachConcurrencyGuard(target: InstanceType<typeof Pool>, maxInflight: number): void {
+  const originalQuery = target.query.bind(target) as (...args: any[]) => Promise<any>
+  let inflight = 0
+  const waiters: Array<() => void> = []
+  const acquire = async (): Promise<void> => {
+    if (inflight < maxInflight) {
+      inflight += 1
+      return
+    }
+    await new Promise<void>((resolve) => waiters.push(resolve))
+    inflight += 1
+  }
+  const release = (): void => {
+    inflight = Math.max(0, inflight - 1)
+    const next = waiters.shift()
+    if (next) next()
+  }
+  ;(target as any).query = async (...args: any[]): Promise<any> => {
+    await acquire()
+    try {
+      return await originalQuery(...args)
+    } finally {
+      release()
+    }
+  }
+}
+
+attachConcurrencyGuard(pool, inflightLimit)
+
 pool.on('error', (err) => {
   console.error('[messaging] Unexpected DB pool error:', err)
 })

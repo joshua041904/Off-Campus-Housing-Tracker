@@ -116,6 +116,7 @@ run_phase() {
   shift 3
   local log="$SUITE_LOG_DIR/k6-${phase}.log"
   echo "  → k6 phase: $phase (log: $log)"
+  k6_suite_before_k6_block "phase-${phase}"
   if [[ -f "$script" ]]; then
     (
       export BASE_URL="$BASE_URL"
@@ -148,6 +149,7 @@ done
 run_http3_phase() {
   local log="$SUITE_LOG_DIR/k6-http3.log"
   echo "  → k6 phase: http3 (xk6-http3; log: $log)"
+  k6_suite_before_k6_block "phase-http3-xk6"
   # On Darwin (Colima), host→VM QUIC often times out; noReuse avoids stale sessions, relax thresholds so run doesn't fail
   local h3_relax=""
   [[ "$(uname -s)" == "Darwin" ]] && h3_relax="K6_HTTP3_RELAX_THRESHOLDS=1"

@@ -6,9 +6,11 @@ set -euo pipefail
 # Pin BOTH k6 core and the extension — do not use @latest for k6 core (breaks module graph).
 #
 # Defaults (override with env):
-#   HTTP3_EXTENSION   github.com/bandorko/xk6-http3@v0.2.0
-#                     Note: upstream repo has tags v0.2.0 / v0.1.1 only — there is NO v0.3.0 on GitHub.
-#                     If you have a fork with v0.3.0: HTTP3_EXTENSION=github.com/you/xk6-http3@v0.3.0
+#   HTTP3_EXTENSION   github.com/bandorko/xk6-http3@v0.2.0 (default; pinned)
+#                     Try newer commits if teardown panics persist:
+#                       HTTP3_EXTENSION=github.com/bandorko/xk6-http3@latest
+#                     or a branch/commit pseudo-version (Go modules). Upstream tags include v0.2.0 / v0.1.1.
+#                     Fork: HTTP3_EXTENSION=github.com/you/xk6-http3@v0.3.0
 #   K6_XK6_VERSION    If set, only that k6 tag is built (no auto-fallback).
 #                     If unset: try v0.49.0, then v0.48.0 (recommended when extension lags k6).
 #   XK6_TOOL_VERSION  xk6 CLI to install when missing (default v1.3.6).

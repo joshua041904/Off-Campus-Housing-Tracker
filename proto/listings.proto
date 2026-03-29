@@ -25,6 +25,8 @@ message CreateListingRequest {
   bool furnished = 8;
   string effective_from = 9;
   string effective_until = 10;
+  optional double latitude = 11;
+  optional double longitude = 12;
 }
 
 message GetListingRequest {
@@ -43,6 +45,9 @@ message ListingResponse {
   bool furnished = 9;
   string status = 10;
   string created_at = 11;
+  optional double latitude = 12;
+  optional double longitude = 13;
+  string listed_at = 14;
 }
 
 message SearchListingsRequest {
@@ -51,6 +56,10 @@ message SearchListingsRequest {
   int32 max_price = 3;
   bool smoke_free = 4;
   bool pet_friendly = 5;
+  bool furnished = 6;
+  string amenities_contains = 7;
+  int32 new_within_days = 8;
+  string sort = 9;
 }
 
 message SearchListingsResponse {

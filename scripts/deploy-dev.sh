@@ -3,9 +3,10 @@
 # External infra (Postgres 5441–5448, Kafka, Redis) must be up; run bootstrap-all-dbs.sh or restore-auth-db.sh first.
 #
 # Usage: ./scripts/deploy-dev.sh
-#   SKIP_SMOKE=1     — do not run smoke test after deploy
-#   SKIP_K6=1        — do not run k6 after smoke
-#   DEPLOY_OVERLAY=  — kustomize overlay (default: overlays/dev)
+#   SKIP_SMOKE=1           — do not run smoke test after deploy
+#   SKIP_K6=1              — do not run k6 after smoke
+#   SKIP_STRICT_ENVELOPE=1 — skip lab vs strict-envelope.json check (unsafe for prod)
+#   DEPLOY_OVERLAY=        — kustomize overlay (default: overlays/dev)
 
 set -euo pipefail
 
@@ -48,13 +49,27 @@ if [[ -d "$KUST_DIR/base/config" ]]; then
   ok "ConfigMap app-config applied"
 fi
 
+# 4b) Strict envelope — lab recommendations must not exceed declared pools / ingress stream caps
+if [[ "${SKIP_STRICT_ENVELOPE:-0}" != "1" ]] && command -v node &>/dev/null; then
+  say "Strict envelope check (capacity-recommendations vs infra/k8s/base/config/strict-envelope.json)..."
+  if ! node "$REPO_ROOT/scripts/protocol/strict-envelope-check.js" --perf-dir "$REPO_ROOT/bench_logs/performance-lab"; then
+    warn "Failed. Refresh strict-envelope.json and cluster pools, run make capacity-one, or set SKIP_STRICT_ENVELOPE=1 (not for production)."
+    exit 1
+  fi
+  ok "Strict envelope OK"
+fi
+
 # 5) Apply manifests (kustomize or raw)
 DEPLOY_OVERLAY="${DEPLOY_OVERLAY:-overlays/dev}"
-if [[ -d "$KUST_DIR/$DEPLOY_OVERLAY" ]] && command -v kustomize &>/dev/null 2>&1; then
+if [[ -d "$KUST_DIR/$DEPLOY_OVERLAY" ]]; then
   say "Applying kustomize $DEPLOY_OVERLAY..."
-  kustomize build "$KUST_DIR/$DEPLOY_OVERLAY" | kubectl apply -f - || true
+  if command -v kustomize &>/dev/null 2>&1; then
+    kustomize build "$KUST_DIR/$DEPLOY_OVERLAY" | kubectl apply -f - || true
+  else
+    kubectl kustomize "$KUST_DIR/$DEPLOY_OVERLAY" | kubectl apply -f - || true
+  fi
 else
-  info "No kustomize overlay or kustomize not found; apply base manifests manually."
+  info "No kustomize overlay; apply base manifests manually."
   if [[ -d "$KUST_DIR/base" ]]; then
     for d in config auth-service; do
       [[ -d "$KUST_DIR/base/$d" ]] && kubectl apply -k "$KUST_DIR/base/$d" -n "$NS" 2>/dev/null || true

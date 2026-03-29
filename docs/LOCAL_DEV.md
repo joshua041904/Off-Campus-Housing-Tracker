@@ -68,14 +68,6 @@ docker compose -f docker-compose.local.yml down -v
 
 ## CI
 
-Workflow **Local integration (TLS enforced)** (`.github/workflows/local-integration.yml`):
+GitHub-hosted **och-ci** (`.github/workflows/ci.yml`) does not assume a k3s cluster: protocol anomaly gate, service build/test matrix, Python transport tooling checks, QUIC hostname static invariant. Strict Playwright runs only when the repository variable **`RUN_STRICT_PLAYWRIGHT`** is `true` (e.g. self-hosted runner that can reach the edge).
 
-1. Generate certs  
-2. Start `docker-compose.local.yml`  
-3. Apply schemas (`init-db`)  
-4. Run Kafka TLS unit test (missing cert → fail)  
-5. Run media-service unit tests  
-6. Run event-layer-verification tests  
-7. Tear down  
-
-Fails if TLS is not enforced or plaintext Kafka is used.
+For local TLS + `docker-compose.local.yml` integration, run the same flows manually (certs, compose up, `init-db`, then `pnpm --filter … test`) — there is no longer a dedicated “local stack” workflow on `ubuntu-latest`.

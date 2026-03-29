@@ -47,7 +47,7 @@ ENV_PREFIX=dev ./scripts/create-kafka-event-topics.sh
 
 ## 5. TLS / secrets (if not already)
 
-Follow `docs/CERTS_AND_TESTING_FOR_MORTALS.md` or your strict-tls bootstrap so **Caddy**, **Envoy**, and **service mTLS** match.
+Follow `docs/LOCAL_TLS_AND_TESTING_GUIDE.md` or your strict-tls bootstrap so **Caddy**, **Envoy**, and **service mTLS** match.
 
 ## 6. Build & load images into Colima/k3s
 

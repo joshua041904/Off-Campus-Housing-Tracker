@@ -1,0 +1,234 @@
+# PR #2 — Protocol happiness and transport dominance framework
+
+**Title (suggested):** `feat(perf-lab): add protocol happiness matrix, tail-weighted superiority scoring, and transport dominance modeling`
+
+**Relationship to other PRs:** PR #1 covered capacity modeling and pool derivation (`derive-pool-sizes.js`, `capacity-one`). **This PR (PR #2)** adds protocol intelligence and dominance math. **PR #3 (future)** should wire pool env vars, ingress stream caps, and runtime policy.
+
+---
+
+## Executive summary
+
+This PR introduces a **protocol evaluation framework** that:
+
+- Computes a per-service **protocol happiness matrix** (HTTP/1, HTTP/2, HTTP/3).
+- Produces **tail-weighted superiority scores** (not raw RPS alone).
+- Models **transport dominance thresholds** (when HTTP/3 vs HTTP/2 matters under backend constraints).
+- **Integrates** with `capacity-recommendations.json` from `derive-pool-sizes.js` so recommended pool aligns with dominance logic.
+
+**This does not change runtime behavior.** It adds deterministic, reproducible performance **modeling** tooling only.
+
+---
+
+## Why this exists
+
+We already had:
+
+- Capacity envelopes and collapse detection.
+- Recommended DB pool sizes from measured peak RPS and μ.
+
+We did **not** yet answer, per service:
+
+- When does HTTP/3 actually outperform HTTP/2?
+- When does backend saturation mask transport gains?
+- Which protocol is “best” under tail + stability, not only throughput?
+- What pool size is consistent with HTTP/3 “unlocking” when τ > 0?
+
+This PR answers those questions **mathematically** from the same ceiling `service-model.json` and performance-lab `collapse-summary.json`.
+
+---
+
+## What was added
+
+### 1. `scripts/protocol/compute-happiness.js`
+
+**Inputs**
+
+- `--service-model` → ceiling run `service-model.json`
+- `--collapse` → `collapse-summary.json` (default: `bench_logs/performance-lab/collapse-summary.json`)
+- `--out-dir` → output directory (default: `bench_logs/performance-lab`)
+- Automatically reads `capacity-recommendations.json` from `out-dir` when present (pool alignment).
+
+**Behavior (per service)**
+
+1. Merge duplicate protocol rows in the model (**keep max RPS** per protocol).
+2. Scores (0–1 where noted):
+   - `ThroughputScore = rps / max_rps` (across protocols for that service)
+   - `LatencyScore = min_p95 / p95`
+   - `TailRiskScore` = normalized tail penalty (p95/p50 ratio, max/p95 ratio, fail_rate term)
+   - `StabilityScore`: `fail_rate > 2% → 0`; `> 0 → 0.5`; else `1`
+   - `CompositeScore = 0.35·T + 0.2·L + 0.25·Tail + 0.2·Stability`
+3. **Winner** = highest composite (tie-break: lower p95).
+4. **Envelope** flag: winner utilization @ pool=10 &lt; 0.85 when known.
+5. **Predicted safe RPS @ pool 10** from model (winner row).
+6. **Collapse max RPS** from `collapse-summary.json`.
+7. **Recommended pool** from capacity JSON if present, else default `10`.
+
+### 2. Transport dominance modeling
+
+Per service (from model + capacity):
+
+- λ2 = HTTP/2 RPS, λ3 = HTTP/3 RPS  
+- τ = λ3/λ2 − 1  
+- μ = HTTP/3 **μ** (RPS per slot) for thresholding  
+- `pool_threshold = λ3 / μ` (same as (λ2·(1+τ))/μ when τ is consistent)  
+- B = μ × recommended_pool  
+- **Dominance rule documented:** compare backend capacity B to λ2×T where T = λ3/λ2  
+
+**Important correctness fix**
+
+- **`h3_transport_unlocked` is false when τ ≤ 0**, with an explanatory note (HTTP/3 is not delivering higher effective throughput than HTTP/2 in the model, so pool sizing cannot “unlock” H3 transport superiority).
+- When **τ > 0**, **`h3_transport_unlocked`** is **true** only if **recommended_pool ≥ ceil(pool_threshold)**.
+
+This avoids false “HTTP/3 wins” claims when the data show λ3 ≤ λ2.
+
+### 3. Outputs (`bench_logs/performance-lab/`)
+
+| File | Purpose |
+|------|---------|
+| `protocol-happiness-matrix.json` | Per-service scores, winner, envelope, collapse RPS, recommended pool, transport_dominance block |
+| `protocol-superiority-scores.json` | Detailed per-protocol score breakdown |
+| `protocol-ranking.md` | Human-readable report for reviewers and lab handoff |
+
+### 4. Makefile
+
+- **`make protocol-happiness`** — latest `bench_logs/ceiling/*/service-model.json` + `performance-lab/collapse-summary.json` (+ optional `capacity-recommendations.json`) → three outputs above.
+- **`make capacity-one`** — after `performance-lab-one` and `capacity-recommend`, runs **`protocol-happiness`** so pool recommendations and dominance math stay aligned.
+
+`make menu` lists `protocol-happiness` under performance / modeling.
+
+### 5. Documentation
+
+- **`GITHUB_PR_DESCRIPTION.txt`** (main PR doc): section 7.7 updated for `capacity-one`, `protocol-happiness`, and the combined recipe.
+
+---
+
+## What this PR does **not** do
+
+- Does **not** set or change DB pool environment variables in apps.
+- Does **not** modify Kubernetes deployments or ConfigMaps.
+- Does **not** change ingress / Caddy / QUIC stream caps.
+- Does **not** alter runtime throttling or backpressure.
+
+Those are **policy and deployment** changes reserved for **PR #3**. This PR is **analytical tooling only**.
+
+---
+
+## Architectural impact
+
+After this PR, for each service we can state from artifacts:
+
+- Which protocol scores highest under the composite (throughput + latency + tail + stability).
+- Whether the envelope at pool=10 looks stable (utilization gate).
+- Whether HTTP/3 transport superiority is even **eligible** (τ > 0) and whether recommended pool **clears** the dominance threshold.
+- When backend saturation dominates (so protocol differences are secondary).
+
+That moves protocol discussion from opinion to **reproducible math** on the same inputs as capacity modeling.
+
+---
+
+## Testing and validation
+
+- Regenerated `protocol-*` outputs after fixing **`h3_transport_unlocked`** for τ ≤ 0.
+- Verified **τ ≤ 0** forces **`h3_transport_unlocked: false`** and sets the explanatory note (e.g. analytics in sample below).
+- Verified **τ > 0** and **pool ≥ ceil(threshold)** yields **`h3_transport_unlocked: true`** (e.g. auth with recommended pool from capacity file).
+- Composite scores stay in **[0, 1]** per component weighting; winner selection exercised on full service list from latest ceiling run.
+
+---
+
+## Review assignments (small tasks — new to the perf lab)
+
+Teammates are **not expected** to read everything. Pick your lane; skip boxes that feel redundant after the first few. Overlap is fine.
+
+### Joshua — **story, Makefile, “what ships to prod?”**
+
+- [ ] Read the **Executive summary** and **What this PR does not do** (2 min) — confirm this PR is **math + JSON only**, no K8s/env/runtime changes.
+- [ ] Open **`Makefile`** and search for **`protocol-happiness`** and **`capacity-one`** — note that **`capacity-one`** pulls in happiness so pools and dominance stay aligned.
+- [ ] Run **`make menu`** (or grep the Makefile) and find where **`protocol-happiness`** is listed — sanity-check discoverability for operators.
+- [ ] Skim **`bench_logs/performance-lab/protocol-ranking.md`** after a local **`make protocol-happiness`** (or use the sample JSON in this PR) — one service: identify **winner** and **`h3_transport_unlocked`** in plain English.
+- [ ] **Optional:** Read **Architectural impact** — be ready to ask “so what decision does this unblock?” in review.
+
+### Arkar — **scripts, JSON shape, τ / unlock logic**
+
+- [ ] Open **`scripts/protocol/compute-happiness.js`** — find where **CompositeScore** weights are defined (`0.35·T + 0.2·L + …`) — confirm they sum to **1.0** (conceptually).
+- [ ] In the same file, trace **`h3_transport_unlocked`**: when **τ ≤ 0** vs **τ > 0** + pool vs threshold — match to the **Important correctness fix** bullet in this doc.
+- [ ] Open **`bench_logs/performance-lab/protocol-happiness-matrix.json`** (or fixture from a teammate) — pick **one service** and list: **`winner`**, **`transport_gain_tau_h3_vs_h2`**, **`h3_transport_unlocked`**, **`recommended_pool`**.
+- [ ] Open **`protocol-superiority-scores.json`** for that service — find **`tail_penalty`** on at least two protocols — confirm **winner** matches composite story.
+- [ ] **Optional:** Grep **`capacity-recommendations`** in **`compute-happiness.js`** — see how recommended pool is ingested when the file exists.
+
+### Franco — **product / SLO lens, tails, “who wins HTTP/3?”**
+
+- [ ] Read **Why this exists** — rewrite in one sentence why **RPS alone** is not enough for protocol choice.
+- [ ] Read **Reviewer FAQ** item on **tail risk 0.25** — note how that connects to user-visible latency spikes.
+- [ ] In the **Sample output** blocks: for **analytics**, explain why **`h3_transport_unlocked: false`** is the *correct* interpretation when τ is negative.
+- [ ] In the **auth** sample: explain why **`h3_transport_unlocked: true`** requires both **τ > 0** and pool clearing threshold (even if you only paraphrase from the doc).
+- [ ] **Optional:** Skim **`protocol-ranking.md`** — flag any wording that would confuse PM or support; suggest one clarification comment on the PR.
+
+---
+
+## Reviewer FAQ (preemptive)
+
+**Why weight tail risk at 0.25?**  
+Tail amplification correlates with collapse and user-visible SLO risk; we explicitly penalize high p95/p50 and max/p95 and non-zero fail rates.
+
+**Why not use p99 from raw k6?**  
+p99 was often zero or missing in the aggregated model row; extreme tails are already characterized via lognormal(p50,p95) in `service-model.json`.
+
+**Why HTTP/3 μ for pool_threshold?**  
+The dominance band is expressed in terms of λ3 and sustained service capacity for the HTTP/3 path: threshold λ3/(μ_http3) keeps units consistent with “HTTP/3 offered load vs HTTP/3 slot capacity.”
+
+---
+
+## Sample output (excerpt from `protocol-happiness-matrix.json`)
+
+Illustrates **τ ≤ 0** vs **τ > 0** behavior (values from a real regeneration; your run may differ slightly):
+
+```json
+{
+  "service": "analytics",
+  "http1_score": 0.8566,
+  "http2_score": 0.4867,
+  "http3_score": 0.7727,
+  "winner": "http1",
+  "recommended_pool": 62,
+  "transport_dominance": {
+    "transport_gain_tau_h3_vs_h2": -0.1968,
+    "pool_threshold_ceil": 20,
+    "h3_transport_unlocked": false,
+    "note": "HTTP/3 effective RPS ≤ HTTP/2 (τ ≤ 0); pool sizing does not unlock H3 transport superiority."
+  }
+}
+```
+
+```json
+{
+  "service": "auth",
+  "winner": "http2",
+  "recommended_pool": 78,
+  "transport_dominance": {
+    "transport_gain_tau_h3_vs_h2": 0.2794,
+    "pool_threshold_ceil": 36,
+    "h3_transport_unlocked": true,
+    "note": null
+  }
+}
+```
+
+Full tables and narrative: open **`bench_logs/performance-lab/protocol-ranking.md`** after `make protocol-happiness` or `make capacity-one`.
+
+---
+
+## Future work (PR #3 and beyond)
+
+- Wire **`ANALYTICS_DB_POOL_MAX`**, **`AUTH_DB_POOL_MAX`**, etc. (or equivalent) from recommendations into deployments.
+- Align **ingress HTTP/2 / HTTP/3 stream caps** with `recommended_http2_stream_cap` / `recommended_http3_stream_cap` from capacity output.
+- Adaptive backpressure (503 / throttle) when utilization &gt; target.
+- Runtime telemetry: inflight, DB waiters, utilization vs envelope.
+- Capacity / protocol dashboard fed by these JSON artifacts.
+
+---
+
+## Footer
+
+This PR formalizes **transport evaluation under backend constraints**. HTTP/1, HTTP/2, and HTTP/3 are compared on the **same** modeled envelopes and collapse data, and **τ ≤ 0** explicitly prevents backend-limited runs from being misread as HTTP/3 “wins.”
+
+**Made with Tom.**

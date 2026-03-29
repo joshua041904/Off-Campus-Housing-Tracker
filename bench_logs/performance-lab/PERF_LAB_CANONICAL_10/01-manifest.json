@@ -1,0 +1,54 @@
+{
+  "bundle_schema": "perf-lab-canonical-10-v1",
+  "generated_at": "2026-03-27T01:47:55.177Z",
+  "perf_dir": "/Users/tom/Off-Campus-Housing-Tracker/bench_logs/performance-lab",
+  "output_dir": "/Users/tom/Off-Campus-Housing-Tracker/bench_logs/performance-lab/PERF_LAB_CANONICAL_10",
+  "note": "Files 02–10 are full merges or verbatim copies of performance-lab artifacts (no truncation). This manifest lists sha256 only for 02–10 (not for 01).",
+  "files": [
+    {
+      "name": "02-capacity.json",
+      "sha256": "adb447a7e801c53d54940e25713ebcf61fa714bd319840fac63e8515552675e7",
+      "bytes": 12272
+    },
+    {
+      "name": "03-ingress-tuning.md",
+      "sha256": "270159de59a038e776c4042720f85e58d7748184b4df71cab5bc592107732107",
+      "bytes": 1125
+    },
+    {
+      "name": "04-classification.json",
+      "sha256": "94a82200aa24e91b01ac9e4d2b5f6935b67349633b670dd18c87f47b5cc055a3",
+      "bytes": 5835
+    },
+    {
+      "name": "05-models-merit-collapse.json",
+      "sha256": "51acf131e5b191a7993a3654c04e492d7334e6cda2f50380ac8b85297ab222d9",
+      "bytes": 17853
+    },
+    {
+      "name": "06-performance-lab-report.md",
+      "sha256": "1c6df59aca4c8f08751b5486ed38e5fb2d18d13cfc7d4876d950e30cd9e666ed",
+      "bytes": 2883
+    },
+    {
+      "name": "07-protocol-scores.json",
+      "sha256": "dd4c75877f4d372f773e73bdb7f69e95c1fd0d08cd0cd76ebac8741b479df058",
+      "bytes": 30203
+    },
+    {
+      "name": "08-protocol-ranking.md",
+      "sha256": "0d20466fb89d63645285f24de35f1c00a2729823457f57a33093182d5e27b2dc",
+      "bytes": 8407
+    },
+    {
+      "name": "09-envelope-dashboard.json",
+      "sha256": "03a661c6a21781bed276cec0a25c714737207db4596a37ae72295d87398c9622",
+      "bytes": 3802
+    },
+    {
+      "name": "10-transport-dominance-heatmap.json",
+      "sha256": "6454c0ca6d2293ed3a82b1e983bd6db219f8244c13078cc83c6694ee4dc6c2e5",
+      "bytes": 491343
+    }
+  ]
+}

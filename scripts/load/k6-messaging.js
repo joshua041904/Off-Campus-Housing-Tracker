@@ -8,6 +8,9 @@
  *   BASE_URL=https://off-campus-housing.test K6_RESOLVE=off-campus-housing.test:443:<LB_IP> \
  *   K6_TLS_CA_CERT=$PWD/certs/dev-root.pem k6 run scripts/load/k6-messaging.js
  *   DURATION=60s RATE=50 VUS=20 k6 run scripts/load/k6-messaging.js
+ *
+ * Orchestration suites (edge smoke / preflight): set K6_ORCHESTRATION_VU_SCENARIO=1 to use
+ * ramping-vus instead of constant-arrival-rate (less iteration drop / concurrency pile-up through api-gateway).
  */
 import http from 'k6/http';
 import { check, sleep } from 'k6';
@@ -24,29 +27,47 @@ const BASE = RAW_BASE;
 const DUR = __ENV.DURATION || '30s';
 const RATE = Number(__ENV.RATE || 20);
 const VUS = Number(__ENV.VUS || 10);
+const ORCH_VU = __ENV.K6_ORCHESTRATION_VU_SCENARIO === '1';
+const NO_VU_CONN_REUSE = __ENV.K6_HTTP2_DISABLE_REUSE === '1';
 
 export const errors = new Rate('errors');
 
 http.setResponseCallback(http.expectedStatuses({ min: 200, max: 399 }, 502, 503));
 
-export const options = {
-  ...strictEdgeTlsOptions(RAW_BASE),
-  scenarios: {
-    messaging_health: {
-      executor: 'constant-arrival-rate',
-      rate: RATE,
-      timeUnit: '1s',
-      duration: DUR,
-      preAllocatedVUs: VUS,
-      maxVUs: Math.max(VUS, 50),
-    },
-  },
+const scenarios = ORCH_VU
+  ? {
+      messaging_health: {
+        executor: 'ramping-vus',
+        startVUs: Math.min(2, Math.max(1, VUS)),
+        stages: [
+          { duration: '10s', target: Math.min(5, Math.max(2, VUS)) },
+          { duration: '10s', target: Math.min(5, Math.max(2, VUS)) },
+          { duration: '5s', target: 0 },
+        ],
+        gracefulRampDown: '5s',
+      },
+    }
+  : {
+      messaging_health: {
+        executor: 'constant-arrival-rate',
+        rate: RATE,
+        timeUnit: '1s',
+        duration: DUR,
+        preAllocatedVUs: VUS,
+        maxVUs: Math.max(VUS, 50),
+      },
+    };
+
+// k6/xk6-http3 Babel: no object spread — Object.assign. K6_HTTP2_DISABLE_REUSE=1 → new connection per iteration (protocol comparison).
+export const options = Object.assign({}, strictEdgeTlsOptions(RAW_BASE), {
+  scenarios,
+  noVUConnectionReuse: NO_VU_CONN_REUSE,
   thresholds: {
     errors: ['rate<0.02'],
     http_req_failed: ['rate<0.02'],
-    'http_req_duration': ['p(95)<500', 'p(99)<2000', 'p(100)<8000'],
+    http_req_duration: ['p(95)<500', 'p(99)<2000', 'p(100)<8000'],
   },
-};
+});
 
 const api = (p) => `${BASE}${HAS_API ? '' : '/api'}${p}`;
 

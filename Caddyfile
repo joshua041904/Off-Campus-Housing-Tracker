@@ -15,12 +15,15 @@
 	}
 	servers {
 		protocols h1 h2 h3
+		# Longer idle/write under H3 multiplexing + parallel Playwright / load tools (avoid premature stream close).
 		timeouts {
-			idle 2m
-			read_body 2m
-			write 2m
+			idle 5m
+			read_body 3m
+			write 3m
 		}
 		enable_full_duplex
+		# Avoid tight default header cap under large cookies / tracing headers during suite load.
+		max_header_size 1MiB
 	}
 }
 
@@ -84,6 +87,28 @@ https://off-campus-housing.test {
 			header_up Tracestate {http.request.header.Tracestate}
 			transport http {
 				versions h2c
+				dial_timeout 10s
+				response_header_timeout 60s
+				read_buffer 32MiB
+				write_buffer 32MiB
+				keepalive 2m
+				keepalive_interval 30s
+				keepalive_idle_conns 256
+				keepalive_idle_conns_per_host 64
+			}
+		}
+	}
+
+	# Grafana — same edge hostname (subpath); set GF_SERVER_ROOT_URL + GF_SERVER_SERVE_FROM_SUB_PATH on the Grafana deploy.
+	handle_path /grafana/* {
+		reverse_proxy http://grafana.observability.svc.cluster.local:3000 {
+			header_up Host {http.request.host}
+			header_up X-Forwarded-Proto https
+			header_up X-Request-Id {http.request.id}
+			transport http {
+				versions h1 h2
+				dial_timeout 10s
+				response_header_timeout 60s
 			}
 		}
 	}
@@ -94,6 +119,8 @@ https://off-campus-housing.test {
 		not header Content-Type application/grpc*
 	}
 	handle @api {
+		# REST only (gRPC excluded by @api matcher) — safe to compress.
+		encode gzip zstd
 		reverse_proxy http://api-gateway.off-campus-housing-tracker.svc.cluster.local:4020 {
 			header_up Host {http.request.host}
 			header_up X-Forwarded-Proto https
@@ -104,8 +131,14 @@ https://off-campus-housing.test {
 			transport http {
 				versions h1 h2
 				dial_timeout 10s
-				response_header_timeout 30s
+				response_header_timeout 60s
 				expect_continue_timeout 5s
+				read_buffer 32MiB
+				write_buffer 32MiB
+				keepalive 2m
+				keepalive_interval 30s
+				keepalive_idle_conns 256
+				keepalive_idle_conns_per_host 64
 			}
 			lb_policy round_robin
 			health_uri /healthz

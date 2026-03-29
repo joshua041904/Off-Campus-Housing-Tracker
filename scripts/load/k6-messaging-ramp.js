@@ -17,6 +17,8 @@ const HAS_API = RAW_BASE.endsWith("/api");
 const BASE = RAW_BASE.replace(/\/$/, "");
 const api = (p) => `${BASE}${HAS_API ? "" : "/api"}${p}`;
 
+http.setResponseCallback(http.expectedStatuses({ min: 200, max: 399 }, 429, 503));
+
 export const options = {
   ...strictEdgeTlsOptions(RAW_BASE),
   scenarios: {
@@ -35,7 +37,8 @@ export const options = {
     },
   },
   thresholds: {
-    http_req_failed: ["rate<0.5"],
+    // 503 excluded via setResponseCallback — threshold targets TCP/EOF/5xx collapse, not bounded overload.
+    http_req_failed: ["rate<0.02"],
   },
 };
 

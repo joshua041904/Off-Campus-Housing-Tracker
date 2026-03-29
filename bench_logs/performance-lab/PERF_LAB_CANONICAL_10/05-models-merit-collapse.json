@@ -1,0 +1,629 @@
+{
+  "service_models": [
+    {
+      "service": "analytics",
+      "classification": "DB_POOL_LIMITED_TRANSPORT_SENSITIVE",
+      "modeled_protocol": "http1",
+      "max_rps_pre_collapse": 131.49,
+      "safe_rps": 105.19,
+      "current_rps_at_vus_20": 101.75321114792246,
+      "headroom_rps": 3.44,
+      "avg_waiting_ms_anchor": 352.49634485738903,
+      "mu_estimated_rps_per_slot": 2.8369,
+      "utilization_by_pool": {
+        "10": 4.0588,
+        "20": 2.0294,
+        "30": 1.3529,
+        "40": 1.0147
+      },
+      "predicted_safe_rps_by_pool": {
+        "10": 22.7,
+        "20": 45.39,
+        "30": 68.09,
+        "40": 90.78
+      }
+    },
+    {
+      "service": "auth",
+      "classification": "TRANSPORT_SENSITIVE",
+      "modeled_protocol": "http3",
+      "max_rps_pre_collapse": 289.65,
+      "safe_rps": 231.72,
+      "current_rps_at_vus_20": 135.69869760885575,
+      "headroom_rps": 96.02,
+      "avg_waiting_ms_anchor": 200.5938423621276,
+      "mu_estimated_rps_per_slot": 4.9852,
+      "utilization_by_pool": {
+        "10": 4.7861,
+        "20": 2.393,
+        "30": 1.5954,
+        "40": 1.1965
+      },
+      "predicted_safe_rps_by_pool": {
+        "10": 39.88,
+        "20": 79.76,
+        "30": 119.64,
+        "40": 159.53
+      }
+    },
+    {
+      "service": "booking",
+      "classification": "TRANSPORT_SENSITIVE",
+      "modeled_protocol": "http2",
+      "max_rps_pre_collapse": 129.89,
+      "safe_rps": 103.91,
+      "current_rps_at_vus_20": 106.78137188244486,
+      "headroom_rps": -2.87,
+      "avg_waiting_ms_anchor": 333.6463800638974,
+      "mu_estimated_rps_per_slot": 2.9972,
+      "utilization_by_pool": {
+        "10": 4.3337,
+        "20": 2.1668,
+        "30": 1.4446,
+        "40": 1.0834
+      },
+      "predicted_safe_rps_by_pool": {
+        "10": 23.98,
+        "20": 47.95,
+        "30": 71.93,
+        "40": 95.91
+      }
+    },
+    {
+      "service": "event-layer",
+      "classification": "TRANSPORT_SENSITIVE",
+      "modeled_protocol": "http3",
+      "max_rps_pre_collapse": 207.05,
+      "safe_rps": 165.64,
+      "current_rps_at_vus_20": 193.11389854074693,
+      "headroom_rps": -27.47,
+      "avg_waiting_ms_anchor": 134.22690210867822,
+      "mu_estimated_rps_per_slot": 7.4501,
+      "utilization_by_pool": {
+        "10": 2.7523,
+        "20": 1.3762,
+        "30": 0.9174,
+        "40": 0.6881
+      },
+      "predicted_safe_rps_by_pool": {
+        "10": 59.6,
+        "20": 119.2,
+        "30": 178.8,
+        "40": 238.4
+      }
+    },
+    {
+      "service": "gateway",
+      "classification": "TRANSPORT_SENSITIVE",
+      "modeled_protocol": "http2",
+      "max_rps_pre_collapse": 563.6,
+      "safe_rps": 450.88,
+      "current_rps_at_vus_20": 323.1813659994423,
+      "headroom_rps": 127.7,
+      "avg_waiting_ms_anchor": 55.577296861621896,
+      "mu_estimated_rps_per_slot": 17.993,
+      "utilization_by_pool": {
+        "10": 3.1323,
+        "20": 1.5662,
+        "30": 1.0441,
+        "40": 0.7831
+      },
+      "predicted_safe_rps_by_pool": {
+        "10": 143.94,
+        "20": 287.89,
+        "30": 431.83,
+        "40": 575.77
+      }
+    },
+    {
+      "service": "listings",
+      "classification": "DB_POOL_LIMITED_TRANSPORT_SENSITIVE",
+      "modeled_protocol": "http2",
+      "max_rps_pre_collapse": 198.73,
+      "safe_rps": 158.98,
+      "current_rps_at_vus_20": 116.46708436073291,
+      "headroom_rps": 42.51,
+      "avg_waiting_ms_anchor": 154.45399770972895,
+      "mu_estimated_rps_per_slot": 6.4744,
+      "utilization_by_pool": {
+        "10": 3.0067,
+        "20": 1.5034,
+        "30": 1.0022,
+        "40": 0.7517
+      },
+      "predicted_safe_rps_by_pool": {
+        "10": 51.8,
+        "20": 103.59,
+        "30": 155.39,
+        "40": 207.18
+      }
+    },
+    {
+      "service": "media",
+      "classification": "FANOUT_AMPLIFIED",
+      "modeled_protocol": "http2",
+      "max_rps_pre_collapse": 14.99,
+      "safe_rps": 11.99,
+      "current_rps_at_vus_20": 14.988490802040632,
+      "headroom_rps": -3,
+      "avg_waiting_ms_anchor": 17.703870144284117,
+      "mu_estimated_rps_per_slot": 56.4848,
+      "utilization_by_pool": {
+        "10": 0.0265,
+        "20": 0.0133,
+        "30": 0.0088,
+        "40": 0.0066
+      },
+      "predicted_safe_rps_by_pool": {
+        "10": 451.88,
+        "20": 903.76,
+        "30": 1355.64,
+        "40": 1807.51
+      }
+    },
+    {
+      "service": "messaging",
+      "classification": "FANOUT_AMPLIFIED",
+      "modeled_protocol": "http1",
+      "max_rps_pre_collapse": 19.98,
+      "safe_rps": 15.98,
+      "current_rps_at_vus_20": 19.980058236874747,
+      "headroom_rps": -4,
+      "avg_waiting_ms_anchor": 14.471499999999994,
+      "mu_estimated_rps_per_slot": 69.1013,
+      "utilization_by_pool": {
+        "10": 0.0289,
+        "20": 0.0145,
+        "30": 0.0096,
+        "40": 0.0072
+      },
+      "predicted_safe_rps_by_pool": {
+        "10": 552.81,
+        "20": 1105.62,
+        "30": 1658.43,
+        "40": 2211.24
+      }
+    },
+    {
+      "service": "trust",
+      "classification": "DB_POOL_LIMITED_TRANSPORT_SENSITIVE",
+      "modeled_protocol": "http3",
+      "max_rps_pre_collapse": 104.59,
+      "safe_rps": 83.67,
+      "current_rps_at_vus_20": 88.17452353357204,
+      "headroom_rps": -4.5,
+      "avg_waiting_ms_anchor": 300.3489830936966,
+      "mu_estimated_rps_per_slot": 3.3295,
+      "utilization_by_pool": {
+        "10": 3.1414,
+        "20": 1.5707,
+        "30": 1.0471,
+        "40": 0.7854
+      },
+      "predicted_safe_rps_by_pool": {
+        "10": 26.64,
+        "20": 53.27,
+        "30": 79.91,
+        "40": 106.54
+      }
+    }
+  ],
+  "protocol_merit": [
+    {
+      "service": "analytics",
+      "merit": {
+        "http1": {
+          "throughput_merit_from_vus": null,
+          "latency_merit_from_vus": null,
+          "stability_merit": false,
+          "avg_throughput_advantage_percent": null,
+          "avg_p95_improvement_percent": null
+        },
+        "http2": {
+          "throughput_merit_from_vus": null,
+          "latency_merit_from_vus": null,
+          "stability_merit": false,
+          "avg_throughput_advantage_percent": null,
+          "avg_p95_improvement_percent": 9.81
+        },
+        "http3": {
+          "throughput_merit_from_vus": 20,
+          "latency_merit_from_vus": 20,
+          "stability_merit": false,
+          "avg_throughput_advantage_percent": 18.35,
+          "avg_p95_improvement_percent": 26.96
+        }
+      }
+    },
+    {
+      "service": "auth",
+      "merit": {
+        "http1": {
+          "throughput_merit_from_vus": null,
+          "latency_merit_from_vus": null,
+          "stability_merit": false,
+          "avg_throughput_advantage_percent": null,
+          "avg_p95_improvement_percent": null
+        },
+        "http2": {
+          "throughput_merit_from_vus": null,
+          "latency_merit_from_vus": null,
+          "stability_merit": true,
+          "avg_throughput_advantage_percent": 2569,
+          "avg_p95_improvement_percent": 66.72
+        },
+        "http3": {
+          "throughput_merit_from_vus": null,
+          "latency_merit_from_vus": null,
+          "stability_merit": true,
+          "avg_throughput_advantage_percent": 1770.24,
+          "avg_p95_improvement_percent": null
+        }
+      }
+    },
+    {
+      "service": "booking",
+      "merit": {
+        "http1": {
+          "throughput_merit_from_vus": null,
+          "latency_merit_from_vus": null,
+          "stability_merit": false,
+          "avg_throughput_advantage_percent": null,
+          "avg_p95_improvement_percent": null
+        },
+        "http2": {
+          "throughput_merit_from_vus": null,
+          "latency_merit_from_vus": null,
+          "stability_merit": true,
+          "avg_throughput_advantage_percent": 8.31,
+          "avg_p95_improvement_percent": 11.26
+        },
+        "http3": {
+          "throughput_merit_from_vus": null,
+          "latency_merit_from_vus": null,
+          "stability_merit": false,
+          "avg_throughput_advantage_percent": 6.61,
+          "avg_p95_improvement_percent": 17.26
+        }
+      }
+    },
+    {
+      "service": "event-layer",
+      "merit": {
+        "http1": {
+          "throughput_merit_from_vus": null,
+          "latency_merit_from_vus": null,
+          "stability_merit": false,
+          "avg_throughput_advantage_percent": null,
+          "avg_p95_improvement_percent": null
+        },
+        "http2": {
+          "throughput_merit_from_vus": null,
+          "latency_merit_from_vus": null,
+          "stability_merit": true,
+          "avg_throughput_advantage_percent": null,
+          "avg_p95_improvement_percent": null
+        },
+        "http3": {
+          "throughput_merit_from_vus": null,
+          "latency_merit_from_vus": null,
+          "stability_merit": true,
+          "avg_throughput_advantage_percent": null,
+          "avg_p95_improvement_percent": null
+        }
+      }
+    },
+    {
+      "service": "gateway",
+      "merit": {
+        "http1": {
+          "throughput_merit_from_vus": null,
+          "latency_merit_from_vus": null,
+          "stability_merit": false,
+          "avg_throughput_advantage_percent": null,
+          "avg_p95_improvement_percent": null
+        },
+        "http2": {
+          "throughput_merit_from_vus": null,
+          "latency_merit_from_vus": null,
+          "stability_merit": true,
+          "avg_throughput_advantage_percent": 23.37,
+          "avg_p95_improvement_percent": 52.01
+        },
+        "http3": {
+          "throughput_merit_from_vus": null,
+          "latency_merit_from_vus": null,
+          "stability_merit": false,
+          "avg_throughput_advantage_percent": null,
+          "avg_p95_improvement_percent": null
+        }
+      }
+    },
+    {
+      "service": "listings",
+      "merit": {
+        "http1": {
+          "throughput_merit_from_vus": null,
+          "latency_merit_from_vus": null,
+          "stability_merit": false,
+          "avg_throughput_advantage_percent": null,
+          "avg_p95_improvement_percent": null
+        },
+        "http2": {
+          "throughput_merit_from_vus": null,
+          "latency_merit_from_vus": null,
+          "stability_merit": true,
+          "avg_throughput_advantage_percent": null,
+          "avg_p95_improvement_percent": null
+        },
+        "http3": {
+          "throughput_merit_from_vus": null,
+          "latency_merit_from_vus": null,
+          "stability_merit": true,
+          "avg_throughput_advantage_percent": 42.36,
+          "avg_p95_improvement_percent": 23.91
+        }
+      }
+    },
+    {
+      "service": "media",
+      "merit": {
+        "http1": {
+          "throughput_merit_from_vus": null,
+          "latency_merit_from_vus": null,
+          "stability_merit": false,
+          "avg_throughput_advantage_percent": null,
+          "avg_p95_improvement_percent": null
+        },
+        "http2": {
+          "throughput_merit_from_vus": null,
+          "latency_merit_from_vus": null,
+          "stability_merit": true,
+          "avg_throughput_advantage_percent": null,
+          "avg_p95_improvement_percent": null
+        },
+        "http3": {
+          "throughput_merit_from_vus": null,
+          "latency_merit_from_vus": null,
+          "stability_merit": true,
+          "avg_throughput_advantage_percent": null,
+          "avg_p95_improvement_percent": 1.98
+        }
+      }
+    },
+    {
+      "service": "messaging",
+      "merit": {
+        "http1": {
+          "throughput_merit_from_vus": null,
+          "latency_merit_from_vus": null,
+          "stability_merit": false,
+          "avg_throughput_advantage_percent": null,
+          "avg_p95_improvement_percent": null
+        },
+        "http2": {
+          "throughput_merit_from_vus": null,
+          "latency_merit_from_vus": null,
+          "stability_merit": false,
+          "avg_throughput_advantage_percent": 0.08,
+          "avg_p95_improvement_percent": 44.91
+        },
+        "http3": {
+          "throughput_merit_from_vus": null,
+          "latency_merit_from_vus": null,
+          "stability_merit": false,
+          "avg_throughput_advantage_percent": null,
+          "avg_p95_improvement_percent": null
+        }
+      }
+    },
+    {
+      "service": "trust",
+      "merit": {
+        "http1": {
+          "throughput_merit_from_vus": null,
+          "latency_merit_from_vus": null,
+          "stability_merit": false,
+          "avg_throughput_advantage_percent": null,
+          "avg_p95_improvement_percent": null
+        },
+        "http2": {
+          "throughput_merit_from_vus": null,
+          "latency_merit_from_vus": null,
+          "stability_merit": true,
+          "avg_throughput_advantage_percent": null,
+          "avg_p95_improvement_percent": null
+        },
+        "http3": {
+          "throughput_merit_from_vus": 10,
+          "latency_merit_from_vus": null,
+          "stability_merit": true,
+          "avg_throughput_advantage_percent": 39.1,
+          "avg_p95_improvement_percent": 24.07
+        }
+      }
+    }
+  ],
+  "collapse_summary": [
+    {
+      "service": "analytics",
+      "protocols": {
+        "http3": {
+          "collapse_vus": 40,
+          "collapse_reason": "p95>=1000",
+          "max_rps_pre_collapse": 131.09475021628228
+        },
+        "http2": {
+          "collapse_vus": 40,
+          "collapse_reason": "fail_rate>=0.01",
+          "max_rps_pre_collapse": 99.0609896359186
+        },
+        "http1": {
+          "collapse_vus": 60,
+          "collapse_reason": "p95>=1000|rps_stall",
+          "max_rps_pre_collapse": 131.4913401905226
+        }
+      }
+    },
+    {
+      "service": "auth",
+      "protocols": {
+        "http3": {
+          "collapse_vus": null,
+          "collapse_reason": "none",
+          "max_rps_pre_collapse": 289.6516176378461
+        },
+        "http2": {
+          "collapse_vus": 40,
+          "collapse_reason": "rps_stall",
+          "max_rps_pre_collapse": 226.3890530222922
+        },
+        "http1": {
+          "collapse_vus": 20,
+          "collapse_reason": "p95>=1000",
+          "max_rps_pre_collapse": 4.8804186597885835
+        }
+      }
+    },
+    {
+      "service": "booking",
+      "protocols": {
+        "http3": {
+          "collapse_vus": 40,
+          "collapse_reason": "p95>=1000",
+          "max_rps_pre_collapse": 122.53859193762463
+        },
+        "http2": {
+          "collapse_vus": 60,
+          "collapse_reason": "p95>=1000",
+          "max_rps_pre_collapse": 129.88778094104552
+        },
+        "http1": {
+          "collapse_vus": 40,
+          "collapse_reason": "p95>=1000",
+          "max_rps_pre_collapse": 110.76668090382421
+        }
+      }
+    },
+    {
+      "service": "event-layer",
+      "protocols": {
+        "http3": {
+          "collapse_vus": 50,
+          "collapse_reason": "rps_stall",
+          "max_rps_pre_collapse": 207.04573408922587
+        },
+        "http2": {
+          "collapse_vus": 20,
+          "collapse_reason": "p95>=1000",
+          "max_rps_pre_collapse": 113.78868515676206
+        },
+        "http1": {
+          "collapse_vus": 10,
+          "collapse_reason": "p95>=1000",
+          "max_rps_pre_collapse": 1.6481548085400235
+        }
+      }
+    },
+    {
+      "service": "gateway",
+      "protocols": {
+        "http3": {
+          "collapse_vus": 10,
+          "collapse_reason": "no_metrics",
+          "max_rps_pre_collapse": 1
+        },
+        "http2": {
+          "collapse_vus": null,
+          "collapse_reason": "none",
+          "max_rps_pre_collapse": 563.600365192936
+        },
+        "http1": {
+          "collapse_vus": 50,
+          "collapse_reason": "rps_stall",
+          "max_rps_pre_collapse": 473.5470487864292
+        }
+      }
+    },
+    {
+      "service": "listings",
+      "protocols": {
+        "http3": {
+          "collapse_vus": 50,
+          "collapse_reason": "p95>=1000|rps_stall",
+          "max_rps_pre_collapse": 143.28148443810994
+        },
+        "http2": {
+          "collapse_vus": 50,
+          "collapse_reason": "rps_stall",
+          "max_rps_pre_collapse": 198.7305582696151
+        },
+        "http1": {
+          "collapse_vus": 20,
+          "collapse_reason": "fail_rate>=0.01",
+          "max_rps_pre_collapse": 122.2017322511765
+        }
+      }
+    },
+    {
+      "service": "media",
+      "protocols": {
+        "http3": {
+          "collapse_vus": 30,
+          "collapse_reason": "rps_stall",
+          "max_rps_pre_collapse": 14.98832434514054
+        },
+        "http2": {
+          "collapse_vus": 30,
+          "collapse_reason": "rps_stall",
+          "max_rps_pre_collapse": 14.988490802040632
+        },
+        "http1": {
+          "collapse_vus": 10,
+          "collapse_reason": "p95>=1000",
+          "max_rps_pre_collapse": 12.275877170138145
+        }
+      }
+    },
+    {
+      "service": "messaging",
+      "protocols": {
+        "http3": {
+          "collapse_vus": 30,
+          "collapse_reason": "rps_stall",
+          "max_rps_pre_collapse": 19.97974709100455
+        },
+        "http2": {
+          "collapse_vus": 30,
+          "collapse_reason": "rps_stall",
+          "max_rps_pre_collapse": 19.979983386643813
+        },
+        "http1": {
+          "collapse_vus": 30,
+          "collapse_reason": "rps_stall",
+          "max_rps_pre_collapse": 19.980058236874747
+        }
+      }
+    },
+    {
+      "service": "trust",
+      "protocols": {
+        "http3": {
+          "collapse_vus": 50,
+          "collapse_reason": "p95>=1000",
+          "max_rps_pre_collapse": 104.59204870390141
+        },
+        "http2": {
+          "collapse_vus": 30,
+          "collapse_reason": "p95>=1000",
+          "max_rps_pre_collapse": 59.34309424611955
+        },
+        "http1": {
+          "collapse_vus": 10,
+          "collapse_reason": "fail_rate>=0.01",
+          "max_rps_pre_collapse": 62.47413830289752
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,101 @@
+WEBAPP E2E, UI SURFACE, DATA STORES, RISKS
+==========================================
+Generated for Off-Campus Housing Tracker. Plain text (no Markdown).
+
+Purpose
+-------
+Browser E2E (Playwright) under webapp/e2e/ exercises the Next.js webapp through the same HTTPS edge
+as real users: Caddy to HAProxy to api-gateway to gRPC/HTTP services. Tests use E2E_API_BASE
+(default https://off-campus-housing.test) and ignore TLS verification errors for local dev certs while
+still driving real API behavior.
+
+ASCII architecture (logical)
+------------------------------
+
+  [ Browser ]
+       |
+       v
+  +-------------+     +----------+     +------------------+
+  |   Caddy     | --> | HAProxy  | --> |   api-gateway    |
+  |  TLS :443   |     | (optional)|     |  HTTP + gRPC fanout
+  +-------------+     +----------+     +--------+---------+
+                                              |
+            +----------------+----------------+----------------+
+            |                |                |                |
+            v                v                v                v
+     +-------------+  +-------------+  +-------------+  +-------------+
+     | auth-service|  | listings-svc|  | booking-svc |  | messaging-svc|
+     +-------------+  +-------------+  +-------------+  +-------------+
+            |                |                |                |
+            v                v                v                v
+     +-------------+  +-------------+  +-------------+  +-------------+
+     | Postgres    |  | Postgres    |  | Postgres    |  | Postgres    |
+     | (auth DB)   |  | (listings)  |  | (bookings)  |  | (messaging) |
+     +-------------+  +-------------+  +-------------+  +-------------+
+
+Further services (same gateway pattern): trust, notification, analytics, media. Analytics may call
+Ollama when OLLAMA_BASE_URL is set; otherwise listing-feel returns a stub string.
+
+Webapp routes covered by E2E (representative)
+---------------------------------------------
+  /               Home marketing shell
+  /login          Session form
+  /register       Account creation then redirect to /dashboard
+  /dashboard      Search history + watchlist (JWT from localStorage)
+  /listings       Public search; authenticated "Post a listing" block
+  /analytics      Daily metrics + listing assistant (renter vs landlord radio + Analyze)
+  /trust          Reputation/report flows (test ids on forms)
+  /mission        Product copy (mentions messaging as a backend capability)
+
+Screenshots (PNG) from Playwright
+---------------------------------
+Optional capture writes full-page PNGs under:
+
+  webapp/e2e/screenshots/
+
+Run from repo root:
+
+  E2E_SCREENSHOTS=1 ./scripts/webapp-playwright-strict-edge.sh e2e/ui-screenshots.spec.ts
+
+Files are numbered: 01-home.png through 07-analytics.png. The directory is gitignored for PNG
+binaries; re-run locally after UI changes to refresh collateral.
+
+Database breakdown (local Docker / preflight convention)
+---------------------------------------------------------
+Eight PostgreSQL instances on host ports 5441-5448 map to service schemas (auth, listings,
+bookings, messaging, notification, trust, analytics, media). The webapp does not connect to
+Postgres directly; it calls the gateway. Schema inspection reports may be written under
+bench_logs/schema-report-*.md during preflight.
+
+Messaging and the webapp
+------------------------
+There is no forum or direct-message UI in the Next.js app yet. Messaging, forums, and P2P flows
+are covered by service integration tests and scripts/test-microservices-http2-http3-housing.sh.
+The E2E spec messaging-mentioned.spec.ts only checks mission copy still references messaging.
+
+Challenges
+----------
+  - Edge readiness: E2E skips or fails fast if /api/readyz is not 200 (auth gRPC must be healthy
+    behind the gateway). Port-forward only to the gateway is insufficient if auth is down.
+  - TLS: Host k6 and browsers need the dev CA trusted (macOS keychain or NODE_EXTRA_CA_CERTS).
+  - Strict locators: Avoid combining getByText(/Ollama/i) with main content that also contains
+    the literal OLLAMA_BASE_URL in a <code> tag; that caused Playwright strict-mode duplicate
+    matches. Prefer data-testid for assertions.
+  - Colima / MetalLB: Full-stack tests assume the hostname resolves to the LB IP and services
+    are scaled.
+
+Risks
+-----
+  - Flaky infra (Kafka, Postgres on host) can make registration or listing create time out.
+  - Listing-feel Analyze can take up to two minutes when analytics-service or Ollama is slow.
+  - Parallel workers: tests use unique emails; storage is isolated per test context.
+  - Screenshot job adds wall time; keep behind E2E_SCREENSHOTS=1 for routine CI.
+
+Listings HTTP search query parameters (gateway GET /api/listings/search)
+-------------------------------------------------------------------------
+  - q, min_price, max_price (cents), smoke_free=1, pet_friendly=1, furnished=1
+  - amenities=comma-separated slugs (JSON array containment on listings.amenities), e.g. garage,parking
+  - new_within_days=1..365 (filters created_at since N days ago)
+  - sort=created_desc | listed_desc | price_asc | price_desc
+  - POST /api/listings/create accepts optional latitude, longitude (doubles) and amenities[] including
+    garage, parking, in_unit_laundry, dishwasher. Rows return listed_at, latitude, longitude in JSON.

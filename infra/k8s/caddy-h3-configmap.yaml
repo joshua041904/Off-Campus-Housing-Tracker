@@ -23,11 +23,12 @@ data:
       servers {
         protocols h1 h2 h3
         timeouts {
-          idle 2m
-          read_body 2m
-          write 2m
+          idle 5m
+          read_body 3m
+          write 3m
         }
         enable_full_duplex
+        max_header_size 1MiB
       }
     }
 
@@ -84,6 +85,27 @@ data:
           header_up Tracestate {http.request.header.Tracestate}
           transport http {
             versions h2c
+            dial_timeout 10s
+            response_header_timeout 60s
+            read_buffer 32MiB
+            write_buffer 32MiB
+            keepalive 2m
+            keepalive_interval 30s
+            keepalive_idle_conns 256
+            keepalive_idle_conns_per_host 64
+          }
+        }
+      }
+
+      handle_path /grafana/* {
+        reverse_proxy http://grafana.observability.svc.cluster.local:3000 {
+          header_up Host {http.request.host}
+          header_up X-Forwarded-Proto https
+          header_up X-Request-Id {http.request.id}
+          transport http {
+            versions h1 h2
+            dial_timeout 10s
+            response_header_timeout 60s
           }
         }
       }
@@ -93,6 +115,7 @@ data:
         not header Content-Type application/grpc*
       }
       handle @api {
+        encode gzip zstd
         reverse_proxy http://api-gateway.off-campus-housing-tracker.svc.cluster.local:4020 {
           header_up Host {http.request.host}
           header_up X-Forwarded-Proto https
@@ -102,8 +125,14 @@ data:
           transport http {
             versions h1 h2
             dial_timeout 10s
-            response_header_timeout 30s
+            response_header_timeout 60s
             expect_continue_timeout 5s
+            read_buffer 32MiB
+            write_buffer 32MiB
+            keepalive 2m
+            keepalive_interval 30s
+            keepalive_idle_conns 256
+            keepalive_idle_conns_per_host 64
           }
           lb_policy round_robin
           health_uri /healthz

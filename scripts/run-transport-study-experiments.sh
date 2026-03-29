@@ -82,7 +82,8 @@ if _has_exp 2; then
     [[ -n "$latest" ]] && [[ -d "$latest" ]] && _summary="$latest/rotation-summary.json"
   fi
   if [[ -z "$_summary" ]] || [[ ! -f "$_summary" ]]; then
-    _blatest=$(ls -td "$REPO_ROOT"/bench_logs/preflight-*/suite-logs 2>/dev/null | head -1)
+    _blatest=$(ls -td "$REPO_ROOT"/bench_logs/run-*/suite-logs 2>/dev/null | head -1)
+    [[ -z "$_blatest" ]] && _blatest=$(ls -td "$REPO_ROOT"/bench_logs/preflight-*/suite-logs 2>/dev/null | head -1)
     [[ -n "$_blatest" ]] && [[ -f "$_blatest/rotation-summary.json" ]] && _summary="$_blatest/rotation-summary.json"
   fi
   if [[ -z "$_summary" ]] || [[ ! -f "$_summary" ]]; then

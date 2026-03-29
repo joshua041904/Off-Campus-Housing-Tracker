@@ -46,7 +46,7 @@ ENV_PREFIX=dev ./scripts/create-kafka-event-topics.sh
 
 ## 4. TLS / certs
 
-Strict TLS and service mTLS must match your edge (Caddy/Envoy) and in-cluster secrets. See `docs/CERTS_AND_TESTING_FOR_MORTALS.md`.
+Strict TLS and service mTLS must match your edge (Caddy/Envoy) and in-cluster secrets. See `docs/LOCAL_TLS_AND_TESTING_GUIDE.md`.
 
 ## 5. Images + deploy
 

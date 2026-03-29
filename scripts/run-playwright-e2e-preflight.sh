@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 # Wait for the public edge (/api/readyz) and run Playwright E2E (strict TLS, hostname only).
+# Invokes scripts/webapp-playwright-strict-edge.sh → playwright test (webapp/e2e — multiple spec files).
+# Optional: E2E_SCREENSHOTS=1 ./scripts/webapp-playwright-strict-edge.sh e2e/ui-screenshots.spec.ts → webapp/e2e/screenshots/*.png
 # No kubectl port-forward; no http://127.0.0.1:4020 — legacy E2E_API_BASE values are ignored.
 #
 # Usage: ./scripts/run-playwright-e2e-preflight.sh
 #   SKIP_PLAYWRIGHT_E2E=1  — exit 0 immediately
 #   E2E_API_BASE           — must be https (default https://off-campus-housing.test)
 #   NODE_EXTRA_CA_CERTS    — default REPO_ROOT/certs/dev-root.pem (for curl --cacert + Node TLS)
+#   PLAYWRIGHT_VERTICAL_STRICT / PLAYWRIGHT_STRICT_HTTP3 — set by run-preflight-scale-and-all-suites.sh by default
+#     (PREFLIGHT_PLAYWRIGHT_STRICT_HTTP3=1) for CI parity with webapp `test:e2e:strict-verticals-and-integrity`.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -56,6 +60,8 @@ if [[ "$EDGE_OK" != "1" ]]; then
   exit 1
 fi
 
-say "Running: pnpm --filter webapp test:e2e"
-pnpm --filter webapp test:e2e
+# Same suite as `pnpm --filter webapp test:e2e` — all Playwright projects in webapp/playwright.config.ts (10 spec files, 22 runnable tests + 1 skipped screenshot test unless E2E_SCREENSHOTS=1).
+say "Running: webapp-playwright-strict-edge.sh → playwright test (full edge suite)"
+chmod +x "$SCRIPT_DIR/webapp-playwright-strict-edge.sh" 2>/dev/null || true
+"$SCRIPT_DIR/webapp-playwright-strict-edge.sh"
 ok "Playwright E2E finished"

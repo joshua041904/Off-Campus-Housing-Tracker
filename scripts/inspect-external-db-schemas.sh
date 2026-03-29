@@ -83,6 +83,20 @@ echo ""
 } > "$REPORT_FILE"
 
 all_match=0
+any_connect_fail=0
+any_schema_mismatch=0
+
+_psql_list_tables() {
+  local port="$1" dbname="$2"
+  # Merge stderr into stdout so callers capture FATAL / connection errors (password masked in report).
+  PGPASSWORD="$PGPASSWORD" psql -h "$PGHOST" -p "$port" -U "$PGUSER" -d "$dbname" -X -t -A -P pager=off -v ON_ERROR_STOP=1 -c "
+    SELECT n.nspname || '.' || c.relname
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE c.relkind = 'r' AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+    ORDER BY n.nspname, c.relname;
+  " 2>&1
+}
 
 while IFS= read -r line; do
   [[ -z "$line" ]] && continue
@@ -95,34 +109,48 @@ while IFS= read -r line; do
   echo "## Port $port — $label (\`$dbname\`)" >> "$REPORT_FILE"
   echo "" >> "$REPORT_FILE"
 
-  # Actual: list schema.table for user tables
+  # Actual: list schema.table for user tables (retry: postgres-auth sometimes still recovering right after docker up)
   actual_tables=""
   actual_output=""
-  if actual_output=$(PGPASSWORD="$PGPASSWORD" psql -h "$PGHOST" -p "$port" -U "$PGUSER" -d "$dbname" -X -t -A -P pager=off -c "
-    SELECT n.nspname || '.' || c.relname
+  psql_err=""
+  list_ok=0
+  for attempt in 1 2 3 4 5; do
+    out=""
+    if out=$(_psql_list_tables "$port" "$dbname"); then
+      actual_output="$out"
+      list_ok=1
+      break
+    fi
+    psql_err="$out"
+    [[ "$attempt" -lt 5 ]] && sleep 2
+  done
+
+  if [[ "$list_ok" -ne 1 ]]; then
+    echo "*(connection or query failed after 5 attempts)*" >> "$REPORT_FILE"
+    echo "" >> "$REPORT_FILE"
+    echo '```text' >> "$REPORT_FILE"
+    echo "$psql_err" | sed 's/password=[^ ]*/password=***/g' >> "$REPORT_FILE"
+    echo '```' >> "$REPORT_FILE"
+    echo "" >> "$REPORT_FILE"
+    echo "**Hints:** Is \`docker compose up -d postgres-auth\` healthy? Try \`pg_isready -h $PGHOST -p $port\` and \`psql -h $PGHOST -p $port -U $PGUSER -d $dbname -c 'SELECT 1'\`." >> "$REPORT_FILE"
+    echo "" >> "$REPORT_FILE"
+    echo "  Inspected $port $dbname — FAILED (connect/query)"
+    any_connect_fail=1
+    all_match=1
+    continue
+  fi
+
+  actual_tables=$(echo "$actual_output" | tr '\n' ' ')
+  echo "### Actual tables (from DB)" >> "$REPORT_FILE"
+  echo "" >> "$REPORT_FILE"
+  PGPASSWORD="$PGPASSWORD" psql -h "$PGHOST" -p "$port" -U "$PGUSER" -d "$dbname" -X -P pager=off -c "
+    SELECT n.nspname AS schema, c.relname AS table_name, pg_size_pretty(pg_total_relation_size(c.oid)) AS size
     FROM pg_class c
     JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE c.relkind = 'r' AND n.nspname NOT IN ('pg_catalog', 'information_schema')
     ORDER BY n.nspname, c.relname;
-  " 2>/dev/null); then
-    actual_tables=$(echo "$actual_output" | tr '\n' ' ')
-    echo "### Actual tables (from DB)" >> "$REPORT_FILE"
-    echo "" >> "$REPORT_FILE"
-    PGPASSWORD="$PGPASSWORD" psql -h "$PGHOST" -p "$port" -U "$PGUSER" -d "$dbname" -X -P pager=off -c "
-      SELECT n.nspname AS schema, c.relname AS table_name, pg_size_pretty(pg_total_relation_size(c.oid)) AS size
-      FROM pg_class c
-      JOIN pg_namespace n ON n.oid = c.relnamespace
-      WHERE c.relkind = 'r' AND n.nspname NOT IN ('pg_catalog', 'information_schema')
-      ORDER BY n.nspname, c.relname;
-    " 2>/dev/null >> "$REPORT_FILE" || true
-    echo "" >> "$REPORT_FILE"
-  else
-    echo "*(connection or query failed)*" >> "$REPORT_FILE"
-    echo "" >> "$REPORT_FILE"
-    echo "  Inspected $port $dbname — FAILED"
-    all_match=1
-    continue
-  fi
+  " 2>/dev/null >> "$REPORT_FILE" || true
+  echo "" >> "$REPORT_FILE"
 
   # Expected (from infra/db and auth dump)
   expected_var="expect_${port}"
@@ -151,6 +179,7 @@ while IFS= read -r line; do
   else
     echo "❌ **Mismatch** — Missing: \`${missing# }\`" >> "$REPORT_FILE"
     echo "  Inspected $port $dbname ($label) — MISMATCH"
+    any_schema_mismatch=1
     all_match=1
   fi
   echo "" >> "$REPORT_FILE"
@@ -165,7 +194,15 @@ done <<< "$DB_LIST"
   if [[ $all_match -eq 0 ]]; then
     echo "✅ All DBs match expected schema (from infra/db and auth dump). Safe to run tests."
   else
-    echo "❌ One or more DBs are missing expected tables. Fix bootstrap/restore before running tests."
+    if [[ $any_connect_fail -ne 0 ]]; then
+      echo "❌ One or more DBs could not be reached or returned an error on inspection (see sections above for \`psql\` output). This is usually Postgres still starting, wrong port, or auth DB down — not necessarily missing tables."
+    fi
+    if [[ $any_schema_mismatch -ne 0 ]]; then
+      echo "❌ One or more DBs are missing expected tables. Fix bootstrap/migrations/restore before running tests."
+    fi
+    if [[ $any_connect_fail -eq 0 && $any_schema_mismatch -eq 0 ]]; then
+      echo "❌ Inspection failed (see sections above)."
+    fi
   fi
   echo ""
 } >> "$REPORT_FILE"

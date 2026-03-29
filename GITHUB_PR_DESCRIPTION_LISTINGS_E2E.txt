@@ -1,0 +1,9 @@
+DEPRECATED: merged into GITHUB_PR_DESCRIPTION.txt
+
+This file was merged into the canonical PR body at:
+  GITHUB_PR_DESCRIPTION.txt
+
+See section:
+  13. Webapp visuals + Playwright addendum (merged from PR2 docs)
+
+Use ONLY GITHUB_PR_DESCRIPTION.txt when pasting PR descriptions.

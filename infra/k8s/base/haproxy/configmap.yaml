@@ -8,7 +8,8 @@ data:
     # Off-Campus Housing Tracker: proxy to api-gateway only (Caddy → HAProxy → gateway :4020).
     global
       log stdout format raw local0
-      maxconn 5000
+      # Bounded process-wide connections (avoids unbounded fan-in vs defaults).
+      maxconn 2000
       tune.bufsize 32768
 
     defaults
@@ -16,6 +17,7 @@ data:
       log global
       option httplog
       option http-keep-alive
+      maxconn 1000
       timeout connect 5s
       timeout client  60s
       timeout server  60s
@@ -28,7 +30,7 @@ data:
       hold valid 10s
 
     frontend fe_api
-      bind *:8081
+      bind *:8081 maxconn 800
       http-request set-header X-Forwarded-Proto https if { ssl_fc }
       http-request set-header X-Forwarded-Proto http  if !{ ssl_fc }
       http-request set-header X-Forwarded-Host   %[req.hdr(Host)]
@@ -43,7 +45,7 @@ data:
       # Only send traffic to ready pods; inter/fall/rise reduce 503 during rotation when backends restart.
       default-server inter 3s fall 2 rise 3
       # init-addr none + resolvers k8s: resolve at runtime via CoreDNS so health checks see api-gateway
-      server api api-gateway.off-campus-housing-tracker.svc.cluster.local:4020 check init-addr none resolvers k8s
+      server api api-gateway.off-campus-housing-tracker.svc.cluster.local:4020 check maxconn 400 init-addr none resolvers k8s
 
     listen stats
       bind *:8404

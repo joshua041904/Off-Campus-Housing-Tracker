@@ -30,7 +30,7 @@ spec:
     spec:
       containers:
       - name: grafana
-        image: grafana/grafana:latest
+        image: grafana/grafana:11.5.2
         ports:
         - containerPort: 3000
         env:
@@ -40,9 +40,17 @@ spec:
           value: admin
         - name: GF_INSTALL_PLUGINS
           value: ""
+        - name: GF_SERVER_ROOT_URL
+          value: https://off-campus-housing.test/grafana/
+        - name: GF_SERVER_SERVE_FROM_SUB_PATH
+          value: "true"
         volumeMounts:
         - name: datasources
           mountPath: /etc/grafana/provisioning/datasources
+        - name: dashboard-providers
+          mountPath: /etc/grafana/provisioning/dashboards
+        - name: dashboards-definitions
+          mountPath: /var/lib/grafana/dashboards/default
         resources:
           requests:
             memory: "256Mi"
@@ -54,6 +62,17 @@ spec:
       - name: datasources
         configMap:
           name: grafana-datasources
+      - name: dashboard-providers
+        configMap:
+          name: grafana-dashboard-providers
+      # File-provisioned dashboards: legacy OCH + transport/edge (top-level Grafana JSON, schemaVersion 38).
+      - name: dashboards-definitions
+        projected:
+          sources:
+            - configMap:
+                name: grafana-dashboards
+            - configMap:
+                name: grafana-dashboards-transport
 ---
 apiVersion: v1
 kind: Service

@@ -5,6 +5,11 @@
 # Housing uses 6380/29094/2182 so it does not conflict with record platform (6379/29093/2181).
 #
 # Usage: ./scripts/bring-up-external-infra.sh
+#
+# Postgres runtime tuning (e.g. docker-compose `command: max_connections=400`) applies only after
+# container recreate. To recycle the 8 Postgres services without wiping volumes, use:
+#   ./scripts/recycle-och-postgres-compose.sh
+# (No restore needed for that change alone — data stays on named volumes.)
 #   SKIP_KAFKA=1             — do not start Kafka (e.g. certs not ready)
 #   SKIP_COMPOSE_UP=1        — only wait for already-running containers
 #   ENFORCE_DB_TUNING=1      — after Postgres up, run enforce-external-db-schemas-and-tuning.sh if present

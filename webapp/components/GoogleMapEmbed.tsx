@@ -27,9 +27,12 @@ export function GoogleMapEmbed({
   const key = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim();
   if (!key) {
     return (
-      <p className={`text-xs text-stone-500 ${className}`}>
-        Add <code className="rounded bg-stone-800 px-1">NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> to show a map (Embed API
-        enabled).
+      <p
+        data-testid="map-embed-placeholder"
+        className={`text-xs text-slate-600 ${className}`}
+      >
+        Add <code className="rounded bg-slate-200 px-1 text-slate-800">NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code>{" "}
+        to show a map (Embed API enabled). Coordinates are still saved on the listing for when the key is set.
       </p>
     );
   }
@@ -44,7 +47,8 @@ export function GoogleMapEmbed({
   return (
     <iframe
       title="Map preview"
-      className={`w-full rounded-lg border border-stone-700 ${className}`}
+      data-testid="map-embed-iframe"
+      className={`w-full rounded-lg border border-slate-300 ${className}`}
       style={{ height }}
       loading="lazy"
       referrerPolicy="no-referrer-when-downgrade"

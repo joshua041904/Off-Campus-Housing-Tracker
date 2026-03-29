@@ -1,0 +1,122 @@
+# Static + fixture gates (no cluster). Full transport-lab needs self-hosted runner + MetalLB.
+# Set repository variable RUN_STRICT_PLAYWRIGHT=true when the runner can reach E2E_API_BASE (MetalLB + /etc/hosts + certs).
+name: Protocol validation (static + fixtures)
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "scripts/protocol/**"
+      - "scripts/transport/**"
+      - "scripts/ci/**"
+      - "scripts/recycle-och-postgres-compose.sh"
+      - "scripts/lib/**"
+      - "scripts/run-preflight-scale-and-all-suites.sh"
+      - "scripts/perf/extract-protocol-matrix.js"
+      - "scripts/load/k6-gateway-collapse-smoke.js"
+      - "webapp/e2e/**"
+      - "webapp/playwright.config.ts"
+      - "webapp/playwright.global-setup.ts"
+      - "webapp/package.json"
+      - ".github/workflows/protocol-validation.yml"
+  pull_request:
+    paths:
+      - "scripts/protocol/**"
+      - "scripts/transport/**"
+      - "scripts/ci/**"
+      - "scripts/recycle-och-postgres-compose.sh"
+      - "scripts/lib/**"
+      - "scripts/run-preflight-scale-and-all-suites.sh"
+      - "scripts/perf/extract-protocol-matrix.js"
+      - "scripts/load/k6-gateway-collapse-smoke.js"
+      - "webapp/e2e/**"
+      - "webapp/playwright.config.ts"
+      - "webapp/playwright.global-setup.ts"
+      - "webapp/package.json"
+      - ".github/workflows/protocol-validation.yml"
+  workflow_dispatch:
+
+jobs:
+  shellcheck-preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ShellCheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: ShellCheck preflight script
+        run: shellcheck scripts/run-preflight-scale-and-all-suites.sh
+      - name: ShellCheck certification script
+        run: shellcheck scripts/ci/run-full-certification.sh
+      - name: ShellCheck CI invariant scripts
+        run: shellcheck scripts/ci/verify-docker-ports.sh scripts/ci/verify-quic-hostname-invariant.sh scripts/recycle-och-postgres-compose.sh
+
+  transport-quic-pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: QUIC libs on disk + py_compile + transport_validator CLI smoke
+        run: |
+          set -euo pipefail
+          test -f scripts/lib/transport_validator.py
+          test -f scripts/lib/analyze_quic_metrics.py
+          test -f scripts/lib/dominance_map.py
+          python3 -m py_compile scripts/lib/transport_validator.py scripts/lib/analyze_quic_metrics.py scripts/lib/dominance_map.py
+          code=0
+          out="$(python3 scripts/lib/transport_validator.py 2>&1)" || code=$?
+          printf '%s\n' "$out"
+          test "$code" -eq 2
+          printf '%s\n' "$out" | grep -q 'no pcap provided'
+
+  endpoint-coverage-static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Endpoint coverage (advisory — does not fail PR)
+        run: node scripts/protocol/endpoint-coverage-analyze.js --repo-root "$GITHUB_WORKSPACE"
+
+  readiness-with-transport-fixture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: declare-readiness + transport artifact fixture
+        run: |
+          node scripts/protocol/declare-readiness.js \
+            --perf-dir scripts/protocol/fixtures/perf-lab-pass \
+            --transport-artifact scripts/protocol/fixtures/final-transport-artifact-pass.json
+
+  # Requires live edge: set repo variable RUN_STRICT_PLAYWRIGHT=true (e.g. self-hosted runner with cluster DNS + dev CA).
+  playwright-strict-verticals:
+    if: vars.RUN_STRICT_PLAYWRIGHT == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.11.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Dev CA for Node + curl
+        run: bash scripts/dev-generate-certs.sh
+      - name: Install Playwright Chromium
+        run: cd webapp && pnpm exec playwright install chromium --with-deps
+      - name: Playwright strict verticals + system integrity
+        env:
+          PLAYWRIGHT_VERTICAL_STRICT: "1"
+          PLAYWRIGHT_STRICT_HTTP3: "1"
+          NODE_EXTRA_CA_CERTS: ${{ github.workspace }}/certs/dev-root.pem
+        run: |
+          cd webapp
+          pnpm run test:e2e:strict-verticals-and-integrity

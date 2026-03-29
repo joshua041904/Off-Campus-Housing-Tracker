@@ -7,8 +7,11 @@
  * /api needs JWT. Public routes are either mounted above the guard (explicit app.get or gRPC auth handlers),
  * listed in OPEN_ROUTES, or (for liveness) any GET whose path ends in /healthz (LB, smoke, k6). Everything
  * else needs Authorization: Bearer so the gateway can set x-user-id for upstreams.
+ * Unknown /api/* paths (no mounted service prefix) return 404 before the guard so clients see not-found, not 401.
  */
+import { randomUUID } from "crypto";
 import express, { type Request, type Response, type NextFunction } from "express";
+import type { ClientRequest } from "http";
 import * as grpc from "@grpc/grpc-js";
 import helmet from "helmet";
 import compression from "compression";
@@ -26,11 +29,18 @@ import { createClient } from "redis";
 import type { ServerResponse as NodeServerResponse } from "http";
 import { Agent as HttpAgent } from "http";
 import type { Socket } from "net";
+import { analyticsDailyMetricsCoalescedHandler, proxyInflightMiddleware } from "./proxy-limits.js";
+
+/** HTTP/1.1 keep-alive to housing upstreams: high concurrency from Caddy H2/H3 multiplexing + Playwright workers. */
+const _gwMaxSockets = Number.parseInt(process.env.GATEWAY_HTTP_AGENT_MAX_SOCKETS ?? "1000", 10);
+const gatewayMaxSockets = Number.isFinite(_gwMaxSockets) && _gwMaxSockets > 0 ? _gwMaxSockets : 1000;
+const _gwFree = Number.parseInt(process.env.GATEWAY_HTTP_AGENT_MAX_FREE_SOCKETS ?? "256", 10);
+const gatewayMaxFreeSockets = Number.isFinite(_gwFree) && _gwFree > 0 ? _gwFree : 256;
 
 const keepAliveAgent = new HttpAgent({
   keepAlive: true,
-  maxSockets: 200,
-  maxFreeSockets: 50,
+  maxSockets: gatewayMaxSockets,
+  maxFreeSockets: gatewayMaxFreeSockets,
   keepAliveMsecs: 30_000,
 });
 
@@ -54,6 +64,10 @@ const NOTIFICATION_HTTP =
   process.env.NOTIFICATION_HTTP || "http://notification-service.off-campus-housing-tracker.svc.cluster.local:4015";
 
 type AuthedRequest = Request & { user?: { sub?: string; email?: string; jti?: string } };
+type GatewayRequest = Request & { traceId?: string };
+
+const TRACE_ID_RX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function sendJson502(res: NodeServerResponse | Socket, msg: string) {
   if ("setHeader" in res) {
@@ -219,10 +233,19 @@ app.use(
     ],
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "x-e2e-test"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "x-e2e-test", "X-Trace-Id"],
+    exposedHeaders: ["X-Trace-Id"],
   })
 );
 app.use(compression() as any);
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const incoming = (req.get("x-trace-id") || "").trim();
+  const traceId = TRACE_ID_RX.test(incoming) ? incoming : randomUUID();
+  (req as GatewayRequest).traceId = traceId;
+  res.setHeader("X-Trace-Id", traceId);
+  next();
+});
 
 app.get("/whoami", (_req, res) => res.json({ pod: process.env.HOSTNAME || require("os").hostname() }));
 // Liveness: process is up and HTTP stack works (do not depend on auth).
@@ -256,6 +279,17 @@ const limiter = rateLimit({
   skip: (req) => {
     // E2E only: header from Playwright — do not use NODE_ENV=test here (would disable limits for all traffic).
     const e2eBypass = req.get("x-e2e-test") === "1";
+    const p = gatewayPathOnly(req);
+    // Public auth must never be starved by the global limiter (register/login flakiness under parallel workers).
+    if (
+      req.method === "POST" &&
+      (p === "/api/auth/register" ||
+        p === "/auth/register" ||
+        p === "/api/auth/login" ||
+        p === "/auth/login")
+    ) {
+      return true;
+    }
     return (
       e2eBypass ||
       req.path === "/healthz" ||
@@ -345,7 +379,36 @@ app.post("/api/auth/validate", jsonParser, validateTokenHandler);
 app.post("/auth/refresh", jsonParser, refreshTokenHandler);
 app.post("/api/auth/refresh", jsonParser, refreshTokenHandler);
 
-// ----- Auth guard (after public auth + health mounts; before service proxies) -----
+// Unknown /api/* (no mounted service prefix) → 404 without JWT (avoids 401 on typos / missing routes).
+const KNOWN_API_FIRST_SEGMENTS = new Set([
+  "healthz",
+  "readyz",
+  "auth",
+  "listings",
+  "booking",
+  "messaging",
+  "forum",
+  "messages",
+  "trust",
+  "analytics",
+  "media",
+  "notification",
+]);
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (req.method === "OPTIONS") return next();
+  const path = gatewayPathOnly(req);
+  if (!path.startsWith("/api")) return next();
+  if (path === "/api" || path === "/api/") {
+    res.status(404).json({ error: "not found" });
+    return;
+  }
+  const m = path.match(/^\/api\/([^/?]+)/);
+  const seg = m ? m[1] : "";
+  if (seg && KNOWN_API_FIRST_SEGMENTS.has(seg)) return next();
+  res.status(404).json({ error: "not found" });
+});
+
+// ----- Auth guard (after public auth + health mounts; before service proxies). Register/login stay above this; the global limiter also skips those POST paths. -----
 app.use(async (req: AuthedRequest, res: Response, next: NextFunction) => {
   if (isGetHealthzBypass(req)) return next();
   if (isOpenRoute(req)) return next();
@@ -380,46 +443,65 @@ const proxyOpts = (target: string, pathRewrite: Record<string, string>, proxyTim
       console.error("[gw] proxy error:", err?.message);
       sendJson502(res as NodeServerResponse, "upstream error");
     },
+    proxyReq(proxyReq: ClientRequest, req: Request) {
+      const tid = (req as GatewayRequest).traceId;
+      if (tid) proxyReq.setHeader("X-Trace-Id", tid);
+    },
   },
 });
 
-app.use("/auth", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(AUTH_HTTP, { "^/auth": "" }) as any));
-app.use("/api/auth", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(AUTH_HTTP, { "^/api/auth": "" }) as any));
+const GATEWAY_PROXY_MAX_INFLIGHT = Math.max(0, parseInt(process.env.GATEWAY_PROXY_MAX_INFLIGHT || "0", 10) || 0);
+const proxyLoad = proxyInflightMiddleware(GATEWAY_PROXY_MAX_INFLIGHT);
+const coalesceAnalyticsDaily =
+  process.env.GATEWAY_COALESCE_ANALYTICS_DAILY === "1" || process.env.GATEWAY_COALESCE_ANALYTICS_DAILY === "true";
 
-app.use("/listings", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(LISTINGS_HTTP, { "^/listings": "" }) as any));
-app.use("/api/listings", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(LISTINGS_HTTP, { "^/api/listings": "" }) as any));
+app.use("/auth", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(AUTH_HTTP, { "^/auth": "" }) as any));
+app.use("/api/auth", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(AUTH_HTTP, { "^/api/auth": "" }) as any));
 
-app.use("/booking", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(BOOKING_HTTP, { "^/booking": "" }) as any));
-app.use("/api/booking", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(BOOKING_HTTP, { "^/api/booking": "" }) as any));
+app.use("/listings", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(LISTINGS_HTTP, { "^/listings": "" }) as any));
+app.use("/api/listings", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(LISTINGS_HTTP, { "^/api/listings": "" }) as any));
 
-app.use("/messaging", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(MESSAGING_HTTP, { "^/messaging": "" }) as any));
-app.use("/api/messaging", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(MESSAGING_HTTP, { "^/api/messaging": "" }) as any));
+app.use("/booking", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(BOOKING_HTTP, { "^/booking": "" }) as any));
+app.use("/api/booking", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(BOOKING_HTTP, { "^/api/booking": "" }) as any));
+
+app.use("/messaging", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(MESSAGING_HTTP, { "^/messaging": "" }) as any));
+app.use("/api/messaging", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(MESSAGING_HTTP, { "^/api/messaging": "" }) as any));
 
 // Backward compatible: forum + messages are served by messaging-service,
 // historically accessed under /api/forum and /api/messages.
 app.use(
   "/api/forum",
   injectIdentityHeadersIfAny,
+  proxyLoad,
   createProxyMiddleware(proxyOpts(`${MESSAGING_HTTP}/forum`, { "^/": "/" }) as any)
 );
 app.use(
   "/api/messages",
   injectIdentityHeadersIfAny,
+  proxyLoad,
   createProxyMiddleware(proxyOpts(`${MESSAGING_HTTP}/messages`, { "^/": "/" }) as any)
 );
 
-app.use("/trust", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(TRUST_HTTP, { "^/trust": "" }) as any));
-app.use("/api/trust", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(TRUST_HTTP, { "^/api/trust": "" }) as any));
+app.use("/trust", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(TRUST_HTTP, { "^/trust": "" }) as any));
+app.use("/api/trust", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(TRUST_HTTP, { "^/api/trust": "" }) as any));
 
-app.use("/analytics", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(ANALYTICS_HTTP, { "^/analytics": "" }) as any));
-app.use("/api/analytics", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(ANALYTICS_HTTP, { "^/api/analytics": "" }) as any));
+if (coalesceAnalyticsDaily) {
+  const dailyHandler = analyticsDailyMetricsCoalescedHandler({
+    analyticsHttpBase: ANALYTICS_HTTP,
+    agent: keepAliveAgent,
+  });
+  app.get(["/analytics/daily-metrics", "/api/analytics/daily-metrics"], proxyLoad, dailyHandler);
+}
+
+app.use("/analytics", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(ANALYTICS_HTTP, { "^/analytics": "" }) as any));
+app.use("/api/analytics", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(ANALYTICS_HTTP, { "^/api/analytics": "" }) as any));
 
 // Media can be slow (S3/DB); avoid 504 on healthz through edge
-app.use("/media", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(MEDIA_HTTP, { "^/media": "" }, 45000) as any));
-app.use("/api/media", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(MEDIA_HTTP, { "^/api/media": "" }, 45000) as any));
+app.use("/media", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(MEDIA_HTTP, { "^/media": "" }, 45000) as any));
+app.use("/api/media", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(MEDIA_HTTP, { "^/api/media": "" }, 45000) as any));
 
-app.use("/notification", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(NOTIFICATION_HTTP, { "^/notification": "" }) as any));
-app.use("/api/notification", injectIdentityHeadersIfAny, createProxyMiddleware(proxyOpts(NOTIFICATION_HTTP, { "^/api/notification": "" }) as any));
+app.use("/notification", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(NOTIFICATION_HTTP, { "^/notification": "" }) as any));
+app.use("/api/notification", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(NOTIFICATION_HTTP, { "^/api/notification": "" }) as any));
 
 app.use((_req, res) => res.status(404).json({ error: "not found" }));
 

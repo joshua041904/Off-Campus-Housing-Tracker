@@ -1,0 +1,573 @@
+{
+  "generated_at": "2026-03-27T01:47:54.853Z",
+  "source_service_model": "/Users/tom/Off-Campus-Housing-Tracker/bench_logs/ceiling/20260326-155712/service-model.json",
+  "services": [
+    {
+      "service": "analytics",
+      "winner_protocol": "http1",
+      "model_best_protocol": "http1",
+      "winner_utilization_pool_10": 2.926793041236638,
+      "protocols": [
+        {
+          "protocol": "http1",
+          "scores": {
+            "throughput": 0.8057,
+            "latency": 0.735,
+            "tail_risk": 0.9106,
+            "stability": 1,
+            "composite": 0.8566
+          },
+          "rps": 131.4913401905226,
+          "p95_ms": 608.6017999999999,
+          "fail_rate": 0,
+          "tail_penalty": 2.599641
+        },
+        {
+          "protocol": "http2",
+          "scores": {
+            "throughput": 1,
+            "latency": 0.6834,
+            "tail_risk": 0,
+            "stability": 0,
+            "composite": 0.4867
+          },
+          "rps": 163.2095014574261,
+          "p95_ms": 654.5575999999999,
+          "fail_rate": 0.4852746356873535,
+          "tail_penalty": 29.071519
+        },
+        {
+          "protocol": "http3",
+          "scores": {
+            "throughput": 0.8032,
+            "latency": 1,
+            "tail_risk": 0.7663,
+            "stability": 0.5,
+            "composite": 0.7727
+          },
+          "rps": 131.09475021628228,
+          "p95_ms": 447.33649999999994,
+          "fail_rate": 0.0005064573309698658,
+          "tail_penalty": 6.794184
+        }
+      ],
+      "transport_dominance": {
+        "lambda_http2_rps": 163.2095014574261,
+        "lambda_http3_rps": 131.09475021628228,
+        "transport_gain_tau_h3_vs_h2": -0.1968,
+        "mu_used_http3": 6.773597732507571,
+        "pool_threshold_for_h3_advantage": 19.3538,
+        "pool_threshold_ceil": 20,
+        "backend_capacity_B_mu_times_pool": 419.9631,
+        "transport_ratio_T_lambda3_over_lambda2": 0.8032,
+        "dominance_rule_B_gt_lambda2_times_T": true,
+        "h3_transport_unlocked": false,
+        "note": "HTTP/3 effective RPS ≤ HTTP/2 (τ not materially > 0); pool sizing does not unlock H3 transport superiority."
+      }
+    },
+    {
+      "service": "auth",
+      "winner_protocol": "http2",
+      "model_best_protocol": "http2",
+      "winner_utilization_pool_10": 1.8520374124917052,
+      "protocols": [
+        {
+          "protocol": "http1",
+          "scores": {
+            "throughput": 0.0187,
+            "latency": 0.0753,
+            "tail_risk": 0,
+            "stability": 0.5,
+            "composite": 0.1216
+          },
+          "rps": 5.425288503528088,
+          "p95_ms": 2316.0112,
+          "fail_rate": 0.000846262341325811,
+          "tail_penalty": 73.766213
+        },
+        {
+          "protocol": "http2",
+          "scores": {
+            "throughput": 0.7816,
+            "latency": 1,
+            "tail_risk": 0.9593,
+            "stability": 1,
+            "composite": 0.9134
+          },
+          "rps": 226.3890530222922,
+          "p95_ms": 174.47999999999982,
+          "fail_rate": 0,
+          "tail_penalty": 3.005258
+        },
+        {
+          "protocol": "http3",
+          "scores": {
+            "throughput": 1,
+            "latency": 0.7983,
+            "tail_risk": 0.9758,
+            "stability": 0.5,
+            "composite": 0.8536
+          },
+          "rps": 289.6516176378461,
+          "p95_ms": 218.56159999999997,
+          "fail_rate": 0.0002870758454383648,
+          "tail_penalty": 1.782047
+        }
+      ],
+      "transport_dominance": {
+        "lambda_http2_rps": 226.3890530222922,
+        "lambda_http3_rps": 289.6516176378461,
+        "transport_gain_tau_h3_vs_h2": 0.2794,
+        "mu_used_http3": 8.202629508233485,
+        "pool_threshold_for_h3_advantage": 35.312,
+        "pool_threshold_ceil": 36,
+        "backend_capacity_B_mu_times_pool": 639.8051,
+        "transport_ratio_T_lambda3_over_lambda2": 1.2794,
+        "dominance_rule_B_gt_lambda2_times_T": true,
+        "h3_transport_unlocked": true,
+        "note": null
+      }
+    },
+    {
+      "service": "booking",
+      "winner_protocol": "http3",
+      "model_best_protocol": "http1",
+      "winner_utilization_pool_10": 2.3736561764314086,
+      "protocols": [
+        {
+          "protocol": "http1",
+          "scores": {
+            "throughput": 0.8528,
+            "latency": 0.8889,
+            "tail_risk": 0,
+            "stability": 1,
+            "composite": 0.6762
+          },
+          "rps": 110.76668090382421,
+          "p95_ms": 541.45875,
+          "fail_rate": 0,
+          "tail_penalty": 2.223168
+        },
+        {
+          "protocol": "http2",
+          "scores": {
+            "throughput": 1,
+            "latency": 0.6804,
+            "tail_risk": 0.1654,
+            "stability": 1,
+            "composite": 0.7274
+          },
+          "rps": 129.88778094104552,
+          "p95_ms": 707.3811999999992,
+          "fail_rate": 0,
+          "tail_penalty": 1.855433
+        },
+        {
+          "protocol": "http3",
+          "scores": {
+            "throughput": 0.9434,
+            "latency": 1,
+            "tail_risk": 0.1085,
+            "stability": 1,
+            "composite": 0.7573
+          },
+          "rps": 122.53859193762463,
+          "p95_ms": 481.28294999999997,
+          "fail_rate": 0,
+          "tail_penalty": 1.981981
+        }
+      ],
+      "transport_dominance": {
+        "lambda_http2_rps": 129.88778094104552,
+        "lambda_http3_rps": 122.53859193762463,
+        "transport_gain_tau_h3_vs_h2": -0.0566,
+        "mu_used_http3": 5.162440675037066,
+        "pool_threshold_for_h3_advantage": 23.7366,
+        "pool_threshold_ceil": 24,
+        "backend_capacity_B_mu_times_pool": 299.4216,
+        "transport_ratio_T_lambda3_over_lambda2": 0.9434,
+        "dominance_rule_B_gt_lambda2_times_T": true,
+        "h3_transport_unlocked": false,
+        "note": "HTTP/3 effective RPS ≤ HTTP/2 (τ not materially > 0); pool sizing does not unlock H3 transport superiority."
+      }
+    },
+    {
+      "service": "event-layer",
+      "winner_protocol": "http3",
+      "model_best_protocol": "http2",
+      "winner_utilization_pool_10": 1.739003987699509,
+      "protocols": [
+        {
+          "protocol": "http1",
+          "scores": {
+            "throughput": 0.008,
+            "latency": 0.0611,
+            "tail_risk": 0,
+            "stability": 1,
+            "composite": 0.215
+          },
+          "rps": 1.6481548085400235,
+          "p95_ms": 1534.2612999999963,
+          "fail_rate": 0,
+          "tail_penalty": 232.967612
+        },
+        {
+          "protocol": "http2",
+          "scores": {
+            "throughput": 0.5496,
+            "latency": 1,
+            "tail_risk": 0.9698,
+            "stability": 1,
+            "composite": 0.8348
+          },
+          "rps": 113.78868515676206,
+          "p95_ms": 93.68874999999984,
+          "fail_rate": 0,
+          "tail_penalty": 7.046866
+        },
+        {
+          "protocol": "http3",
+          "scores": {
+            "throughput": 1,
+            "latency": 0.4312,
+            "tail_risk": 0.9606,
+            "stability": 1,
+            "composite": 0.8764
+          },
+          "rps": 207.04573408922587,
+          "p95_ms": 217.25989999999993,
+          "fail_rate": 0,
+          "tail_penalty": 9.170879
+        }
+      ],
+      "transport_dominance": {
+        "lambda_http2_rps": 113.78868515676206,
+        "lambda_http3_rps": 207.04573408922587,
+        "transport_gain_tau_h3_vs_h2": 0.8196,
+        "mu_used_http3": 11.90599536020169,
+        "pool_threshold_for_h3_advantage": 17.39,
+        "pool_threshold_ceil": 18,
+        "backend_capacity_B_mu_times_pool": 452.4278,
+        "transport_ratio_T_lambda3_over_lambda2": 1.8196,
+        "dominance_rule_B_gt_lambda2_times_T": true,
+        "h3_transport_unlocked": true,
+        "note": null
+      }
+    },
+    {
+      "service": "gateway",
+      "winner_protocol": "http1",
+      "model_best_protocol": "http3",
+      "winner_utilization_pool_10": 0.6119011429597894,
+      "protocols": [
+        {
+          "protocol": "http1",
+          "scores": {
+            "throughput": 0.8402,
+            "latency": 1,
+            "tail_risk": 0.0885,
+            "stability": 1,
+            "composite": 0.7162
+          },
+          "rps": 473.5470487864292,
+          "p95_ms": 53.486499999999985,
+          "fail_rate": 0,
+          "tail_penalty": 6.572262
+        },
+        {
+          "protocol": "http2",
+          "scores": {
+            "throughput": 1,
+            "latency": 0.3856,
+            "tail_risk": 0,
+            "stability": 1,
+            "composite": 0.6271
+          },
+          "rps": 563.600365192936,
+          "p95_ms": 138.70249999999996,
+          "fail_rate": 0,
+          "tail_penalty": 7.210545
+        },
+        {
+          "protocol": "http3",
+          "scores": {
+            "throughput": 0.0018,
+            "latency": 1,
+            "tail_risk": 1,
+            "stability": 1,
+            "composite": 0.6506
+          },
+          "rps": 1,
+          "p95_ms": 0,
+          "fail_rate": 0,
+          "tail_penalty": 0
+        }
+      ],
+      "transport_dominance": {
+        "lambda_http2_rps": 563.600365192936,
+        "lambda_http3_rps": 1,
+        "transport_gain_tau_h3_vs_h2": -0.9982,
+        "mu_used_http3": null,
+        "pool_threshold_for_h3_advantage": null,
+        "pool_threshold_ceil": null,
+        "backend_capacity_B_mu_times_pool": null,
+        "transport_ratio_T_lambda3_over_lambda2": 0.0018,
+        "dominance_rule_B_gt_lambda2_times_T": null,
+        "h3_transport_unlocked": false,
+        "note": "HTTP/3 effective RPS ≤ HTTP/2 (τ not materially > 0); pool sizing does not unlock H3 transport superiority."
+      }
+    },
+    {
+      "service": "listings",
+      "winner_protocol": "http2",
+      "model_best_protocol": "http1",
+      "winner_utilization_pool_10": 3.9795602524116918,
+      "protocols": [
+        {
+          "protocol": "http1",
+          "scores": {
+            "throughput": 0.6137,
+            "latency": 1,
+            "tail_risk": 0,
+            "stability": 1,
+            "composite": 0.6148
+          },
+          "rps": 122.2017322511765,
+          "p95_ms": 114.78579999999994,
+          "fail_rate": 0,
+          "tail_penalty": 5.62843
+        },
+        {
+          "protocol": "http2",
+          "scores": {
+            "throughput": 1,
+            "latency": 0.204,
+            "tail_risk": 0.6262,
+            "stability": 1,
+            "composite": 0.7474
+          },
+          "rps": 199.11157396671848,
+          "p95_ms": 562.6925,
+          "fail_rate": 0,
+          "tail_penalty": 2.103682
+        },
+        {
+          "protocol": "http3",
+          "scores": {
+            "throughput": 0.7196,
+            "latency": 0.2433,
+            "tail_risk": 0.4131,
+            "stability": 1,
+            "composite": 0.6038
+          },
+          "rps": 143.28148443810994,
+          "p95_ms": 471.85049999999995,
+          "fail_rate": 0,
+          "tail_penalty": 3.303343
+        }
+      ],
+      "transport_dominance": {
+        "lambda_http2_rps": 199.11157396671848,
+        "lambda_http3_rps": 143.28148443810994,
+        "transport_gain_tau_h3_vs_h2": -0.2804,
+        "mu_used_http3": 6.313730778127667,
+        "pool_threshold_for_h3_advantage": 22.6936,
+        "pool_threshold_ceil": 23,
+        "backend_capacity_B_mu_times_pool": 258.863,
+        "transport_ratio_T_lambda3_over_lambda2": 0.7196,
+        "dominance_rule_B_gt_lambda2_times_T": true,
+        "h3_transport_unlocked": false,
+        "note": "HTTP/3 effective RPS ≤ HTTP/2 (τ not materially > 0); pool sizing does not unlock H3 transport superiority."
+      }
+    },
+    {
+      "service": "media",
+      "winner_protocol": "http2",
+      "model_best_protocol": "http3",
+      "winner_utilization_pool_10": 0.026535429481812423,
+      "protocols": [
+        {
+          "protocol": "http1",
+          "scores": {
+            "throughput": 0.819,
+            "latency": 0.0044,
+            "tail_risk": 0,
+            "stability": 1,
+            "composite": 0.4875
+          },
+          "rps": 12.275877170138145,
+          "p95_ms": 9693.190799999998,
+          "fail_rate": 0,
+          "tail_penalty": 397.168543
+        },
+        {
+          "protocol": "http2",
+          "scores": {
+            "throughput": 1,
+            "latency": 1,
+            "tail_risk": 0.9919,
+            "stability": 1,
+            "composite": 0.998
+          },
+          "rps": 14.988490802040632,
+          "p95_ms": 42.482,
+          "fail_rate": 0,
+          "tail_penalty": 3.216943
+        },
+        {
+          "protocol": "http3",
+          "scores": {
+            "throughput": 1,
+            "latency": 0.941,
+            "tail_risk": 0.9918,
+            "stability": 1,
+            "composite": 0.9861
+          },
+          "rps": 14.988586191615084,
+          "p95_ms": 45.14729999999999,
+          "fail_rate": 0,
+          "tail_penalty": 3.254041
+        }
+      ],
+      "transport_dominance": {
+        "lambda_http2_rps": 14.988490802040632,
+        "lambda_http3_rps": 14.988586191615084,
+        "transport_gain_tau_h3_vs_h2": 0,
+        "mu_used_http3": 50.72907831352195,
+        "pool_threshold_for_h3_advantage": 0.2955,
+        "pool_threshold_ceil": 1,
+        "backend_capacity_B_mu_times_pool": 253.6454,
+        "transport_ratio_T_lambda3_over_lambda2": 1,
+        "dominance_rule_B_gt_lambda2_times_T": true,
+        "h3_transport_unlocked": false,
+        "note": "HTTP/3 effective RPS ≤ HTTP/2 (τ not materially > 0); pool sizing does not unlock H3 transport superiority."
+      }
+    },
+    {
+      "service": "messaging",
+      "winner_protocol": "http1",
+      "model_best_protocol": "http1",
+      "winner_utilization_pool_10": 0.028914141277493272,
+      "protocols": [
+        {
+          "protocol": "http1",
+          "scores": {
+            "throughput": 1,
+            "latency": 1,
+            "tail_risk": 0.0327,
+            "stability": 1,
+            "composite": 0.7582
+          },
+          "rps": 19.980058236874747,
+          "p95_ms": 36.561249999999994,
+          "fail_rate": 0,
+          "tail_penalty": 3.761435
+        },
+        {
+          "protocol": "http2",
+          "scores": {
+            "throughput": 1,
+            "latency": 0.8776,
+            "tail_risk": 0,
+            "stability": 1,
+            "composite": 0.7255
+          },
+          "rps": 19.979983386643813,
+          "p95_ms": 41.662099999999974,
+          "fail_rate": 0,
+          "tail_penalty": 3.888741
+        },
+        {
+          "protocol": "http3",
+          "scores": {
+            "throughput": 1,
+            "latency": 0.5885,
+            "tail_risk": 0.2057,
+            "stability": 1,
+            "composite": 0.7191
+          },
+          "rps": 19.97974709100455,
+          "p95_ms": 62.121,
+          "fail_rate": 0,
+          "tail_penalty": 3.088773
+        }
+      ],
+      "transport_dominance": {
+        "lambda_http2_rps": 19.979983386643813,
+        "lambda_http3_rps": 19.97974709100455,
+        "transport_gain_tau_h3_vs_h2": 0,
+        "mu_used_http3": 46.54842101632135,
+        "pool_threshold_for_h3_advantage": 0.4292,
+        "pool_threshold_ceil": 1,
+        "backend_capacity_B_mu_times_pool": 232.7421,
+        "transport_ratio_T_lambda3_over_lambda2": 1,
+        "dominance_rule_B_gt_lambda2_times_T": true,
+        "h3_transport_unlocked": false,
+        "note": "HTTP/3 effective RPS ≤ HTTP/2 (τ not materially > 0); pool sizing does not unlock H3 transport superiority."
+      }
+    },
+    {
+      "service": "trust",
+      "winner_protocol": "http3",
+      "model_best_protocol": "http3",
+      "winner_utilization_pool_10": 3.141411546790317,
+      "protocols": [
+        {
+          "protocol": "http1",
+          "scores": {
+            "throughput": 0.5973,
+            "latency": 1,
+            "tail_risk": 0,
+            "stability": 0,
+            "composite": 0.4091
+          },
+          "rps": 62.47413830289752,
+          "p95_ms": 203.46609999999978,
+          "fail_rate": 0.6822056473095365,
+          "tail_penalty": 79.972226
+        },
+        {
+          "protocol": "http2",
+          "scores": {
+            "throughput": 0.5674,
+            "latency": 0.6544,
+            "tail_risk": 0.9229,
+            "stability": 1,
+            "composite": 0.7602
+          },
+          "rps": 59.34309424611955,
+          "p95_ms": 310.9425,
+          "fail_rate": 0,
+          "tail_penalty": 6.163594
+        },
+        {
+          "protocol": "http3",
+          "scores": {
+            "throughput": 1,
+            "latency": 0.2226,
+            "tail_risk": 0.9632,
+            "stability": 1,
+            "composite": 0.8353
+          },
+          "rps": 104.59204870390141,
+          "p95_ms": 914.1431999999998,
+          "fail_rate": 0,
+          "tail_penalty": 2.945125
+        }
+      ],
+      "transport_dominance": {
+        "lambda_http2_rps": 59.34309424611955,
+        "lambda_http3_rps": 104.59204870390141,
+        "transport_gain_tau_h3_vs_h2": 0.7625,
+        "mu_used_http3": 3.3294602488733616,
+        "pool_threshold_for_h3_advantage": 31.4141,
+        "pool_threshold_ceil": 32,
+        "backend_capacity_B_mu_times_pool": 139.8373,
+        "transport_ratio_T_lambda3_over_lambda2": 1.7625,
+        "dominance_rule_B_gt_lambda2_times_T": true,
+        "h3_transport_unlocked": true,
+        "note": null
+      }
+    }
+  ]
+}

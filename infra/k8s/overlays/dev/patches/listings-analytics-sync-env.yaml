@@ -1,0 +1,16 @@
+# Deterministic analytics daily_metrics for E2E: HTTP ingest before Kafka (same event_id dedupes in DB).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: listings-service
+  namespace: off-campus-housing-tracker
+spec:
+  template:
+    spec:
+      containers:
+        - name: app
+          env:
+            - name: ANALYTICS_SYNC_MODE
+              value: "1"
+            - name: ANALYTICS_HTTP_INGEST_URL
+              value: "http://analytics-service.off-campus-housing-tracker.svc.cluster.local:4017"

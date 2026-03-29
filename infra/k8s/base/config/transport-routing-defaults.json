@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "generated_at": "2026-03-27T01:57:35.458Z",
+  "note": "Services with tau < 0: do not prioritize HTTP/3 as default; use HTTP/2 unless product requires QUIC.",
+  "prefer_http2_default_for_services": [
+    "analytics",
+    "booking",
+    "gateway",
+    "listings"
+  ]
+}

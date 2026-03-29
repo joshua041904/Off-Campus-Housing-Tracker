@@ -7,7 +7,9 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
-    "start": "node dist/server.js"
+    "start": "node dist/server.js",
+    "test": "ROLLUP_DISABLE_NATIVE=true vitest run",
+    "test:watch": "ROLLUP_DISABLE_NATIVE=true vitest"
   },
   "dependencies": {
     "@common/utils": "workspace:*",
@@ -21,6 +23,7 @@
     "@types/express": "^4.17.21",
     "@types/node": "^20.11.0",
     "tsx": "^4.19.0",
-    "typescript": "^5.5.4"
+    "typescript": "^5.5.4",
+    "vitest": "^2.1.0"
   }
 }

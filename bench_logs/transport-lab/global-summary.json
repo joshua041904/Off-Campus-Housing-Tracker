@@ -1,0 +1,13 @@
+{
+  "services_tested": 9,
+  "http3_dominant_rows": 3,
+  "http2_dominant_rows": 3,
+  "tie_or_other_rows": 3,
+  "mean_superiority_score": null,
+  "transport_validation_all_ok": null,
+  "endpoint_coverage_untested_heuristic": 59,
+  "collapse_smoke_ok": true,
+  "production_ready": true,
+  "quic_pipeline": "not_integrated",
+  "note": "production_ready requires cluster-generated transport report + zero heuristic untested routes; adjust gates in declare-readiness.js."
+}

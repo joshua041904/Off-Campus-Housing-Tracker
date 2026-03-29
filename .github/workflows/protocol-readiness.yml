@@ -1,0 +1,40 @@
+# Protocol readiness gate — validates declare-readiness.js against checked-in JSON fixtures.
+# Full "make capacity-one" requires Colima/k6 and is not run on ubuntu-latest here.
+name: Protocol readiness gate
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "scripts/protocol/**"
+      - "infra/k8s/base/config/strict-envelope.json"
+      - ".github/workflows/protocol-readiness.yml"
+  pull_request:
+    paths:
+      - "scripts/protocol/**"
+      - "infra/k8s/base/config/strict-envelope.json"
+      - ".github/workflows/protocol-readiness.yml"
+
+jobs:
+  validate-transport-fixture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Fixture readiness (must pass)
+        run: node scripts/protocol/declare-readiness.js --perf-dir scripts/protocol/fixtures/perf-lab-pass
+
+      - name: Operator script smoke (--fixture)
+        run: ./scripts/protocol/validate-production-readiness.sh --fixture
+
+      - name: Strict envelope vs fixture lab (must pass)
+        run: |
+          node scripts/protocol/strict-envelope-check.js \
+            --perf-dir scripts/protocol/fixtures/perf-lab-pass \
+            --envelope scripts/protocol/fixtures/strict-envelope-ci.json \
+            --require-lab

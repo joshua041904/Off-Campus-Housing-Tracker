@@ -1,0 +1,823 @@
+{
+  "metadata": {
+    "timestamp": "2026-03-27T03:15:23.694Z",
+    "git_commit": "33a57e0",
+    "transport_dir": "/Users/tom/Off-Campus-Housing-Tracker/bench_logs/transport-lab",
+    "perf_dir": "/Users/tom/Off-Campus-Housing-Tracker/bench_logs/performance-lab"
+  },
+  "per_service": {
+    "analytics": {
+      "transport": null,
+      "happiness": {
+        "service": "analytics",
+        "http1_score": 0.8566,
+        "http2_score": 0.4867,
+        "http3_score": 0.7727,
+        "winner": "http1",
+        "winner_utilization_pool_10": 2.926793041236638,
+        "envelope_stable_at_pool_10": false,
+        "safe_rps_predicted_pool_10_winner": 35.94141118634462,
+        "collapse_max_rps_pre_collapse": 131.4913401905226,
+        "recommended_pool": 62,
+        "transport_gain_tau": -0.1968,
+        "pool_threshold_for_h3": 19.3538,
+        "pool_threshold_ceil": 20,
+        "h3_transport_unlocked": false,
+        "transport_dominance": {
+          "lambda_http2_rps": 163.2095014574261,
+          "lambda_http3_rps": 131.09475021628228,
+          "transport_gain_tau_h3_vs_h2": -0.1968,
+          "mu_used_http3": 6.773597732507571,
+          "pool_threshold_for_h3_advantage": 19.3538,
+          "pool_threshold_ceil": 20,
+          "backend_capacity_B_mu_times_pool": 419.9631,
+          "transport_ratio_T_lambda3_over_lambda2": 0.8032,
+          "dominance_rule_B_gt_lambda2_times_T": true,
+          "h3_transport_unlocked": false,
+          "note": "HTTP/3 effective RPS ≤ HTTP/2 (τ not materially > 0); pool sizing does not unlock H3 transport superiority."
+        }
+      },
+      "collapse": {
+        "service": "analytics",
+        "protocols": {
+          "http3": {
+            "collapse_vus": 40,
+            "collapse_reason": "p95>=1000",
+            "max_rps_pre_collapse": 131.09475021628228
+          },
+          "http2": {
+            "collapse_vus": 40,
+            "collapse_reason": "fail_rate>=0.01",
+            "max_rps_pre_collapse": 99.0609896359186
+          },
+          "http1": {
+            "collapse_vus": 60,
+            "collapse_reason": "p95>=1000|rps_stall",
+            "max_rps_pre_collapse": 131.4913401905226
+          }
+        }
+      },
+      "capacity": {
+        "service": "analytics",
+        "classification": "DB_POOL_LIMITED_TRANSPORT_SENSITIVE",
+        "mu_rps_per_db_slot": 2.8369,
+        "peak_rps_pre_collapse": 131.49,
+        "safe_utilization_target": 0.75,
+        "min_pool_floor": 5,
+        "recommended_pool": 62,
+        "recommended_max_inflight": 62,
+        "recommended_http2_stream_cap": 31,
+        "recommended_http3_stream_cap": 31,
+        "recommended_safe_rps": 131.92,
+        "merit_hint": {
+          "http1": {
+            "throughput_merit_from_vus": null,
+            "latency_merit_from_vus": null,
+            "stability_merit": false,
+            "avg_throughput_advantage_percent": null,
+            "avg_p95_improvement_percent": null
+          },
+          "http2": {
+            "throughput_merit_from_vus": null,
+            "latency_merit_from_vus": null,
+            "stability_merit": false,
+            "avg_throughput_advantage_percent": null,
+            "avg_p95_improvement_percent": 9.81
+          },
+          "http3": {
+            "throughput_merit_from_vus": 20,
+            "latency_merit_from_vus": 20,
+            "stability_merit": false,
+            "avg_throughput_advantage_percent": 18.35,
+            "avg_p95_improvement_percent": 26.96
+          }
+        }
+      }
+    },
+    "auth": {
+      "transport": null,
+      "happiness": {
+        "service": "auth",
+        "http1_score": 0.1216,
+        "http2_score": 0.9134,
+        "http3_score": 0.8536,
+        "winner": "http2",
+        "winner_utilization_pool_10": 1.8520374124917052,
+        "envelope_stable_at_pool_10": false,
+        "safe_rps_predicted_pool_10_winner": 97.79027205188541,
+        "collapse_max_rps_pre_collapse": 289.6516176378461,
+        "recommended_pool": 78,
+        "transport_gain_tau": 0.2794,
+        "pool_threshold_for_h3": 35.312,
+        "pool_threshold_ceil": 36,
+        "h3_transport_unlocked": true,
+        "transport_dominance": {
+          "lambda_http2_rps": 226.3890530222922,
+          "lambda_http3_rps": 289.6516176378461,
+          "transport_gain_tau_h3_vs_h2": 0.2794,
+          "mu_used_http3": 8.202629508233485,
+          "pool_threshold_for_h3_advantage": 35.312,
+          "pool_threshold_ceil": 36,
+          "backend_capacity_B_mu_times_pool": 639.8051,
+          "transport_ratio_T_lambda3_over_lambda2": 1.2794,
+          "dominance_rule_B_gt_lambda2_times_T": true,
+          "h3_transport_unlocked": true,
+          "note": null
+        }
+      },
+      "collapse": {
+        "service": "auth",
+        "protocols": {
+          "http3": {
+            "collapse_vus": null,
+            "collapse_reason": "none",
+            "max_rps_pre_collapse": 289.6516176378461
+          },
+          "http2": {
+            "collapse_vus": 40,
+            "collapse_reason": "rps_stall",
+            "max_rps_pre_collapse": 226.3890530222922
+          },
+          "http1": {
+            "collapse_vus": 20,
+            "collapse_reason": "p95>=1000",
+            "max_rps_pre_collapse": 4.8804186597885835
+          }
+        }
+      },
+      "capacity": {
+        "service": "auth",
+        "classification": "TRANSPORT_SENSITIVE",
+        "mu_rps_per_db_slot": 4.9852,
+        "peak_rps_pre_collapse": 289.65,
+        "safe_utilization_target": 0.75,
+        "min_pool_floor": 5,
+        "recommended_pool": 78,
+        "recommended_max_inflight": 78,
+        "recommended_http2_stream_cap": 39,
+        "recommended_http3_stream_cap": 39,
+        "recommended_safe_rps": 291.63,
+        "merit_hint": {
+          "http1": {
+            "throughput_merit_from_vus": null,
+            "latency_merit_from_vus": null,
+            "stability_merit": false,
+            "avg_throughput_advantage_percent": null,
+            "avg_p95_improvement_percent": null
+          },
+          "http2": {
+            "throughput_merit_from_vus": null,
+            "latency_merit_from_vus": null,
+            "stability_merit": true,
+            "avg_throughput_advantage_percent": 2569,
+            "avg_p95_improvement_percent": 66.72
+          },
+          "http3": {
+            "throughput_merit_from_vus": null,
+            "latency_merit_from_vus": null,
+            "stability_merit": true,
+            "avg_throughput_advantage_percent": 1770.24,
+            "avg_p95_improvement_percent": null
+          }
+        }
+      }
+    },
+    "booking": {
+      "transport": null,
+      "happiness": {
+        "service": "booking",
+        "http1_score": 0.6762,
+        "http2_score": 0.7274,
+        "http3_score": 0.7573,
+        "winner": "http3",
+        "winner_utilization_pool_10": 2.3736561764314086,
+        "envelope_stable_at_pool_10": false,
+        "safe_rps_predicted_pool_10_winner": 41.29952540029653,
+        "collapse_max_rps_pre_collapse": 129.88778094104552,
+        "recommended_pool": 58,
+        "transport_gain_tau": -0.0566,
+        "pool_threshold_for_h3": 23.7366,
+        "pool_threshold_ceil": 24,
+        "h3_transport_unlocked": false,
+        "transport_dominance": {
+          "lambda_http2_rps": 129.88778094104552,
+          "lambda_http3_rps": 122.53859193762463,
+          "transport_gain_tau_h3_vs_h2": -0.0566,
+          "mu_used_http3": 5.162440675037066,
+          "pool_threshold_for_h3_advantage": 23.7366,
+          "pool_threshold_ceil": 24,
+          "backend_capacity_B_mu_times_pool": 299.4216,
+          "transport_ratio_T_lambda3_over_lambda2": 0.9434,
+          "dominance_rule_B_gt_lambda2_times_T": true,
+          "h3_transport_unlocked": false,
+          "note": "HTTP/3 effective RPS ≤ HTTP/2 (τ not materially > 0); pool sizing does not unlock H3 transport superiority."
+        }
+      },
+      "collapse": {
+        "service": "booking",
+        "protocols": {
+          "http3": {
+            "collapse_vus": 40,
+            "collapse_reason": "p95>=1000",
+            "max_rps_pre_collapse": 122.53859193762463
+          },
+          "http2": {
+            "collapse_vus": 60,
+            "collapse_reason": "p95>=1000",
+            "max_rps_pre_collapse": 129.88778094104552
+          },
+          "http1": {
+            "collapse_vus": 40,
+            "collapse_reason": "p95>=1000",
+            "max_rps_pre_collapse": 110.76668090382421
+          }
+        }
+      },
+      "capacity": {
+        "service": "booking",
+        "classification": "TRANSPORT_SENSITIVE",
+        "mu_rps_per_db_slot": 2.9972,
+        "peak_rps_pre_collapse": 129.89,
+        "safe_utilization_target": 0.75,
+        "min_pool_floor": 5,
+        "recommended_pool": 58,
+        "recommended_max_inflight": 58,
+        "recommended_http2_stream_cap": 29,
+        "recommended_http3_stream_cap": 29,
+        "recommended_safe_rps": 130.38,
+        "merit_hint": {
+          "http1": {
+            "throughput_merit_from_vus": null,
+            "latency_merit_from_vus": null,
+            "stability_merit": false,
+            "avg_throughput_advantage_percent": null,
+            "avg_p95_improvement_percent": null
+          },
+          "http2": {
+            "throughput_merit_from_vus": null,
+            "latency_merit_from_vus": null,
+            "stability_merit": true,
+            "avg_throughput_advantage_percent": 8.31,
+            "avg_p95_improvement_percent": 11.26
+          },
+          "http3": {
+            "throughput_merit_from_vus": null,
+            "latency_merit_from_vus": null,
+            "stability_merit": false,
+            "avg_throughput_advantage_percent": 6.61,
+            "avg_p95_improvement_percent": 17.26
+          }
+        }
+      }
+    },
+    "event-layer": {
+      "transport": null,
+      "happiness": {
+        "service": "event-layer",
+        "http1_score": 0.215,
+        "http2_score": 0.8348,
+        "http3_score": 0.8764,
+        "winner": "http3",
+        "winner_utilization_pool_10": 1.739003987699509,
+        "envelope_stable_at_pool_10": false,
+        "safe_rps_predicted_pool_10_winner": 95.24796288161352,
+        "collapse_max_rps_pre_collapse": 207.04573408922587,
+        "recommended_pool": 38,
+        "transport_gain_tau": 0.8196,
+        "pool_threshold_for_h3": 17.39,
+        "pool_threshold_ceil": 18,
+        "h3_transport_unlocked": true,
+        "transport_dominance": {
+          "lambda_http2_rps": 113.78868515676206,
+          "lambda_http3_rps": 207.04573408922587,
+          "transport_gain_tau_h3_vs_h2": 0.8196,
+          "mu_used_http3": 11.90599536020169,
+          "pool_threshold_for_h3_advantage": 17.39,
+          "pool_threshold_ceil": 18,
+          "backend_capacity_B_mu_times_pool": 452.4278,
+          "transport_ratio_T_lambda3_over_lambda2": 1.8196,
+          "dominance_rule_B_gt_lambda2_times_T": true,
+          "h3_transport_unlocked": true,
+          "note": null
+        }
+      },
+      "collapse": {
+        "service": "event-layer",
+        "protocols": {
+          "http3": {
+            "collapse_vus": 50,
+            "collapse_reason": "rps_stall",
+            "max_rps_pre_collapse": 207.04573408922587
+          },
+          "http2": {
+            "collapse_vus": 20,
+            "collapse_reason": "p95>=1000",
+            "max_rps_pre_collapse": 113.78868515676206
+          },
+          "http1": {
+            "collapse_vus": 10,
+            "collapse_reason": "p95>=1000",
+            "max_rps_pre_collapse": 1.6481548085400235
+          }
+        }
+      },
+      "capacity": {
+        "service": "event-layer",
+        "classification": "TRANSPORT_SENSITIVE",
+        "mu_rps_per_db_slot": 7.4501,
+        "peak_rps_pre_collapse": 207.05,
+        "safe_utilization_target": 0.75,
+        "min_pool_floor": 5,
+        "recommended_pool": 38,
+        "recommended_max_inflight": 38,
+        "recommended_http2_stream_cap": 19,
+        "recommended_http3_stream_cap": 19,
+        "recommended_safe_rps": 212.33,
+        "merit_hint": {
+          "http1": {
+            "throughput_merit_from_vus": null,
+            "latency_merit_from_vus": null,
+            "stability_merit": false,
+            "avg_throughput_advantage_percent": null,
+            "avg_p95_improvement_percent": null
+          },
+          "http2": {
+            "throughput_merit_from_vus": null,
+            "latency_merit_from_vus": null,
+            "stability_merit": true,
+            "avg_throughput_advantage_percent": null,
+            "avg_p95_improvement_percent": null
+          },
+          "http3": {
+            "throughput_merit_from_vus": null,
+            "latency_merit_from_vus": null,
+            "stability_merit": true,
+            "avg_throughput_advantage_percent": null,
+            "avg_p95_improvement_percent": null
+          }
+        }
+      }
+    },
+    "gateway": {
+      "transport": null,
+      "happiness": {
+        "service": "gateway",
+        "http1_score": 0.7162,
+        "http2_score": 0.6271,
+        "http3_score": 0.6506,
+        "winner": "http1",
+        "winner_utilization_pool_10": 0.6119011429597894,
+        "envelope_stable_at_pool_10": true,
+        "safe_rps_predicted_pool_10_winner": 619.1157565038874,
+        "collapse_max_rps_pre_collapse": 563.600365192936,
+        "recommended_pool": 10,
+        "transport_gain_tau": -0.9982,
+        "pool_threshold_for_h3": null,
+        "pool_threshold_ceil": null,
+        "h3_transport_unlocked": false,
+        "transport_dominance": {
+          "lambda_http2_rps": 563.600365192936,
+          "lambda_http3_rps": 1,
+          "transport_gain_tau_h3_vs_h2": -0.9982,
+          "mu_used_http3": null,
+          "pool_threshold_for_h3_advantage": null,
+          "pool_threshold_ceil": null,
+          "backend_capacity_B_mu_times_pool": null,
+          "transport_ratio_T_lambda3_over_lambda2": 0.0018,
+          "dominance_rule_B_gt_lambda2_times_T": null,
+          "h3_transport_unlocked": false,
+          "note": "HTTP/3 effective RPS ≤ HTTP/2 (τ not materially > 0); pool sizing does not unlock H3 transport superiority."
+        }
+      },
+      "collapse": {
+        "service": "gateway",
+        "protocols": {
+          "http3": {
+            "collapse_vus": 10,
+            "collapse_reason": "no_metrics",
+            "max_rps_pre_collapse": 1
+          },
+          "http2": {
+            "collapse_vus": null,
+            "collapse_reason": "none",
+            "max_rps_pre_collapse": 563.600365192936
+          },
+          "http1": {
+            "collapse_vus": 50,
+            "collapse_reason": "rps_stall",
+            "max_rps_pre_collapse": 473.5470487864292
+          }
+        }
+      },
+      "capacity": {
+        "service": "gateway",
+        "classification": "TRANSPORT_SENSITIVE",
+        "mu_rps_per_db_slot": 17.993,
+        "peak_rps_pre_collapse": 563.6,
+        "safe_utilization_target": 0.75,
+        "min_pool_floor": 5,
+        "recommended_pool": null,
+        "recommended_max_inflight": 20,
+        "recommended_http2_stream_cap": 16,
+        "recommended_http3_stream_cap": 16,
+        "recommended_safe_rps": 450.88,
+        "merit_hint": {
+          "http1": {
+            "throughput_merit_from_vus": null,
+            "latency_merit_from_vus": null,
+            "stability_merit": false,
+            "avg_throughput_advantage_percent": null,
+            "avg_p95_improvement_percent": null
+          },
+          "http2": {
+            "throughput_merit_from_vus": null,
+            "latency_merit_from_vus": null,
+            "stability_merit": true,
+            "avg_throughput_advantage_percent": 23.37,
+            "avg_p95_improvement_percent": 52.01
+          },
+          "http3": {
+            "throughput_merit_from_vus": null,
+            "latency_merit_from_vus": null,
+            "stability_merit": false,
+            "avg_throughput_advantage_percent": null,
+            "avg_p95_improvement_percent": null
+          }
+        }
+      }
+    },
+    "listings": {
+      "transport": null,
+      "happiness": {
+        "service": "listings",
+        "http1_score": 0.6148,
+        "http2_score": 0.7474,
+        "http3_score": 0.6038,
+        "winner": "http2",
+        "winner_utilization_pool_10": 3.9795602524116918,
+        "envelope_stable_at_pool_10": false,
+        "safe_rps_predicted_pool_10_winner": 40.02684946831559,
+        "collapse_max_rps_pre_collapse": 198.7305582696151,
+        "recommended_pool": 41,
+        "transport_gain_tau": -0.2804,
+        "pool_threshold_for_h3": 22.6936,
+        "pool_threshold_ceil": 23,
+        "h3_transport_unlocked": false,
+        "transport_dominance": {
+          "lambda_http2_rps": 199.11157396671848,
+          "lambda_http3_rps": 143.28148443810994,
+          "transport_gain_tau_h3_vs_h2": -0.2804,
+          "mu_used_http3": 6.313730778127667,
+          "pool_threshold_for_h3_advantage": 22.6936,
+          "pool_threshold_ceil": 23,
+          "backend_capacity_B_mu_times_pool": 258.863,
+          "transport_ratio_T_lambda3_over_lambda2": 0.7196,
+          "dominance_rule_B_gt_lambda2_times_T": true,
+          "h3_transport_unlocked": false,
+          "note": "HTTP/3 effective RPS ≤ HTTP/2 (τ not materially > 0); pool sizing does not unlock H3 transport superiority."
+        }
+      },
+      "collapse": {
+        "service": "listings",
+        "protocols": {
+          "http3": {
+            "collapse_vus": 50,
+            "collapse_reason": "p95>=1000|rps_stall",
+            "max_rps_pre_collapse": 143.28148443810994
+          },
+          "http2": {
+            "collapse_vus": 50,
+            "collapse_reason": "rps_stall",
+            "max_rps_pre_collapse": 198.7305582696151
+          },
+          "http1": {
+            "collapse_vus": 20,
+            "collapse_reason": "fail_rate>=0.01",
+            "max_rps_pre_collapse": 122.2017322511765
+          }
+        }
+      },
+      "capacity": {
+        "service": "listings",
+        "classification": "DB_POOL_LIMITED_TRANSPORT_SENSITIVE",
+        "mu_rps_per_db_slot": 6.4744,
+        "peak_rps_pre_collapse": 198.73,
+        "safe_utilization_target": 0.75,
+        "min_pool_floor": 5,
+        "recommended_pool": 41,
+        "recommended_max_inflight": 41,
+        "recommended_http2_stream_cap": 21,
+        "recommended_http3_stream_cap": 21,
+        "recommended_safe_rps": 199.09,
+        "merit_hint": {
+          "http1": {
+            "throughput_merit_from_vus": null,
+            "latency_merit_from_vus": null,
+            "stability_merit": false,
+            "avg_throughput_advantage_percent": null,
+            "avg_p95_improvement_percent": null
+          },
+          "http2": {
+            "throughput_merit_from_vus": null,
+            "latency_merit_from_vus": null,
+            "stability_merit": true,
+            "avg_throughput_advantage_percent": null,
+            "avg_p95_improvement_percent": null
+          },
+          "http3": {
+            "throughput_merit_from_vus": null,
+            "latency_merit_from_vus": null,
+            "stability_merit": true,
+            "avg_throughput_advantage_percent": 42.36,
+            "avg_p95_improvement_percent": 23.91
+          }
+        }
+      }
+    },
+    "media": {
+      "transport": null,
+      "happiness": {
+        "service": "media",
+        "http1_score": 0.4875,
+        "http2_score": 0.998,
+        "http3_score": 0.9861,
+        "winner": "http2",
+        "winner_utilization_pool_10": 0.026535429481812423,
+        "envelope_stable_at_pool_10": true,
+        "safe_rps_predicted_pool_10_winner": 451.87859687181935,
+        "collapse_max_rps_pre_collapse": 14.988490802040632,
+        "recommended_pool": 5,
+        "transport_gain_tau": 0,
+        "pool_threshold_for_h3": 0.2955,
+        "pool_threshold_ceil": 1,
+        "h3_transport_unlocked": false,
+        "transport_dominance": {
+          "lambda_http2_rps": 14.988490802040632,
+          "lambda_http3_rps": 14.988586191615084,
+          "transport_gain_tau_h3_vs_h2": 0,
+          "mu_used_http3": 50.72907831352195,
+          "pool_threshold_for_h3_advantage": 0.2955,
+          "pool_threshold_ceil": 1,
+          "backend_capacity_B_mu_times_pool": 253.6454,
+          "transport_ratio_T_lambda3_over_lambda2": 1,
+          "dominance_rule_B_gt_lambda2_times_T": true,
+          "h3_transport_unlocked": false,
+          "note": "HTTP/3 effective RPS ≤ HTTP/2 (τ not materially > 0); pool sizing does not unlock H3 transport superiority."
+        }
+      },
+      "collapse": {
+        "service": "media",
+        "protocols": {
+          "http3": {
+            "collapse_vus": 30,
+            "collapse_reason": "rps_stall",
+            "max_rps_pre_collapse": 14.98832434514054
+          },
+          "http2": {
+            "collapse_vus": 30,
+            "collapse_reason": "rps_stall",
+            "max_rps_pre_collapse": 14.988490802040632
+          },
+          "http1": {
+            "collapse_vus": 10,
+            "collapse_reason": "p95>=1000",
+            "max_rps_pre_collapse": 12.275877170138145
+          }
+        }
+      },
+      "capacity": {
+        "service": "media",
+        "classification": "FANOUT_AMPLIFIED",
+        "mu_rps_per_db_slot": 56.4848,
+        "peak_rps_pre_collapse": 14.99,
+        "safe_utilization_target": 0.75,
+        "min_pool_floor": 5,
+        "recommended_pool": 5,
+        "recommended_max_inflight": 5,
+        "recommended_http2_stream_cap": 8,
+        "recommended_http3_stream_cap": 8,
+        "recommended_safe_rps": 211.82,
+        "merit_hint": {
+          "http1": {
+            "throughput_merit_from_vus": null,
+            "latency_merit_from_vus": null,
+            "stability_merit": false,
+            "avg_throughput_advantage_percent": null,
+            "avg_p95_improvement_percent": null
+          },
+          "http2": {
+            "throughput_merit_from_vus": null,
+            "latency_merit_from_vus": null,
+            "stability_merit": true,
+            "avg_throughput_advantage_percent": null,
+            "avg_p95_improvement_percent": null
+          },
+          "http3": {
+            "throughput_merit_from_vus": null,
+            "latency_merit_from_vus": null,
+            "stability_merit": true,
+            "avg_throughput_advantage_percent": null,
+            "avg_p95_improvement_percent": 1.98
+          }
+        }
+      }
+    },
+    "messaging": {
+      "transport": null,
+      "happiness": {
+        "service": "messaging",
+        "http1_score": 0.7582,
+        "http2_score": 0.7255,
+        "http3_score": 0.7191,
+        "winner": "http1",
+        "winner_utilization_pool_10": 0.028914141277493272,
+        "envelope_stable_at_pool_10": true,
+        "safe_rps_predicted_pool_10_winner": 552.810696886985,
+        "collapse_max_rps_pre_collapse": 19.980058236874747,
+        "recommended_pool": 5,
+        "transport_gain_tau": 0,
+        "pool_threshold_for_h3": 0.4292,
+        "pool_threshold_ceil": 1,
+        "h3_transport_unlocked": false,
+        "transport_dominance": {
+          "lambda_http2_rps": 19.979983386643813,
+          "lambda_http3_rps": 19.97974709100455,
+          "transport_gain_tau_h3_vs_h2": 0,
+          "mu_used_http3": 46.54842101632135,
+          "pool_threshold_for_h3_advantage": 0.4292,
+          "pool_threshold_ceil": 1,
+          "backend_capacity_B_mu_times_pool": 232.7421,
+          "transport_ratio_T_lambda3_over_lambda2": 1,
+          "dominance_rule_B_gt_lambda2_times_T": true,
+          "h3_transport_unlocked": false,
+          "note": "HTTP/3 effective RPS ≤ HTTP/2 (τ not materially > 0); pool sizing does not unlock H3 transport superiority."
+        }
+      },
+      "collapse": {
+        "service": "messaging",
+        "protocols": {
+          "http3": {
+            "collapse_vus": 30,
+            "collapse_reason": "rps_stall",
+            "max_rps_pre_collapse": 19.97974709100455
+          },
+          "http2": {
+            "collapse_vus": 30,
+            "collapse_reason": "rps_stall",
+            "max_rps_pre_collapse": 19.979983386643813
+          },
+          "http1": {
+            "collapse_vus": 30,
+            "collapse_reason": "rps_stall",
+            "max_rps_pre_collapse": 19.980058236874747
+          }
+        }
+      },
+      "capacity": {
+        "service": "messaging",
+        "classification": "FANOUT_AMPLIFIED",
+        "mu_rps_per_db_slot": 69.1013,
+        "peak_rps_pre_collapse": 19.98,
+        "safe_utilization_target": 0.75,
+        "min_pool_floor": 5,
+        "recommended_pool": 5,
+        "recommended_max_inflight": 5,
+        "recommended_http2_stream_cap": 8,
+        "recommended_http3_stream_cap": 8,
+        "recommended_safe_rps": 259.13,
+        "merit_hint": {
+          "http1": {
+            "throughput_merit_from_vus": null,
+            "latency_merit_from_vus": null,
+            "stability_merit": false,
+            "avg_throughput_advantage_percent": null,
+            "avg_p95_improvement_percent": null
+          },
+          "http2": {
+            "throughput_merit_from_vus": null,
+            "latency_merit_from_vus": null,
+            "stability_merit": false,
+            "avg_throughput_advantage_percent": 0.08,
+            "avg_p95_improvement_percent": 44.91
+          },
+          "http3": {
+            "throughput_merit_from_vus": null,
+            "latency_merit_from_vus": null,
+            "stability_merit": false,
+            "avg_throughput_advantage_percent": null,
+            "avg_p95_improvement_percent": null
+          }
+        }
+      }
+    },
+    "trust": {
+      "transport": null,
+      "happiness": {
+        "service": "trust",
+        "http1_score": 0.4091,
+        "http2_score": 0.7602,
+        "http3_score": 0.8353,
+        "winner": "http3",
+        "winner_utilization_pool_10": 3.141411546790317,
+        "envelope_stable_at_pool_10": false,
+        "safe_rps_predicted_pool_10_winner": 26.635681990986892,
+        "collapse_max_rps_pre_collapse": 104.59204870390141,
+        "recommended_pool": 42,
+        "transport_gain_tau": 0.7625,
+        "pool_threshold_for_h3": 31.4141,
+        "pool_threshold_ceil": 32,
+        "h3_transport_unlocked": true,
+        "transport_dominance": {
+          "lambda_http2_rps": 59.34309424611955,
+          "lambda_http3_rps": 104.59204870390141,
+          "transport_gain_tau_h3_vs_h2": 0.7625,
+          "mu_used_http3": 3.3294602488733616,
+          "pool_threshold_for_h3_advantage": 31.4141,
+          "pool_threshold_ceil": 32,
+          "backend_capacity_B_mu_times_pool": 139.8373,
+          "transport_ratio_T_lambda3_over_lambda2": 1.7625,
+          "dominance_rule_B_gt_lambda2_times_T": true,
+          "h3_transport_unlocked": true,
+          "note": null
+        }
+      },
+      "collapse": {
+        "service": "trust",
+        "protocols": {
+          "http3": {
+            "collapse_vus": 50,
+            "collapse_reason": "p95>=1000",
+            "max_rps_pre_collapse": 104.59204870390141
+          },
+          "http2": {
+            "collapse_vus": 30,
+            "collapse_reason": "p95>=1000",
+            "max_rps_pre_collapse": 59.34309424611955
+          },
+          "http1": {
+            "collapse_vus": 10,
+            "collapse_reason": "fail_rate>=0.01",
+            "max_rps_pre_collapse": 62.47413830289752
+          }
+        }
+      },
+      "capacity": {
+        "service": "trust",
+        "classification": "DB_POOL_LIMITED_TRANSPORT_SENSITIVE",
+        "mu_rps_per_db_slot": 3.3295,
+        "peak_rps_pre_collapse": 104.59,
+        "safe_utilization_target": 0.75,
+        "min_pool_floor": 5,
+        "recommended_pool": 42,
+        "recommended_max_inflight": 42,
+        "recommended_http2_stream_cap": 21,
+        "recommended_http3_stream_cap": 21,
+        "recommended_safe_rps": 104.88,
+        "merit_hint": {
+          "http1": {
+            "throughput_merit_from_vus": null,
+            "latency_merit_from_vus": null,
+            "stability_merit": false,
+            "avg_throughput_advantage_percent": null,
+            "avg_p95_improvement_percent": null
+          },
+          "http2": {
+            "throughput_merit_from_vus": null,
+            "latency_merit_from_vus": null,
+            "stability_merit": true,
+            "avg_throughput_advantage_percent": null,
+            "avg_p95_improvement_percent": null
+          },
+          "http3": {
+            "throughput_merit_from_vus": 10,
+            "latency_merit_from_vus": null,
+            "stability_merit": true,
+            "avg_throughput_advantage_percent": 39.1,
+            "avg_p95_improvement_percent": 24.07
+          }
+        }
+      }
+    }
+  },
+  "global": {
+    "services_tested": 9,
+    "http3_dominant_rows": 3,
+    "http2_dominant_rows": 3,
+    "tie_or_other_rows": 3,
+    "mean_superiority_score": null,
+    "transport_validation_all_ok": null,
+    "endpoint_coverage_untested_heuristic": 59,
+    "collapse_smoke_ok": true,
+    "production_ready": true,
+    "quic_pipeline": "not_integrated",
+    "note": "production_ready requires cluster-generated transport report + zero heuristic untested routes; adjust gates in declare-readiness.js."
+  },
+  "raw_refs": {
+    "transport_validation_report": null,
+    "downgrade_detection": null,
+    "protocol_integrity": null,
+    "endpoint_coverage": "endpoint-coverage-report.json",
+    "collapse_smoke": "collapse-smoke-report.json"
+  },
+  "quic_pipeline": "not_integrated"
+}

@@ -32,6 +32,10 @@ data:
               "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
               stat_prefix: grpc_json
               codec_type: AUTO
+              http2_protocol_options:
+                max_concurrent_streams: 1000
+                initial_stream_window_size: 6553600
+                initial_connection_window_size: 10485760
               route_config:
                 name: local_route
                 virtual_hosts:
@@ -92,7 +96,17 @@ data:
         connect_timeout: 15s
         type: LOGICAL_DNS
         lb_policy: ROUND_ROBIN
-        http2_protocol_options: {}
+        http2_protocol_options:
+          max_concurrent_streams: 1000
+          initial_stream_window_size: 6553600
+          initial_connection_window_size: 10485760
+        per_connection_buffer_limit_bytes: 33554432
+        circuit_breakers:
+          thresholds:
+          - priority: DEFAULT
+            max_connections: 1000
+            max_pending_requests: 1000
+            max_requests: 2000
         health_checks:
         - timeout: 2s
           interval: 5s
@@ -126,7 +140,17 @@ data:
         connect_timeout: 15s
         type: LOGICAL_DNS
         lb_policy: ROUND_ROBIN
-        http2_protocol_options: {}
+        http2_protocol_options:
+          max_concurrent_streams: 1000
+          initial_stream_window_size: 6553600
+          initial_connection_window_size: 10485760
+        per_connection_buffer_limit_bytes: 33554432
+        circuit_breakers:
+          thresholds:
+          - priority: DEFAULT
+            max_connections: 1000
+            max_pending_requests: 1000
+            max_requests: 2000
         health_checks:
         - timeout: 2s
           interval: 5s
@@ -160,7 +184,17 @@ data:
         connect_timeout: 15s
         type: LOGICAL_DNS
         lb_policy: ROUND_ROBIN
-        http2_protocol_options: {}
+        http2_protocol_options:
+          max_concurrent_streams: 1000
+          initial_stream_window_size: 6553600
+          initial_connection_window_size: 10485760
+        per_connection_buffer_limit_bytes: 33554432
+        circuit_breakers:
+          thresholds:
+          - priority: DEFAULT
+            max_connections: 1000
+            max_pending_requests: 1000
+            max_requests: 2000
         health_checks:
         - timeout: 2s
           interval: 5s
@@ -194,7 +228,17 @@ data:
         connect_timeout: 15s
         type: LOGICAL_DNS
         lb_policy: ROUND_ROBIN
-        http2_protocol_options: {}
+        http2_protocol_options:
+          max_concurrent_streams: 1000
+          initial_stream_window_size: 6553600
+          initial_connection_window_size: 10485760
+        per_connection_buffer_limit_bytes: 33554432
+        circuit_breakers:
+          thresholds:
+          - priority: DEFAULT
+            max_connections: 1000
+            max_pending_requests: 1000
+            max_requests: 2000
         health_checks:
         - timeout: 2s
           interval: 5s
@@ -228,7 +272,17 @@ data:
         connect_timeout: 15s
         type: LOGICAL_DNS
         lb_policy: ROUND_ROBIN
-        http2_protocol_options: {}
+        http2_protocol_options:
+          max_concurrent_streams: 1000
+          initial_stream_window_size: 6553600
+          initial_connection_window_size: 10485760
+        per_connection_buffer_limit_bytes: 33554432
+        circuit_breakers:
+          thresholds:
+          - priority: DEFAULT
+            max_connections: 1000
+            max_pending_requests: 1000
+            max_requests: 2000
         health_checks:
         - timeout: 2s
           interval: 5s
@@ -262,7 +316,17 @@ data:
         connect_timeout: 15s
         type: LOGICAL_DNS
         lb_policy: ROUND_ROBIN
-        http2_protocol_options: {}
+        http2_protocol_options:
+          max_concurrent_streams: 1000
+          initial_stream_window_size: 6553600
+          initial_connection_window_size: 10485760
+        per_connection_buffer_limit_bytes: 33554432
+        circuit_breakers:
+          thresholds:
+          - priority: DEFAULT
+            max_connections: 1000
+            max_pending_requests: 1000
+            max_requests: 2000
         health_checks:
         - timeout: 2s
           interval: 5s
@@ -296,7 +360,17 @@ data:
         connect_timeout: 15s
         type: LOGICAL_DNS
         lb_policy: ROUND_ROBIN
-        http2_protocol_options: {}
+        http2_protocol_options:
+          max_concurrent_streams: 1000
+          initial_stream_window_size: 6553600
+          initial_connection_window_size: 10485760
+        per_connection_buffer_limit_bytes: 33554432
+        circuit_breakers:
+          thresholds:
+          - priority: DEFAULT
+            max_connections: 1000
+            max_pending_requests: 1000
+            max_requests: 2000
         health_checks:
         - timeout: 2s
           interval: 5s
@@ -350,6 +424,10 @@ spec:
     metadata:
       labels:
         app: envoy-test
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "15000"
+        prometheus.io/path: "/stats/prometheus"
     spec:
       containers:
       - name: envoy

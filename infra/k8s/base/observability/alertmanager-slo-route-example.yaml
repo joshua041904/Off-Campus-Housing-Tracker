@@ -1,0 +1,45 @@
+# Example Alertmanager route + Slack receivers for OCH SLO alerts.
+# NOT wired by default — this repo does not ship Alertmanager in base kustomization.
+#
+# Apply after you run Alertmanager and inject webhooks via ExternalSecrets / env:
+#   kubectl apply -f infra/k8s/base/observability/alertmanager-slo-route-example.yaml
+#
+# Replace ${SLACK_WEBHOOK_WARNING} / ${SLACK_WEBHOOK_CRITICAL} with real URLs
+# (use alertmanager --config.file with envsubst, or Helm values).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: alertmanager-och-slo-example
+  namespace: observability
+  labels:
+    och.dev/example: "true"
+stringData:
+  alertmanager.yml: |
+    route:
+      receiver: slack-warning
+      group_by: ["alertname", "service"]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      routes:
+        - matchers:
+            - severity="critical"
+          receiver: slack-critical
+          continue: false
+
+    receivers:
+      - name: slack-warning
+        slack_configs:
+          - api_url: "${SLACK_WEBHOOK_WARNING}"
+            channel: "#och-slo-warning"
+            send_resolved: true
+            title: "OCH SLO warning"
+            text: '{{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+
+      - name: slack-critical
+        slack_configs:
+          - api_url: "${SLACK_WEBHOOK_CRITICAL}"
+            channel: "#och-slo-critical"
+            send_resolved: true
+            title: "OCH SLO critical"
+            text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'

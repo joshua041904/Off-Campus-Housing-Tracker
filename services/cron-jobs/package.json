@@ -6,13 +6,16 @@
     "build": "tsc -p tsconfig.json",
     "start": "NODE_ENV=production node dist/jobs.js",
     "dev": "tsx watch src/jobs.ts",
-    "prepare": "pnpm run build"
+    "prepare": "pnpm run build",
+    "test": "ROLLUP_DISABLE_NATIVE=true vitest run",
+    "test:watch": "ROLLUP_DISABLE_NATIVE=true vitest"
   },
   "dependencies": {
     "node-cron": "^3.0.3"
   },
   "devDependencies": {
     "tsx": "^4.16.2",
-    "typescript": "^5.5.4"
+    "typescript": "^5.5.4",
+    "vitest": "^2.1.0"
   }
 }

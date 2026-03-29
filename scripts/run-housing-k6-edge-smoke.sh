@@ -14,6 +14,11 @@
 #   K6_SMOKE_VUS             — default 5
 #   SKIP_K6_BOOKING_SEARCH=1 — skip k6-booking.js + k6-search-watchlist.js
 #   SKIP_K6_ANALYTICS_LISTING_FEEL=1 — skip Ollama-backed POST listing-feel
+#   K6_ORCHESTRATION_VU_SCENARIO=1 (default here) — messaging + media use ramping-vus in suite (not CAR); set 0 for stress-style CAR.
+#   K6_SUITE_GATEWAY_DRAIN=1 (default here) — after each k6 block, wait until api-gateway CPU < ~150m (needs metrics-server).
+#   K6_SUITE_POST_DRAIN_SLEEP_SEC=10 (default here) — fixed settle after drain, before killing stray k6 / cooldown.
+#   K6_SUITE_KILL_K6_AFTER_BLOCK=1 (default here) — SIGKILL stray k6 (kills all k6 on host; set 0 if you run other k6 in parallel).
+#   K6_SUITE_POST_KILL_K6_SLEEP_SEC=0 (default) — optional extra sleep after kill; set 10 for harsher lab settle.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -28,6 +33,13 @@ if [[ -f "$SCRIPT_DIR/lib/k6-suite-resource-hooks.sh" ]]; then
 else
   k6_suite_after_k6_block() { return 0; }
 fi
+
+# Defaults tuned for back-to-back orchestration (concurrency bleed through api-gateway); override per env.
+export K6_ORCHESTRATION_VU_SCENARIO="${K6_ORCHESTRATION_VU_SCENARIO:-1}"
+export K6_SUITE_GATEWAY_DRAIN="${K6_SUITE_GATEWAY_DRAIN:-1}"
+export K6_SUITE_POST_DRAIN_SLEEP_SEC="${K6_SUITE_POST_DRAIN_SLEEP_SEC:-10}"
+export K6_SUITE_KILL_K6_AFTER_BLOCK="${K6_SUITE_KILL_K6_AFTER_BLOCK:-1}"
+export K6_SUITE_POST_KILL_K6_SLEEP_SEC="${K6_SUITE_POST_KILL_K6_SLEEP_SEC:-0}"
 
 [[ "${SKIP_K6_GRID:-0}" == "1" ]] && { echo "SKIP_K6_GRID=1 — skipping"; exit 0; }
 
@@ -61,6 +73,7 @@ _k6_run() {
     -e "K6_INSECURE_SKIP_TLS=0" \
     -e "DURATION=${DURATION:-}" \
     -e "VUS=${VUS:-}" \
+    -e "K6_ORCHESTRATION_VU_SCENARIO=${K6_ORCHESTRATION_VU_SCENARIO:-}" \
     "$@"
 }
 
@@ -69,9 +82,15 @@ _run() {
   local name="$1"
   local file="$2"
   local is_car="${3:-0}"
+  if [[ "${K6_ORCHESTRATION_VU_SCENARIO:-1}" == "1" ]]; then
+    case "$file" in
+      k6-messaging.js | k6-media-health.js) is_car=0 ;;
+    esac
+  fi
   shift 3
   echo ""
   echo "━━ k6 smoke: $name ━━"
+  k6_suite_before_k6_block "smoke-${name}"
   export DURATION="$DUR" VUS="$VUS"
   local _k6_rc=0
   _k6_run "$LOAD/$file" || _k6_rc=$?
@@ -118,6 +137,7 @@ fi
 if [[ "${SKIP_K6_BOOKING_SEARCH:-0}" != "1" ]]; then
   say "k6 JWT flows (booking + search/watchlist) via edge $BASE_URL"
   export DURATION="${K6_BOOKING_DURATION:-25s}" VUS="${K6_BOOKING_VUS:-3}"
+  k6_suite_before_k6_block "smoke-booking-jwt"
   _k6_run "$LOAD/k6-booking.js" || {
     echo "⚠️  k6-booking failed"
     [[ "${K6_GRID_STRICT:-0}" == "1" ]] && exit 1
@@ -129,6 +149,7 @@ if [[ "${SKIP_K6_BOOKING_SEARCH:-0}" != "1" ]]; then
     true
   }
   export DURATION="${K6_SEARCH_DURATION:-25s}" VUS="${K6_SEARCH_VUS:-6}"
+  k6_suite_before_k6_block "smoke-search-watchlist"
   _k6_run "$LOAD/k6-search-watchlist.js" || {
     echo "⚠️  k6-search-watchlist failed"
     [[ "${K6_GRID_STRICT:-0}" == "1" ]] && exit 1
