@@ -1,0 +1,7 @@
+# Optional operational add-ons for KRaft Kafka (namespace off-campus-housing-tracker).
+# Not part of infra/k8s/kafka-kraft-metallb by default.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - kafka-dns-auto-remediation.yaml
+  - kafka-quorum-check.yaml

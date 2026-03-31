@@ -1,62 +1,62 @@
 {
-  "generated_at": "2026-03-29T02:56:24.863Z",
+  "generated_at": "2026-03-31T23:45:15.836Z",
   "rule": "http2_p95_ms > 3 * http1_p95_ms (same service, protocol matrix; HTTP2_COLLAPSE_THRESHOLD)",
   "http2_collapse_threshold": 3,
   "any_http2_collapse_anomaly": false,
   "by_service": {
     "analytics": {
       "http2_anomaly": false,
-      "http1_p95_ms": 266.32339999999874,
-      "http2_p95_ms": 316.51899999999995,
-      "ratio_h2_over_h1": 1.1885
+      "http1_p95_ms": 51.83479999999992,
+      "http2_p95_ms": 25.27879999999998,
+      "ratio_h2_over_h1": 0.4877
     },
     "auth": {
       "http2_anomaly": false,
-      "http1_p95_ms": 92.58719999999998,
-      "http2_p95_ms": 225.43399999999997,
-      "ratio_h2_over_h1": 2.4348
+      "http1_p95_ms": 54.66529999999999,
+      "http2_p95_ms": 45.07174999999999,
+      "ratio_h2_over_h1": 0.8245
     },
     "booking": {
       "http2_anomaly": false,
-      "http1_p95_ms": 317.70979999999963,
-      "http2_p95_ms": 459.4885999999994,
-      "ratio_h2_over_h1": 1.4463
+      "http1_p95_ms": 43.05599999999999,
+      "http2_p95_ms": 20.8114,
+      "ratio_h2_over_h1": 0.4834
     },
     "event-layer": {
       "http2_anomaly": false,
-      "http1_p95_ms": 72.16399999999994,
-      "http2_p95_ms": 89.2333,
-      "ratio_h2_over_h1": 1.2365
+      "http1_p95_ms": 102.85459999999999,
+      "http2_p95_ms": 17.16334999999999,
+      "ratio_h2_over_h1": 0.1669
     },
     "gateway": {
       "http2_anomaly": false,
-      "http1_p95_ms": 24.608899999999938,
-      "http2_p95_ms": 33.457,
-      "ratio_h2_over_h1": 1.3595
+      "http1_p95_ms": 7.746,
+      "http2_p95_ms": 5.296749999999995,
+      "ratio_h2_over_h1": 0.6838
     },
     "listings": {
       "http2_anomaly": false,
-      "http1_p95_ms": 144.27639999999997,
-      "http2_p95_ms": 302.9281999999999,
-      "ratio_h2_over_h1": 2.0996
+      "http1_p95_ms": 27.787499999999984,
+      "http2_p95_ms": 19.227399999999985,
+      "ratio_h2_over_h1": 0.6919
     },
     "media": {
       "http2_anomaly": false,
-      "http1_p95_ms": 81.93034999999995,
-      "http2_p95_ms": 58.89199999999999,
-      "ratio_h2_over_h1": 0.7188
+      "http1_p95_ms": 94.12139999999991,
+      "http2_p95_ms": 26.77359999999994,
+      "ratio_h2_over_h1": 0.2845
     },
     "messaging": {
       "http2_anomaly": false,
-      "http1_p95_ms": 109.13154999999983,
-      "http2_p95_ms": 43.900599999999955,
-      "ratio_h2_over_h1": 0.4023
+      "http1_p95_ms": 86.92959999999991,
+      "http2_p95_ms": 40.98989999999999,
+      "ratio_h2_over_h1": 0.4715
     },
     "trust": {
       "http2_anomaly": false,
-      "http1_p95_ms": 313.54194999999993,
-      "http2_p95_ms": 138.65759999999997,
-      "ratio_h2_over_h1": 0.4422
+      "http1_p95_ms": 405.82724999999994,
+      "http2_p95_ms": 70.79084999999995,
+      "ratio_h2_over_h1": 0.1744
     }
   }
 }

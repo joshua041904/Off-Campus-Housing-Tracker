@@ -30,8 +30,8 @@ WHAT CHANGED
   • **vitest.integration.config.ts** + **pnpm run test:integration**: **listings-http.integration.test.ts**
     loads **createListingsHttpApp** after setting **POSTGRES_URL_LISTINGS** (default 127.0.0.1:5442);
     **POST /create**, **GET /listings/:id**, **GET /search** + SQL row check; **describe.skipIf** when DB
-    or **listings.listings** missing (exit 0). **ANALYTICS_SYNC_MODE=0** for tests. gRPC not covered
-    (strict mTLS only — use grpcurl + certs against a real server).
+    or **listings.listings** missing (exit 0). **ANALYTICS_SYNC_MODE=0** for tests. gRPC: see
+    **listings-grpc.integration.test.ts** + **OCH_GRPC_INSECURE_TEST_BIND** via vitest integration env only.
   • **test:all** = unit + integration. **supertest** devDependency.
   • CI: after `bootstrap-all-dbs.sh`, **listings-service** matrix runs **test** then **test:integration**
     with **POSTGRES_URL_LISTINGS** on port 5442.
@@ -128,5 +128,25 @@ Suggested subjects (pick one style)
   If keeping two commits on the branch:
     fix(ci): repair listings POST /create braces, lat/lng; cron-jobs pnpm exec tsc
     feat(och): E2E traffic stack, shared createHttpConcurrencyGuard, transport-watchdog, trust merge
+
+feat(grpc): unify credential binding + enforce proto/server alignment
+---
+  • Centralized insecure test bind via **createOchGrpcServerCredentialsForBind** in
+    **services/common/src/grpc-server-credentials.ts** (mTLS log lines live there too; no
+    **OCH_GRPC_INSECURE_TEST_BIND** reads under **services/*-service/src** — verified by
+    **scripts/ci/verify-housing-grpc-matrix.sh**).
+  • Removed deprecated **server.start()** after **bindAsync** on all housing **grpc-server.ts**
+    files (grpc-js starts the server implicitly).
+  • **Kafka required**: **ensureKafkaBrokerReady** in **services/common/src/kafka.ts** (admin
+    connect + **listTopics**); listings/booking/messaging/media/analytics/notification **server.ts**
+    await barrier before listeners; **Redpanda** service in **och-ci** test job + **KAFKA_BROKER** /
+    **OCH_KAFKA_TOPIC_SUFFIX**; **vitest.integration.global-setup.ts**; **waitForKafkaTopicHighBeyond**
+    in **kafka-wait.ts** for listings integration; Playwright preflight optional
+    **PLAYWRIGHT_WAIT_KAFKA_CONTAINER** / **PLAYWRIGHT_WAIT_KAFKA_DEPLOYMENT**.
+  • **verify-housing-grpc-matrix.sh**: require **createOchGrpcServerCredentialsForBind** per service;
+    **listings-grpc.integration.test.ts** + **TRUNCATE** + **vitest** integration **fileParallelism: false**,
+    **testTimeout** / **hookTimeout** 30s.
+  • **.github/workflows/ci.yml**: test job **kafka** (Redpanda) + **OCH_KAFKA_TOPIC_SUFFIX** from
+    **github.run_id**; verify script bans **OCH_KAFKA_DISABLED** / noop helpers.
 
 Made with Tom.

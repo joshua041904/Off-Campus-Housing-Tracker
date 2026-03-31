@@ -1,0 +1,104 @@
+# Optional: periodically verify headless kafka EndpointSlices match pod IPs; delete slices if mismatched
+# so the controller recreates them (fixes stale A records for kafka-N.kafka...).
+# Apply: kubectl apply -k infra/ops/
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kafka-dns-remediator
+  namespace: off-campus-housing-tracker
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kafka-dns-remediator
+  namespace: off-campus-housing-tracker
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kafka-dns-remediator
+  namespace: off-campus-housing-tracker
+subjects:
+  - kind: ServiceAccount
+    name: kafka-dns-remediator
+    namespace: off-campus-housing-tracker
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kafka-dns-remediator
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-dns-validator
+  namespace: off-campus-housing-tracker
+data:
+  validate.sh: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+    NS="off-campus-housing-tracker"
+    LABEL="kubernetes.io/service-name=kafka"
+    echo "Kafka EndpointSlice vs pod IP check (${NS})..."
+    mismatch=0
+    slice_table="$(kubectl get endpointslice -n "$NS" -l "$LABEL" -o jsonpath='{range .items[*].endpoints[*]}{.hostname}{"\t"}{.addresses[0]}{"\n"}{end}')"
+    if [[ -z "${slice_table//[$'\t\n']/}" ]]; then
+      echo "No endpoint data; skipping."
+      exit 0
+    fi
+    for i in 0 1 2; do
+      pod="kafka-$i"
+      pod_ip="$(kubectl get pod "$pod" -n "$NS" -o jsonpath='{.status.podIP}' 2>/dev/null || true)"
+      slice_ip="$(printf '%s\n' "$slice_table" | awk -F'\t' -v h="$pod" '$1==h {print $2; exit}')"
+      echo "$pod live=$pod_ip slice=$slice_ip"
+      if [[ -n "$pod_ip" && -n "$slice_ip" && "$pod_ip" != "$slice_ip" ]]; then
+        mismatch=1
+      fi
+    done
+    if [[ "$mismatch" -eq 1 ]]; then
+      echo "Mismatch → deleting EndpointSlices for Service kafka"
+      kubectl delete endpointslice -n "$NS" -l "$LABEL" --wait=true
+      echo "Done. Consider: kubectl rollout restart statefulset/kafka -n $NS"
+    else
+      echo "EndpointSlice addresses match pod IPs."
+    fi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: kafka-dns-auto-remediator
+  namespace: off-campus-housing-tracker
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  # Cluster hygiene: prune CronJob job history; TTL GCs completed Job pods quickly.
+  successfulJobsHistoryLimit: 0
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 60
+      template:
+        spec:
+          serviceAccountName: kafka-dns-remediator
+          restartPolicy: OnFailure
+          containers:
+            - name: dns-checker
+              # Bitnami kubectl tags are often unavailable/renamed; alpine/k8s ships bash + kubectl (matches cluster ~1.30).
+              image: docker.io/alpine/k8s:1.30.8
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/bash", "/scripts/validate.sh"]
+              volumeMounts:
+                - name: script
+                  mountPath: /scripts
+                  readOnly: true
+          volumes:
+            - name: script
+              configMap:
+                name: kafka-dns-validator
+                defaultMode: 0755

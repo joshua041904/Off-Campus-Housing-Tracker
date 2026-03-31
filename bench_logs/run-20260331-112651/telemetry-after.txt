@@ -1,0 +1,113 @@
+=== control-plane telemetry @ 2026-03-31T16:27:29Z ===
+--- readyz (verbose) ---
+[+]ping ok
+[+]log ok
+[+]etcd ok
+[+]etcd-readiness ok
+[+]informer-sync ok
+[+]poststarthook/start-apiserver-admission-initializer ok
+[+]poststarthook/generic-apiserver-start-informers ok
+[+]poststarthook/priority-and-fairness-config-consumer ok
+[+]poststarthook/priority-and-fairness-filter ok
+[+]poststarthook/storage-object-count-tracker-hook ok
+[+]poststarthook/start-apiextensions-informers ok
+[+]poststarthook/start-apiextensions-controllers ok
+[+]poststarthook/crd-informer-synced ok
+[+]poststarthook/start-system-namespaces-controller ok
+[+]poststarthook/start-cluster-authentication-info-controller ok
+[+]poststarthook/start-kube-apiserver-identity-lease-controller ok
+[+]poststarthook/start-kube-apiserver-identity-lease-garbage-collector ok
+[+]poststarthook/start-legacy-token-tracking-controller ok
+[+]poststarthook/start-service-ip-repair-controllers ok
+[+]poststarthook/rbac/bootstrap-roles ok
+[+]poststarthook/scheduling/bootstrap-system-priority-classes ok
+[+]poststarthook/priority-and-fairness-config-producer ok
+[+]poststarthook/bootstrap-controller ok
+[+]poststarthook/start-kubernetes-service-cidr-controller ok
+[+]poststarthook/aggregator-reload-proxy-client-cert ok
+[+]poststarthook/start-kube-aggregator-informers ok
+[+]poststarthook/apiservice-status-local-available-controller ok
+[+]poststarthook/apiservice-status-remote-available-controller ok
+[+]poststarthook/apiservice-registration-controller ok
+[+]poststarthook/apiservice-discovery-controller ok
+[+]poststarthook/kube-apiserver-autoregistration ok
+[+]autoregister-completion ok
+[+]poststarthook/apiservice-openapi-controller ok
+[+]poststarthook/apiservice-openapiv3-controller ok
+[+]shutdown ok
+readyz check passed
+
+--- healthz ---
+ok
+--- top nodes ---
+NAME     CPU(cores)   CPU(%)   MEMORY(bytes)   MEMORY(%)   
+colima   5017m        41%      8602Mi          53%         
+
+--- top pods (all namespaces) ---
+NAMESPACE                    NAME                                      CPU(cores)   MEMORY(bytes)   
+envoy-test                   envoy-test-797bf6c856-zrfn4               30m          49Mi            
+ingress-nginx                caddy-h3-66fd47b5d5-g8rq4                 38m          117Mi           
+ingress-nginx                caddy-h3-66fd47b5d5-vs6bc                 52m          118Mi           
+ingress-nginx                envoy-f96d7964c-njz5l                     27m          24Mi            
+kube-system                  coredns-54bf7cdff9-h2fcb                  52m          18Mi            
+kube-system                  local-path-provisioner-69879d7dd7-bfbf8   3m           26Mi            
+kube-system                  metrics-server-77dbbf84b-tqj47            34m          23Mi            
+kube-system                  svclb-caddy-h3-910cbb4c-2vmtf             0m           3Mi             
+kube-system                  svclb-kafka-0-external-2a188c29-292wb     0m           0Mi             
+metallb-system               controller-79cccd6fdf-4lgzz               10m          16Mi            
+metallb-system               speaker-wdkhp                             21m          19Mi            
+observability                grafana-5d4c69446d-pspjl                  48m          93Mi            
+observability                jaeger-7f58cb5fdf-8gnth                   3m           26Mi            
+observability                otel-collector-56bc4d7d67-lbn85           74m          203Mi           
+observability                prometheus-59d9b5c477-8gm4r               19m          73Mi            
+off-campus-housing-tracker   analytics-service-7bd9f4bb4-d844r         111m         53Mi            
+off-campus-housing-tracker   api-gateway-f9bd7d499-j75fw               54m          83Mi            
+off-campus-housing-tracker   auth-service-7c994f99b9-7fjr4             155m         294Mi           
+off-campus-housing-tracker   booking-service-9d6b6464c-tdkln           35m          47Mi            
+off-campus-housing-tracker   haproxy-7977bc7475-2v9hp                  15m          23Mi            
+off-campus-housing-tracker   haproxy-exporter-99bf789bb-rlrhp          0m           10Mi            
+off-campus-housing-tracker   kafka-0                                   121m         484Mi           
+off-campus-housing-tracker   kafka-1                                   126m         483Mi           
+off-campus-housing-tracker   kafka-2                                   161m         470Mi           
+off-campus-housing-tracker   listings-service-6df76bc875-sr7r5         33m          48Mi            
+off-campus-housing-tracker   media-service-676594d8cd-65f77            24m          40Mi            
+off-campus-housing-tracker   messaging-service-5f449546bb-9xhpb        177m         310Mi           
+off-campus-housing-tracker   nginx-7656865d77-2f4fv                    2m           27Mi            
+off-campus-housing-tracker   nginx-exporter-74d69456df-jmrhw           2m           5Mi             
+off-campus-housing-tracker   notification-service-7c8f4ff68f-mdc4s     122m         52Mi            
+off-campus-housing-tracker   trust-service-584b5b8b55-x6p2f            226m         249Mi           
+off-campus-housing-tracker   webapp-85f5df8dc5-lch2z                   21m          484Mi           
+
+--- apiserver /metrics (sample) ---
+apiserver_current_inflight_requests{request_kind="mutating"} 0
+apiserver_current_inflight_requests{request_kind="readOnly"} 0
+apiserver_request_duration_seconds_bucket{component="",dry_run="",group="",resource="",scope="",subresource="/healthz",verb="GET",version="",le="0.005"} 5
+apiserver_request_duration_seconds_bucket{component="",dry_run="",group="",resource="",scope="",subresource="/healthz",verb="GET",version="",le="0.025"} 6
+apiserver_request_duration_seconds_bucket{component="",dry_run="",group="",resource="",scope="",subresource="/healthz",verb="GET",version="",le="0.05"} 6
+apiserver_request_duration_seconds_bucket{component="",dry_run="",group="",resource="",scope="",subresource="/healthz",verb="GET",version="",le="0.1"} 6
+apiserver_request_duration_seconds_bucket{component="",dry_run="",group="",resource="",scope="",subresource="/healthz",verb="GET",version="",le="0.2"} 6
+apiserver_request_duration_seconds_bucket{component="",dry_run="",group="",resource="",scope="",subresource="/healthz",verb="GET",version="",le="0.4"} 6
+apiserver_request_duration_seconds_bucket{component="",dry_run="",group="",resource="",scope="",subresource="/healthz",verb="GET",version="",le="0.6"} 6
+apiserver_request_duration_seconds_bucket{component="",dry_run="",group="",resource="",scope="",subresource="/healthz",verb="GET",version="",le="0.8"} 6
+apiserver_request_duration_seconds_bucket{component="",dry_run="",group="",resource="",scope="",subresource="/healthz",verb="GET",version="",le="1"} 6
+apiserver_request_duration_seconds_bucket{component="",dry_run="",group="",resource="",scope="",subresource="/healthz",verb="GET",version="",le="1.25"} 6
+apiserver_request_duration_seconds_bucket{component="",dry_run="",group="",resource="",scope="",subresource="/healthz",verb="GET",version="",le="1.5"} 6
+apiserver_request_duration_seconds_bucket{component="",dry_run="",group="",resource="",scope="",subresource="/healthz",verb="GET",version="",le="2"} 6
+apiserver_request_duration_seconds_bucket{component="",dry_run="",group="",resource="",scope="",subresource="/healthz",verb="GET",version="",le="3"} 6
+apiserver_request_duration_seconds_bucket{component="",dry_run="",group="",resource="",scope="",subresource="/healthz",verb="GET",version="",le="4"} 6
+apiserver_request_duration_seconds_bucket{component="",dry_run="",group="",resource="",scope="",subresource="/healthz",verb="GET",version="",le="5"} 6
+apiserver_request_duration_seconds_bucket{component="",dry_run="",group="",resource="",scope="",subresource="/healthz",verb="GET",version="",le="6"} 6
+apiserver_request_duration_seconds_bucket{component="",dry_run="",group="",resource="",scope="",subresource="/healthz",verb="GET",version="",le="8"} 6
+apiserver_request_duration_seconds_bucket{component="",dry_run="",group="",resource="",scope="",subresource="/healthz",verb="GET",version="",le="10"} 6
+apiserver_request_duration_seconds_bucket{component="",dry_run="",group="",resource="",scope="",subresource="/healthz",verb="GET",version="",le="15"} 6
+apiserver_request_duration_seconds_bucket{component="",dry_run="",group="",resource="",scope="",subresource="/healthz",verb="GET",version="",le="20"} 6
+apiserver_request_duration_seconds_bucket{component="",dry_run="",group="",resource="",scope="",subresource="/healthz",verb="GET",version="",le="30"} 6
+apiserver_request_duration_seconds_bucket{component="",dry_run="",group="",resource="",scope="",subresource="/healthz",verb="GET",version="",le="45"} 6
+apiserver_request_duration_seconds_bucket{component="",dry_run="",group="",resource="",scope="",subresource="/healthz",verb="GET",version="",le="60"} 6
+apiserver_request_duration_seconds_bucket{component="",dry_run="",group="",resource="",scope="",subresource="/healthz",verb="GET",version="",le="+Inf"} 6
+apiserver_request_duration_seconds_bucket{component="",dry_run="",group="",resource="",scope="",subresource="/readyz",verb="GET",version="",le="0.005"} 8
+apiserver_request_duration_seconds_bucket{component="",dry_run="",group="",resource="",scope="",subresource="/readyz",verb="GET",version="",le="0.025"} 17
+apiserver_request_duration_seconds_bucket{component="",dry_run="",group="",resource="",scope="",subresource="/readyz",verb="GET",version="",le="0.05"} 21
+apiserver_request_duration_seconds_bucket{component="",dry_run="",group="",resource="",scope="",subresource="/readyz",verb="GET",version="",le="0.1"} 21
+(/metrics not enabled or failed)
+

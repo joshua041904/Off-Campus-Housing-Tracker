@@ -1,0 +1,287 @@
+Fix listings loading state never resolving Joshua
+
+Scope: webapp + listings-service
+
+Why:
+Async + state + API timing bug
+
+Done:
+aria-busy=false and results render
+
+Fix listing creation confirmation UI Joshua
+
+Scope: webapp + listings-service
+
+Why:
+Backend + frontend contract
+
+Done:
+Banner appears after create
+
+Fix pet-friendly filter indexing Joshua
+
+Owner: Joshua
+
+Scope: listings-service
+
+Why:
+DB + query correctness
+
+Done:
+Created listing appears in filtered results
+
+Fix listing detail fetch by ID Joshua
+
+Public URL (this repo):
+GET ${EDGE_BASE_HTTPS}/api/listings/listings/${LISTING_ID}
+Upstream: GET /listings/:id on listings-service (gateway strips /api/listings)
+
+export LISTING_ID=""
+
+curl --http2 -i --cacert "$CA_CERT"
+--resolve "${EDGE_HOST}:${EDGE_PORT}:${OCH_EDGE_IP}"
+"${EDGE_BASE_HTTPS}/api/listings/listings/${LISTING_ID}"
+
+Expect: HTTP/2 200, JSON includes id, title, price_cents
+
+Failure matrix:
+Status Meaning
+401 OPEN_ROUTES missing for /api/listings/listings/*
+404 pathRewrite → wrong upstream path; or row missing
+400 validateListingId rejected (bad UUID)
+500 DB error / uncaught exception
+
+Repo files:
+services/api-gateway/src/server.ts
+services/listings-service/src/http-server.ts
+services/listings-service/src/validation.ts
+webapp/lib/api.ts
+
+Done when:
+[ ] Valid UUID → 200 + JSON row
+[ ] Invalid UUID → 400 (not 500)
+[ ] HTTP/1.1 + HTTP/2 both 200 for valid id (same --resolve pattern)
+
+Issue: Add Playwright test for listings flow Joshua
+
+Summary
+
+Ensure listings create → view flow works in UI.
+
+Scope
+
+webapp/e2e
+
+Task
+
+Create listing via UI/API
+Verify listing appears
+Verification
+
+Playwright test passes
+Done When
+
+Test merged and stable
+
+Issue: Store metadata for uploaded media Joshua
+
+Summary
+
+Store metadata for uploaded media files.
+
+Scope
+
+services/media-service
+
+Task
+
+Save filename, size, type
+Verification
+
+Metadata retrievable via API or DB
+Done When
+
+Metadata visible in response or DB
+
+Issue: Normalize trust-service response format Joshua 
+
+Summary
+
+Standardize API response format for trust-service.
+
+Scope
+
+services/trust-service
+
+Task
+
+Ensure responses follow { data, error }
+Verification
+
+All endpoints return consistent structure
+Done When
+
+Verified via curl across endpoints
+
+Issue: Validate listing creation input Joshua 
+
+Summary
+
+Prevent invalid listing creation requests.
+
+Scope
+
+services/listings-service
+
+Task
+
+Validate required fields (title, price)
+Return 400 instead of 500
+Verification
+
+Missing fields → 400 response
+Done When
+
+No invalid request returns 500
+
+Issue: Add pagination to listings API Joshua
+
+Summary
+
+Add pagination support to listings endpoint.
+
+Scope
+
+services/listings-service
+
+Task
+
+Add limit and offset params to /api/listings
+Update query logic
+Verification
+
+limit=10 returns 10 results
+offset shifts results
+Done When
+
+Pagination works via curl
+
+Issue: Prevent duplicate flags in trust-service  Joshua 
+
+Summary
+
+Prevent duplicate flag submissions for the same listing by the same user.
+
+Scope
+
+services/trust-service
+
+Task
+
+Detect duplicate flag attempts
+Make operation idempotent
+Verification
+
+Send same flag request twice → only one stored
+API response remains consistent
+Done When
+
+Duplicate flags are ignored
+Behavior documented in issue
+
+Fix listing search sort stability Joshua
+
+Summary
+
+Ensure listing results are consistently ordered and free of duplicates.
+
+Scope
+
+services/listings-service
+
+Task
+
+Sort /api/listings by created_at DESC
+Remove duplicate listings in response
+Verification
+
+Run same query 3 times → order is identical
+No duplicate IDs in response
+Done When
+
+curl output shows stable ordering
+Listings Playwright test passes
+
+Stabilize Trust Service Moderation and Flagging Workflow Joshua
+
+Scope
+
+services/trust-service
+webapp trust UI only if response fields change
+Rebuild after code changes (this issue)
+
+Quick matrix (full detail: Colima rebuild cheat sheet at top of this file):
+
+webapp (+ default listings-service) → ./scripts/rebuild-housing-colima.sh or pnpm run rebuild:housing:colima
+one backend only → SERVICES=<name> ./scripts/rebuild-och-images-and-rollout.sh or pnpm run rebuild:service:<name>
+several backends (no webapp) → SERVICES="..." ./scripts/rebuild-och-images-and-rollout.sh
+webapp + multiple backends → SERVICES="..." ./scripts/rebuild-housing-colima.sh
+This issue: trust-service only → pnpm run rebuild:service:trust. If you also edit webapp/ (trust pages), use webapp + backends (include trust): SERVICES=trust-service ./scripts/rebuild-housing-colima.sh (add more services to SERVICES= if you touched them).
+
+Steps
+
+Test flagging flow:
+same item flagged multiple times
+invalid target id
+Ensure duplicate handling is idempotent/safe.
+Improve error response consistency.
+Validate trust API + webapp trust flow.
+Success Criteria
+
+No duplicate flag state corruption.
+Errors are predictable and consistent.
+Done When
+
+Repro + fix notes are posted in issue.
+
+Middleware / logging / interceptors — what we actually have
+
+There isn’t a single shared “Express middleware + logging helper” that every service imports. Patterns are split by layer:
+
+services/api-gateway/src/server.ts — This is where most HTTP middleware lives: Helmet, CORS, compression, rate limiting, query sanitization, per-request Prometheus counter on finish, the JWT / identity path, http-proxy-middleware to backends, and a final Express error handler (app.use((err, ...)). Trust traffic hits /trust and /api/trust proxies after that stack.
+
+services/trust-service/src/http-server.ts — In-process Express app only: express.json, a tiny middleware that increments httpCounter on response finish, route handlers, and requireUser (checks x-user-id). No request/response logging middleware; errors are mostly console.error + JSON body.
+
+services/trust-service/src/grpc-server.ts — Plain gRPC handlers; no withLogging wrapper like services auth-service / messaging-service use (withLogging(handler, methodName) around RPCs). Logging here is ad hoc console.error in .catch().
+
+services/common/src/logger.ts — Exports a Pino logger. Trust HTTP is not using it today (still console.*).
+
+services/common/src/tracing.ts — OpenTelemetry bootstrap (HTTP/Express/pg/redis if wired). Trust server.ts only starts gRPC + HTTP; it does not call initTracing() like some other stacks might.
+
+Net: For this issue, if they want structured logs or consistent request IDs, the natural places are trust http-server / grpc-server (or adopting logger from @common/utils / shared package path you use), and/or relying on gateway + Caddy JSON logs for edge correlation. There is no dedicated “trust interceptor” package.
+
+Rebuild matrix (what you wrote is right)
+Trust-only backend: pnpm run rebuild:service:trust (or SERVICES=trust-service ./scripts/rebuild-och-images-and-rollout.sh). If they touch webapp/ trust pages too: SERVICES=trust-service ./scripts/rebuild-housing-colima.sh (and add more SERVICES= if other backends change).
+
+Quick test angles aligned with the issue
+
+Same item flagged multiple times — confirm desired behavior vs schema (multiple rows vs one row / 409); align HTTP + gRPC + DB constraint.
+Invalid target id — assert 400 + consistent JSON shape, not 500.
+Consistency — align gRPC codes/messages with HTTP status + { error: ... } (and optionally a code field for the webapp).
+If you want, we can add a thin shared httpRequestLogger in services/common later; for this ticket, touching trust http-server + grpc-server (+ optional migration) is the direct path.
+
+Flag / report-abuse — where to look
+
+Area	Files / notes
+HTTP report abuse	services/trust-service/src/http-server.ts — POST /report-abuse (validation, INSERT, generic 500 on catch).
+gRPC report / flag	services/trust-service/src/grpc-server.ts — ReportAbuse, FlagListing (same INSERT idea; errors → INTERNAL + "failed").
+Schema intent	infra/db/01-trust-schema.sql — comment: one listing can be flagged multiple times; no UNIQUE on (listing_id, reporter_id) etc., so duplicate reports = multiple rows today (not corrupted state, but may not match idempotent product behavior).
+Peer review pattern to copy	Same http-server.ts: peer-review maps 23505 / "unique" → 409 { "error": "duplicate review" }. Flag paths do not yet (needs product rule: duplicate = new row vs 409 vs return existing flag_id).
+Invalid target_id	Bad UUIDs often hit Postgres and surface as 500 "internal" unless you validate UUID (or catch 22P02 / FK) and return 400 with a stable error shape.
+Webapp trust UI	webapp/app/trust/page.tsx (forms + reportAbuse), webapp/lib/api.ts (reportAbuse → /api/trust/report-abuse). For only refresh UI when response fields change, key off returned flag_id / status (and/or a stable error type from the API) instead of always resetting gene ric success text.
+
+--------------------------------------------------------------------------------
+Markdown (hub + one file per issue + appendix on middleware/logging):
+  docs/JOSHUA_ISSUES_PLAYBOOK.md
+  docs/joshua/*.md
+--------------------------------------------------------------------------------

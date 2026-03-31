@@ -1,0 +1,54 @@
+# Periodic metadata quorum describe over INTERNAL SSL (mTLS). Fails if quorum unhealthy or TLS/bootstrap broken.
+# Requires Secret kafka-ssl-secret (same keys as Kafka StatefulSet). Apply: kubectl apply -k infra/ops/
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: kafka-quorum-check
+  namespace: off-campus-housing-tracker
+spec:
+  schedule: "*/2 * * * *"
+  concurrencyPolicy: Forbid
+  # Cluster hygiene: prune CronJob job history; TTL GCs completed Job pods quickly.
+  successfulJobsHistoryLimit: 0
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 60
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: quorum-check
+              image: confluentinc/cp-kafka:7.5.0
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: KAFKA_BOOTSTRAP
+                  value: kafka-0.kafka.off-campus-housing-tracker.svc.cluster.local:9093
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -euo pipefail
+                  SEC=/etc/kafka/secrets
+                  KS_PASS="$(tr -d '\n\r' <"$SEC/kafka.keystore-password")"
+                  TS_PASS="$(tr -d '\n\r' <"$SEC/kafka.truststore-password")"
+                  cat > /tmp/client.properties <<EOF
+                  security.protocol=SSL
+                  ssl.truststore.location=$SEC/kafka.truststore.jks
+                  ssl.truststore.password=${TS_PASS}
+                  ssl.keystore.location=$SEC/kafka.keystore.jks
+                  ssl.keystore.password=${KS_PASS}
+                  ssl.key.password=${KS_PASS}
+                  ssl.endpoint.identification.algorithm=
+                  EOF
+                  kafka-metadata-quorum --bootstrap-server "$KAFKA_BOOTSTRAP" \
+                    --command-config /tmp/client.properties describe --status
+              volumeMounts:
+                - name: kafka-ssl-secret
+                  mountPath: /etc/kafka/secrets
+                  readOnly: true
+          volumes:
+            - name: kafka-ssl-secret
+              secret:
+                secretName: kafka-ssl-secret
+                optional: false

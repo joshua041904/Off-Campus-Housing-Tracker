@@ -1,0 +1,42 @@
+# PrometheusRule: platform signals for Kafka KRaft + headless DNS issues.
+# Apply to the namespace where Prometheus Operator watches (often "monitoring").
+#   kubectl apply -f monitoring/prometheus-rules/kafka-kraft-dns.yaml -n monitoring
+#
+# JMX-based Kafka metrics (ActiveControllerCount, raft leader changes) require a JMX exporter
+# on brokers; see docs/runbooks/kafka-kraft-stale-dns-rca.md for example expr to add later.
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: kafka-kraft-platform
+  namespace: monitoring
+  labels:
+    role: alert-rules
+    app.kubernetes.io/name: kafka-kraft
+spec:
+  groups:
+    - name: kafka-kraft.platform
+      rules:
+        - alert: KafkaBrokerContainerRestartBurst
+          expr: |
+            increase(kube_pod_container_status_restarts_total{
+              namespace="off-campus-housing-tracker",
+              pod=~"kafka-[0-9]+",
+              container="kafka"
+            }[10m]) > 2
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Kafka broker container restarting frequently"
+            description: "Possible quorum/DNS/TLS instability. Check logs for 'could not be established' on :9095 and run scripts/validate-kafka-dns.sh."
+
+        - alert: KafkaReadyReplicasLow
+          expr: |
+            (sum(kube_pod_status_condition{namespace="off-campus-housing-tracker", pod=~"kafka-[0-9]+", type="Ready", status="true"}) or vector(0)) < 2
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Fewer than 2 Kafka pods Ready"
+            description: "Quorum at risk. Verify pods, PVCs, and EndpointSlice vs pod IP (stale DNS)."

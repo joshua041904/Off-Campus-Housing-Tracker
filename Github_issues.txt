@@ -1,0 +1,571 @@
+================================================================================
+🚀 OFF-CAMPUS HOUSING ENGINEERING VALIDATION SPEC v2
+“No ambiguity. No vibes. Only deterministic sauce.”
+================================================================================
+Markdown edition (TOC, tables, fenced code): docs/ENGINEERING_VALIDATION_SPEC_V2.md
+
+Companion quick refs: GITHUB_ISSUES_FILE_MAP.txt | GITHUB_ISSUES_ONBOARDING_GUIDE.txt
+
+This document is the single validation contract: measurable curls, protocol checks,
+gateway vs direct isolation, JWT blocks, failure matrices, Done When checklists,
+and extra rigor (“moon”) issues. Implementation still lives in the repo paths
+cited under each issue.
+
+================================================================================
+🌍 ENGINEERING VALIDATION BASE (MANDATORY)
+================================================================================
+
+Traffic model (always assume this unless debugging with port-forward):
+
+  Client (curl / browser / Playwright)
+    → edge (Caddy / ingress TLS termination)
+    → api-gateway
+    → microservice HTTP (4011 auth, 4012 listings, 4013 booking, …)
+
+Rules:
+  • Do not use http://127.0.0.1:4020 or raw gateway port-forward for validation
+    suites — Playwright and strict scripts reject that legacy pattern.
+  • Use hostname **off-campus-housing.test** + TLS + **certs/dev-root.pem** so SNI
+    matches the leaf cert (QUIC / HTTP/3 require correct SNI; do not curl https://<raw-ip>/…
+    for edge validation unless you also fix SNI via --resolve).
+
+──────────────────────────────────────────────────────────────────────────────
+0) Discover edge IP (MetalLB / ingress LoadBalancer / Colima pool)
+──────────────────────────────────────────────────────────────────────────────
+  kubectl get svc -A | grep LoadBalancer
+  # or namespace-scoped:
+  kubectl get svc -n ingress-nginx
+  kubectl get svc -n off-campus-housing-tracker
+
+Typical Colima MetalLB pool doc: 192.168.64.240–250 (your IP may differ).
+
+──────────────────────────────────────────────────────────────────────────────
+1) Shell variables (copy-paste block — adjust OCH_EDGE_IP)
+──────────────────────────────────────────────────────────────────────────────
+  export REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+  cd "$REPO_ROOT"
+
+  export EDGE_HOST="${EDGE_HOST:-off-campus-housing.test}"
+  export EDGE_PORT="${EDGE_PORT:-443}"
+  export CA_CERT="${CA_CERT:-$REPO_ROOT/certs/dev-root.pem}"
+  export OCH_EDGE_IP="${OCH_EDGE_IP:-192.168.64.240}"   # <-- set from kubectl / your LB
+
+  # HTTPS API base (no trailing slash)
+  export EDGE_BASE_HTTPS="https://${EDGE_HOST}"
+
+  # Repeat for every curl: --cacert "$CA_CERT" --resolve "${EDGE_HOST}:${EDGE_PORT}:${OCH_EDGE_IP}"
+
+──────────────────────────────────────────────────────────────────────────────
+2) Sanity: edge answers (replace eval with literal --cacert if you prefer)
+──────────────────────────────────────────────────────────────────────────────
+  curl --http1.1 -i --cacert "$CA_CERT" \
+    --resolve "${EDGE_HOST}:${EDGE_PORT}:${OCH_EDGE_IP}" \
+    "${EDGE_BASE_HTTPS}/_caddy/healthz"
+
+Expect: HTTP/1.1 200 (or 204/200 per Caddy config)
+
+If this fails → stop. Ingress / Caddy / --resolve IP / CA cert mismatch.
+
+──────────────────────────────────────────────────────────────────────────────
+3) Headless / CI: Node + Playwright need hostname → IP (not only curl --resolve)
+──────────────────────────────────────────────────────────────────────────────
+curl can use --resolve; **Node fetch does not**. Either:
+
+  A) /etc/hosts line:
+       sudo sh -c 'grep -qF "${OCH_EDGE_IP} ${EDGE_HOST}" /etc/hosts || echo "${OCH_EDGE_IP} ${EDGE_HOST}" >> /etc/hosts'
+
+  B) Preflight helper (discovers LB IP when possible):
+       export OCH_AUTO_EDGE_HOSTS=1
+       # scripts/lib/edge-test-url.sh will try to append hosts (needs sudo on non-root)
+
+  C) Explicit IP:
+       export OCH_EDGE_IP=<LoadBalancer-IP>
+       # see scripts/run-preflight-scale-and-all-suites.sh header: OCH_EDGE_IP, OCH_AUTO_EDGE_HOSTS
+
+Preflight: ./scripts/run-preflight-scale-and-all-suites.sh documents these env vars;
+Playwright runs via scripts/run-playwright-e2e-preflight.sh → edge-test-url.sh.
+
+──────────────────────────────────────────────────────────────────────────────
+4) Protocol recipes (deterministic — same path, three ALPN behaviors)
+──────────────────────────────────────────────────────────────────────────────
+HTTP/1.1 only:
+  curl --http1.1 -i --cacert "$CA_CERT" \
+    --resolve "${EDGE_HOST}:${EDGE_PORT}:${OCH_EDGE_IP}" \
+    "${EDGE_BASE_HTTPS}/api/listings/healthz"
+
+HTTP/2 over TLS (ALPN h2 — use --http2, NOT --http2-prior-knowledge):
+  curl --http2 -i --cacert "$CA_CERT" \
+    --resolve "${EDGE_HOST}:${EDGE_PORT}:${OCH_EDGE_IP}" \
+    "${EDGE_BASE_HTTPS}/api/listings/healthz"
+
+HTTP/3 (QUIC) — requires curl with HTTP/3; same SNI + CA + fixed IP:
+  curl --http3 -v --cacert "$CA_CERT" \
+    --resolve "${EDGE_HOST}:${EDGE_PORT}:${OCH_EDGE_IP}" \
+    "${EDGE_BASE_HTTPS}/_caddy/healthz"
+
+Optional API path over HTTP/3:
+  curl --http3 -sS --cacert "$CA_CERT" \
+    --resolve "${EDGE_HOST}:${EDGE_PORT}:${OCH_EDGE_IP}" \
+    "${EDGE_BASE_HTTPS}/api/listings/healthz" -o /dev/null -w "%{http_version}\n"
+
+Expect: http_version 3 (or verbose shows HTTP/3)
+
+──────────────────────────────────────────────────────────────────────────────
+5) Direct service isolation (gateway vs upstream)
+──────────────────────────────────────────────────────────────────────────────
+When gateway fails but you suspect listings is healthy:
+
+  kubectl port-forward svc/listings-service 4012:4012 -n off-campus-housing-tracker
+  curl -i http://127.0.0.1:4012/healthz
+
+Interpretation:
+  • Direct 200 + gateway non-200 → OPEN_ROUTES, pathRewrite, or auth guard order.
+  • Direct non-200 → listings DB/process bug first.
+
+================================================================================
+🔐 JWT ACQUISITION BLOCK (use before ANY protected route)
+================================================================================
+Replace email/password with a real test account (seed or register first).
+
+  TOKEN_JSON="$(curl --http2 -sS --cacert "$CA_CERT" \
+    --resolve "${EDGE_HOST}:${EDGE_PORT}:${OCH_EDGE_IP}" \
+    -X POST "${EDGE_BASE_HTTPS}/api/auth/login" \
+    -H "Content-Type: application/json" \
+    -d '{"email":"test@example.com","password":"ChangeMe123!"}')"
+
+  export TOKEN="$(printf '%s' "$TOKEN_JSON" | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
+  test -n "$TOKEN" || { echo "login failed: $TOKEN_JSON"; exit 1; }
+
+Protected call pattern:
+
+  curl --http2 -sS --cacert "$CA_CERT" \
+    --resolve "${EDGE_HOST}:${EDGE_PORT}:${OCH_EDGE_IP}" \
+    -H "Authorization: Bearer $TOKEN" \
+    "${EDGE_BASE_HTTPS}/api/auth/me"
+
+Expect: HTTP/2 200 JSON including claims (e.g. sub).
+
+================================================================================
+🟢 JOSHUA — LISTINGS / TRUST / MEDIA (VALIDATION SPEC)
+Joshua owns: listings correctness, trust integrity, media reliability.
+================================================================================
+
+──────────────────────────────────────────────────────────────────────────────
+Issue: Listings health endpoint must work on all protocols
+──────────────────────────────────────────────────────────────────────────────
+Contract:
+  GET ${EDGE_BASE_HTTPS}/api/listings/healthz
+  Public. No JWT.
+
+HTTP/1.1:
+  curl --http1.1 -i --cacert "$CA_CERT" \
+    --resolve "${EDGE_HOST}:${EDGE_PORT}:${OCH_EDGE_IP}" \
+    "${EDGE_BASE_HTTPS}/api/listings/healthz"
+  Expect: first line contains HTTP/1.1 and status 200
+
+HTTP/2:
+  curl --http2 -i --cacert "$CA_CERT" \
+    --resolve "${EDGE_HOST}:${EDGE_PORT}:${OCH_EDGE_IP}" \
+    "${EDGE_BASE_HTTPS}/api/listings/healthz"
+  Expect: HTTP/2 and status 200
+
+HTTP/3 (if TLS + curl --http3 available):
+  curl --http3 -i --cacert "$CA_CERT" \
+    --resolve "${EDGE_HOST}:${EDGE_PORT}:${OCH_EDGE_IP}" \
+    "${EDGE_BASE_HTTPS}/api/listings/healthz"
+  Expect: HTTP/3 and status 200
+
+Direct isolation:
+  kubectl port-forward svc/listings-service 4012:4012 -n off-campus-housing-tracker
+  curl -i http://127.0.0.1:4012/healthz
+
+Failure matrix:
+  Status   Meaning
+  401      OPEN_ROUTES / healthz bypass missing before JWT guard (api-gateway)
+  404      Proxy prefix or pathRewrite wrong
+  502/503  Upstream listings pod not ready
+  200+DB warn JSON listings may still return 200 with db disconnected — read body
+
+Repo files:
+  services/api-gateway/src/server.ts
+  services/listings-service/src/http-server.ts
+
+Done when:
+  [ ] HTTP/1.1 → 200
+  [ ] HTTP/2 → 200
+  [ ] No JWT required on edge path
+  [ ] HTTP/3 → 200 OR documented skip with reason (host curl without HTTP/3)
+  [ ] Direct /healthz 200 when listings healthy
+
+──────────────────────────────────────────────────────────────────────────────
+Issue: Listing detail by ID (public contract)
+──────────────────────────────────────────────────────────────────────────────
+Public URL (this repo):
+  GET ${EDGE_BASE_HTTPS}/api/listings/listings/${LISTING_ID}
+  Upstream: GET /listings/:id on listings-service (gateway strips /api/listings)
+
+  export LISTING_ID="<valid-uuid-from-search>"
+
+  curl --http2 -i --cacert "$CA_CERT" \
+    --resolve "${EDGE_HOST}:${EDGE_PORT}:${OCH_EDGE_IP}" \
+    "${EDGE_BASE_HTTPS}/api/listings/listings/${LISTING_ID}"
+
+Expect: HTTP/2 200, JSON includes id, title, price_cents
+
+Failure matrix:
+  Status   Meaning
+  401      OPEN_ROUTES missing for /api/listings/listings/*
+  404      pathRewrite → wrong upstream path; or row missing
+  400      validateListingId rejected (bad UUID)
+  500      DB error / uncaught exception
+
+Repo files:
+  services/api-gateway/src/server.ts
+  services/listings-service/src/http-server.ts
+  services/listings-service/src/validation.ts
+  webapp/lib/api.ts
+
+Done when:
+  [ ] Valid UUID → 200 + JSON row
+  [ ] Invalid UUID → 400 (not 500)
+  [ ] HTTP/1.1 + HTTP/2 both 200 for valid id (same --resolve pattern)
+
+──────────────────────────────────────────────────────────────────────────────
+Issue: Listing create + analytics sync integrity
+──────────────────────────────────────────────────────────────────────────────
+Step 1 — JWT (use 🔐 JWT ACQUISITION BLOCK above)
+
+Step 2 — Create listing (minimal valid body — gateway injects x-user-id from JWT)
+
+  curl --http2 -i --cacert "$CA_CERT" \
+    --resolve "${EDGE_HOST}:${EDGE_PORT}:${OCH_EDGE_IP}" \
+    -X POST "${EDGE_BASE_HTTPS}/api/listings/create" \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "title": "Validation spec listing",
+      "description": "Joshua deterministic create",
+      "price_cents": 123000,
+      "effective_from": "'"$(date +%F)"'",
+      "pet_friendly": true,
+      "smoke_free": true,
+      "amenities": []
+    }'
+
+Expect: HTTP/2 201
+
+Step 3 — Search sees listing (optional slug from title)
+
+  curl --http2 -sS --cacert "$CA_CERT" \
+    --resolve "${EDGE_HOST}:${EDGE_PORT}:${OCH_EDGE_IP}" \
+    "${EDGE_BASE_HTTPS}/api/listings/search?q=Validation%20spec"
+
+Expect: JSON { "items": [ … ] } non-empty
+
+Step 4 — Analytics daily_metrics
+
+  TODAY="$(date +%F)"
+  curl --http2 -sS --cacert "$CA_CERT" \
+    --resolve "${EDGE_HOST}:${EDGE_PORT}:${OCH_EDGE_IP}" \
+    "${EDGE_BASE_HTTPS}/api/analytics/daily-metrics?date=${TODAY}"
+
+Expect: new_listings strictly increases vs snapshot taken before create OR matches
+idempotent expectation (document if env ANALYTICS_SYNC_MODE / Kafka-only path).
+
+Repo files:
+  services/listings-service/src/http-server.ts
+  services/listings-service/src/listing-kafka.ts
+  services/listings-service/src/analytics-sync.ts
+  services/analytics-service/src/http-server.ts
+  services/analytics-service/src/listing-metrics-projection.ts
+  services/analytics-service/src/consumers/listingEventsConsumer.ts
+
+Done when:
+  [ ] 201 on create
+  [ ] Listing visible in search
+  [ ] new_listings increments (or team-agreed async bound, e.g. ≤180s with Kafka-only)
+  [ ] No unhandled 500 from analytics-sync on happy path
+
+──────────────────────────────────────────────────────────────────────────────
+Issue: Trust duplicate flag protection (idempotent abuse report)
+──────────────────────────────────────────────────────────────────────────────
+API body uses abuse_target_type + target_id (not bare listing_id).
+
+  curl --http2 -sS --cacert "$CA_CERT" \
+    --resolve "${EDGE_HOST}:${EDGE_PORT}:${OCH_EDGE_IP}" \
+    -X POST "${EDGE_BASE_HTTPS}/api/trust/report-abuse" \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "{\"abuse_target_type\":\"listing\",\"target_id\":\"${LISTING_ID}\",\"category\":\"abuse\"}"
+
+Run twice identical.
+
+Current schema (infra/db/01-trust-schema.sql) allows multiple flags; “moon” fix adds
+UNIQUE or upsert in trust-service.
+
+Repo files:
+  services/trust-service/src/http-server.ts
+  infra/db/01-trust-schema.sql + migration
+
+Done when:
+  [ ] Two identical requests → one logical row OR stable idempotent HTTP response
+  [ ] Documented in PR
+
+──────────────────────────────────────────────────────────────────────────────
+🌖 MOON — Listings pagination determinism
+──────────────────────────────────────────────────────────────────────────────
+After implementation:
+
+  curl --http2 -sS --cacert "$CA_CERT" \
+    --resolve "${EDGE_HOST}:${EDGE_PORT}:${OCH_EDGE_IP}" \
+    "${EDGE_BASE_HTTPS}/api/listings/search?limit=5&offset=5&sort=created_desc"
+
+Done when:
+  [ ] len(items) ≤ 5
+  [ ] Three identical calls: same ids same order
+  [ ] No duplicate ids in one response
+  [ ] offset=0 vs offset=5 disjoint id sets (stable data)
+
+Repo: services/listings-service/src/search-listings-query.ts, http-server.ts
+
+──────────────────────────────────────────────────────────────────────────────
+🌖 MOON — Media metadata integrity
+──────────────────────────────────────────────────────────────────────────────
+Upload flow → DB or GET response must expose filename, size, content-type.
+
+  curl --http2 -i --cacert "$CA_CERT" \
+    --resolve "${EDGE_HOST}:${EDGE_PORT}:${OCH_EDGE_IP}" \
+    -H "Authorization: Bearer $TOKEN" \
+    "${EDGE_BASE_HTTPS}/api/media/<id>"
+
+(Exact path per media-service routes — align with services/media-service/src/http-server.ts)
+
+Done when:
+  [ ] Metadata fields present and match stored object
+
+──────────────────────────────────────────────────────────────────────────────
+🌖 MOON — Listings SQL performance guard
+──────────────────────────────────────────────────────────────────────────────
+Run EXPLAIN (ANALYZE, BUFFERS) on search SQL; ensure index supports ORDER BY
+created_at DESC (or documented seq scan acceptable at row count X).
+
+Repo: scripts/perf/sql, services/listings-service/src/search-listings-query.ts
+
+Done when:
+  [ ] p95 search latency < baseline (post before/after in PR)
+
+================================================================================
+🟢 ARKAR — AUTH / ANALYTICS (VALIDATION SPEC)
+Arkar owns: authentication determinism + event reliability.
+================================================================================
+
+──────────────────────────────────────────────────────────────────────────────
+Issue: Auth session persistence across protocols
+──────────────────────────────────────────────────────────────────────────────
+After login (🔐 JWT block), same token must validate on HTTP/1.1 and HTTP/2:
+
+  curl --http1.1 -sS -o /dev/null -w "%{http_code}\n" --cacert "$CA_CERT" \
+    --resolve "${EDGE_HOST}:${EDGE_PORT}:${OCH_EDGE_IP}" \
+    -H "Authorization: Bearer $TOKEN" \
+    "${EDGE_BASE_HTTPS}/api/auth/me"
+
+  curl --http2 -sS -o /dev/null -w "%{http_code}\n" --cacert "$CA_CERT" \
+    --resolve "${EDGE_HOST}:${EDGE_PORT}:${OCH_EDGE_IP}" \
+    -H "Authorization: Bearer $TOKEN" \
+    "${EDGE_BASE_HTTPS}/api/auth/me"
+
+Expect: 200 and 200
+
+Failure matrix:
+  Symptom                        Likely cause
+  401 gateway only               JWT_SECRET / issuer mismatch vs auth-service
+  login 200 but /me 401          wrong Bearer, expired, revoked jti
+  login OK but UI loop           webapp/dashboard race (localStorage vs redirect)
+
+Repo files:
+  services/api-gateway/src/server.ts (verifyJwt)
+  services/auth-service/src/server.ts, grpc-server.ts
+  webapp/lib/auth-storage.ts, webapp/app/login/page.tsx, webapp/app/dashboard/page.tsx
+
+Done when:
+  [ ] /me 200 on both HTTP/1.1 and HTTP/2 with same token
+  [ ] Playwright auth-cycle passes
+
+──────────────────────────────────────────────────────────────────────────────
+Issue: Analytics event propagation timing
+──────────────────────────────────────────────────────────────────────────────
+Measure Δt from listing create (201) until GET daily-metrics shows increased
+new_listings. Team SLA: e.g. ≤5s with ANALYTICS_SYNC_MODE=1, or ≤180s Kafka-only.
+
+If exceeded:
+  [ ] Consumer pod running?
+  [ ] Topic name / ENV_PREFIX / ochKafkaTopicIsolationSuffix match?
+  [ ] KAFKA_SSL_* CA paths set?
+
+Repo: same as Joshua “Listing create + analytics sync integrity”
+
+Done when:
+  [ ] Documented p95 Δt in PR under actual env
+
+──────────────────────────────────────────────────────────────────────────────
+🌖 MOON — JWT expiry handling
+──────────────────────────────────────────────────────────────────────────────
+With artificially short-lived access token (test env only):
+
+  [ ] GET /api/auth/me → 401 after expiry
+  [ ] POST /api/auth/refresh with refresh contract (gateway uses Authorization
+      bearer as refresh_token today — document client behavior)
+  [ ] New access works
+
+Repo: services/api-gateway/src/server.ts, services/auth-service
+
+──────────────────────────────────────────────────────────────────────────────
+🌖 MOON — Rate limit observability
+──────────────────────────────────────────────────────────────────────────────
+Burst traffic to a rate-limited route (gateway express-rate-limit):
+
+  for i in $(seq 1 40); do
+    curl -sS -o /dev/null -w "%{http_code}\n" --cacert "$CA_CERT" \
+      --resolve "${EDGE_HOST}:${EDGE_PORT}:${OCH_EDGE_IP}" \
+      "${EDGE_BASE_HTTPS}/api/healthz" || true
+  done
+
+Done when:
+  [ ] Eventually 429
+  [ ] Body is JSON e.g. { "code": "RATE_LIMITED", "message": "…" } (implement if not)
+  [ ] Not HTML error page
+
+Repo: services/api-gateway/src/server.ts
+
+──────────────────────────────────────────────────────────────────────────────
+🌖 MOON — Structured auth logging
+──────────────────────────────────────────────────────────────────────────────
+Every auth decision log line includes structured fields: userId (if known), action,
+timestamp (ISO).
+
+Done when:
+  [ ] Sample log line pasted in PR
+
+Repo: services/auth-service/src/server.ts, grpc-server.ts
+
+================================================================================
+🟢 FRANCO — SEARCH / UI / FILTERS (VALIDATION SPEC)
+Franco owns: frontend state + filter/query correctness.
+================================================================================
+
+──────────────────────────────────────────────────────────────────────────────
+Issue: Search filters must map exactly to backend
+──────────────────────────────────────────────────────────────────────────────
+HTTP/2:
+
+  curl --http2 -sS --cacert "$CA_CERT" \
+    --resolve "${EDGE_HOST}:${EDGE_PORT}:${OCH_EDGE_IP}" \
+    "${EDGE_BASE_HTTPS}/api/listings/search?min_price=100000&max_price=200000&sort=price_desc"
+
+Expect:
+  [ ] HTTP 200
+  [ ] Each item price_cents in [min_price, max_price] (closed bounds per SQL)
+  [ ] Descending price order
+  [ ] No negative price_cents in JSON
+
+Repo: webapp/lib/api.ts, webapp/app/listings/page.tsx,
+      services/listings-service/src/http-server.ts, search-listings-query.ts
+
+──────────────────────────────────────────────────────────────────────────────
+Issue: Loading state must clear (aria-busy contract)
+──────────────────────────────────────────────────────────────────────────────
+UI: listings results region must end in a Playwright-visible idle state.
+
+Implementation note: React boolean aria-busy={false} often **omits** the attribute;
+use aria-busy="false" string or split loading flags.
+
+Done when:
+  [ ] Playwright expects aria-busy="false" passes (listings-filters-maps, flows, guest)
+
+Repo: webapp/app/listings/page.tsx
+
+──────────────────────────────────────────────────────────────────────────────
+🌖 MOON — Distance filter accuracy
+──────────────────────────────────────────────────────────────────────────────
+After backend supports lat/lng + max_distance_km:
+
+  curl --http2 -sS --cacert "$CA_CERT" \
+    --resolve "${EDGE_HOST}:${EDGE_PORT}:${OCH_EDGE_IP}" \
+    "${EDGE_BASE_HTTPS}/api/listings/search?lat=40.7128&lng=-74.0060&max_distance_km=5"
+
+Done when:
+  [ ] Only listings within radius (or sorted by distance); document formula
+
+──────────────────────────────────────────────────────────────────────────────
+🌖 MOON — Empty result contract
+──────────────────────────────────────────────────────────────────────────────
+  curl --http2 -sS --cacert "$CA_CERT" \
+    --resolve "${EDGE_HOST}:${EDGE_PORT}:${OCH_EDGE_IP}" \
+    "${EDGE_BASE_HTTPS}/api/listings/search?min_price=999999999"
+
+Expect: HTTP 200 and {"items":[]} (not 500)
+
+Repo: services/listings-service/src/http-server.ts
+
+──────────────────────────────────────────────────────────────────────────────
+🌖 MOON — k6 search load script
+──────────────────────────────────────────────────────────────────────────────
+Add scripts/load/k6-search.js (or extend k6-listings.js) hitting
+${BASE_URL}/api/listings/search with mixed params.
+
+Done when:
+  [ ] p95 reported; threshold file or summary in bench_logs/
+  [ ] No 5xx under declared VUs/duration
+
+================================================================================
+🔥 SHARED + PLAYWRIGHT
+================================================================================
+  • Pick one failing spec under webapp/e2e; fix root cause (no skip without ticket).
+  • E2E base: E2E_API_BASE=https://off-campus-housing.test + NODE_EXTRA_CA_CERTS=certs/dev-root.pem
+  • DNS: OCH_EDGE_IP + /etc/hosts or OCH_AUTO_EDGE_HOSTS=1 (see §3 above).
+
+================================================================================
+🧾 CURSOR REWRITE / APPLY INSTRUCTIONS (CONSISTENCY)
+================================================================================
+When implementing or reviewing ANY issue above:
+
+  1. Prefer ${EDGE_BASE_HTTPS} + --cacert "$CA_CERT" + --resolve host:port:ip for
+     edge validation curls (deterministic SNI + IP).
+  2. For each outward-facing issue, add or keep: HTTP/1.1 check, HTTP/2 check,
+     and HTTP/3 check when curl supports --http3 and edge exposes QUIC.
+  3. Add kubectl port-forward “direct isolation” for the owning service when
+     debugging gateway vs upstream.
+  4. Before protected routes, paste the 🔐 JWT ACQUISITION BLOCK (or cite it).
+  5. Include a failure matrix (status code → interpretation) where HTTP errors apply.
+  6. “Done when” must be a checklist of booleans, not “seems fine”.
+  7. Replace vague “verify works” with measurable commands from this spec.
+  8. Do not use localhost:4020 for validation — only port-forward to **service**
+     ports (e.g. 4012) for isolation.
+  9. Trust report-abuse JSON keys: abuse_target_type, target_id (plus optional
+     category, details).
+ 10. Listing create requires at least: title, price_cents, effective_from (YYYY-MM-DD);
+     user_id comes from gateway x-user-id on POST /api/listings/create.
+
+================================================================================
+📎 FEATURE → REPO FILES (IMPLEMENTATION INDEX)
+================================================================================
+Listings health/detail/search/create — services/listings-service/src/http-server.ts,
+  search-listings-query.ts, validation.ts, listing-kafka.ts, analytics-sync.ts;
+  services/api-gateway/src/server.ts; webapp/lib/api.ts; webapp/app/listings/page.tsx
+Auth login/me/refresh — services/auth-service; services/api-gateway/src/server.ts;
+  webapp/lib/auth-storage.ts; webapp/app/login/page.tsx; webapp/app/dashboard/page.tsx
+Search history — services/booking-service/src/server.ts; webapp/lib/api.ts;
+  webapp/app/dashboard/page.tsx
+Analytics metrics — services/analytics-service/src/http-server.ts,
+  listing-metrics-projection.ts, consumers/listingEventsConsumer.ts
+Trust flags — services/trust-service/src/http-server.ts; infra/db/01-trust-schema.sql
+Media — services/media-service/src/http-server.ts, handlers/*, db/mediaRepo.ts
+E2E — webapp/e2e/*.spec.ts; webapp/playwright.config.ts; scripts/run-playwright-e2e-preflight.sh
+Load — scripts/load/k6-*.js; scripts/run-housing-k6-edge-smoke.sh
+
+Franco (search / UI / filters) — step-by-step playbook: docs/FRANCO_SEARCH_UI_VALIDATION.md
+Full spec Markdown (all owners): docs/ENGINEERING_VALIDATION_SPEC_V2.md
+
+================================================================================
+END — Engineering Validation Spec v2
+================================================================================

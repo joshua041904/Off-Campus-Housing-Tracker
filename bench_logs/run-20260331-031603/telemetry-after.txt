@@ -1,0 +1,2 @@
+=== control-plane telemetry @ 2026-03-31T07:17:45Z ===
+--- readyz (verbose) ---

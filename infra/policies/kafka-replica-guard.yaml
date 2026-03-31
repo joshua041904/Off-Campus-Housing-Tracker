@@ -1,0 +1,45 @@
+# Block scaling the KRaft StatefulSet below 3 replicas when voters list three nodes.
+# Requires Kubernetes 1.26+ (ValidatingAdmissionPolicy) and an apiserver that enforces it.
+# Apply: kubectl apply -f infra/policies/kafka-replica-guard.yaml
+#
+# Some distributions (e.g. k3s/Colima) may accept this object but not enforce VAP on UPDATE;
+# verify with: kubectl scale statefulset/kafka -n off-campus-housing-tracker --replicas=1 (should fail).
+# If scale succeeds, rely on process/runbook + PDB; add Kyverno/OPA or enable full VAP support.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: kafka-replica-guard
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["statefulsets"]
+        resourceNames: ["kafka"]
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: off-campus-housing-tracker
+  validations:
+    - expression: "object.spec.replicas >= 3"
+      message: "StatefulSet kafka in off-campus-housing-tracker must keep replicas >= 3 for this KRaft quorum configuration."
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: kafka-replica-guard-binding
+spec:
+  policyName: kafka-replica-guard
+  validationActions: [Deny]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: off-campus-housing-tracker
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["statefulsets"]
+        resourceNames: ["kafka"]

@@ -1,0 +1,262 @@
+================================================================================
+GITHUB ISSUES → REPO FILES & LIKELY CHANGES (QUICK MAP)
+Off-Campus-Housing-Tracker — routing map for Joshua / Arkar / Franco / shared work
+
+RELATED DOCS (green team: read in this order)
+  1) docs/ENGINEERING_VALIDATION_SPEC_V2.md — same as Github_issues.txt, Markdown (TOC, tables)
+  2) Github_issues.txt — plain-text source / easy diff
+  3) GITHUB_ISSUES_ONBOARDING_GUIDE.txt — architecture 101 + extra teaching notes
+  4) This file — one-screen path cheat sheet only
+================================================================================
+
+CONVENTIONS (read first)
+------------------------
+• API entry from browsers/tests: Caddy/edge → api-gateway (4020) → service HTTP ports
+  (listings 4012, auth 4011, booking 4013, analytics 4017, trust 4016, media 4018).
+• Gateway source of truth for public vs JWT: services/api-gateway/src/server.ts
+  — OPEN_ROUTES, isGetHealthzBypass, proxy mounts, KNOWN_API_FIRST_SEGMENTS.
+• Listings HTTP app: services/listings-service/src/http-server.ts
+  — routes are rooted at “/” on the service; gateway strips /api/listings or /listings.
+• Listings detail URL contract (webapp already matches):
+  GET /api/listings/listings/:id  →  upstream GET /listings/:id
+  (NOT /api/listings/:id — that would rewrite to /:id and miss the Express route.)
+• Playwright suites: webapp/playwright.config.ts (project → testMatch).
+• E2E helpers: webapp/e2e/helpers.ts, webapp/e2e/vertical-helpers.ts
+
+GOTCHA — aria-busy vs Playwright
+--------------------------------
+• webapp/app/listings/page.tsx uses aria-busy={loading} (boolean).
+  In React, aria-busy={false} often OMITS the attribute from the DOM; Playwright
+  toHaveAttribute("aria-busy", "false") then fails even when idle.
+• Fix pattern: use string attributes, e.g. aria-busy={loading ? "true" : "false"}.
+• Tests: webapp/e2e/listings-filters-maps.spec.ts, flows.spec.ts, guest.spec.ts
+
+
+================================================================================
+JOSHUA — LISTINGS / TRUST / MEDIA
+================================================================================
+
+-- EASY: Fix listings health endpoint routing (gateway + listings-service) --
+Files:
+  • services/api-gateway/src/server.ts
+    — OPEN_ROUTES entry for GET /api/listings/healthz (and /listings/healthz)
+    — app.get(["/listings/healthz", "/api/listings/healthz"], … pathRewrite → /healthz)
+    — Ensure this mount runs BEFORE the global JWT guard (it already should).
+  • services/listings-service/src/http-server.ts
+    — app.get(["/healthz", "/health"], DB ping → 200 JSON)
+Verify: curl https://<edge>/api/listings/healthz → 200
+E2E: webapp/e2e/listings.full.spec.ts (“GET /api/listings/healthz”)
+
+-- EASY: Fix listing detail fetch by ID (listings-service + contract) --
+Files:
+  • services/listings-service/src/http-server.ts — GET /listings/:id (pool query, 404)
+  • services/listings-service/src/validation.ts — validateListingId
+  • webapp/lib/api.ts — getListing() uses /api/listings/listings/${id}
+  • services/api-gateway/src/server.ts — OPEN_ROUTES must allow public GET for detail
+    pattern: /(?:api/)?listings/listings/[^/]+
+If broken: mismatch between gateway OPEN_ROUTES, proxy pathRewrite, and Express path.
+Verify: GET /api/listings/listings/<valid-uuid> → JSON listing
+
+-- CORE: Fix pet-friendly filter indexing (listings-service) --
+Files:
+  • services/listings-service/src/search-listings-query.ts — pets → WHERE pet_friendly = true
+  • services/listings-service/src/http-server.ts — maps query pet_friendly=1|true
+  • services/listings-service/src/validation.ts — create payload pet_friendly coercion
+  • services/listings-service/src/grpc-server.ts — keep HTTP and gRPC search in sync
+  • infra/db (listings schema) — confirm column pet_friendly exists, defaults, indexes if needed
+Verify: create with pet_friendly true → search?pet_friendly=1 includes row
+
+-- CORE: Fix listing creation confirmation UI (webapp + listings-service) --
+Files:
+  • webapp/app/listings/page.tsx — setMsg("Listing created."), data-testid listing-created-banner
+  • webapp/lib/api.ts — createListing POST /api/listings/create
+  • services/listings-service/src/http-server.ts — POST /create, 201 + rowToJson
+  • services/listings-service/src/listing-kafka.ts — publish failures return 503 (no banner if error)
+  • services/listings-service/src/analytics-sync.ts — ANALYTICS_SYNC_MODE sync can 500 create path
+Verify: after 201, banner visible; E2E webapp/e2e/system-integrity.spec.ts
+
+-- HARD: Fix listings loading state never resolving (webapp + listings-service) --
+Files:
+  • webapp/app/listings/page.tsx — initial useEffect search + aria-busy (see GOTCHA above);
+    shared `loading` for search/detail/create can block UI longer than needed — consider
+    separate flags (e.g. resultsLoading vs formLoading) so initial load finishing clears busy.
+  • webapp/lib/api.ts — searchListings(), getApiBase / errors
+  • services/listings-service/src/http-server.ts — GET / and /search must return 200 + { items }
+E2E: webapp/e2e/listings-filters-maps.spec.ts (aria-busy=false timeouts)
+
+-- Joshua FULL / EXPANDED pack (additional) --
+Listing sort stability + dedupe:
+  • services/listings-service/src/search-listings-query.ts — ORDER BY, optional DISTINCT ON id
+  • services/listings-service/src/grpc-server.ts — SearchListings uses same query builder
+Trust duplicate flags:
+  • services/trust-service/src/http-server.ts — POST /report-abuse (listing branch INSERT)
+  • infra/db/01-trust-schema.sql — today: no UNIQUE(listing_id, reporter_id); add migration +
+    ON CONFLICT DO NOTHING or SELECT-then-insert for idempotency
+Trust response format { data, error }:
+  • services/trust-service/src/http-server.ts (and grpc-server.ts if exposed)
+Media metadata:
+  • services/media-service/src/handlers/createUploadUrl.ts, completeUpload.ts
+  • services/media-service/src/db/mediaRepo.ts
+  • services/media-service/src/http-server.ts
+Pagination listings API:
+  • services/listings-service/src/search-listings-query.ts — LIMIT/OFFSET from query params
+  • services/listings-service/src/http-server.ts — parse limit/offset
+  • services/listings-service/src/grpc-server.ts — proto fields if applicable
+Validate listing creation input:
+  • services/listings-service/src/validation.ts — validateCreateListingInput (already strong;
+    extend for any missing cases returning 500 today)
+Listings Playwright:
+  • webapp/e2e/listings.full.spec.ts, listing-and-analytics-journey.spec.ts, listings-filters-maps.spec.ts
+
+
+================================================================================
+ARKAR — AUTH / ANALYTICS
+================================================================================
+
+-- EASY: Ensure auth session persistence --
+Files:
+  • webapp/lib/auth-storage.ts — localStorage och_token / och_email
+  • webapp/app/login/page.tsx — setStoredToken after login
+  • webapp/app/register/page.tsx — token storage after register (if applicable)
+  • services/auth-service/src/server.ts — POST login, JWT issuance
+  • services/auth-service/src/grpc-server.ts — Authenticate, token payload
+  • services/api-gateway/src/server.ts — verifyJwt, OPEN_ROUTES, /api/auth proxy
+Optional: persist refresh token if you add silent refresh (not in storage today).
+Verify: /api/auth/me with Bearer; navigate pages without losing session
+
+-- EASY: Improve test debugging output --
+Files:
+  • webapp/playwright.config.ts — reporter, trace, screenshot on failure
+  • webapp/e2e/helpers.ts — apiGatewayReady, logging wrappers
+  • Per-spec: wrap expect failures with response.text() where request fixtures used
+
+-- CORE: Fix login redirect after authentication --
+Files:
+  • webapp/app/login/page.tsx — router.push("/dashboard") after token
+  • webapp/app/layout.tsx — no middleware.ts in webapp; check root layout for any auth redirects
+  • webapp/app/dashboard/page.tsx — redirects to /login if no token (race with Playwright)
+E2E: webapp/e2e/auth-cycle.spec.ts — waitForURL /dashboard
+
+-- CORE: Fix analytics daily_metrics not updating --
+Files:
+  • services/listings-service/src/http-server.ts — create path calls sync + kafka
+  • services/listings-service/src/analytics-sync.ts — ANALYTICS_SYNC_MODE=1 POST internal ingest
+  • services/listings-service/src/listing-kafka.ts — ListingCreatedV1 envelope + topic
+  • services/analytics-service/src/http-server.ts — POST /internal/ingest/listing-created,
+    GET /daily-metrics
+  • services/analytics-service/src/listing-metrics-projection.ts — idempotent bump
+  • services/analytics-service/src/consumers/listingEventsConsumer.ts — Kafka consumer
+  • services/analytics-service/src/server.ts / index.ts — consumer startup wiring
+  • infra/k8s (listings + analytics deploy) — ANALYTICS_SYNC_MODE, ANALYTICS_INTERNAL_INGEST_TOKEN,
+    KAFKA_*, LISTINGS_* env alignment
+Verify: system-integrity polls /api/analytics/daily-metrics?date=YYYY-MM-DD
+E2E: webapp/e2e/system-integrity.spec.ts
+
+-- HARD: Fix event pipeline delay or failure --
+Same files as daily_metrics plus:
+  • packages/common kafka helpers — services/common/src/kafka.ts, kafka-wait.ts
+  • Topic scripts — scripts/create-kafka-event-topics*.sh, proto alignment scripts
+  • Consumer logs — timing, ANALYTICS_KAFKA_CONNECT_MS, SSL CA paths
+
+-- Arkar FULL / EXPANDED pack --
+Normalize auth errors { code, message }:
+  • services/auth-service/src/server.ts — JSON error bodies
+  • services/auth-service/src/grpc-server.ts — gRPC → HTTP mapping in gateway already partial
+Token refresh:
+  • services/api-gateway/src/server.ts — refreshTokenHandler, Bearer vs body token mismatch
+    (refresh handler uses Authorization bearer as refresh_token today — verify client contract)
+  • services/auth-service/src/grpc-server.ts — RefreshToken
+Analytics events / logging:
+  • services/analytics-service/src/consumers/*.ts
+  • services/auth-service/src/server.ts / grpc-server.ts — structured logs
+Test daily_metrics increment:
+  • services/analytics-service/tests/smoke.test.ts
+  • New integration test under analytics-service or extend webapp/e2e
+
+
+================================================================================
+FRANCO — SEARCH / UI / FILTERS
+================================================================================
+
+-- EASY: Fix disabled search submit button (webapp) --
+Files:
+  • webapp/app/dashboard/page.tsx — search-submit disabled={loading}; refreshAll sets loading;
+    ensure initial refreshAll completes or don’t block submit on unrelated loading
+E2E: webapp/e2e/flows.spec.ts — expect search-submit enabled (timeout 60s)
+
+-- EASY: Add retry logic to flaky Playwright tests --
+Files:
+  • webapp/playwright.config.ts — retries for CI
+  • webapp/e2e/*.spec.ts — test.describe.configure retries; expect.poll for async backend
+
+-- CORE: Fix search history save API flow --
+Files:
+  • webapp/app/dashboard/page.tsx — postSearchHistory, onSaveSearch, data-testid search-form
+  • webapp/lib/api.ts — POST /api/booking/search-history, listSearchHistory
+  • services/booking-service/src/server.ts — POST /search-history, GET /search-history/list,
+    requireUser + prisma.searchHistory
+  • services/api-gateway/src/server.ts — /api/booking proxy (JWT required — not OPEN)
+Note: issue text “booking-service/search logic” — history lives in booking-service, not a separate search microservice.
+E2E: webapp/e2e/flows.spec.ts
+
+-- CORE: Fix listings filters not resolving (UI) --
+Files:
+  • webapp/app/listings/page.tsx — filter state, onSearch, initial load effect, aria-busy GOTCHA
+E2E: listings-filters-maps.spec.ts, flows.spec.ts
+
+-- HARD: Listings filters full flow (webapp + listings-service) --
+Files:
+  • webapp/app/listings/page.tsx — query params built in onSearch
+  • webapp/lib/api.ts — searchListings URLSearchParams
+  • services/listings-service/src/http-server.ts — searchListingsPublic
+  • services/listings-service/src/search-listings-query.ts — all filters + sort
+
+-- Franco FULL / EXPANDED pack --
+Search filter correctness / performance / distance / sort:
+  • services/listings-service/src/search-listings-query.ts
+  • scripts/load/k6-listings-search-slowpath.js, k6-listings.js, k6-search-watchlist.js
+  • docs / ENGINEERING.md if API contract changes
+Empty results / validation:
+  • services/listings-service/src/http-server.ts — return { items: [] } not 500
+Search Playwright:
+  • webapp/e2e/flows.spec.ts, listings-filters-maps.spec.ts (add new spec if needed)
+
+
+================================================================================
+SHARED — EVERYONE / BONUS
+================================================================================
+
+Fix one Playwright test:
+  • webapp/e2e/*.spec.ts — pick failing project from playwright.config.ts suiteProjects
+Add missing API tests:
+  • services/*/tests/*.test.ts, services/*/vitest*.ts
+Docs:
+  • README.md (user-listed) — only if task explicitly includes docs
+CI / 400 not 500:
+  • services/*/src/validation.ts layers + gateway smoke tests
+
+
+================================================================================
+ISSUE → PRIMARY FILES (QUICK INDEX)
+================================================================================
+
+Listings healthz        → api-gateway/server.ts, listings-service/http-server.ts
+Listing by ID         → listings-service/http-server.ts, api-gateway/server.ts (OPEN + proxy), webapp/lib/api.ts
+Pet-friendly filter     → listings-service/search-listings-query.ts, http-server.ts, db schema
+Create banner           → listings-service/http-server.ts, webapp/app/listings/page.tsx
+Loading / aria-busy    → webapp/app/listings/page.tsx (+ React boolean gotcha)
+Auth session           → webapp/lib/auth-storage.ts, auth-service/server.ts, api-gateway/server.ts
+Login redirect         → webapp/app/login/page.tsx, webapp/app/dashboard/page.tsx
+Daily metrics / Kafka  → listings-service (create + kafka + analytics-sync), analytics-service
+                        (ingest + daily-metrics + listingEventsConsumer), K8s env
+Search submit disabled → webapp/app/dashboard/page.tsx
+Search history         → webapp/lib/api.ts, dashboard/page.tsx, booking-service/server.ts, api-gateway proxy
+Playwright stability   → playwright.config.ts, e2e/helpers.ts, individual specs
+Trust flags / format  → trust-service/http-server.ts, infra/db/01-trust-schema.sql
+Media metadata         → media-service handlers + mediaRepo + http-server.ts
+Trust / listings k6    → scripts/load/k6-trust-*.js, k6-listings*.js
+
+
+================================================================================
+END
+================================================================================
