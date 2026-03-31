@@ -1,13 +1,14 @@
 /**
  * Consume ${ENV_PREFIX}.listing.events — project ListingCreatedV1 into analytics.daily_metrics (idempotent).
  */
-import { kafka } from "@common/utils";
+import { kafka, ochKafkaTopicIsolationSuffix } from "@common/utils";
 import type { Consumer } from "kafkajs";
 import type { Pool } from "pg";
 import { applyListingCreatedForAnalytics } from "../listing-metrics-projection.js";
 
 const PREFIX = process.env.ENV_PREFIX || "dev";
-const TOPIC = process.env.LISTING_EVENTS_TOPIC || `${PREFIX}.listing.events`;
+export const ANALYTICS_LISTING_EVENTS_TOPIC =
+  process.env.LISTING_EVENTS_TOPIC || `${PREFIX}.listing.events${ochKafkaTopicIsolationSuffix()}`;
 const GROUP_ID = process.env.ANALYTICS_LISTING_KAFKA_GROUP || "analytics-service-listing-events";
 
 type Envelope = {
@@ -56,11 +57,15 @@ export async function startListingEventsConsumer(pool: Pool | null): Promise<Con
         setTimeout(() => rej(new Error(`kafka connect timeout after ${connectBudgetMs}ms`)), connectBudgetMs)
       ),
     ]);
-    await consumer.subscribe({ topics: [TOPIC], fromBeginning: false });
-    console.log("[analytics-listing-kafka] subscribed:", TOPIC);
+    await consumer.subscribe({ topics: [ANALYTICS_LISTING_EVENTS_TOPIC], fromBeginning: false });
+    console.log("[analytics-listing-kafka] subscribed:", ANALYTICS_LISTING_EVENTS_TOPIC);
+
+    const logConsume =
+      process.env.ANALYTICS_KAFKA_CONSUME_LOG === "1" ||
+      process.env.ANALYTICS_KAFKA_CONSUME_LOG === "true";
 
     await consumer.run({
-      eachMessage: async ({ message }) => {
+      eachMessage: async ({ topic, partition, message }) => {
         const v = message.value;
         if (!v) return;
         const env = parseEnvelope(v);
@@ -76,8 +81,32 @@ export async function startListingEventsConsumer(pool: Pool | null): Promise<Con
         const day = /^\d{4}-\d{2}-\d{2}$/.test(listedDay)
           ? listedDay
           : dayFromOccurredAt(String(meta?.occurred_at || ""));
+        if (logConsume) {
+          const off = message.offset;
+          console.log(
+            JSON.stringify({
+              msg: "analytics_listing_event_consumed",
+              groupId: GROUP_ID,
+              topic,
+              partition,
+              offset: off,
+              event_id: eventId,
+              event_type: eventType,
+              listed_at_day: day,
+            }),
+          );
+        }
         try {
           await applyListingCreatedForAnalytics(pool, eventId, day);
+          if (logConsume) {
+            console.log(
+              JSON.stringify({
+                msg: "analytics_listing_projection_ok",
+                event_id: eventId,
+                listed_at_day: day,
+              }),
+            );
+          }
         } catch (e) {
           console.error("[analytics-listing-kafka] projection failed", e);
         }

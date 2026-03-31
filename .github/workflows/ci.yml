@@ -39,6 +39,10 @@ jobs:
       HTTP2_COLLAPSE_THRESHOLD: "5"
     steps:
       - uses: actions/checkout@v4
+      - name: Verify housing *-service gRPC matrix (proto + grpc-server + server bootstrap)
+        run: bash scripts/ci/verify-housing-grpc-matrix.sh
+      - name: Proto events ↔ Kafka topic naming contract
+        run: bash scripts/verify-proto-events-topics.sh
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -87,6 +91,14 @@ jobs:
     name: Test (${{ matrix.service }})
     runs-on: ubuntu-latest
     needs: build
+    env:
+      KAFKA_SSL_ENABLED: "true"
+      KAFKA_BROKER: 127.0.0.1:29094
+      KAFKA_CA_CERT: ${{ github.workspace }}/certs/kafka-ssl-ci/ca-cert.pem
+      KAFKA_CLIENT_CERT: ${{ github.workspace }}/certs/kafka-ssl-ci/client.crt
+      KAFKA_CLIENT_KEY: ${{ github.workspace }}/certs/kafka-ssl-ci/client.key
+      # Per matrix job so parallel workers never share the same topic namespace on a shared broker.
+      OCH_KAFKA_TOPIC_SUFFIX: ${{ github.run_id }}-${{ matrix.service }}
     strategy:
       fail-fast: false
       matrix:
@@ -219,6 +231,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+      - name: Ephemeral Kafka TLS (mTLS) + start Confluent broker
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y openjdk-17-jdk-headless
+          chmod +x scripts/ci/generate-kafka-ci-tls.sh scripts/ci/start-kafka-tls-ci.sh
+          bash scripts/ci/start-kafka-tls-ci.sh
       - uses: pnpm/action-setup@v4
         with:
           version: 9.11.0
@@ -239,7 +258,8 @@ jobs:
         env:
           POSTGRES_URL_LISTINGS: postgresql://postgres:postgres@127.0.0.1:5442/listings
           ANALYTICS_SYNC_MODE: "0"
-          KAFKA_CONNECT_TIMEOUT_MS: "100"
+          KAFKA_CONNECT_TIMEOUT_MS: "15000"
+          OCH_GRPC_INSECURE_TEST_BIND: "1"
         run: pnpm -C services/listings-service run test:integration
 
   transport-validation:

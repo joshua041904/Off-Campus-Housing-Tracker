@@ -1,58 +1,10 @@
 # External infra only. k3s runs all application services (auth, listings, api-gateway, webapp, etc.).
-# Postgres 8: 5441–5448 (auth, listings, bookings, messaging, notification, trust, analytics, media) | Redis: 6380 | Kafka SSL: 29094 | Zookeeper: 2182 | MinIO: 9000/9001
+# Postgres 8: 5441–5448 | Redis: 6380 | MinIO: 9000/9001
+# Kafka: use in-cluster KRaft brokers (kafka-0,1,2); see infra/k8s/kafka-kraft-metallb/ and scripts/create-kafka-event-topics-k8s.sh.
 # Each Postgres instance: max_connections=400 so many services × ~40 pool slots do not exhaust the server under HTTP/2 multiplexing.
 # Flow: docker compose up -d → bootstrap-all-dbs.sh → verify-bootstrap.sh → start k3s → deploy-dev.sh
 
 services:
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.5.0
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-    ports:
-      - "2182:2181"
-    restart: unless-stopped
-    healthcheck:
-      # Port check only; cp-zookeeper can be slow to respond to ruok on first start
-      test: ["CMD-SHELL", "nc -z localhost 2181 || exit 1"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-      start_period: 30s
-
-  kafka:
-    image: confluentinc/cp-kafka:7.5.0
-    depends_on:
-      zookeeper: { condition: service_healthy }
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      # Strict TLS only (no PLAINTEXT)
-      KAFKA_LISTENERS: SSL://0.0.0.0:9093
-      KAFKA_ADVERTISED_LISTENERS: SSL://localhost:29094
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: SSL:SSL
-      KAFKA_INTER_BROKER_LISTENER_NAME: SSL
-      KAFKA_SSL_CLIENT_AUTH: required
-      KAFKA_SSL_KEYSTORE_FILENAME: kafka.keystore.jks
-      KAFKA_SSL_KEYSTORE_LOCATION: /etc/kafka/secrets/kafka.keystore.jks
-      KAFKA_SSL_KEYSTORE_CREDENTIALS: kafka.keystore-password
-      KAFKA_SSL_KEY_CREDENTIALS: kafka.keystore-password
-      KAFKA_SSL_TRUSTSTORE_FILENAME: kafka.truststore.jks
-      KAFKA_SSL_TRUSTSTORE_LOCATION: /etc/kafka/secrets/kafka.truststore.jks
-      KAFKA_SSL_TRUSTSTORE_CREDENTIALS: kafka.truststore-password
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-    volumes:
-      - ./certs/kafka-ssl:/etc/kafka/secrets:ro
-    ports:
-      - "29094:9093"
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 9093 || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 20
-      start_period: 30s
-
   redis:
     image: redis:7-alpine
     command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lfu

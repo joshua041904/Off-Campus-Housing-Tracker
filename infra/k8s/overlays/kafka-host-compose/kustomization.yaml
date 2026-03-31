@@ -1,0 +1,9 @@
+# Deprecated: Docker Compose Kafka was removed. Prefer in-cluster KRaft (kafka-kraft-metallb). Kept for rare host-broker experiments.
+# Apply: kubectl apply -k infra/k8s/overlays/kafka-host-compose/
+# Then set kafka-external Endpoints IP (e.g. ./scripts/patch-kafka-external-host.sh).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+patches:
+  - path: patches/app-config-kafka-external.yaml

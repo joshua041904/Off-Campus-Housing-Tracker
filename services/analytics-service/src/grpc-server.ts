@@ -3,7 +3,7 @@ import * as protoLoader from "@grpc/proto-loader";
 import {
   registerHealthService,
   resolveProtoPath,
-  createOchStrictMtlsServerCredentials,
+  createOchGrpcServerCredentialsForBind,
 } from "@common/utils";
 import { pool } from "./db.js";
 import { analyzeListingFeelText } from "./ollama.js";
@@ -178,8 +178,7 @@ export function startGrpcServer(port: number): grpc.Server {
 
   let credentials: grpc.ServerCredentials;
   try {
-    credentials = createOchStrictMtlsServerCredentials("analytics gRPC");
-    console.log("[analytics gRPC] strict mTLS (client cert required)");
+    credentials = createOchGrpcServerCredentialsForBind("analytics gRPC");
   } catch (e) {
     console.error(e);
     process.exit(1);
@@ -190,7 +189,6 @@ export function startGrpcServer(port: number): grpc.Server {
       console.error("[analytics gRPC] bind error:", err);
       return;
     }
-    server.start();
     console.log(`[analytics gRPC] listening on ${boundPort}`);
   });
 

@@ -1,0 +1,8 @@
+# Dev / GitOps bootstrap: cert-manager ClusterIssuer for per-broker Certificates.
+# Install cert-manager CRDs before applying this directory.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: kafka-broker-ca
+spec:
+  selfSigned: {}

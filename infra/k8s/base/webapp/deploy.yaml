@@ -7,6 +7,12 @@ metadata:
     app: webapp
 spec:
   replicas: 1
+  # Single replica: avoid a second pod during rollouts (local `webapp:dev` is not pullable from a registry).
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app: webapp

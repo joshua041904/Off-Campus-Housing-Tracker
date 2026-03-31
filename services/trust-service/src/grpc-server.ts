@@ -3,7 +3,7 @@ import * as protoLoader from "@grpc/proto-loader";
 import {
   registerHealthService,
   resolveProtoPath,
-  createOchStrictMtlsServerCredentials,
+  createOchGrpcServerCredentialsForBind,
 } from "@common/utils";
 import { pool } from "./db.js";
 
@@ -258,6 +258,10 @@ export function startGrpcServer(port: number): grpc.Server {
   server.addService(trustProto.trust.TrustService.service, trustHandlers);
 
   registerHealthService(server, "trust.TrustService", async () => {
+    const requireDb =
+      process.env.TRUST_GRPC_HEALTH_REQUIRES_DB !== "0" &&
+      process.env.TRUST_GRPC_HEALTH_REQUIRES_DB !== "false";
+    if (!requireDb) return true;
     try {
       await pool.query("SELECT 1");
       return true;
@@ -268,8 +272,7 @@ export function startGrpcServer(port: number): grpc.Server {
 
   let credentials: grpc.ServerCredentials;
   try {
-    credentials = createOchStrictMtlsServerCredentials("trust gRPC");
-    console.log("[trust gRPC] strict mTLS (client cert required)");
+    credentials = createOchGrpcServerCredentialsForBind("trust gRPC");
   } catch (e) {
     console.error(e);
     process.exit(1);
@@ -280,7 +283,6 @@ export function startGrpcServer(port: number): grpc.Server {
       console.error("[trust gRPC] bind error:", err);
       return;
     }
-    server.start();
     console.log(`[trust gRPC] listening on ${boundPort}`);
   });
 

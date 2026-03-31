@@ -1,18 +1,19 @@
 # Kafka: Current Setup and Roadmap
 
-## Triage (what was reverted / what was not changed)
+## Triage (defaults vs overlays)
 
-- **Reverted:** `infra/k8s/base/config/app-config.yaml` — **KAFKA_BROKER** was listing three ports (`:9093,:9094,:9095`). We only run a single broker (Docker Compose SSL on 9093 / host 29093). Reverted to **single broker**: `kafka-external.off-campus-housing-tracker.svc.cluster.local:9093`. Individual service deploy overrides (analytics, python-ai, auction-monitor, social, shopping) already used `:9093` only; ConfigMap is now consistent.
-- **Not changed (Kafka “setup”):** docker-compose Kafka service, Zookeeper, kafka-external Service/Endpoints, certs, `services/common/src/kafka.ts`, strict-tls-bootstrap.sh. No broker config or listener changes.
+- **Default (`kubectl apply -k infra/k8s/base`):** `app-config` **KAFKA_BROKER** is a **comma-separated** bootstrap list for **in-cluster KRaft** (headless `kafka-0/1/2.kafka.<ns>.svc.cluster.local:9093`). Apply brokers first: `kubectl apply -k infra/k8s/kafka-kraft-metallb/`. `services/common/src/kafka.ts` splits `KAFKA_BROKER` on commas into multiple KafkaJS seeds.
+- **Host-only Compose Kafka:** use **`kubectl apply -k infra/k8s/overlays/kafka-host-compose/`** (restores `kafka-external…:9093` → Endpoints to host **:29094**; then patch Endpoints IP, e.g. `./scripts/patch-kafka-external-host.sh`).
+- **Legacy ZK single-broker** `infra/k8s/base/kafka/deploy.yaml` remains optional and is not the default for new Colima+KRaft flows.
 - **Application-only (kept):** `services/python-ai-service/app/data_pipeline.py` — on consumer bootstrap failure the consumer is closed and a WARNING is logged; the service stays healthy without Kafka. This is client resilience, not broker setup. Reverting it would restore “Unclosed AIOKafkaConsumer” and ERROR logs when Kafka is unreachable; optional to revert if you want the old behavior.
 
 ---
 
 ### Docker images: no custom multi-broker images
 
-- **No custom Kafka or Zookeeper images** are built in this repo. All Kafka/Zookeeper usage is the **standard Confluent images**: `confluentinc/cp-kafka:7.5.0`, `confluentinc/cp-zookeeper:7.5.0` (from Docker Compose and from the commented-out in-cluster manifests).
-- **In-cluster Kafka/Zookeeper** are **commented out** in `infra/k8s/base/kustomization.yaml` (`# - zookeeper`, `# - kafka`). The active setup is **external Kafka only**: Docker Compose runs one broker + Zookeeper; K8s uses **kafka-external** (Service + Endpoints to host:29093).
-- The **in-cluster** `infra/k8s/base/kafka/deploy.yaml` is a **single broker** (replicas: 1), not multi-broker. It is not applied by default. So there are no "multi-broker Docker images" to revert — only the app-config KAFKA_BROKER list was reverted to a single broker.
+- **No custom Kafka or Zookeeper images** are built in this repo. All Kafka/Zookeeper usage is the **standard Confluent images**: `confluentinc/cp-kafka:7.5.0`, `confluentinc/cp-zookeeper:7.5.0` (from Docker Compose and from optional in-cluster manifests).
+- **Recommended in-cluster path:** **KRaft** bundle `infra/k8s/kafka-kraft-metallb/` (3 brokers + MetalLB). Base **app-config** targets that cluster by default.
+- **External-only path:** Docker Compose broker + **kafka-external**; use overlay **kafka-host-compose** so app pods match that topology.
 
 ### Get unblocked (when kubectl or ensure script fails)
 

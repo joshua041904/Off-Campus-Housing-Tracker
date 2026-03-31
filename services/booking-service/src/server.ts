@@ -1,15 +1,15 @@
 import express, { type NextFunction, type Request, type Response } from "express";
 import { kafka, register, httpCounter, createHttpConcurrencyGuard } from "@common/utils";
+import { ensureKafkaBrokerReady } from "@common/utils/kafka";
 import { Prisma } from "../prisma/generated/client/index.js";
 import { prisma } from "./lib/prisma.js";
 import { randomUUID } from "node:crypto";
-import { startGrpcServer } from "./grpc-server.js";
+import { BOOKING_EVENTS_TOPIC, startGrpcServer } from "./grpc-server.js";
 
 type AuthedRequest = Request & { userId?: string };
 
 const HTTP_PORT = Number(process.env.HTTP_PORT || "4013");
 const GRPC_PORT = Number(process.env.GRPC_PORT || "50063");
-const BOOKING_EVENTS_TOPIC = process.env.BOOKING_EVENTS_TOPIC || "dev.booking.events.v1";
 const SERVICE_NAME = "booking-service";
 
 const producer = kafka.producer();
@@ -17,17 +17,15 @@ let producerReady = false;
 
 async function ensureProducer(): Promise<void> {
   if (producerReady) return;
-  try {
-    const connectMs = Number(process.env.KAFKA_CONNECT_TIMEOUT_MS || "2500");
-    await Promise.race([
-      producer.connect(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("kafka connect timeout")), connectMs)),
-    ]);
-    producerReady = true;
-    console.log("[booking] kafka producer connected");
-  } catch (error) {
-    console.warn("[booking] kafka producer unavailable, continuing without event publish", error);
-  }
+  const connectMs = Number(process.env.KAFKA_CONNECT_TIMEOUT_MS || "2500");
+  await Promise.race([
+    producer.connect(),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("kafka connect timeout")), connectMs),
+    ),
+  ]);
+  producerReady = true;
+  console.log("[booking] kafka producer connected");
 }
 
 async function publishBookingEvent(eventType: string, aggregateId: string, payload: Record<string, unknown>): Promise<void> {
@@ -357,11 +355,18 @@ app.get("/:bookingId", requireUser, async (req: AuthedRequest, res: Response) =>
   }
 });
 
-app.listen(HTTP_PORT, "0.0.0.0", () => {
-  console.log(`[booking] HTTP server listening on port ${HTTP_PORT}`);
-});
+async function main() {
+  await ensureKafkaBrokerReady("booking-service", { requiredTopics: [BOOKING_EVENTS_TOPIC] });
+  app.listen(HTTP_PORT, "0.0.0.0", () => {
+    console.log(`[booking] HTTP server listening on port ${HTTP_PORT}`);
+  });
+  startGrpcServer(GRPC_PORT);
+}
 
-startGrpcServer(GRPC_PORT);
+void main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});
 
 process.on("SIGTERM", async () => {
   await prisma.$disconnect();

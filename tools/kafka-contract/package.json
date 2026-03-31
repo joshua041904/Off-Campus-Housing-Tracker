@@ -1,0 +1,17 @@
+{
+  "name": "kafka-contract",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Proto-derived Kafka topic contract validation (metadata, partitions, optional broker / entropy / rack checks)",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "validate": "node dist/index.js validate"
+  },
+  "dependencies": {
+    "kafkajs": "^2.2.4"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}

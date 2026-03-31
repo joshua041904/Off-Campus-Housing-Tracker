@@ -1,54 +1,7 @@
-# Local dev stack — no k3s. Strict TLS Kafka; mTLS-ready. Run: docker compose -f docker-compose.local.yml up -d
-# Prereq: ./scripts/dev-generate-certs.sh (creates certs/). Then run ensure-messaging-schema.sh and ensure-media-schema.sh (or init-db below).
-# Services: postgres (messaging + media), zookeeper, kafka (TLS), redis, minio. All on network local-dev.
+# Local dev stack — no k3s. Postgres (messaging + media), redis, minio. All on network local-dev.
+# Kafka is not started here; use Colima+k3s KRaft (kafka-0..2) for eventing.
 
 services:
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.5.0
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-    restart: unless-stopped
-    networks: [local-dev]
-    healthcheck:
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/2181; echo srvr >&3; timeout 2 cat <&3 | grep -qi 'Mode:'"]
-      interval: 5s
-      timeout: 3s
-      retries: 15
-      start_period: 15s
-
-  kafka:
-    image: confluentinc/cp-kafka:7.5.0
-    depends_on:
-      zookeeper: { condition: service_healthy }
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_LISTENERS: PLAINTEXT://127.0.0.1:9092,SSL://0.0.0.0:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,SSL://kafka:9093
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,SSL:SSL
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_SSL_KEYSTORE_FILENAME: kafka.keystore.jks
-      KAFKA_SSL_KEYSTORE_LOCATION: /etc/kafka/secrets/kafka.keystore.jks
-      KAFKA_SSL_KEYSTORE_CREDENTIALS: kafka.keystore-password
-      KAFKA_SSL_KEY_CREDENTIALS: kafka.keystore-password
-      KAFKA_SSL_TRUSTSTORE_FILENAME: kafka.truststore.jks
-      KAFKA_SSL_TRUSTSTORE_LOCATION: /etc/kafka/secrets/kafka.truststore.jks
-      KAFKA_SSL_TRUSTSTORE_CREDENTIALS: kafka.truststore-password
-      KAFKA_SSL_CLIENT_AUTH: required
-    volumes:
-      - ./certs/kafka-ssl:/etc/kafka/secrets:ro
-    ports: ["29094:9093"]
-    restart: unless-stopped
-    networks: [local-dev]
-    healthcheck:
-      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 >/dev/null 2>&1"]
-      interval: 10s
-      timeout: 5s
-      retries: 25
-      start_period: 45s
-
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]

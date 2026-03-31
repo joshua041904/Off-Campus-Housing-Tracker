@@ -1,0 +1,9 @@
+# Dev / Colima: keep exactly one api-gateway Pod (app + transport-watchdog). HPA still runs but cannot scale out.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api-gateway
+  namespace: off-campus-housing-tracker
+spec:
+  minReplicas: 1
+  maxReplicas: 1

@@ -1,0 +1,28 @@
+# Optional 3-broker KRaft + TLS + per-broker MetalLB LoadBalancers (Colima/k3s).
+# Does not replace base/kafka (ZooKeeper single replica); apply this overlay when you want quorum + MetalLB.
+#
+# Prereqs:
+#   - Namespace off-campus-housing-tracker
+#   - Secret kafka-ssl-secret (scripts/kafka-ssl-from-dev-root.sh — dynamic SANs per replica + optional MetalLB IPs)
+#   - Optional: pnpm verify:kafka-tls-sans — fail if broker PEM SANs drift
+#   - Optional cert-manager: infra/k8s/kafka-certs/README.md
+#   - MetalLB installed and an address pool configured
+# App pods: infra/k8s/base/config/app-config.yaml defaults KAFKA_BROKER to this cluster’s headless bootstrap (comma-separated).
+# Host-only Compose Kafka: use kubectl apply -k infra/k8s/overlays/kafka-host-compose/ instead of that default.
+#
+# Apply:
+#   kubectl apply -k infra/k8s/kafka-kraft-metallb/
+#
+# Recovery (quorum stuck / endless candidate / cannot connect :9095 after listener or cluster-id changes):
+#   See docs/runbooks/kafka-kraft-stale-dns-rca.md — verify EndpointSlice vs pod IP (scripts/validate-kafka-dns.sh).
+#   If needed: delete EndpointSlices labeled kubernetes.io/service-name=kafka, rollout restart StatefulSet.
+#   Scale to zero + delete PVCs data-kafka-0,1,2 only if intentional metadata loss; re-apply secrets/topics scripts.
+#   StatefulSet startup fails fast if meta.properties cluster.id ≠ CLUSTER_ID env (see statefulset command).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - headless-service.yaml
+  - external-services.yaml
+  - rbac-kafka-svc-reader.yaml
+  - kafka-pdb.yaml
+  - statefulset.yaml

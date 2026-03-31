@@ -71,6 +71,8 @@ spec:
               value: "/etc/kafka/secrets/tls.crt"
             - name: KAFKA_CLIENT_KEY
               value: "/etc/kafka/secrets/tls.key"
+            - name: MESSAGING_HTTP_MAX_CONCURRENT
+              value: "200"
 
           volumeMounts:
             - name: dev-root-ca
@@ -119,6 +121,7 @@ spec:
             timeoutSeconds: 10
             failureThreshold: 6
 
+          # Under CPU load, short gRPC probe timeouts can flap; give more slack before kubelet restarts the pod.
           livenessProbe:
             exec:
               command:
@@ -130,12 +133,12 @@ spec:
                 - -tls-client-cert=/etc/certs/tls.crt
                 - -tls-client-key=/etc/certs/tls.key
                 - -tls-server-name=localhost
-                - -connect-timeout=5s
-                - -rpc-timeout=5s
-            initialDelaySeconds: 90
-            periodSeconds: 15
-            timeoutSeconds: 10
-            failureThreshold: 5
+                - -connect-timeout=8s
+                - -rpc-timeout=8s
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 12
+            failureThreshold: 8
 
           resources:
             requests:

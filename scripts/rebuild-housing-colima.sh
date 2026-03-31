@@ -2,6 +2,8 @@
 # Build webapp + selected backend services (:dev), load into Colima Docker, restart Deployments.
 # Reads NEXT_PUBLIC_GOOGLE_MAPS_API_KEY from webapp/.env.local if present (see webapp/env.local.template).
 #
+# Dev overlay sets webapp imagePullPolicy: Never — kube must use the image loaded below (no registry pull).
+#
 # Usage (repo root, Colima running):
 #   cp webapp/env.local.template webapp/.env.local
 #   # edit .env.local - paste key after =
@@ -18,7 +20,7 @@
 #   WAIT_ROLLOUT=1           wait rollout status after restart (default 1)
 #   ROLLOUT_TIMEOUT=180s     rollout status timeout per deployment
 #   HOUSING_NS               default off-campus-housing-tracker
-#   DOCKER_DEFAULT_PLATFORM  default linux/amd64
+#   DOCKER_DEFAULT_PLATFORM  unset = native (Colima ARM); linux/amd64 for x86-only targets
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,7 +28,6 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
 HOUSING_NS="${HOUSING_NS:-off-campus-housing-tracker}"
-PLAT="${DOCKER_DEFAULT_PLATFORM:-linux/amd64}"
 IMAGE_TAG="${IMAGE_TAG:-dev}"
 BACKEND_SERVICES="${SERVICES:-listings-service}"
 BACKEND_SERVICES="${BACKEND_SERVICES//,/ }"
@@ -64,10 +65,17 @@ else
   ok "Using NEXT_PUBLIC_GOOGLE_MAPS_API_KEY from environment"
 fi
 
-say "Docker build webapp (platform=$PLAT, tag=$IMAGE_TAG)..."
-docker build --platform "$PLAT" -f webapp/Dockerfile -t "webapp:${IMAGE_TAG}" \
-  --build-arg "NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=${MAPS_KEY}" \
-  "$REPO_ROOT"
+if [[ -n "${DOCKER_DEFAULT_PLATFORM:-}" ]]; then
+  say "Docker build webapp (platform=$DOCKER_DEFAULT_PLATFORM, tag=$IMAGE_TAG)..."
+  docker build --platform "$DOCKER_DEFAULT_PLATFORM" -f webapp/Dockerfile -t "webapp:${IMAGE_TAG}" \
+    --build-arg "NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=${MAPS_KEY}" \
+    "$REPO_ROOT"
+else
+  say "Docker build webapp (native platform, tag=$IMAGE_TAG)..."
+  docker build -f webapp/Dockerfile -t "webapp:${IMAGE_TAG}" \
+    --build-arg "NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=${MAPS_KEY}" \
+    "$REPO_ROOT"
+fi
 ok "Built webapp:${IMAGE_TAG}"
 
 if [[ "${SKIP_LOAD:-0}" == "1" ]]; then

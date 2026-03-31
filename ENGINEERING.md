@@ -2,7 +2,7 @@
 
 # Off-Campus-Housing-Tracker — Engineering Documentation
 
-This document provides in-depth technical documentation for the Off-Campus-Housing-Tracker architecture, design decisions, and implementation details. For a high-level overview, see [`README.md`](README.md). *Last updated: housing API Gateway `MEDIA_HTTP` / dual HTTP+gRPC for media-service, `proto/` vs `proto/events/` event-driven contracts, and [`docs/MEDIA_GATEWAY_K6_DIAGNOSTICS_REPORT.md`](docs/MEDIA_GATEWAY_K6_DIAGNOSTICS_REPORT.md).*
+This document provides in-depth technical documentation for the Off-Campus-Housing-Tracker architecture, design decisions, and implementation details. For **project overview, features, and Makefile build/run**, see [`README.md`](README.md). For **decomposed architecture diagrams, service ownership, ports, and runbook-style setup** (moved out of the README), see [`docs/DESIGN.md`](docs/DESIGN.md). *Last updated: housing API Gateway `MEDIA_HTTP` / dual HTTP+gRPC for media-service, `proto/` vs `proto/events/` event-driven contracts, and [`docs/MEDIA_GATEWAY_K6_DIAGNOSTICS_REPORT.md`](docs/MEDIA_GATEWAY_K6_DIAGNOSTICS_REPORT.md).*
 
 ## Table of Contents
 

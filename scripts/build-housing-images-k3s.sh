@@ -6,26 +6,40 @@
 # Usage: ./scripts/build-housing-images-k3s.sh
 #   SERVICES="auth-service api-gateway"  — space- or comma-separated subset (default: all HTTP/gRPC app services)
 #   SKIP_LOAD=1           — build only, do not colima load
-#   DOCKER_DEFAULT_PLATFORM — default linux/amd64 (Colima/k3s often amd64)
+#   DOCKER_DEFAULT_PLATFORM — unset = native arch (recommended Apple Silicon + Colima ARM; avoids Prisma segfault under QEMU)
+#                             set to linux/amd64 for x86 clusters / CI images only
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
-DEFAULT_SERVICES="auth-service listings-service booking-service messaging-service trust-service analytics-service media-service notification-service api-gateway transport-watchdog"
-SERVICES="${SERVICES:-$DEFAULT_SERVICES}"
+# shellcheck source=lib/och-housing-docker-services-default.sh
+source "$SCRIPT_DIR/lib/och-housing-docker-services-default.sh"
+SERVICES="${SERVICES:-$HOUSING_DOCKER_SERVICES_DEFAULT}"
 # Allow SERVICES=api-gateway,listings-service (commas → spaces)
 SERVICES="${SERVICES//,/ }"
 
-PLAT="${DOCKER_DEFAULT_PLATFORM:-linux/amd64}"
 IMAGE_TAG="${IMAGE_TAG:-dev}"
 
 say() { printf "\n\033[1m%s\033[0m\n" "$*"; }
 ok() { echo "✅ $*"; }
 warn() { echo "⚠️  $*"; }
 
-say "Building housing images (platform=$PLAT, tag=$IMAGE_TAG)…"
+docker_build_service() {
+  local tag="$1" dockerfile="$2"
+  if [[ -n "${DOCKER_DEFAULT_PLATFORM:-}" ]]; then
+    docker build --platform "$DOCKER_DEFAULT_PLATFORM" -t "$tag" -f "$dockerfile" "$REPO_ROOT"
+  else
+    docker build -t "$tag" -f "$dockerfile" "$REPO_ROOT"
+  fi
+}
+
+if [[ -n "${DOCKER_DEFAULT_PLATFORM:-}" ]]; then
+  say "Building housing images (platform=$DOCKER_DEFAULT_PLATFORM, tag=$IMAGE_TAG)…"
+else
+  say "Building housing images (native platform, tag=$IMAGE_TAG)…"
+fi
 for s in $SERVICES; do
   df="services/$s/Dockerfile"
   if [[ ! -f "$df" ]]; then
@@ -33,7 +47,7 @@ for s in $SERVICES; do
     continue
   fi
   echo "  → $s"
-  docker build --platform "$PLAT" -t "${s}:${IMAGE_TAG}" -f "$df" "$REPO_ROOT" || {
+  docker_build_service "${s}:${IMAGE_TAG}" "$df" || {
     warn "Build failed for $s"
     exit 1
   }

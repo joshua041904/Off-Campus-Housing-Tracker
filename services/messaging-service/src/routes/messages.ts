@@ -6,29 +6,16 @@ import { pool } from '../lib/db.js'
 import { kafka } from '@common/utils/kafka'
 import { buildMetadata, sendMessagingEvent } from '../kafkaMessagingEvents.js'
 
-// Kafka producer for real-time messaging (optional - fails gracefully if Kafka is unavailable)
 let kafkaProducer: any = null
-let kafkaConnectionFailed = false
 async function getKafkaProducer() {
-  if (kafkaConnectionFailed) {
-    return null // Don't retry if we've already failed
-  }
   if (!kafkaProducer) {
-    try {
-      kafkaProducer = kafka.producer()
-      // Add connection timeout (match Kafka's 3s connectionTimeout)
-      await Promise.race([
-        kafkaProducer.connect(),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Kafka connection timeout')), 5000)
-        )
-      ])
-    } catch (err) {
-      console.warn('[messaging] Kafka producer connection failed (non-fatal):', (err as Error)?.message || err)
-      kafkaConnectionFailed = true
-      kafkaProducer = null
-      return null
-    }
+    kafkaProducer = kafka.producer()
+    await Promise.race([
+      kafkaProducer.connect(),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Kafka connection timeout')), 5000),
+      ),
+    ])
   }
   return kafkaProducer
 }
@@ -258,32 +245,25 @@ export default function messagesRouter(redis: Redis | null, cpuCores: number) {
       ])
       const message = rows[0]
 
-      // Publish to Kafka for real-time delivery
-      try {
-        const producer = await getKafkaProducer()
-        if (producer) {
-          const kafkaKey = group_id || recipient_id || message.id
-          const createdAt =
-            message.created_at instanceof Date ? message.created_at.toISOString() : String(message.created_at)
-          await sendMessagingEvent(producer, kafkaKey, {
-            metadata: buildMetadata({
-              event_type: 'MessageSent',
-              aggregate_id: message.id,
-              aggregate_type: 'message',
-            }),
-            message_id: message.id,
-            sender_id,
-            recipient_id: recipient_id || '',
-            thread_id: message.thread_id || '',
-            message_type,
-            subject,
-            content,
-            created_at: createdAt,
-          })
-        }
-      } catch (err) {
-        console.warn('[messaging] Kafka publish failed (non-fatal):', err)
-      }
+      const producer = await getKafkaProducer()
+      const kafkaKey = group_id || recipient_id || message.id
+      const createdAt =
+        message.created_at instanceof Date ? message.created_at.toISOString() : String(message.created_at)
+      await sendMessagingEvent(producer, kafkaKey, {
+        metadata: buildMetadata({
+          event_type: 'MessageSent',
+          aggregate_id: message.id,
+          aggregate_type: 'message',
+        }),
+        message_id: message.id,
+        sender_id,
+        recipient_id: recipient_id || '',
+        thread_id: message.thread_id || '',
+        message_type,
+        subject,
+        content,
+        created_at: createdAt,
+      })
 
       res.status(201).json(message)
     } catch (err: any) {
@@ -1000,31 +980,24 @@ export default function messagesRouter(redis: Redis | null, cpuCores: number) {
         created_at: parent.created_at,
       }
 
-      // Publish reply to Kafka (events.messaging.v1.MessageReplied)
-      try {
-        const producer = await getKafkaProducer()
-        if (producer) {
-          const kafkaKey = group_id || recipient_id || messageId
-          const createdAt =
-            message.created_at instanceof Date ? message.created_at.toISOString() : String(message.created_at)
-          await sendMessagingEvent(producer, kafkaKey, {
-            metadata: buildMetadata({
-              event_type: 'MessageReplied',
-              aggregate_id: message.id,
-              aggregate_type: 'message',
-            }),
-            message_id: message.id,
-            parent_message_id: messageId,
-            sender_id,
-            recipient_id: recipient_id || '',
-            thread_id: message.thread_id || '',
-            content,
-            created_at: createdAt,
-          })
-        }
-      } catch (err) {
-        console.warn('[messaging] Kafka publish failed (non-fatal):', err)
-      }
+      const producer = await getKafkaProducer()
+      const kafkaKey = group_id || recipient_id || messageId
+      const createdAt =
+        message.created_at instanceof Date ? message.created_at.toISOString() : String(message.created_at)
+      await sendMessagingEvent(producer, kafkaKey, {
+        metadata: buildMetadata({
+          event_type: 'MessageReplied',
+          aggregate_id: message.id,
+          aggregate_type: 'message',
+        }),
+        message_id: message.id,
+        parent_message_id: messageId,
+        sender_id,
+        recipient_id: recipient_id || '',
+        thread_id: message.thread_id || '',
+        content,
+        created_at: createdAt,
+      })
 
       // Return reply with parent message context (WhatsApp-style)
       res.status(201).json({
@@ -1125,23 +1098,17 @@ export default function messagesRouter(redis: Redis | null, cpuCores: number) {
 
       await pool.query('DELETE FROM messages.messages WHERE id = $1', [messageId])
 
-      try {
-        const producer = await getKafkaProducer()
-        if (producer) {
-          const deletedAt = new Date().toISOString()
-          await sendMessagingEvent(producer, messageId, {
-            metadata: buildMetadata({
-              event_type: 'MessageDeleted',
-              aggregate_id: messageId,
-              aggregate_type: 'message',
-            }),
-            message_id: messageId,
-            deleted_at: deletedAt,
-          })
-        }
-      } catch (err) {
-        console.warn('[messaging] Kafka MessageDeleted publish failed (non-fatal):', err)
-      }
+      const producer = await getKafkaProducer()
+      const deletedAt = new Date().toISOString()
+      await sendMessagingEvent(producer, messageId, {
+        metadata: buildMetadata({
+          event_type: 'MessageDeleted',
+          aggregate_id: messageId,
+          aggregate_type: 'message',
+        }),
+        message_id: messageId,
+        deleted_at: deletedAt,
+      })
 
       res.status(204).end()
     } catch (err) {
@@ -1221,23 +1188,17 @@ export default function messagesRouter(redis: Redis | null, cpuCores: number) {
 
       const readAt = new Date().toISOString()
 
-      try {
-        const producer = await getKafkaProducer()
-        if (producer) {
-          await sendMessagingEvent(producer, messageId, {
-            metadata: buildMetadata({
-              event_type: 'MessageMarkedRead',
-              aggregate_id: messageId,
-              aggregate_type: 'message',
-            }),
-            message_id: messageId,
-            user_id: userId!,
-            read_at: readAt,
-          })
-        }
-      } catch (err) {
-        console.warn('[messaging] Kafka MessageMarkedRead publish failed (non-fatal):', err)
-      }
+      const producer = await getKafkaProducer()
+      await sendMessagingEvent(producer, messageId, {
+        metadata: buildMetadata({
+          event_type: 'MessageMarkedRead',
+          aggregate_id: messageId,
+          aggregate_type: 'message',
+        }),
+        message_id: messageId,
+        user_id: userId!,
+        read_at: readAt,
+      })
 
       res.json({
         id: messageId,

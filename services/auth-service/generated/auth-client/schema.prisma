@@ -8,7 +8,7 @@ generator client {
   provider      = "prisma-client-js"
   // Write this service's client to its own folder to avoid monorepo conflicts
   output        = "../generated/auth-client"
-  binaryTargets = ["native", "linux-arm64-openssl-3.0.x"]
+  binaryTargets = ["native"]
 }
 
 model User {

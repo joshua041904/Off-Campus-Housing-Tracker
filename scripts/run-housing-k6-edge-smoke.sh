@@ -6,7 +6,10 @@
 #   - BASE_URL must be https (default https://off-campus-housing.test)
 #   - SSL_CERT_FILE must be a non-empty file (default REPO_ROOT/certs/dev-root.pem)
 #   - K6_INSECURE_SKIP_TLS is forced to 0
-#   - Hostname must resolve (e.g. /etc/hosts: <external IP> off-campus-housing.test)
+#   - Hostname must resolve (e.g. /etc/hosts: <MetalLB IP> off-campus-housing.test) — see scripts/lib/edge-test-url.sh, OCH_AUTO_EDGE_HOSTS=1
+# Edge paths: gateway health is /api/healthz; auth via gateway is /auth/healthz (k6-auth-service-health.js). Caddy routes both to api-gateway.
+#   If traffic goes through nginx Ingress in housing ns, apply infra/k8s/overlays/dev/ingress.yaml (includes Prefix /auth → api-gateway).
+# Troubleshooting: ./scripts/diagnose-k6-edge-connectivity.sh
 #
 # Env:
 #   SKIP_K6_GRID=1           — no-op
@@ -19,6 +22,7 @@
 #   K6_SUITE_POST_DRAIN_SLEEP_SEC=10 (default here) — fixed settle after drain, before killing stray k6 / cooldown.
 #   K6_SUITE_KILL_K6_AFTER_BLOCK=1 (default here) — SIGKILL stray k6 (kills all k6 on host; set 0 if you run other k6 in parallel).
 #   K6_SUITE_POST_KILL_K6_SLEEP_SEC=0 (default) — optional extra sleep after kill; set 10 for harsher lab settle.
+#   SKIP_K6_EDGE_CURL_GATE=1 — skip strict curl to /api/healthz and /auth/healthz before k6 (not recommended).
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -61,6 +65,9 @@ if [[ ! -s "$SSL_CERT_FILE" ]]; then
   echo "SSL_CERT_FILE missing or empty: $SSL_CERT_FILE"
   exit 1
 fi
+
+# Fail before k6 iterations if edge returns 0 B (wrong LB, missing /auth on Ingress, or TLS/DNS drift).
+edge_strict_curl_edge_health "$BASE_URL" "$SSL_CERT_FILE" || exit 1
 
 DUR="${K6_SMOKE_DURATION:-22s}"
 VUS="${K6_SMOKE_VUS:-5}"

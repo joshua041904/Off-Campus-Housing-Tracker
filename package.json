@@ -4,7 +4,8 @@
   "version": "0.4.0",
   "workspaces": [
     "services/*",
-    "webapp"
+    "webapp",
+    "tools/kafka-contract"
   ],
   "packageManager": "pnpm@9.11.0",
   "pnpm": {
@@ -24,6 +25,7 @@
     "run-full-pipeline": "bash scripts/run-full-pipeline.sh",
     "reissue": "bash scripts/reissue-ca-and-leaf-load-all-services.sh",
     "rebuild:och:rollout": "bash scripts/rebuild-och-images-and-rollout.sh",
+    "rebuild:housing:all:k3s": "bash scripts/rebuild-all-housing-images-k3s.sh",
     "rebuild:housing:colima": "bash scripts/rebuild-housing-colima.sh",
     "rebuild:service:auth": "SERVICES=auth-service bash scripts/rebuild-och-images-and-rollout.sh",
     "rebuild:service:trust": "SERVICES=trust-service bash scripts/rebuild-och-images-and-rollout.sh",
@@ -40,6 +42,16 @@
     "demo": "make demo",
     "demo:network": "make demo-network",
     "demo:full": "make demo-full",
+    "kafka-contract:build": "pnpm --filter kafka-contract run build",
+    "kafka-contract:validate": "bash scripts/run-kafka-contract-validate.sh",
+    "verify:kafka-kraft-e2e": "bash scripts/verify-kafka-kraft-e2e.sh",
+    "verify:kafka-bootstrap": "bash scripts/verify-housing-kafka-bootstrap.sh",
+    "verify:kafka-tls-sans": "bash scripts/verify-kafka-tls-sans.sh",
+    "verify:kafka-kraft-advertised": "bash scripts/verify-kafka-kraft-advertised-listeners.sh",
+    "verify:kafka-cluster": "bash scripts/verify-kafka-cluster.sh",
+    "verify:preflight-edge-routing": "bash scripts/verify-preflight-edge-routing.sh",
+    "colima:api-health": "bash scripts/colima-api-health.sh",
+    "colima:forward-6443": "bash scripts/colima-forward-6443.sh",
     "test:event-layer": "bash scripts/run-event-layer-verification.sh",
     "test:e2e:preflight": "bash scripts/run-playwright-e2e-preflight.sh",
     "test:e2e:integrated": "bash scripts/run-playwright-e2e-preflight.sh",

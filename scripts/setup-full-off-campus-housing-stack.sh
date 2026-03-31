@@ -93,8 +93,9 @@ else
 fi
 
 if [[ "${SKIP_KAFKA_TOPICS:-0}" != "1" ]]; then
-  say "→ create-kafka-event-topics.sh"
-  ENV_PREFIX=dev "$SCRIPT_DIR/create-kafka-event-topics.sh" || warn "create-kafka-event-topics failed (Kafka up?)"
+  say "→ create-kafka-event-topics.sh (docker compose exec kafka, explicit topics; auto-create off)"
+  KAFKA_DOCKER_COMPOSE_SERVICE=kafka ENV_PREFIX=dev "$SCRIPT_DIR/create-kafka-event-topics.sh" ||
+    warn "create-kafka-event-topics failed (Kafka up?)"
   say "→ verify-proto-events-topics.sh"
   "$SCRIPT_DIR/verify-proto-events-topics.sh"
   say "→ verify-kafka-event-topic-partitions.sh"

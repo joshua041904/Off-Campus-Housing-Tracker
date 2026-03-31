@@ -86,8 +86,15 @@ cp "$CA_PEM" "$KAFKA_DEV/ca.pem"
 openssl genrsa -out "$KAFKA_DEV/client.key" 2048 2>/dev/null
 openssl req -new -key "$KAFKA_DEV/client.key" -out "$TMP/kafka-client.csr" \
   -subj "/CN=kafka-client/O=off-campus-housing-dev" 2>/dev/null
+cat > "$TMP/kafka-client.ext" <<'EOF'
+[v3_client]
+basicConstraints = CA:FALSE
+keyUsage = digitalSignature, keyEncipherment
+extendedKeyUsage = clientAuth
+EOF
 openssl x509 -req -in "$TMP/kafka-client.csr" -CA "$CA_PEM" -CAkey "$CA_KEY" \
-  -out "$KAFKA_DEV/client.crt" -days "$DAYS" -sha256 2>/dev/null
+  -CAcreateserial -out "$KAFKA_DEV/client.crt" -days "$DAYS" -sha256 \
+  -extensions v3_client -extfile "$TMP/kafka-client.ext" 2>/dev/null
 ok "kafka-dev/ca.pem, client.crt, client.key"
 
 # 6. Kafka broker cert (PEM + optional JKS for docker-compose Kafka)
@@ -97,13 +104,22 @@ openssl genrsa -out "$TMP/kafka-broker.key" 2048 2>/dev/null
 openssl req -new -key "$TMP/kafka-broker.key" -out "$TMP/kafka-broker.csr" \
   -subj "/CN=kafka/O=off-campus-housing-dev" 2>/dev/null
 cat > "$TMP/san.ext" <<EOF
-[v3_req]
+[kafka_broker_tls]
+basicConstraints = critical, CA:FALSE
+keyUsage = critical, digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth, clientAuth
 subjectAltName = $KAFKA_SANS
-extendedKeyUsage = serverAuth
-keyUsage = digitalSignature, keyEncipherment
 EOF
-openssl x509 -req -in "$TMP/kafka-broker.csr" -CA "$CA_PEM" -CAkey "$CA_KEY" \
-  -CAcreateserial -out "$TMP/kafka-broker.crt" -days "$DAYS" -extensions v3_req -extfile "$TMP/san.ext" 2>/dev/null
+if ! openssl x509 -req -in "$TMP/kafka-broker.csr" -CA "$CA_PEM" -CAkey "$CA_KEY" \
+  -CAcreateserial -out "$TMP/kafka-broker.crt" -days "$DAYS" -extensions kafka_broker_tls -extfile "$TMP/san.ext"; then
+  echo "❌ openssl x509 broker sign failed"
+  exit 1
+fi
+if ! openssl x509 -in "$TMP/kafka-broker.crt" -text -noout | grep -A2 "Extended Key Usage" | grep -q "TLS Web Client Authentication"; then
+  echo "❌ Broker cert missing clientAuth EKU after sign"
+  openssl x509 -in "$TMP/kafka-broker.crt" -text -noout | grep -A3 "Extended Key Usage" || true
+  exit 1
+fi
 
 mkdir -p "$KAFKA_SSL"
 cp "$CA_PEM" "$KAFKA_SSL/ca-cert.pem"
@@ -120,6 +136,11 @@ if command -v keytool >/dev/null 2>&1; then
   echo -n "$PASS" > "$KAFKA_SSL/kafka.keystore-password"
   echo -n "$PASS" > "$KAFKA_SSL/kafka.truststore-password"
   echo -n "$PASS" > "$KAFKA_SSL/kafka.key-password"
+  chmod +x "$SCRIPT_DIR/verify-kafka-broker-keystore-jks.sh" 2>/dev/null || true
+  KAFKA_KEYSTORE_PATH="$KAFKA_SSL/kafka.keystore.jks" \
+    KAFKA_KEYSTORE_PASSWORD_FILE="$KAFKA_SSL/kafka.keystore-password" \
+    REPO_ROOT="$REPO_ROOT" \
+    bash "$SCRIPT_DIR/verify-kafka-broker-keystore-jks.sh" || exit 1
   ok "Kafka broker JKS in certs/kafka-ssl/"
 else
   warn "keytool not found; Kafka broker needs JKS. Run: brew install openjdk, then re-run this script or scripts/kafka-ssl-from-dev-root.sh"

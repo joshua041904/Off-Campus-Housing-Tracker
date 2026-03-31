@@ -1,0 +1,52 @@
+# Optional: mTLS handshake to each headless broker (INTERNAL :9093).
+# Apply after Kafka + och-kafka-ssl-secret exist:
+#   kubectl apply -f infra/k8s/kafka-certs/kafka-tls-preflight-job.yaml
+#   kubectl -n off-campus-housing-tracker wait --for=condition=complete job/kafka-tls-preflight --timeout=120s
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kafka-tls-preflight
+  namespace: off-campus-housing-tracker
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: tls-check
+          image: alpine:3.20
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              apk add --no-cache openssl ca-certificates >/dev/null
+              NS="off-campus-housing-tracker"
+              fail=0
+              for i in 0 1 2; do
+                # Short name + cluster search (ns.svc.cluster.local) — same as app pods resolve.
+                host="kafka-${i}.kafka"
+                sni="kafka-${i}.kafka.${NS}.svc.cluster.local"
+                echo "=== mTLS ${host}:9093 (SNI ${sni}) ==="
+                out="$(echo | openssl s_client -connect "${host}:9093" -servername "$sni" \
+                  -CAfile /certs/ca-cert.pem -cert /certs/client.crt -key /certs/client.key \
+                  </dev/null 2>&1)" || true
+                if ! echo "$out" | grep -qE "Verification: OK|Verify return code: 0"; then
+                  echo "$out" | tail -25
+                  echo "FAIL verify $host"
+                  fail=1
+                fi
+              done
+              if [ "$fail" -ne 0 ]; then
+                exit 1
+              fi
+              echo "OK: all broker TLS checks passed"
+          volumeMounts:
+            - name: client
+              mountPath: /certs
+              readOnly: true
+      volumes:
+        - name: client
+          secret:
+            secretName: och-kafka-ssl-secret

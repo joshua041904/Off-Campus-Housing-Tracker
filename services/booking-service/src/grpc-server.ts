@@ -2,9 +2,10 @@ import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import {
   kafka,
+  ochKafkaTopicIsolationSuffix,
   registerHealthService,
   resolveProtoPath,
-  createOchStrictMtlsServerCredentials,
+  createOchGrpcServerCredentialsForBind,
 } from "@common/utils";
 import { randomUUID } from "node:crypto";
 import { prisma } from "./lib/prisma.js";
@@ -20,52 +21,46 @@ const packageDefinition = protoLoader.loadSync(BOOKING_PROTO, {
 
 const bookingProto = (grpc.loadPackageDefinition(packageDefinition) as any).booking;
 
-const BOOKING_EVENTS_TOPIC = process.env.BOOKING_EVENTS_TOPIC || "dev.booking.events.v1";
+export const BOOKING_EVENTS_TOPIC =
+  process.env.BOOKING_EVENTS_TOPIC || `dev.booking.events.v1${ochKafkaTopicIsolationSuffix()}`;
 const SERVICE_NAME = "booking-service";
 const producer = kafka.producer();
 let producerReady = false;
 
 async function ensureProducer(): Promise<void> {
   if (producerReady) return;
-  try {
-    const connectMs = Number(process.env.KAFKA_CONNECT_TIMEOUT_MS || "2500");
-    await Promise.race([
-      producer.connect(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("kafka connect timeout")), connectMs)),
-    ]);
-    producerReady = true;
-  } catch {
-    // Keep service available even when Kafka is transiently down.
-  }
+  const connectMs = Number(process.env.KAFKA_CONNECT_TIMEOUT_MS || "2500");
+  await Promise.race([
+    producer.connect(),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("kafka connect timeout")), connectMs),
+    ),
+  ]);
+  producerReady = true;
 }
 
 async function publishBookingEvent(eventType: string, aggregateId: string, payload: Record<string, unknown>): Promise<void> {
-  try {
-    await ensureProducer();
-    if (!producerReady) return;
-    await producer.send({
-      topic: BOOKING_EVENTS_TOPIC,
-      messages: [
-        {
-          key: aggregateId,
-          value: JSON.stringify({
-            metadata: {
-              event_id: randomUUID(),
-              event_type: eventType,
-              aggregate_id: aggregateId,
-              aggregate_type: "booking",
-              occurred_at: new Date().toISOString(),
-              producer: SERVICE_NAME,
-              version: "1",
-            },
-            payload,
-          }),
-        },
-      ],
-    });
-  } catch {
-    // Non-fatal: booking mutation already succeeded.
-  }
+  await ensureProducer();
+  await producer.send({
+    topic: BOOKING_EVENTS_TOPIC,
+    messages: [
+      {
+        key: aggregateId,
+        value: JSON.stringify({
+          metadata: {
+            event_id: randomUUID(),
+            event_type: eventType,
+            aggregate_id: aggregateId,
+            aggregate_type: "booking",
+            occurred_at: new Date().toISOString(),
+            producer: SERVICE_NAME,
+            version: "1",
+          },
+          payload,
+        }),
+      },
+    ],
+  });
 }
 
 function toBookingResponse(row: {
@@ -223,8 +218,7 @@ export function startGrpcServer(port: number): void {
 
   let credentials: grpc.ServerCredentials;
   try {
-    credentials = createOchStrictMtlsServerCredentials("booking gRPC");
-    console.log("[booking gRPC] strict mTLS (client cert required)");
+    credentials = createOchGrpcServerCredentialsForBind("booking gRPC");
   } catch (e) {
     console.error(e);
     process.exit(1);
@@ -235,7 +229,6 @@ export function startGrpcServer(port: number): void {
       console.error("[booking gRPC] bind error:", err);
       return;
     }
-    server.start();
     console.log(`[booking gRPC] listening on ${boundPort}`);
   });
 }

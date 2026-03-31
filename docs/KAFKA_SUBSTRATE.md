@@ -19,13 +19,14 @@ This document summarizes how Kafka is set up in the substrate bundle so you get 
   - `certs/kafka-ssl/` — broker keystore/truststore (JKS), CA PEM, client keystore (P12) for apps.
   - **kafka-ssl-secret** in the app namespace (e.g. `off-campus-housing-tracker`) with `ca-cert.pem`, keystore, truststore.
 - **Apps:** Set `KAFKA_SSL_ENABLED=true`, `KAFKA_CA_CERT` to path of CA PEM (e.g. `/etc/kafka/secrets/ca-cert.pem`). Mount **kafka-ssl-secret** in every service that talks to Kafka. For mTLS client auth, set `KAFKA_CLIENT_CERT` / `KAFKA_CLIENT_KEY` (or equivalent) from the same secret if your client library supports it.
-- **ConfigMap** (`infra/k8s/base/config/app-config.yaml`): `KAFKA_BROKER` uses port **9093**, `KAFKA_USE_SSL` and `KAFKA_SSL_ENABLED` are **true**.
+- **ConfigMap** (`infra/k8s/base/config/app-config.yaml`): `KAFKA_BROKER` uses port **9093** (comma-separated seeds for in-cluster KRaft by default), `KAFKA_USE_SSL` and `KAFKA_SSL_ENABLED` are **true**.
 
 ---
 
 ## External Kafka (Docker Compose) from K8s
 
-- **kafka-external:** `infra/k8s/base/kafka-external/external-service.yaml` defines a Service + Endpoints that point at the **host** (Docker Compose Kafka on 29093). Pods use `KAFKA_BROKER=kafka-external.<namespace>.svc.cluster.local:9093`.
+- **Default base stack:** `KAFKA_BROKER` targets **in-cluster KRaft** headless brokers (`kafka-0/1/2.kafka…:9093`). Apply `infra/k8s/kafka-kraft-metallb/` before app pods.
+- **kafka-external (host broker only):** `infra/k8s/base/kafka-external/external-service.yaml` defines a Service + Endpoints that point at the **host** (Docker Compose Kafka; housing stack maps **:9093** in-cluster to host **:29094**). Use **`kubectl apply -k infra/k8s/overlays/kafka-host-compose/`** so `KAFKA_BROKER=kafka-external.<namespace>.svc.cluster.local:9093`.
 - **After apply:** Update the Endpoints IP to your host (e.g. Colima gateway `192.168.5.2` or `host.docker.internal` resolution). Scripts may provide `patch-kafka-external-host.sh` or equivalent; otherwise edit the Endpoints resource and set `subsets[].addresses[].ip` to the host IP reachable from the cluster.
 
 ---
@@ -35,7 +36,7 @@ This document summarizes how Kafka is set up in the substrate bundle so you get 
 - **Idempotent producer:** In app code (e.g. KafkaJS), set **`idempotent: true`** (or `enable.idempotence: true`) so retries do not duplicate messages.
 - **Consumer isolation:** For transactional reads, use **`isolationLevel: IsolationLevel.ReadCommitted`** (or `read_committed`) so the consumer only sees committed messages.
 - **Broker (multi-broker):** When you run multiple brokers, set **`transaction.state.log.replication.factor`** and **`transaction.state.log.min.isr`** for the transaction coordinator. Single-broker: replication factor 1 is fine.
-- **Docs:** See **docs/KAFKA_CURRENT_AND_ROADMAP.md** (§5 Exactly-once semantics) and **docs/STRICT_TLS_MTLS_AND_KAFKA.md** for the full checklist.
+- **Docs:** See **docs/KAFKA_CURRENT_AND_ROADMAP.md** (Exactly-once semantics section) and **docs/STRICT_TLS_MTLS_AND_KAFKA.md** for the full checklist.
 
 ---
 

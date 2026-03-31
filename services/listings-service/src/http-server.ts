@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { httpCounter, register, createHttpConcurrencyGuard } from "@common/utils";
 import { pool } from "./db.js";
-import { publishListingEvent } from "./listing-kafka.js";
+import { publishListingEventForCreateResponse } from "./listing-kafka.js";
 import { syncListingCreatedToAnalytics } from "./analytics-sync.js";
 import { buildListingsSearchQuery, parseAmenitySlugs } from "./search-listings-query.js";
 
@@ -316,18 +316,24 @@ $11, $12
           return;
         }
 
-        void publishListingEvent(
-          "ListingCreatedV1",
-          String(row.id),
-          {
-            listing_id: row.id,
-            user_id: row.user_id,
-            title: row.title,
-            price_cents: row.price_cents,
-            listed_at_day: listedDay,
-          },
-          eventId,
-        );
+        try {
+          await publishListingEventForCreateResponse(
+            "ListingCreatedV1",
+            String(row.id),
+            {
+              listing_id: row.id,
+              user_id: row.user_id,
+              title: row.title,
+              price_cents: row.price_cents,
+              listed_at_day: listedDay,
+            },
+            eventId,
+          );
+        } catch (e) {
+          console.error("[listings HTTP create] kafka", e);
+          res.status(503).json({ error: "listing event publish failed" });
+          return;
+        }
 
         res.status(201).json(rowToJson(row));
       } catch (e) {

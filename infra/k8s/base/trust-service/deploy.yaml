@@ -44,6 +44,8 @@ spec:
               value: "50066"
             - name: TRUST_DB_POOL_MAX
               value: "20"
+            - name: TRUST_GRPC_HEALTH_REQUIRES_DB
+              value: "1"
             - name: POSTGRES_URL_TRUST
               valueFrom:
                 configMapKeyRef:
@@ -106,22 +108,14 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 10
             failureThreshold: 6
+          # Liveness = process up. HTTP /healthz always returns 200 (DB optional in body) so brief DB/DNS flakes do not restart the pod.
           livenessProbe:
-            exec:
-              command:
-                - /usr/local/bin/grpc-health-probe
-                - -addr=localhost:50066
-                - -service=trust.TrustService
-                - -tls
-                - -tls-ca-cert=/etc/certs/ca.crt
-                - -tls-client-cert=/etc/certs/tls.crt
-                - -tls-client-key=/etc/certs/tls.key
-                - -tls-server-name=localhost
-                - -connect-timeout=5s
-                - -rpc-timeout=5s
-            initialDelaySeconds: 90
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 30
             periodSeconds: 15
-            timeoutSeconds: 10
+            timeoutSeconds: 5
             failureThreshold: 5
           resources:
             requests:

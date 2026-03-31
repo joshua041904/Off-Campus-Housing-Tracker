@@ -1,7 +1,7 @@
 /**
  * Consume domain event topics; insert pending in-app notifications (idempotent via processed_events).
  */
-import { kafka } from "@common/utils/kafka";
+import { kafka, ochKafkaTopicIsolationSuffix } from "@common/utils/kafka";
 import { Consumer } from "kafkajs";
 import type { Pool } from "pg";
 import { randomUUID } from "node:crypto";
@@ -15,11 +15,14 @@ const DEFAULT_TOPIC_CSV = [
   "messaging.events.v1",
 ].join(",");
 
-function topics(): string[] {
+export function notificationKafkaTopics(): string[] {
+  const suf = ochKafkaTopicIsolationSuffix();
+  const apply = (name: string) => (name === "messaging.events.v1" ? name : `${name}${suf}`);
   return (process.env.NOTIFICATION_KAFKA_TOPICS || DEFAULT_TOPIC_CSV)
     .split(",")
     .map((s) => s.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .map(apply);
 }
 
 async function ensureProcessed(pool: Pool, eventId: string): Promise<boolean> {
@@ -76,7 +79,7 @@ export async function startNotificationConsumer(pool: Pool | null): Promise<Cons
         setTimeout(() => rej(new Error(`kafka consumer connect timeout after ${connectBudgetMs}ms`)), connectBudgetMs)
       ),
     ]);
-    const t = topics();
+    const t = notificationKafkaTopics();
     await consumer.subscribe({ topics: t, fromBeginning: false });
     console.log("[notification-kafka] subscribed:", t.join(", "));
 

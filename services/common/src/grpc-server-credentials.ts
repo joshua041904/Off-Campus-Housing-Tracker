@@ -10,6 +10,27 @@ const defaultKey = "/etc/certs/tls.key";
 const defaultCert = "/etc/certs/tls.crt";
 const defaultCa = "/etc/certs/ca.crt";
 
+/**
+ * Production: strict mTLS (same as {@link createOchStrictMtlsServerCredentials}).
+ * Local/CI integration: if **OCH_GRPC_INSECURE_TEST_BIND=1** and **NODE_ENV** is not **production**,
+ * binds with **grpc.ServerCredentials.createInsecure()** so `@grpc/grpc-js` clients can call the real
+ * proto surface without mounting `/etc/certs`. Never set the env flag in real clusters.
+ */
+export function createOchGrpcServerCredentialsForBind(label: string): grpc.ServerCredentials {
+  const on =
+    process.env.OCH_GRPC_INSECURE_TEST_BIND === "1" ||
+    process.env.OCH_GRPC_INSECURE_TEST_BIND === "true";
+  if (on && process.env.NODE_ENV !== "production") {
+    console.warn(
+      `[${label}] OCH_GRPC_INSECURE_TEST_BIND: insecure gRPC bind (tests only; NODE_ENV=${process.env.NODE_ENV ?? "(unset)"})`,
+    );
+    return grpc.ServerCredentials.createInsecure();
+  }
+  const creds = createOchStrictMtlsServerCredentials(label);
+  console.log(`[${label}] strict mTLS (client cert required)`);
+  return creds;
+}
+
 export function createOchStrictMtlsServerCredentials(
   label = "gRPC"
 ): grpc.ServerCredentials {

@@ -1,0 +1,13 @@
+# Colima/k3s: `webapp:dev` is not on Docker Hub. Load with:
+#   ./scripts/rebuild-housing-colima.sh   (or: docker save webapp:dev | colima ssh -- docker load)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webapp
+  namespace: off-campus-housing-tracker
+spec:
+  template:
+    spec:
+      containers:
+        - name: webapp
+          imagePullPolicy: Never

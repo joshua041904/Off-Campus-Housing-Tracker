@@ -7,6 +7,9 @@
 # Usage: ./scripts/kafka-ssl-from-dev-root.sh
 #   KAFKA_SSL_NS=off-campus-housing-tracker  — namespace for kafka-ssl-secret
 #   KAFKA_SSL_PASS=changeit       — keystore/truststore password
+#   KAFKA_BROKER_REPLICAS=3       — SANs for kafka-0..N-1 (headless + external service DNS)
+#   KAFKA_SSL_EXTRA_IP_SANS=      — optional manual IPs; merged with auto-discovered LB IPs when auto is on
+#   KAFKA_SSL_AUTO_METALLB_IPS=   — default 1: append LB IPs from kubectl get svc kafka-*-external (same ns). Set 0 to disable.
 
 set -euo pipefail
 
@@ -48,30 +51,100 @@ fi
 mkdir -p "$OUT" "$TMP"
 trap 'rm -rf "$TMP"' EXIT
 # Remove existing keystore/truststore so keytool never sees "alias already exists"
-rm -f "$OUT/kafka.keystore.jks" "$OUT/kafka.truststore.jks" "$OUT/kafka.keystore-password" "$OUT/kafka.truststore-password" "$OUT/kafka.key-password" 2>/dev/null || true
+rm -f "$OUT/kafka.keystore.jks" "$OUT/kafka.truststore.jks" "$OUT/kafka.keystore-password" "$OUT/kafka.truststore-password" "$OUT/kafka.key-password" "$OUT/kafka-broker.pem" 2>/dev/null || true
 
-# SANs for Docker Kafka (host, kafka service, localhost)
-# Include 192.168.5.1 (host IP for Colima/Docker) to fix "IP does not match certificate's altnames" errors
-KAFKA_SANS="DNS:kafka,DNS:localhost,DNS:host.docker.internal,DNS:kafka-external.off-campus-housing-tracker.svc.cluster.local,IP:127.0.0.1,IP:192.168.5.1"
+# SANs: shared broker cert (all pods use one JKS) must list every hostname clients and peers use.
+# Includes short names (kafka-0, kafka-0.kafka, …svc, …svc.cluster.local) plus external Service DNS per broker.
+build_kafka_subject_alt_names() {
+  local ns="$1"
+  local replicas="$2"
+  local parts=()
+  parts+=("DNS:kafka")
+  parts+=("DNS:localhost")
+  parts+=("DNS:host.docker.internal")
+  parts+=("DNS:kafka-external.${ns}.svc.cluster.local")
+  local i
+  for ((i = 0; i < replicas; i++)); do
+    parts+=("DNS:kafka-${i}")
+    parts+=("DNS:kafka-${i}.kafka")
+    parts+=("DNS:kafka-${i}.kafka.${ns}.svc")
+    parts+=("DNS:kafka-${i}.kafka.${ns}.svc.cluster.local")
+    parts+=("DNS:kafka-${i}-external.${ns}.svc.cluster.local")
+  done
+  parts+=("IP:127.0.0.1")
+  parts+=("IP:192.168.5.1")
+  if [[ -n "${KAFKA_SSL_EXTRA_IP_SANS:-}" ]]; then
+    local _ip _trimmed
+    IFS=',' read -r -a _extra <<< "${KAFKA_SSL_EXTRA_IP_SANS// /}"
+    for _ip in "${_extra[@]}"; do
+      _trimmed="${_ip// /}"
+      [[ -z "$_trimmed" ]] && continue
+      parts+=("IP:${_trimmed}")
+    done
+  fi
+  local IFS=,
+  echo "${parts[*]}"
+}
+
+REPLICAS="${KAFKA_BROKER_REPLICAS:-3}"
+# Default on: KRaft EXTERNAL://<MetalLB>:9094 requires those IPs in the broker cert. Disable with KAFKA_SSL_AUTO_METALLB_IPS=0.
+if [[ "${KAFKA_SSL_AUTO_METALLB_IPS:-1}" != "0" ]]; then
+  _auto_extra=""
+  for ((i = 0; i < REPLICAS; i++)); do
+    _ip="$(kctl get svc "kafka-${i}-external" -n "$NS" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
+    if [[ -n "$_ip" ]] && [[ "$_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      if [[ -n "$_auto_extra" ]]; then
+        _auto_extra="${_auto_extra},${_ip}"
+      else
+        _auto_extra="${_ip}"
+      fi
+    fi
+  done
+  if [[ -n "$_auto_extra" ]]; then
+    if [[ -n "${KAFKA_SSL_EXTRA_IP_SANS:-}" ]]; then
+      KAFKA_SSL_EXTRA_IP_SANS="${KAFKA_SSL_EXTRA_IP_SANS},${_auto_extra}"
+    else
+      KAFKA_SSL_EXTRA_IP_SANS="${_auto_extra}"
+    fi
+    ok "MetalLB: merged kafka-*-external LB IPs into KAFKA_SSL_EXTRA_IP_SANS (${_auto_extra})"
+  elif [[ "${KAFKA_SSL_AUTO_METALLB_IPS:-}" == "1" ]]; then
+    warn "KAFKA_SSL_AUTO_METALLB_IPS=1 but no kafka-*-external LoadBalancer IPs in namespace ${NS}"
+  fi
+fi
+KAFKA_SANS="$(build_kafka_subject_alt_names "$NS" "$REPLICAS")"
 CN="${KAFKA_SSL_CN:-kafka}"
+say "Broker TLS SANs: replicas 0..$((REPLICAS - 1)), namespace=${NS} (MetalLB IPs auto-merged when discoverable; KAFKA_SSL_AUTO_METALLB_IPS=0 to skip)"
 
 say "1. Generating Kafka broker key and CSR..."
 openssl genrsa -out "$TMP/kafka.key" 2048 2>/dev/null
 openssl req -new -key "$TMP/kafka.key" -out "$TMP/kafka.csr" \
   -subj "/CN=${CN}/O=off-campus-housing-tracker" 2>/dev/null
 
+# Broker EKU: serverAuth (listener) + clientAuth (JVM as TLS client for inter-broker SSL, etc.).
+# Omitting clientAuth causes: "Extended key usage does not permit use for TLS client authentication".
+# Use a dedicated section name (not [v3_req]) so macOS/LibreSSL openssl.cnf [v3_req] defaults cannot override EKU.
 cat > "$TMP/san.ext" <<EOF
-[v3_req]
+[kafka_broker_tls]
+basicConstraints = critical, CA:FALSE
+keyUsage = critical, digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth, clientAuth
 subjectAltName = $KAFKA_SANS
-extendedKeyUsage = serverAuth
-keyUsage = digitalSignature, keyEncipherment
 EOF
 
 say "2. Signing broker cert with dev-root-ca..."
-openssl x509 -req -in "$TMP/kafka.csr" -CA "$CA_PEM" -CAkey "$CA_KEY" \
+if ! openssl x509 -req -in "$TMP/kafka.csr" -CA "$CA_PEM" -CAkey "$CA_KEY" \
   -CAcreateserial -out "$TMP/kafka.pem" -days 365 \
-  -extensions v3_req -extfile "$TMP/san.ext" 2>/dev/null
-ok "Broker cert signed"
+  -extensions kafka_broker_tls -extfile "$TMP/san.ext"; then
+  echo "❌ openssl x509 broker sign failed (see errors above)"
+  exit 1
+fi
+if ! openssl x509 -in "$TMP/kafka.pem" -text -noout | grep -A2 "Extended Key Usage" | grep -q "TLS Web Client Authentication"; then
+  echo "❌ Signed broker cert missing clientAuth EKU (JKS will break Kafka). OpenSSL output:"
+  openssl x509 -in "$TMP/kafka.pem" -text -noout | grep -A3 "Extended Key Usage" || true
+  exit 1
+fi
+ok "Broker cert signed (serverAuth + clientAuth in PEM)"
+cp "$TMP/kafka.pem" "$OUT/kafka-broker.pem"
 
 say "3. Creating JKS keystore and truststore..."
 openssl pkcs12 -export -in "$TMP/kafka.pem" -inkey "$TMP/kafka.key" \
@@ -88,12 +161,25 @@ echo -n "$PASS" > "$OUT/kafka.truststore-password"
 echo -n "$PASS" > "$OUT/kafka.key-password"  # KAFKA_SSL_KEY_CREDENTIALS (in-cluster Kafka deploy)
 cp "$CA_PEM" "$OUT/ca-cert.pem"
 
+chmod +x "$SCRIPT_DIR/verify-kafka-broker-keystore-jks.sh" 2>/dev/null || true
+KAFKA_KEYSTORE_PATH="$OUT/kafka.keystore.jks" \
+  KAFKA_KEYSTORE_PASSWORD_FILE="$OUT/kafka.keystore-password" \
+  REPO_ROOT="$REPO_ROOT" \
+  bash "$SCRIPT_DIR/verify-kafka-broker-keystore-jks.sh" || exit 1
+
 say "3b. Generating Kafka client cert (mTLS: ssl.client.auth=required)..."
 openssl genrsa -out "$TMP/client.key" 2048 2>/dev/null
 openssl req -new -key "$TMP/client.key" -out "$TMP/client.csr" \
   -subj "/CN=kafka-client/O=off-campus-housing-tracker" 2>/dev/null
+cat > "$TMP/client.ext" <<EOF
+[v3_client]
+basicConstraints = CA:FALSE
+keyUsage = digitalSignature, keyEncipherment
+extendedKeyUsage = clientAuth
+EOF
 openssl x509 -req -in "$TMP/client.csr" -CA "$CA_PEM" -CAkey "$CA_KEY" \
-  -CAcreateserial -out "$TMP/client.crt" -days 365 -sha256 2>/dev/null
+  -CAcreateserial -out "$TMP/client.crt" -days 365 -sha256 \
+  -extensions v3_client -extfile "$TMP/client.ext" 2>/dev/null
 cp "$TMP/client.crt" "$OUT/client.crt"
 cp "$TMP/client.key" "$OUT/client.key"
 ok "Kafka client cert (client.crt, client.key) for Node/KafkaJS mTLS"
@@ -111,6 +197,7 @@ kubectl create secret generic kafka-ssl-secret -n "$NS" \
   --from-file=kafka.keystore-password="$OUT/kafka.keystore-password" \
   --from-file=kafka.truststore-password="$OUT/kafka.truststore-password" \
   --from-file=kafka.key-password="$OUT/kafka.key-password" \
+  --from-file=kafka-broker.pem="$OUT/kafka-broker.pem" \
   --from-file=ca-cert.pem="$OUT/ca-cert.pem" \
   --from-file=ca.crt="$OUT/ca-cert.pem" \
   --from-file=client.crt="$OUT/client.crt" \
@@ -151,3 +238,4 @@ fi
 say "=== Kafka SSL (dev-root-ca) done ==="
 echo "  Keystore/truststore: $OUT. Docker Kafka: mount $OUT, use SSL listener 9093."
 echo "  Clients (Node/KafkaJS): KAFKA_CA_CERT, KAFKA_CLIENT_CERT, KAFKA_CLIENT_KEY from kafka-ssl-secret (ca-cert.pem, client.crt, client.key)."
+echo "  SAN gate: pnpm verify:kafka-tls-sans (uses kafka-broker.pem in kafka-ssl-secret or $OUT/kafka-broker.pem)."

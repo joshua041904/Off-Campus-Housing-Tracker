@@ -13,10 +13,10 @@ export PATH := $(SCRIPTS)/shims:/opt/homebrew/bin:/usr/local/bin:$(PATH)
 
 .DEFAULT_GOAL := menu
 
-.PHONY: menu help up up-fast deps kubeconfig-colima cluster colima-net tls-first-time trust-ca-macos verify-curl-http3 verify-docker-ports recycle-postgres-infra infra-host infra-cluster \
-	metallb-fix hosts-sanity preflight-gate sslkeylog-seed ollama-note ollama-env test test-current model summarize-ceiling strict-canonical ceiling collapse-trust collapse-messaging collapse-all \
+.PHONY: menu help up up-fast deps kubeconfig-colima cluster colima-net colima-patch-app-config-db-gateway tls-first-time trust-ca-macos verify-curl-http3 verify-docker-ports recycle-postgres-infra infra-host infra-cluster \
+	metallb-fix hosts-sanity preflight-gate sslkeylog-seed ollama-note ollama-env verify-kafka-bootstrap verify-kafka-cluster verify-preflight-edge-routing diagnose-k6-edge cleanup-kafka-ops-pods test test-current model summarize-ceiling strict-canonical ceiling collapse-trust collapse-messaging collapse-all \
 	protocol-matrix packet-capture perf-lab perf-full generate-report graph-capacity heatmap-tail compare-run regression-guard \
-	slack-report discord-report ci ci-full certify ceiling-default performance-lab-interpret performance-lab-interpret-latest performance-lab-one capacity-recommend capacity-one protocol-happiness transport-routing-hints transport-routing-hints-sync-k8s perf-lab-dashboards bundle-performance-lab-10 strict-envelope-check adaptive-pool-suggest declare-readiness shellcheck-preflight transport-lab full-edge-transport-validation endpoint-coverage collapse-smoke explain-all-dbs demo demo-network demo-full demo-k3d stack images kustomize-apply \
+	slack-report discord-report ci ci-full certify ceiling-default performance-lab-interpret performance-lab-interpret-latest performance-lab-one capacity-recommend capacity-one protocol-happiness transport-routing-hints transport-routing-hints-sync-k8s perf-lab-dashboards bundle-performance-lab-10 strict-envelope-check adaptive-pool-suggest declare-readiness shellcheck-preflight transport-lab full-edge-transport-validation endpoint-coverage collapse-smoke explain-all-dbs demo demo-network demo-full demo-k3d stack images images-all kustomize-apply \
 	deploy-dev rollouts preflight-metallb test-e2e-integrated packet-capture-standalone
 
 # Default orchestration knobs for team "one-command" workflow.
@@ -188,12 +188,48 @@ cluster: ## Start Colima+k3s and apply MetalLB pool
 colima-net: ## Show Colima eth0 subnet for MetalLB sanity
 	colima ssh -- ip -4 addr show eth0
 
+# ROLE: DEV — point app-config DB/Redis URLs at Colima default gateway (avoids host.docker.internal DNS)
+colima-patch-app-config-db-gateway: ## Patch ConfigMap app-config: host.docker.internal → gateway IP
+	bash -n $(SCRIPTS)/colima-patch-app-config-db-host-to-gateway.sh
+	$(SCRIPTS)/colima-patch-app-config-db-host-to-gateway.sh
+
 # ROLE: DEV/SRE — strict TLS + Kafka JKS chain
 tls-first-time: ## Generate/reissue CA+leaf, envoy cert, strict bootstrap, kafka JKS
 	KAFKA_SSL=1 $(SCRIPTS)/reissue-ca-and-leaf-load-all-services.sh
 	$(SCRIPTS)/generate-envoy-client-cert.sh
 	$(SCRIPTS)/strict-tls-bootstrap.sh
 	$(SCRIPTS)/kafka-ssl-from-dev-root.sh
+
+# ROLE: DEV/SRE — KRaft headless Service: pod IP vs EndpointSlice (stale DNS detector)
+verify-kafka-dns: ## Requires kubectl context; fails if kafka-N DNS slice ≠ pod IP
+	bash -n $(REPO_ROOT)/scripts/validate-kafka-dns.sh
+	$(REPO_ROOT)/scripts/validate-kafka-dns.sh
+
+preflight-kafka-k8s: ## Broker props + DNS + ensure event topics (RF=3, min ISR=2); needs kubectl
+	bash -n $(REPO_ROOT)/scripts/preflight-kafka-k8s-rollout.sh
+	KAFKA_K8S_SKIP_API_HEALTH=1 $(REPO_ROOT)/scripts/preflight-kafka-k8s-rollout.sh
+
+verify-kafka-bootstrap: ## ConfigMap app-config lists kafka-0..2 :9093 (three-broker client bootstrap)
+	bash -n $(REPO_ROOT)/scripts/verify-cluster-kafka-three-brokers.sh
+	$(REPO_ROOT)/scripts/verify-cluster-kafka-three-brokers.sh
+
+verify-kafka-cluster: ## Full KRaft ritual: TLS SANs, advertised listeners, quorum, no leadership churn, broker API (kubectl + live brokers)
+	bash -n $(REPO_ROOT)/scripts/verify-kafka-cluster.sh
+	chmod +x $(REPO_ROOT)/scripts/verify-kafka-cluster.sh
+	$(REPO_ROOT)/scripts/verify-kafka-cluster.sh
+
+verify-preflight-edge-routing: ## Ingress /api+/auth parity, DNS→LB, curl /api+/auth health (kubectl + DNS + certs/dev-root.pem)
+	bash -n $(REPO_ROOT)/scripts/verify-preflight-edge-routing.sh
+	chmod +x $(REPO_ROOT)/scripts/verify-preflight-edge-routing.sh
+	$(REPO_ROOT)/scripts/verify-preflight-edge-routing.sh
+
+diagnose-k6-edge: ## DNS/TLS/curl checks for off-campus-housing.test (k6 edge timeouts)
+	bash -n $(REPO_ROOT)/scripts/diagnose-k6-edge-connectivity.sh
+	bash $(REPO_ROOT)/scripts/diagnose-k6-edge-connectivity.sh
+
+cleanup-kafka-ops-pods: ## Delete finished Jobs (and pods) for kafka-quorum-check / kafka-dns-auto-remediator
+	bash -n $(REPO_ROOT)/scripts/cleanup-kafka-ops-cronjob-pods.sh
+	$(REPO_ROOT)/scripts/cleanup-kafka-ops-cronjob-pods.sh
 
 # ROLE: DEV — trust local CA on macOS only
 trust-ca-macos: ## Trust dev-root.pem in macOS Keychain (no-op on non-macOS)
@@ -535,6 +571,10 @@ ci-full: ## CI-safe full perf + regression guard
 
 images: ## Build housing :dev images and load into Colima/k3s (./scripts/build-housing-images-k3s.sh)
 	bash $(SCRIPTS)/build-housing-images-k3s.sh
+
+images-all: ## Build all housing :dev images, load Colima, rollout each deploy (watchdog → api-gateway)
+	bash -n $(SCRIPTS)/rebuild-all-housing-images-k3s.sh
+	bash $(SCRIPTS)/rebuild-all-housing-images-k3s.sh
 
 kustomize-apply: ## Apply dev overlay (kubectl kustomize, or kustomize if installed)
 	cd $(REPO_ROOT) && (command -v kustomize >/dev/null && kustomize build infra/k8s/overlays/dev || kubectl kustomize infra/k8s/overlays/dev) | kubectl apply -f -

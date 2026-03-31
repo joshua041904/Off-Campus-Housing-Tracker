@@ -10,8 +10,8 @@ import { verifyMFA } from "./lib/mfa.js";
 import { prisma } from "./lib/prisma.js"; // Use shared PrismaClient instance
 import {
   registerHealthService,
-  createOchStrictMtlsServerCredentials,
-} from "@common/utils"; // Standard gRPC health service + strict mTLS
+  createOchGrpcServerCredentialsForBind,
+} from "@common/utils"; // gRPC health + credentials via createOchGrpcServerCredentialsForBind
 
 // Load proto file
 const PROTO_PATH = resolveProtoPath("auth.proto");
@@ -668,7 +668,7 @@ export function startGrpcServer(port: number = 50051) {
 
   let credentials: grpc.ServerCredentials;
   try {
-    credentials = createOchStrictMtlsServerCredentials("auth gRPC");
+    credentials = createOchGrpcServerCredentialsForBind("auth gRPC");
     console.log("[gRPC] strict mTLS (client cert required)");
   } catch (e) {
     console.error(e);
@@ -683,7 +683,6 @@ export function startGrpcServer(port: number = 50051) {
         console.error("[gRPC] Server bind error:", error);
         return;
       }
-      server.start();
       console.log(`[gRPC] Server started on port ${actualPort} (HTTP/2 only, no HTTP/1.1 fallback)`);
     }
   );

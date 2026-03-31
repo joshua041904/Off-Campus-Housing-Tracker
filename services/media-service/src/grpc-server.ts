@@ -4,7 +4,7 @@ import { createUploadUrl } from './handlers/createUploadUrl.js'
 import { completeUpload } from './handlers/completeUpload.js'
 import { getDownloadUrl } from './handlers/getDownloadUrl.js'
 import { registerHealthService } from '@common/utils/grpc-health'
-import { createOchStrictMtlsServerCredentials } from '@common/utils/grpc-server-credentials'
+import { createOchGrpcServerCredentialsForBind } from '@common/utils/grpc-server-credentials'
 import { resolveProtoPath } from '@common/utils/proto'
 import { checkConnection } from './db/mediaRepo.js'
 
@@ -65,8 +65,7 @@ export function startGrpcServer(port: number): void {
 
   let credentials: grpc.ServerCredentials
   try {
-    credentials = createOchStrictMtlsServerCredentials('media gRPC')
-    console.log('[media gRPC] strict mTLS (client cert required)')
+    credentials = createOchGrpcServerCredentialsForBind('media gRPC')
   } catch (e) {
     console.error(e)
     process.exit(1)
@@ -77,7 +76,6 @@ export function startGrpcServer(port: number): void {
       console.error('[media gRPC] bind error:', err)
       process.exit(1)
     }
-    server.start()
     console.log(`[media gRPC] listening on ${p}`)
   })
 }

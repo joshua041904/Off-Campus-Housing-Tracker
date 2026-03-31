@@ -1,0 +1,53 @@
+# Static guardrails for Kafka verification tooling. Does not reach a real cluster (GitHub runners have no k3s/MetalLB).
+# Run the full ritual locally: make verify-kafka-cluster  (or pnpm verify:kafka-cluster)
+name: Kafka cluster verify (static)
+
+on:
+  pull_request:
+    paths:
+      - "infra/k8s/kafka-kraft-metallb/**"
+      - "scripts/verify-kafka-*.sh"
+      - "scripts/verify-preflight-edge-routing.sh"
+      - "scripts/kafka-ssl-from-dev-root.sh"
+      - "Makefile"
+      - ".github/workflows/kafka-cluster-verify.yml"
+  push:
+    branches: [main, master]
+    paths:
+      - "infra/k8s/kafka-kraft-metallb/**"
+      - "scripts/verify-kafka-*.sh"
+      - "scripts/verify-preflight-edge-routing.sh"
+      - "scripts/kafka-ssl-from-dev-root.sh"
+      - "Makefile"
+      - ".github/workflows/kafka-cluster-verify.yml"
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Shellcheck Kafka verification scripts
+        run: |
+          set -euo pipefail
+          shellcheck scripts/verify-kafka-tls-sans.sh
+          shellcheck scripts/verify-kafka-kraft-advertised-listeners.sh
+          shellcheck scripts/verify-kafka-cluster.sh
+          shellcheck scripts/verify-preflight-edge-routing.sh
+
+      - name: Bash syntax validation
+        run: |
+          set -euo pipefail
+          bash -n scripts/verify-kafka-tls-sans.sh
+          bash -n scripts/verify-kafka-kraft-advertised-listeners.sh
+          bash -n scripts/verify-kafka-cluster.sh
+          bash -n scripts/verify-preflight-edge-routing.sh
+          bash -n scripts/kafka-ssl-from-dev-root.sh
+
+      - name: Makefile target exists
+        run: grep -q '^verify-kafka-cluster:' Makefile

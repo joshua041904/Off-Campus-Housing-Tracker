@@ -9,11 +9,13 @@
  */
 process.env.POSTGRES_URL_LISTINGS ??= "postgresql://postgres:postgres@127.0.0.1:5442/listings";
 process.env.ANALYTICS_SYNC_MODE ??= "0";
-process.env.KAFKA_CONNECT_TIMEOUT_MS ??= "100";
 
 import type { Express } from "express";
+import { sumTopicHighWatermarks, waitForKafkaTopicHighBeyond } from "@common/utils";
+import { kafka } from "@common/utils/kafka";
 import pg from "pg";
 import request from "supertest";
+import { LISTING_EVENTS_TOPIC } from "../src/listing-kafka.js";
 import { beforeAll, describe, expect, it } from "vitest";
 
 const conn = process.env.POSTGRES_URL_LISTINGS!;
@@ -54,6 +56,7 @@ describe.skipIf(!dbReady)("listings HTTP — Postgres integration", () => {
   it(
     "POST /create returns 201 and row is readable via GET and SQL",
     async () => {
+      const hiBefore = await sumTopicHighWatermarks(kafka, LISTING_EVENTS_TOPIC);
       const slug = `http-it-${Date.now()}`;
       const res = await request(app)
         .post("/create")
@@ -72,6 +75,12 @@ describe.skipIf(!dbReady)("listings HTTP — Postgres integration", () => {
       expect(res.status, res.text).toBe(201);
       const id = res.body?.id as string | undefined;
       expect(id).toBeTruthy();
+
+      await waitForKafkaTopicHighBeyond(kafka, {
+        topic: LISTING_EVENTS_TOPIC,
+        minExclusive: hiBefore,
+        timeoutMs: 20_000,
+      });
 
       const get = await request(app).get(`/listings/${id}`);
       expect(get.status, get.text).toBe(200);

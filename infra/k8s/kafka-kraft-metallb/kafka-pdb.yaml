@@ -1,0 +1,13 @@
+# Keep at least two Kafka pods available during voluntary disruption (drain, rollout mistakes).
+# Does not fix Parallel StatefulSet simultaneous restarts; pair with staged deletes for risky changes.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: kafka-pdb
+  namespace: off-campus-housing-tracker
+  labels: { app: kafka }
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: kafka

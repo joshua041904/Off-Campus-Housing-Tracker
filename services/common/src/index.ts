@@ -3,6 +3,7 @@ export * from "./http-concurrency-guard.js";
 export * from "./logger.js";
 export * from "./auth.js";
 export * from "./kafka.js";
+export * from "./kafka-wait.js";
 export * from "./redis.js";
 export * from "./redis-lua.js";
 export * from "./grpc-reflection.js";

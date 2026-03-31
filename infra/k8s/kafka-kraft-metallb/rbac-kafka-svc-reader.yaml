@@ -1,0 +1,35 @@
+# Lets kafka pods read their per-broker LoadBalancer Service to set EXTERNAL advertised.listeners to the MetalLB IP
+# (Mac / host clients cannot resolve *.svc.cluster.local from broker metadata).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kafka
+  namespace: off-campus-housing-tracker
+  labels: { app: kafka }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kafka-lb-svc-reader
+  namespace: off-campus-housing-tracker
+  labels: { app: kafka }
+rules:
+  - apiGroups: [""]
+    resources: ["services"]
+    resourceNames: ["kafka-0-external", "kafka-1-external", "kafka-2-external"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kafka-lb-svc-reader
+  namespace: off-campus-housing-tracker
+  labels: { app: kafka }
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kafka-lb-svc-reader
+subjects:
+  - kind: ServiceAccount
+    name: kafka
+    namespace: off-campus-housing-tracker

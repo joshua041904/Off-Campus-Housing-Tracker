@@ -11,6 +11,9 @@
 #   NODE_EXTRA_CA_CERTS    — default REPO_ROOT/certs/dev-root.pem (for curl --cacert + Node TLS)
 #   PLAYWRIGHT_VERTICAL_STRICT / PLAYWRIGHT_STRICT_HTTP3 — set by run-preflight-scale-and-all-suites.sh by default
 #     (PREFLIGHT_PLAYWRIGHT_STRICT_HTTP3=1) for CI parity with webapp `test:e2e:strict-verticals-and-integrity`.
+#   Kafka readiness (optional; set when E2E stack includes a broker):
+#     PLAYWRIGHT_WAIT_KAFKA_CONTAINER — docker container name/id with State.Health (e.g. compose kafka-1)
+#     PLAYWRIGHT_WAIT_KAFKA_DEPLOYMENT — kubectl deployment name; runs kubectl wait --for=condition=available
 #   Post–load-k6 recovery (avoid Playwright against a degraded edge):
 #     PLAYWRIGHT_EDGE_RECOVERY_STABLE_SEC — default 30; require this many consecutive-success seconds of polling
 #       (any failed curl resets the accumulator). Set 0 to skip (legacy: first 200 only).
@@ -63,6 +66,30 @@ fi
 READY_URL="${E2E_API_BASE}/api/readyz"
 EXTRA_URL="${PLAYWRIGHT_EDGE_RECOVERY_EXTRA_URL:-}"
 [[ -n "$EXTRA_URL" ]] && info "Playwright edge extra probe: $EXTRA_URL"
+
+if [[ -n "${PLAYWRIGHT_WAIT_KAFKA_CONTAINER:-}" ]]; then
+  say "Waiting for Kafka container health (${PLAYWRIGHT_WAIT_KAFKA_CONTAINER})..."
+  kafka_ok=0
+  for _k in $(seq 1 90); do
+    st="$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "${PLAYWRIGHT_WAIT_KAFKA_CONTAINER}" 2>/dev/null || echo missing)"
+    if [[ "$st" == "healthy" ]]; then
+      ok "Kafka container healthy (${PLAYWRIGHT_WAIT_KAFKA_CONTAINER})"
+      kafka_ok=1
+      break
+    fi
+    sleep 2
+  done
+  if [[ "$kafka_ok" != "1" ]]; then
+    warn "Kafka container did not become healthy (set PLAYWRIGHT_WAIT_KAFKA_CONTAINER only for compose/k8s-local with a healthcheck)"
+    exit 1
+  fi
+fi
+
+if [[ -n "${PLAYWRIGHT_WAIT_KAFKA_DEPLOYMENT:-}" ]]; then
+  say "Waiting for Kafka deployment (${PLAYWRIGHT_WAIT_KAFKA_DEPLOYMENT})..."
+  kubectl wait --for=condition=available "deployment/${PLAYWRIGHT_WAIT_KAFKA_DEPLOYMENT}" --timeout=120s
+  ok "Kafka deployment available"
+fi
 
 _curl_ok() {
   local u="$1"

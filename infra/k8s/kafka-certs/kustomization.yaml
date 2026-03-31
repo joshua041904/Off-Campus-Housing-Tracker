@@ -1,0 +1,9 @@
+# cert-manager broker TLS (optional path). Requires cert-manager installed on the cluster.
+# Does not apply the in-cluster preflight Job by default (run that manifest separately when Kafka is up).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - clusterissuer-kafka-broker.yaml
+  - certificates/kafka-0-cert.yaml
+  - certificates/kafka-1-cert.yaml
+  - certificates/kafka-2-cert.yaml

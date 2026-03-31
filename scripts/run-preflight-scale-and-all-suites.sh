@@ -56,7 +56,27 @@ IFS=$'\n\t'
 #   - API server ready (mandatory); re-checked after reissue
 #   - off-campus-housing-tracker: service 1, exporters 1, envoy-test 1, Caddy 2
 #   - Reissue CA + leaf (dev-root-ca / off-campus-housing-local-tls match); verify no curl 60
-#   - Strict TLS (CA + leaf), Kafka external strict TLS :29094 (housing; RP uses 29093), no in-cluster Postgres/Kafka/ZK
+#   - Strict TLS (CA + leaf); no in-cluster Postgres. Kafka:
+#     - PREFLIGHT_KAFKA_SUBSTRATE=kraft (default): infra/k8s/base/config app-config targets headless KRaft (:9093).
+#       Preflight applies infra/k8s/kafka-kraft-metallb/, waits for kafka-0..2, creates topics via create-kafka-event-topics-k8s.sh,
+#       skips infra/k8s/base/kafka-external + patch-kafka-external-host.sh. Step 3d still removes legacy deploy/kafka + zookeeper
+#       (StatefulSet kafka is unchanged). Live kafka-contract (6a2b) uses kafka-*-external :9094 when all three MetalLB IPs exist;
+#       otherwise static+JKS only with a warning.
+#     - PREFLIGHT_KAFKA_SUBSTRATE=host-compose: Docker Compose Kafka on host :29094 + kafka-external Service (overlay
+#       infra/k8s/overlays/kafka-host-compose/ if app-config should point at kafka-external:9093). Same as former default:
+#       3b2 + ensure-kafka-ready.sh + patch-kafka-external-host.sh (Colima). Do not use scripts/ci/start-kafka-tls-ci.sh
+#       (separate kafka-ci broker; port 29094 clash).
+#   - PREFLIGHT_SKIP_KRAFT_APPLY=1 — skip kubectl apply -k infra/k8s/kafka-kraft-metallb/ (brokers already applied).
+#   - PREFLIGHT_SKIP_DOCKER_COMPOSE_KAFKA_STRICT=1 — skip wait-for-docker-compose-kafka-strict-ready.sh (host-compose only).
+#   - PREFLIGHT_SKIP_KAFKA_EKU_CHECK=1 — skip openssl broker clientAuth EKU gate in that script.
+#   - PREFLIGHT_SKIP_KAFKA_JKS_VERIFY=1 — skip keytool verify on kafka.keystore.jks (PEM/JKS drift not caught).
+#   - PREFLIGHT_SKIP_KAFKA_TLS_SAN_GATE=1 — skip step 6a2c (pnpm verify:kafka-bootstrap + verify:kafka-tls-sans). Do not use in CI you care about.
+#   - PREFLIGHT_SKIP_KAFKA_ADVERTISED_LISTENERS_GATE=1 — skip step 6a2c2 (KRaft only: each broker advertised.listeners INTERNAL FQDN kafka-N.kafka.<ns>.svc.cluster.local:9093 + EXTERNAL <kafka-N-external LB IP>:9094).
+#   - PREFLIGHT_SKIP_KAFKA_KRAFT_HEALTH_GATES=1 — skip steps 6a2c3–6a2c5 (quorum describe, kafka-0 leadership-churn log scan, kafka-broker-api-versions on kafka:9093). Use make verify-kafka-cluster locally for the full ritual.
+#   - PREFLIGHT_SKIP_EDGE_ROUTING_GATES=1 — skip 6b1–6b2 (Ingress /api+/auth→api-gateway:4020 order, DNS→caddy-h3 or ingress-nginx-controller LB). Fixes silent k6 0-byte runs from edge drift.
+#   - PREFLIGHT_SKIP_EDGE_INGRESS_PARITY_GATE=1 / PREFLIGHT_SKIP_EDGE_DNS_LB_GATE=1 — granular edge skips (see scripts/verify-preflight-edge-routing.sh).
+#   - PREFLIGHT_KAFKA_TLS_PREFLIGHT_JOB=1 — after 6a2c, run infra/k8s/kafka-certs/kafka-tls-preflight-job.yaml (in-cluster mTLS to headless :9093). Default 0 (opt-in: slower, needs brokers + och-kafka-ssl-secret).
+#   - Step 7 (Vitest, k6, Playwright) runs only after step 6b (Kafka strict path + wait-for-all-services-ready); 7a8 Playwright is never overlapped with topic creation.
 #   RUN_SUITES=0 skip test suites.
 #   PREFLIGHT_APP_SCOPE=full|core — which Deployments to scale and wait for (default full).
 #     core = auth-service api-gateway messaging-service media-service (finishes without listings/booking/trust/analytics).
@@ -65,6 +85,11 @@ IFS=$'\n\t'
 #   RUN_MESSAGING_LOAD=1 (default) — after Vitest + housing scripts, run k6 edge smoke grid (run-housing-k6-edge-smoke.sh) if k6 is installed.
 #   RUN_K6_SERVICE_GRID=0 — skip the full k6 per-service smoke (gateway, auth, listings, booking health, trust, analytics, messaging, media, event-layer + booking/search JWT).
 #   RUN_PREFLIGHT_PLAYWRIGHT=0 — skip Playwright E2E (https edge /api/readyz wait + tests against E2E_API_BASE).
+#   Edge hostname / headless DNS (Playwright + Node fetch require off-campus-housing.test → IP):
+#     OCH_EDGE_IP=<MetalLB-or-NodeIP> — when DNS fails, scripts/lib/edge-test-url.sh prints curl --resolve hints.
+#     OCH_AUTO_EDGE_HOSTS=1 — if DNS fails, append "$OCH_EDGE_IP hostname" to /etc/hosts (needs sudo on non-root).
+#       Discovers IP from kubectl LoadBalancer services when OCH_EDGE_IP unset.
+#     HOUSING_NS — namespace for LB discovery (default off-campus-housing-tracker).
 #   PREFLIGHT_PLAYWRIGHT_STRICT_HTTP3=1 (default) — set PLAYWRIGHT_VERTICAL_STRICT=1 and PLAYWRIGHT_STRICT_HTTP3=1 before Playwright
 #     (same env as webapp `test:e2e:strict-verticals-and-integrity`; global-setup TLS probe + strict HTTP/3 assertions in transport.protocol.spec).
 #     Set to 0 to match legacy relaxed Playwright runs.
@@ -294,13 +319,17 @@ IFS=$'\n\t'
 #   3c    Colima+MetalLB: 3c1-early installs MetalLB before 3a (reissue) so webhook is ready while API is calm. 3c0-housing: kubectl apply -k each infra/k8s/base/<app> in PREFLIGHT_APP_DEPLOYS so Deployments exist before scale (fixes missing notification-service). 3c0: k3d node restart (optional). 3c0b: API stabilize. 3c1: MetalLB install (skipped on Colima if 3c1-early succeeded). 3c1a: FRR BGP. 3c2: Caddy deploy + service. 3c1b: MetalLB verify (VERIFY_MODE=stable). 3c1c: optional Colima-only L2/BGP (METALLB_VERIFY_COLIMA_L2=1). Colima pool default: METALLB_POOL=192.168.64.240-192.168.64.250 so host can reach LB IP.
 #   4     Scale to baseline (1 replica per app, 2 Caddy, exporters 1, Envoy 1).
 #   5     Strict TLS/mTLS preflight (ensure-strict-tls-mtls-preflight.sh). Verify Caddy strict TLS (no curl 60).
-#   6     6a1–6a2: Force deployments, ensure Kafka. 6b: wait-for-all-services-ready (PREFLIGHT_READY_MAX_WAIT default 900s, INITIAL_WAIT 90s).
+#   6     6a1–6a2: Force deployments, ensure Kafka (compose or KRaft topics); 6a2b validate-kafka-stack-contract.sh;
+#         6a2c verify:kafka-bootstrap + verify:kafka-tls-sans (SAN drift + MetalLB IP SANs when LB assigned); 6a2c2 KRaft advertised.listeners INTERNAL+EXTERNAL; 6a2c3–6a2c5 verify-kafka-cluster.sh (VERIFY_KAFKA_HEALTH_ONLY: quorum, no renounce spam, broker API); optional 6a2d mTLS Job (PREFLIGHT_KAFKA_TLS_PREFLIGHT_JOB=1).
+#         6b: wait-for-all-services-ready (PREFLIGHT_READY_MAX_WAIT default 900s, INITIAL_WAIT 90s).
+#         6b1–6b2: verify-preflight-edge-routing.sh (ingress /api+/auth→gateway, DNS→caddy-h3 or ingress-nginx-controller LB).
+#         6b3: cluster nodes Ready (k3d) + pod summary.
 #         6d: build xk6-http3 if RUN_K6=1. 6e: ensure-tcpdump-in-capture-pods (before suites).
 #   7     7a: Vitest (event-layer-verification, messaging-service, media-service) + housing bash suites + k6 edge grid + Phase D + Playwright.
 #         Event-layer: pnpm test (ROLLUP_DISABLE_NATIVE in package.json). Use same Node as `pnpm install` (nvm use 18 at script start).
 #         (Legacy 8-suite run-all-test-suites.sh is NOT invoked here — use ./scripts/run-all-test-suites.sh manually for auth/rotation-only matrix.)
 #         ROTATION_UDP_STATS=1 (Colima) captures UDP stats. Step 8 runs when RUN_PGBENCH=1.
-#         7a0c–7a0d: CI transport gates (QUIC hostname grep + Python transport_validator). 7a3–7a7: run-housing-k6-edge-smoke.sh.
+#         7a0c–7a0d: CI transport gates (QUIC hostname grep + Python transport_validator). 7a3–7a7: run-housing-k6-edge-smoke.sh (curl /api/healthz + /auth/healthz before k6 unless SKIP_K6_EDGE_CURL_GATE=1).
 #         Optional 7a2e: PREFLIGHT_FULL_EDGE_TRANSPORT_VALIDATION=1 → full-edge-transport-validation.sh. 7a7a: Phase D tail lab.
 #         Optional 7a7b: PREFLIGHT_K6_MESSAGING_LIMIT_FINDER=1. 7a8: Playwright. 7a9: run-k6-phases.sh when RUN_K6=1 (PREFLIGHT_RUN_K6_PHASES=1).
 #   7b    Transport-layer study experiments (UDP drops, QUIC cwnd, BBR, NodePort, Caddy native, in-cluster k6). TRANSPORT_STUDY=1.
@@ -454,7 +483,17 @@ _ensure_first_time_local_cert_assets() {
   if [[ ${#missing_kafka[@]} -gt 0 ]] && command -v keytool >/dev/null 2>&1 && [[ -f "$SCRIPT_DIR/kafka-ssl-from-dev-root.sh" ]]; then
     warn "Kafka JKS still missing; attempting refresh via kafka-ssl-from-dev-root.sh"
     chmod +x "$SCRIPT_DIR/kafka-ssl-from-dev-root.sh" 2>/dev/null || true
-    "$SCRIPT_DIR/kafka-ssl-from-dev-root.sh" || warn "kafka-ssl-from-dev-root.sh failed; will continue and re-check later in step 3b"
+    if "$SCRIPT_DIR/kafka-ssl-from-dev-root.sh"; then
+      if [[ -s "$certs_dir/kafka-ssl/kafka-broker.pem" ]] && [[ -f "$SCRIPT_DIR/verify-kafka-tls-sans.sh" ]] && [[ "${PREFLIGHT_SKIP_KAFKA_TLS_SAN_GATE:-0}" != "1" ]]; then
+        chmod +x "$SCRIPT_DIR/verify-kafka-tls-sans.sh" 2>/dev/null || true
+        KAFKA_TLS_PEM="$certs_dir/kafka-ssl/kafka-broker.pem" \
+          HOUSING_NS="${HOUSING_NS:-off-campus-housing-tracker}" \
+          KAFKA_BROKER_REPLICAS="${KAFKA_BROKER_REPLICAS:-3}" \
+          bash "$SCRIPT_DIR/verify-kafka-tls-sans.sh" || warn "Local kafka-broker.pem SAN check failed after kafka-ssl refresh (step 6a2c will re-check against cluster secret)"
+      fi
+    else
+      warn "kafka-ssl-from-dev-root.sh failed; will continue and re-check later in step 3b"
+    fi
   fi
 }
 
@@ -1441,7 +1480,13 @@ if _phase_b_only; then
   say "3b. Kafka SSL from dev-root-ca..."
   [[ -f "$SCRIPT_DIR/colima-forward-6443.sh" ]] && { "$SCRIPT_DIR/colima-forward-6443.sh" 2>/dev/null || true; sleep 5; }
   "$SCRIPT_DIR/kafka-ssl-from-dev-root.sh" || exit 1
-  command -v docker >/dev/null 2>&1 && [[ -d "$REPO_ROOT/certs/kafka-ssl" ]] && [[ -f "$REPO_ROOT/docker-compose.yml" ]] && ( cd "$REPO_ROOT" && docker compose up -d zookeeper kafka 2>/dev/null ) || true
+  if [[ "${PREFLIGHT_KAFKA_SUBSTRATE:-kraft}" == "host-compose" ]]; then
+    warn "PREFLIGHT_KAFKA_SUBSTRATE=host-compose obsolete (Compose Kafka/ZK removed) — using in-cluster Kafka strict path"
+    if [[ "${PREFLIGHT_SKIP_DOCKER_COMPOSE_KAFKA_STRICT:-0}" != "1" ]]; then
+      chmod +x "$SCRIPT_DIR/wait-for-docker-compose-kafka-strict-ready.sh" 2>/dev/null || true
+      REPO_ROOT="$REPO_ROOT" ENV_PREFIX="${ENV_PREFIX:-dev}" bash "$SCRIPT_DIR/wait-for-docker-compose-kafka-strict-ready.sh" || exit 1
+    fi
+  fi
   say "4c. Re-ensure API server ready..."
   _do_ensure || exit 1
   say "4d. Verify Caddy strict TLS..."
@@ -1697,12 +1742,11 @@ if ! _phase_a_only; then
     warn "Docker or docker-compose missing; skip starting Redis"
   fi
 
-  # 3b2. Ensure Docker Kafka (strict TLS :29094 for housing) is up — certs/kafka-ssl now exist
-  if command -v docker >/dev/null 2>&1 && [[ -d "$REPO_ROOT/certs/kafka-ssl" ]] && [[ -f "$REPO_ROOT/docker-compose.yml" ]]; then
-    say "3b2. Ensuring Docker Kafka (strict TLS) is up..."
-    ( cd "$REPO_ROOT" && docker compose up -d zookeeper kafka 2>/dev/null ) && ok "Docker Kafka up" || warn "Docker Kafka start skipped or failed (run manually: docker compose up -d zookeeper kafka)"
+  # 3b2. host-compose substrate is deprecated; kraft default uses create-kafka-event-topics-k8s.sh in 6a2.
+  if [[ "${PREFLIGHT_KAFKA_SUBSTRATE:-kraft}" == "host-compose" ]]; then
+    warn "3b2: host-compose obsolete — Compose Kafka removed; use PREFLIGHT_KAFKA_SUBSTRATE=kraft (default)"
   else
-    warn "Docker or certs/kafka-ssl or docker-compose missing; skip starting Kafka"
+    say "3b2. PREFLIGHT_KAFKA_SUBSTRATE=kraft — in-cluster KRaft (topics in 6a2 / ensure-kafka-ready)"
   fi
 
   # 3b3. Ensure all 8 Postgres DBs are up (ports 5441–5448; media on 5448)
@@ -1755,17 +1799,44 @@ if ! _phase_a_only; then
   fi
 fi
 
-# 3c. Apply app-config, kafka-external, nginx/haproxy (configmaps + pods for exporters), Kafka-consuming deploys (KAFKA 9093 strict TLS).
+# 3c. Apply app-config (+ optional kafka-external), nginx/haproxy. Default KRaft: apply kafka-kraft-metallb after app-config.
 _phase_start "3c_apply_app_config"
-say "3c. Applying app-config, kafka-external, nginx, haproxy (Kafka strict TLS)..."
-for k in "$REPO_ROOT/infra/k8s/base/config" "$REPO_ROOT/infra/k8s/base/kafka-external" "$REPO_ROOT/infra/k8s/base/nginx" "$REPO_ROOT/infra/k8s/base/haproxy"; do
-  if [[ -d "$k" ]]; then
-    if [[ -n "${APPLY_RATE_LIMIT_SLEEP:-}" ]] && [[ "${APPLY_RATE_LIMIT_SLEEP:-0}" -gt 0 ]]; then
-      _apply_with_rate_limit "$k" "$(basename "$k")" && ok "Applied $(basename "$k")" || warn "Apply $k skipped or failed"
-    else
-      kubectl apply -k "$k" --request-timeout=20s 2>/dev/null && ok "Applied $(basename "$k")" || warn "Apply $k skipped or failed"
-    fi
+_PREFLIGHT_KAFKA_SUBSTRATE="${PREFLIGHT_KAFKA_SUBSTRATE:-kraft}"
+say "3c. Applying app-config${_PREFLIGHT_KAFKA_SUBSTRATE:+ (Kafka substrate: $_PREFLIGHT_KAFKA_SUBSTRATE)}, nginx, haproxy..."
+_och_apply_k_dir() {
+  local k="$1"
+  [[ -d "$k" ]] || return 0
+  if [[ -n "${APPLY_RATE_LIMIT_SLEEP:-}" ]] && [[ "${APPLY_RATE_LIMIT_SLEEP:-0}" -gt 0 ]]; then
+    _apply_with_rate_limit "$k" "$(basename "$k")" && ok "Applied $(basename "$k")" || warn "Apply $k skipped or failed"
+  else
+    kubectl apply -k "$k" --request-timeout=20s 2>/dev/null && ok "Applied $(basename "$k")" || warn "Apply $k skipped or failed"
   fi
+}
+_och_apply_k_dir "$REPO_ROOT/infra/k8s/base/config"
+if [[ "$_PREFLIGHT_KAFKA_SUBSTRATE" == "kraft" ]] && [[ "${PREFLIGHT_SKIP_KRAFT_APPLY:-0}" != "1" ]]; then
+  if [[ -d "$REPO_ROOT/infra/k8s/kafka-kraft-metallb" ]]; then
+    say "3c-kraft. Applying in-cluster KRaft (infra/k8s/kafka-kraft-metallb/)..."
+    kubectl apply -k "$REPO_ROOT/infra/k8s/kafka-kraft-metallb/" --request-timeout=60s 2>/dev/null && ok "Applied kafka-kraft-metallb" || warn "kafka-kraft-metallb apply skipped or failed"
+    say "3c-kraft-wait. Waiting for kafka-0..2 Ready (up to 600s)..."
+    _kraft_ns="${HOUSING_NS:-off-campus-housing-tracker}"
+    for _ki in 0 1 2; do
+      if [[ "$ctx" == *"colima"* ]] && command -v colima >/dev/null 2>&1; then
+        colima ssh -- kubectl --request-timeout=60s wait pod "kafka-${_ki}" -n "$_kraft_ns" --for=condition=Ready --timeout=600s 2>/dev/null && ok "kafka-${_ki} Ready" || warn "kafka-${_ki} not Ready in time"
+      else
+        kubectl --request-timeout=60s wait pod "kafka-${_ki}" -n "$_kraft_ns" --for=condition=Ready --timeout=600s 2>/dev/null && ok "kafka-${_ki} Ready" || warn "kafka-${_ki} not Ready in time"
+      fi
+    done
+  else
+    warn "infra/k8s/kafka-kraft-metallb missing — cannot apply KRaft bundle"
+  fi
+elif [[ "$_PREFLIGHT_KAFKA_SUBSTRATE" == "kraft" ]]; then
+  say "3c-kraft. PREFLIGHT_SKIP_KRAFT_APPLY=1 — assuming KRaft StatefulSet already applied"
+fi
+if [[ "$_PREFLIGHT_KAFKA_SUBSTRATE" == "host-compose" ]]; then
+  _och_apply_k_dir "$REPO_ROOT/infra/k8s/base/kafka-external"
+fi
+for k in "$REPO_ROOT/infra/k8s/base/nginx" "$REPO_ROOT/infra/k8s/base/haproxy"; do
+  _och_apply_k_dir "$k"
 done
 say "3c0-housing. Applying housing app Deployments/Services from infra/k8s/base/<service> (notification-service, etc.)..."
 _apply_housing_app_bases
@@ -2224,8 +2295,8 @@ fi
 
 # 3c2 already applied above (before 3c1b MetalLB verification) so caddy-h3 exists and has LB IP when verify runs.
 
-# 3d. Remove in-cluster Kafka, Zookeeper, Postgres (all externalized)
-say "3d. Removing in-cluster Kafka, Zookeeper, Postgres..."
+# 3d. Remove legacy in-cluster ZK Kafka Deployment, Zookeeper, Postgres (DB/Kafka externalized or KRaft StatefulSet).
+say "3d. Removing legacy deploy/kafka, Zookeeper, in-cluster Postgres..."
 _rm_deploy() {
   local name=$1
   if [[ "$ctx" == *"colima"* ]] && command -v colima >/dev/null 2>&1; then
@@ -2245,18 +2316,18 @@ else
   _kubectl delete svc -n off-campus-housing-tracker postgres --ignore-not-found 2>/dev/null || true
   _kubectl delete pvc -n off-campus-housing-tracker pgdata --ignore-not-found 2>/dev/null || true
 fi
-ok "In-cluster Kafka, Zookeeper, Postgres removed"
+ok "Legacy Kafka deploy, Zookeeper, Postgres removed (KRaft StatefulSet/kafka untouched)"
 
-# 3e. Patch kafka-external Endpoints to host IP (strict TLS :29094 for housing)
+# 3e. Patch kafka-external Endpoints to host IP (host-compose Kafka on :29094 only)
 KAFKA_SSL_PORT="${KAFKA_SSL_PORT:-29094}"
-if [[ "$ctx" == *"colima"* ]] && [[ -f "$SCRIPT_DIR/patch-kafka-external-host.sh" ]]; then
+if [[ "${PREFLIGHT_KAFKA_SUBSTRATE:-kraft}" == "host-compose" ]] && [[ -f "$SCRIPT_DIR/patch-kafka-external-host.sh" ]]; then
   say "3e. Patching kafka-external host IP (strict TLS :$KAFKA_SSL_PORT)..."
   chmod +x "$SCRIPT_DIR/patch-kafka-external-host.sh" 2>/dev/null || true
   "$SCRIPT_DIR/patch-kafka-external-host.sh" 2>/dev/null && ok "kafka-external patched" || warn "kafka-external patch skipped (run after kubectl apply -k)"
 fi
 
-# 3f. Restart Kafka-consuming services (pick up kafka-ssl-secret + kafka-external strict TLS)
-say "3f. Restarting analytics-service (pick up Kafka strict TLS)..."
+# 3f. Restart Kafka-consuming services (pick up kafka-ssl-secret + broker bootstrap)
+say "3f. Restarting analytics-service (pick up Kafka TLS / bootstrap)..."
 _restart_one() {
   local name=$1
   local max_tries=1
@@ -2332,9 +2403,15 @@ set -e
 if [[ "${PREFLIGHT_RECOVERY_PASS:-1}" == "1" ]] && [[ "$PREFLIGHT_PHASE" == "full" ]]; then
   say "4a. Recovery pass (wait 30s, retry applies + scale once)..."
   sleep 30
-  for k in "$REPO_ROOT/infra/k8s/base/config" "$REPO_ROOT/infra/k8s/base/kafka-external" "$REPO_ROOT/infra/k8s/base/nginx" "$REPO_ROOT/infra/k8s/base/haproxy"; do
+  for k in "$REPO_ROOT/infra/k8s/base/config" "$REPO_ROOT/infra/k8s/base/nginx" "$REPO_ROOT/infra/k8s/base/haproxy"; do
     [[ -d "$k" ]] && kubectl apply -k "$k" --request-timeout=25s 2>/dev/null && ok "Recovery: $(basename "$k")" || true
   done
+  if [[ "${PREFLIGHT_KAFKA_SUBSTRATE:-kraft}" == "host-compose" ]]; then
+    k="$REPO_ROOT/infra/k8s/base/kafka-external"
+    [[ -d "$k" ]] && kubectl apply -k "$k" --request-timeout=25s 2>/dev/null && ok "Recovery: $(basename "$k")" || true
+  elif [[ "${PREFLIGHT_SKIP_KRAFT_APPLY:-0}" != "1" ]] && [[ -d "$REPO_ROOT/infra/k8s/kafka-kraft-metallb" ]]; then
+    kubectl apply -k "$REPO_ROOT/infra/k8s/kafka-kraft-metallb/" --request-timeout=45s 2>/dev/null && ok "Recovery: kafka-kraft-metallb" || true
+  fi
   _apply_housing_app_bases
   # Recovery: use LoadBalancer on Colima when MetalLB exists; otherwise NodePort
   _metallb_ns_recovery=0
@@ -2564,25 +2641,145 @@ if [[ -f "$SCRIPT_DIR/force-deployments-to-working-replicasets.sh" ]]; then
   sleep 5
 fi
 
-# 6a2. Ensure Kafka is up before waiting (proactive, not reactive)
-say "6a2. Ensuring Kafka is accessible..."
-if [[ -f "$SCRIPT_DIR/ensure-kafka-ready.sh" ]]; then
-  chmod +x "$SCRIPT_DIR/ensure-kafka-ready.sh"
-  "$SCRIPT_DIR/ensure-kafka-ready.sh" || warn "Kafka check had issues (continuing anyway)"
-else
-  # Fallback
-  if ! nc -z 127.0.0.1 29093 2>/dev/null; then
-    warn "Kafka port 29093 not accessible, starting Kafka..."
-    docker compose up -d zookeeper kafka 2>&1 | tail -5
-    for i in {1..30}; do
-      if nc -z 127.0.0.1 "${KAFKA_SSL_PORT:-29094}" 2>/dev/null; then
-        ok "Kafka is now accessible (took ${i}s)"
-        break
-      fi
-      sleep 2
-    done
+# 6a2. Kafka readiness: host-compose → ensure-kafka-ready; kraft → create-kafka-event-topics-k8s (idempotent).
+say "6a2. Ensuring Kafka readiness before service health wait..."
+if [[ "${PREFLIGHT_KAFKA_SUBSTRATE:-kraft}" == "host-compose" ]]; then
+  if [[ -f "$SCRIPT_DIR/ensure-kafka-ready.sh" ]]; then
+    chmod +x "$SCRIPT_DIR/ensure-kafka-ready.sh" "$SCRIPT_DIR/wait-for-docker-compose-kafka-strict-ready.sh" 2>/dev/null || true
+    if ! "$SCRIPT_DIR/ensure-kafka-ready.sh"; then
+      fail "6a2 Kafka strict readiness failed (EKU, broker API, or topics). Fix docker compose kafka / certs; see: docker compose logs kafka"
+    fi
   else
-    ok "Kafka is accessible"
+    fail "ensure-kafka-ready.sh missing"
+  fi
+else
+  if [[ -f "$SCRIPT_DIR/create-kafka-event-topics-k8s.sh" ]]; then
+    chmod +x "$SCRIPT_DIR/create-kafka-event-topics-k8s.sh" 2>/dev/null || true
+    _k8s_ns="${HOUSING_NS:-off-campus-housing-tracker}"
+    if ! kubectl get pod kafka-0 -n "$_k8s_ns" --request-timeout=15s >/dev/null 2>&1; then
+      fail "6a2 KRaft: pod kafka-0 not found in $_k8s_ns — apply infra/k8s/kafka-kraft-metallb/ and wait for brokers (3c-kraft)"
+    fi
+    say "6a2. KRaft: ensuring proto event topics (kubectl exec kafka-0)..."
+    REPO_ROOT="$REPO_ROOT" ENV_PREFIX="${ENV_PREFIX:-dev}" OCH_KAFKA_TOPIC_SUFFIX="${OCH_KAFKA_TOPIC_SUFFIX:-}" \
+      KAFKA_K8S_NS="$_k8s_ns" KAFKA_K8S_SKIP_API_HEALTH=1 \
+      bash "$SCRIPT_DIR/create-kafka-event-topics-k8s.sh" || fail "6a2 create-kafka-event-topics-k8s.sh failed"
+    ok "KRaft event topics ensured"
+  else
+    fail "create-kafka-event-topics-k8s.sh missing"
+  fi
+fi
+
+say "6a2b. Kafka stack contract (static policy + JKS + live re-validation when strict path enabled)..."
+if [[ -f "$SCRIPT_DIR/validate-kafka-stack-contract.sh" ]]; then
+  chmod +x "$SCRIPT_DIR/validate-kafka-stack-contract.sh" 2>/dev/null || true
+  if [[ "${PREFLIGHT_KAFKA_SUBSTRATE:-kraft}" == "host-compose" ]]; then
+    if [[ "${PREFLIGHT_SKIP_DOCKER_COMPOSE_KAFKA_STRICT:-0}" == "1" ]]; then
+      warn "PREFLIGHT_SKIP_DOCKER_COMPOSE_KAFKA_STRICT=1 — contract validator: static + JKS only (no live broker)"
+      REPO_ROOT="$REPO_ROOT" KAFKA_CONTRACT_NO_LIVE=1 bash "$SCRIPT_DIR/validate-kafka-stack-contract.sh" || fail "Kafka static/JKS contract failed"
+    else
+      REPO_ROOT="$REPO_ROOT" ENV_PREFIX="${ENV_PREFIX:-dev}" OCH_KAFKA_TOPIC_SUFFIX="${OCH_KAFKA_TOPIC_SUFFIX:-}" \
+        bash "$SCRIPT_DIR/validate-kafka-stack-contract.sh" || fail "Kafka contract not satisfied — refusing preflight"
+    fi
+  else
+    _k8s_ns_b="${HOUSING_NS:-off-campus-housing-tracker}"
+    _ip0="$(kubectl get svc kafka-0-external -n "$_k8s_ns_b" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
+    [[ -n "$_ip0" ]] || _ip0="$(kubectl get svc kafka-0-external -n "$_k8s_ns_b" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
+    _ip1="$(kubectl get svc kafka-1-external -n "$_k8s_ns_b" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
+    [[ -n "$_ip1" ]] || _ip1="$(kubectl get svc kafka-1-external -n "$_k8s_ns_b" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
+    _ip2="$(kubectl get svc kafka-2-external -n "$_k8s_ns_b" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
+    [[ -n "$_ip2" ]] || _ip2="$(kubectl get svc kafka-2-external -n "$_k8s_ns_b" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
+    if [[ "${PREFLIGHT_SKIP_DOCKER_COMPOSE_KAFKA_STRICT:-0}" == "1" ]]; then
+      warn "PREFLIGHT_SKIP_DOCKER_COMPOSE_KAFKA_STRICT=1 — KRaft contract: static + JKS only"
+      REPO_ROOT="$REPO_ROOT" KAFKA_CONTRACT_NO_LIVE=1 bash "$SCRIPT_DIR/validate-kafka-stack-contract.sh" || fail "Kafka static/JKS contract failed"
+    elif [[ -n "$_ip0" && -n "$_ip1" && -n "$_ip2" ]] && [[ -f "$REPO_ROOT/certs/kafka-ssl/ca-cert.pem" && -f "$REPO_ROOT/certs/kafka-ssl/client.crt" && -f "$REPO_ROOT/certs/kafka-ssl/client.key" ]]; then
+      _kb="${_ip0}:9094,${_ip1}:9094,${_ip2}:9094"
+      say "6a2b. KRaft live contract via MetalLB externals: $_kb"
+      REPO_ROOT="$REPO_ROOT" ENV_PREFIX="${ENV_PREFIX:-dev}" OCH_KAFKA_TOPIC_SUFFIX="${OCH_KAFKA_TOPIC_SUFFIX:-}" \
+        KAFKA_CONTRACT_LIVE_TARGET=k8s KAFKA_CONTRACT_K8S_NS="$_k8s_ns_b" KAFKA_CONTRACT_K8S_WAIT_PODS=0 \
+        KAFKA_SSL_ENABLED=true KAFKA_SSL_SKIP_HOSTNAME_CHECK=1 \
+        KAFKA_BROKER="$_kb" \
+        KAFKA_CA_CERT="$REPO_ROOT/certs/kafka-ssl/ca-cert.pem" \
+        KAFKA_CLIENT_CERT="$REPO_ROOT/certs/kafka-ssl/client.crt" \
+        KAFKA_CLIENT_KEY="$REPO_ROOT/certs/kafka-ssl/client.key" \
+        OCH_KAFKA_REQUIRE_QUORUM_3=1 \
+        bash "$SCRIPT_DIR/validate-kafka-stack-contract.sh" || fail "Kafka k8s contract not satisfied — refusing preflight"
+    else
+      warn "KRaft: kafka-*-external LoadBalancer IPs not all assigned (or client PEMs missing) — contract: static + JKS only (install MetalLB / pool for full live kafka-contract)"
+      REPO_ROOT="$REPO_ROOT" KAFKA_CONTRACT_NO_LIVE=1 bash "$SCRIPT_DIR/validate-kafka-stack-contract.sh" || fail "Kafka static/JKS contract failed"
+    fi
+  fi
+  ok "Kafka stack contract validator passed"
+else
+  fail "validate-kafka-stack-contract.sh missing"
+fi
+
+# 6a2c. Bootstrap seeds + broker leaf SANs (prevents x509 SAN mismatch → KafkaJS TLS failure → CrashLoopBackOff).
+say "6a2c. Kafka bootstrap + broker TLS SAN gates..."
+_sk_ns="${HOUSING_NS:-off-campus-housing-tracker}"
+_sk_rep="${KAFKA_BROKER_REPLICAS:-3}"
+if [[ "${PREFLIGHT_SKIP_KAFKA_TLS_SAN_GATE:-0}" == "1" ]]; then
+  warn "PREFLIGHT_SKIP_KAFKA_TLS_SAN_GATE=1 — skipping verify:kafka-bootstrap and verify:kafka-tls-sans"
+else
+  chmod +x "$SCRIPT_DIR/verify-housing-kafka-bootstrap.sh" "$SCRIPT_DIR/verify-kafka-tls-sans.sh" 2>/dev/null || true
+  if command -v pnpm >/dev/null 2>&1 && [[ -f "$REPO_ROOT/package.json" ]]; then
+    (cd "$REPO_ROOT" && pnpm verify:kafka-bootstrap) || fail "6a2c verify:kafka-bootstrap failed (fix app-config KAFKA_BROKER seeds)"
+    (cd "$REPO_ROOT" && HOUSING_NS="$_sk_ns" KAFKA_BROKER_REPLICAS="$_sk_rep" pnpm verify:kafka-tls-sans) || fail "6a2c verify:kafka-tls-sans failed — broker cert missing headless SANs (re-run: KAFKA_SSL_EXTRA_IP_SANS=... pnpm kafka-ssl; rollout restart statefulset/kafka)"
+  else
+    HOUSING_NS="$_sk_ns" bash "$SCRIPT_DIR/verify-housing-kafka-bootstrap.sh" || fail "6a2c verify-housing-kafka-bootstrap failed"
+    HOUSING_NS="$_sk_ns" KAFKA_BROKER_REPLICAS="$_sk_rep" bash "$SCRIPT_DIR/verify-kafka-tls-sans.sh" || fail "6a2c verify-kafka-tls-sans failed"
+  fi
+  ok "6a2c Kafka bootstrap + TLS SAN gates passed"
+fi
+
+# 6a2c2. KRaft: broker effective advertised.listeners must match headless INTERNAL + per-broker MetalLB EXTERNAL (aligns with cert IP SANs).
+if [[ "${PREFLIGHT_KAFKA_SUBSTRATE:-kraft}" == "kraft" ]] && [[ "${PREFLIGHT_SKIP_KAFKA_ADVERTISED_LISTENERS_GATE:-0}" != "1" ]]; then
+  say "6a2c2. Kafka KRaft advertised.listeners (INTERNAL FQDN + EXTERNAL LB IP per kafka-N-external)..."
+  chmod +x "$SCRIPT_DIR/verify-kafka-kraft-advertised-listeners.sh" 2>/dev/null || true
+  if [[ -f "$SCRIPT_DIR/verify-kafka-kraft-advertised-listeners.sh" ]]; then
+    HOUSING_NS="$_sk_ns" KAFKA_BROKER_REPLICAS="$_sk_rep" bash "$SCRIPT_DIR/verify-kafka-kraft-advertised-listeners.sh" || fail "6a2c2 verify-kafka-kraft-advertised-listeners failed (fix StatefulSet advert, MetalLB, or KAFKA_SSL_EXTRA_IP_SANS / KAFKA_SSL_AUTO_METALLB_IPS=1 + kafka-ssl + rollout)"
+    ok "6a2c2 KRaft advertised.listeners gate passed"
+  else
+    fail "6a2c2 verify-kafka-kraft-advertised-listeners.sh missing"
+  fi
+elif [[ "${PREFLIGHT_SKIP_KAFKA_ADVERTISED_LISTENERS_GATE:-0}" == "1" ]]; then
+  warn "PREFLIGHT_SKIP_KAFKA_ADVERTISED_LISTENERS_GATE=1 — skipping KRaft advertised.listeners verification"
+fi
+
+# 6a2c3–6a2c5. KRaft quorum + leadership log sanity + broker API on headless :9093 (same checks as make verify-kafka-cluster phases 3–5).
+if [[ "${PREFLIGHT_KAFKA_SUBSTRATE:-kraft}" == "kraft" ]] && [[ "${PREFLIGHT_SKIP_KAFKA_KRAFT_HEALTH_GATES:-0}" != "1" ]]; then
+  say "6a2c3–6a2c5. Kafka KRaft health (quorum, leadership logs, broker API on kafka:9093)..."
+  chmod +x "$SCRIPT_DIR/verify-kafka-cluster.sh" 2>/dev/null || true
+  if [[ -f "$SCRIPT_DIR/verify-kafka-cluster.sh" ]]; then
+    VERIFY_KAFKA_HEALTH_ONLY=1 HOUSING_NS="$_sk_ns" KAFKA_BROKER_REPLICAS="$_sk_rep" bash "$SCRIPT_DIR/verify-kafka-cluster.sh" "$_sk_ns" "$_sk_rep" || fail "6a2c3–6a2c5 verify-kafka-cluster.sh (health gates) failed — check quorum, broker logs, or headless Service/DNS"
+    ok "6a2c3–6a2c5 KRaft health gates passed"
+  else
+    fail "6a2c3–6a2c5 verify-kafka-cluster.sh missing"
+  fi
+elif [[ "${PREFLIGHT_SKIP_KAFKA_KRAFT_HEALTH_GATES:-0}" == "1" ]]; then
+  warn "PREFLIGHT_SKIP_KAFKA_KRAFT_HEALTH_GATES=1 — skipping KRaft quorum / leadership-churn / broker API gates"
+fi
+
+# 6a2d. Optional in-cluster mTLS handshake Job (headless INTERNAL :9093, och-kafka-ssl-secret).
+if [[ "${PREFLIGHT_KAFKA_TLS_PREFLIGHT_JOB:-0}" == "1" ]] && [[ "${PREFLIGHT_KAFKA_SUBSTRATE:-kraft}" == "kraft" ]]; then
+  say "6a2d. Kafka TLS preflight Job (mTLS to kafka-0..2 :9093)..."
+  _jpath="$REPO_ROOT/infra/k8s/kafka-certs/kafka-tls-preflight-job.yaml"
+  if [[ -f "$_jpath" ]] && kubectl get secret och-kafka-ssl-secret -n "$_sk_ns" --request-timeout=20s >/dev/null 2>&1; then
+    say "6a2d-wait. Waiting for kafka-0..2 pods Ready (INTERNAL :9093 must accept connections)..."
+    for _kz in kafka-0 kafka-1 kafka-2; do
+      kubectl wait pod "$_kz" -n "$_sk_ns" --for=condition=ready --timeout=360s >/dev/null 2>&1 || \
+        warn "6a2d-wait: pod $_kz not Ready within 360s — TLS Job may fail until brokers stabilize"
+    done
+    kubectl delete job kafka-tls-preflight -n "$_sk_ns" --ignore-not-found --request-timeout=30s >/dev/null 2>&1 || true
+    sleep 3
+    kubectl apply -f "$_jpath" --request-timeout=45s || fail "6a2d kubectl apply kafka-tls-preflight-job failed"
+    if ! kubectl wait --for=condition=complete "job/kafka-tls-preflight" -n "$_sk_ns" --timeout=180s; then
+      kubectl logs "job/kafka-tls-preflight" -n "$_sk_ns" --tail=120 2>/dev/null || true
+      fail "6a2d job/kafka-tls-preflight did not complete (TLS or mTLS to brokers failed)"
+    fi
+    kubectl logs "job/kafka-tls-preflight" -n "$_sk_ns" --tail=60 2>/dev/null || true
+    ok "6a2d Kafka TLS preflight Job passed"
+  else
+    warn "6a2d skipped (missing $_jpath or secret och-kafka-ssl-secret in $_sk_ns)"
   fi
 fi
 
@@ -2603,11 +2800,26 @@ else
   warn "wait-for-all-services-ready.sh not found, skipping wait"
 fi
 
-# 6b2. Cluster health: require expected nodes Ready and print pod summary (two-node cluster + all pods ready)
+# 6b1–6b2. Edge routing: Ingress path parity + DNS→LoadBalancer (prevents k6 0 B when /auth misses gateway or /etc/hosts points at wrong IP).
+_edge_ns="${HOUSING_NS:-off-campus-housing-tracker}"
+_edge_host="${OCH_EDGE_HOSTNAME:-off-campus-housing.test}"
+if [[ "${PREFLIGHT_SKIP_EDGE_ROUTING_GATES:-0}" == "1" ]]; then
+  warn "PREFLIGHT_SKIP_EDGE_ROUTING_GATES=1 — skipping 6b1–6b2 edge ingress + DNS/LB gates"
+elif [[ -f "$SCRIPT_DIR/verify-preflight-edge-routing.sh" ]]; then
+  say "6b1–6b2. Edge routing gates (ingress /api+/auth→gateway, DNS→LB for $_edge_host)…"
+  chmod +x "$SCRIPT_DIR/verify-preflight-edge-routing.sh" 2>/dev/null || true
+  VERIFY_PREFLIGHT_EDGE_PHASES=ingress,dns HOUSING_NS="$_edge_ns" OCH_EDGE_HOSTNAME="$_edge_host" \
+    bash "$SCRIPT_DIR/verify-preflight-edge-routing.sh" "$_edge_ns" "$_edge_host" || fail "6b1–6b2 edge routing gates failed — apply infra/k8s/overlays/dev/ingress.yaml, fix /etc/hosts/DNS to caddy-h3 or ingress-nginx-controller LB (see verify-preflight-edge-routing.sh)"
+  ok "6b1–6b2 edge routing gates passed"
+else
+  warn "verify-preflight-edge-routing.sh missing — skipping 6b1–6b2"
+fi
+
+# 6b3. Cluster health: require expected nodes Ready and print pod summary (two-node cluster + all pods ready)
 # Use case and ASCII-only strings to avoid syntax errors from Unicode or [[ pattern in some shells.
-say "6b2. Cluster health: nodes + pod summary..."
-k3d_ctx_6b2=$(kubectl config current-context 2>/dev/null || echo "")
-case "${k3d_ctx_6b2}" in
+say "6b3. Cluster health: nodes + pod summary..."
+k3d_ctx_6b3=$(kubectl config current-context 2>/dev/null || echo "")
+case "${k3d_ctx_6b3}" in
   k3d-*)
     expected_nodes="${PREFLIGHT_K3D_EXPECTED_NODES:-2}"
     node_ready=$(kubectl get nodes --no-headers 2>/dev/null | awk '$2=="Ready" {c++} END {print c+0}')
@@ -2617,7 +2829,7 @@ case "${k3d_ctx_6b2}" in
     if [[ "$node_total" -lt "$expected_nodes" ]] || [[ "$node_ready" -lt "$expected_nodes" ]]; then
       warn "Cluster nodes: $node_ready/$node_total Ready (expected $expected_nodes). Fix nodes before suites."
       kubectl get nodes 2>/dev/null || true
-      fail "6b2 cluster health: not all nodes Ready."
+      fail "6b3 cluster health: not all nodes Ready."
     fi
     ok "Cluster healthy: $node_ready/$node_total nodes Ready"
     ;;
@@ -2627,7 +2839,7 @@ echo "  Pod summary (off-campus-housing-tracker, ingress-nginx, envoy-test):"
 kubectl get pods -n off-campus-housing-tracker --no-headers 2>/dev/null | head -20
 kubectl get pods -n ingress-nginx --no-headers 2>/dev/null | head -5
 kubectl get pods -n envoy-test --no-headers 2>/dev/null | head -5
-ok "6b2 cluster health and pod summary done"
+ok "6b3 cluster health and pod summary done"
 
 # End of 3a–6b block (Phase C skips above and runs only 7 and 8).
 # Single fi closes if ! _phase_c_only (line ~1227). Use plain if/fi (avoid `} fi` after `&& { … }` — some bash builds mis-parse).
@@ -2692,7 +2904,7 @@ if [[ -f "$SCRIPT_DIR/ensure-tcpdump-in-capture-pods.sh" ]]; then
 fi
 
 _phase_start "7_run_all_suites"
-say "7. Running housing test matrix (Vitest, bash HTTP/2+3, k6 edge, Phase D, Playwright; run-k6-phases when RUN_K6=1)${RUN_K6:+; RUN_K6=1}..."
+say "7. Running housing test matrix (after 6b: Kafka readiness + k8s services ready) — Vitest, bash HTTP/2+3, k6 edge, Phase D, Playwright; run-k6-phases when RUN_K6=1${RUN_K6:+; RUN_K6=1}..."
 if [[ "$(uname -s)" == "Darwin" ]] && command -v k6 >/dev/null 2>&1; then
   if [[ "${SKIP_MACOS_DEV_CA_TRUST:-0}" != "1" ]] && [[ "${K6_USE_DOCKER_K6:-0}" != "1" ]]; then
     info "macOS + host k6: TLS trust comes from the login keychain (Go ignores SSL_CERT_FILE). 7a-prep will run scripts/lib/trust-dev-root-ca-macos.sh before k6, or set SKIP_MACOS_DEV_CA_TRUST=1 / K6_USE_DOCKER_K6=1."

@@ -9,9 +9,18 @@ on:
       - "scripts/protocol/**"
       - "scripts/transport/**"
       - "scripts/ci/**"
+      - "scripts/bring-up-external-infra.sh"
+      - "scripts/validate-kafka-stack-contract.sh"
       - "scripts/recycle-och-postgres-compose.sh"
       - "scripts/lib/**"
+      - "scripts/verify-preflight-edge-routing.sh"
+      - "scripts/run-housing-k6-edge-smoke.sh"
+      - "infra/k8s/overlays/dev/ingress.yaml"
       - "scripts/run-preflight-scale-and-all-suites.sh"
+      - "scripts/verify-kafka-tls-sans.sh"
+      - "scripts/verify-kafka-kraft-advertised-listeners.sh"
+      - "scripts/verify-kafka-cluster.sh"
+      - "scripts/kafka-ssl-from-dev-root.sh"
       - "scripts/perf/extract-protocol-matrix.js"
       - "scripts/load/k6-gateway-collapse-smoke.js"
       - "webapp/e2e/**"
@@ -24,9 +33,18 @@ on:
       - "scripts/protocol/**"
       - "scripts/transport/**"
       - "scripts/ci/**"
+      - "scripts/bring-up-external-infra.sh"
+      - "scripts/validate-kafka-stack-contract.sh"
       - "scripts/recycle-och-postgres-compose.sh"
       - "scripts/lib/**"
+      - "scripts/verify-preflight-edge-routing.sh"
+      - "scripts/run-housing-k6-edge-smoke.sh"
+      - "infra/k8s/overlays/dev/ingress.yaml"
       - "scripts/run-preflight-scale-and-all-suites.sh"
+      - "scripts/verify-kafka-tls-sans.sh"
+      - "scripts/verify-kafka-kraft-advertised-listeners.sh"
+      - "scripts/verify-kafka-cluster.sh"
+      - "scripts/kafka-ssl-from-dev-root.sh"
       - "scripts/perf/extract-protocol-matrix.js"
       - "scripts/load/k6-gateway-collapse-smoke.js"
       - "webapp/e2e/**"
@@ -48,7 +66,25 @@ jobs:
       - name: ShellCheck certification script
         run: shellcheck scripts/ci/run-full-certification.sh
       - name: ShellCheck CI invariant scripts
-        run: shellcheck scripts/ci/verify-docker-ports.sh scripts/ci/verify-quic-hostname-invariant.sh scripts/recycle-och-postgres-compose.sh
+        run: shellcheck scripts/ci/verify-docker-ports.sh scripts/ci/verify-quic-hostname-invariant.sh scripts/ci/verify-housing-grpc-matrix.sh scripts/ci/generate-kafka-ci-tls.sh scripts/ci/start-kafka-tls-ci.sh scripts/ci/delete-kafka-event-topics.sh scripts/create-kafka-event-topics.sh scripts/create-kafka-event-topics-k8s.sh scripts/lib/och-kafka-event-topics-from-proto.sh scripts/verify-proto-topic-alignment.sh scripts/verify-proto-events-topics.sh scripts/verify-kafka-broker-keystore-jks.sh scripts/verify-kafka-event-topic-partitions.sh scripts/verify-kafka-tls-sans.sh scripts/verify-kafka-kraft-advertised-listeners.sh scripts/verify-kafka-cluster.sh scripts/verify-preflight-edge-routing.sh scripts/run-housing-k6-edge-smoke.sh scripts/wait-for-docker-compose-kafka-strict-ready.sh scripts/ensure-kafka-ready.sh scripts/validate-kafka-stack-contract.sh scripts/run-kafka-contract-validate.sh scripts/verify-kafka-kraft-e2e.sh scripts/colima-forward-6443.sh scripts/colima-api-health.sh scripts/bring-up-external-infra.sh scripts/recycle-och-postgres-compose.sh
+
+      - name: Kafka broker EKU + infra auto-create invariants
+        run: |
+          set -euo pipefail
+          for f in scripts/kafka-ssl-from-dev-root.sh scripts/dev-generate-certs.sh scripts/ci/generate-kafka-ci-tls.sh; do
+            test -f "$f"
+            while IFS= read -r line; do
+              case "$line" in
+                *extendedKeyUsage*serverAuth*)
+                  echo "$line" | grep -q clientAuth || { echo "Kafka broker signing must include clientAuth with serverAuth: $f"; echo "$line"; exit 1; }
+                  ;;
+              esac
+            done < <(grep -h 'extendedKeyUsage' "$f" 2>/dev/null || true)
+          done
+          if grep -R --include='*.yaml' --include='*.yml' -E 'auto\.create\.topics\.enable:\s*true' infra/ 2>/dev/null | grep -q .; then
+            echo "Forbidden: auto.create.topics.enable=true under infra/"
+            exit 1
+          fi
 
   transport-quic-pipeline:
     runs-on: ubuntu-latest

@@ -1,8 +1,12 @@
 import { randomUUID } from "node:crypto";
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
-import { registerHealthService, resolveProtoPath, createOchStrictMtlsServerCredentials } from "@common/utils";
-import { publishListingEvent } from "./listing-kafka.js";
+import {
+  registerHealthService,
+  resolveProtoPath,
+  createOchGrpcServerCredentialsForBind,
+} from "@common/utils";
+import { publishListingEventForCreateResponse } from "./listing-kafka.js";
 import { syncListingCreatedToAnalytics } from "./analytics-sync.js";
 import { pool } from "./db.js";
 import { buildListingsSearchQuery, parseAmenitySlugs } from "./search-listings-query.js";
@@ -157,18 +161,24 @@ const listingsService = {
           callback({ code: grpc.status.INTERNAL, message: "analytics projection sync failed" });
           return;
         }
-        void publishListingEvent(
-          "ListingCreatedV1",
-          row.id,
-          {
-            listing_id: row.id,
-            user_id: row.user_id,
-            title: row.title,
-            price_cents: row.price_cents,
-            listed_at_day: listedDay,
-          },
-          eventId,
-        );
+        try {
+          await publishListingEventForCreateResponse(
+            "ListingCreatedV1",
+            row.id,
+            {
+              listing_id: row.id,
+              user_id: row.user_id,
+              title: row.title,
+              price_cents: row.price_cents,
+              listed_at_day: listedDay,
+            },
+            eventId,
+          );
+        } catch (e) {
+          console.error("[CreateListing] kafka", e);
+          callback({ code: grpc.status.INTERNAL, message: "listing event publish failed" });
+          return;
+        }
         logGrpcTiming("CreateListing", start);
         callback(null, rowToResponse(row));
       })
@@ -276,7 +286,17 @@ const listingsService = {
   },
 };
 
-export function startGrpcServer(port: number): grpc.Server {
+function createListingsGrpcServerCredentials(): grpc.ServerCredentials {
+  try {
+    return createOchGrpcServerCredentialsForBind("listings gRPC");
+  } catch (e) {
+    console.error(e);
+    process.exit(1);
+    throw e;
+  }
+}
+
+function buildListingsGrpcServer(): grpc.Server {
   const server = new grpc.Server();
   server.addService(listingsProto.listings.ListingsService.service, {
     CreateListing: listingsService.CreateListing,
@@ -293,14 +313,12 @@ export function startGrpcServer(port: number): grpc.Server {
     }
   });
 
-  let credentials: grpc.ServerCredentials;
-  try {
-    credentials = createOchStrictMtlsServerCredentials("listings gRPC");
-    console.log("[listings gRPC] strict mTLS (client cert required)");
-  } catch (e) {
-    console.error(e);
-    process.exit(1);
-  }
+  return server;
+}
+
+export function startGrpcServer(port: number): grpc.Server {
+  const server = buildListingsGrpcServer();
+  const credentials = createListingsGrpcServerCredentials();
 
   server.bindAsync(
     `0.0.0.0:${port}`,
@@ -310,10 +328,31 @@ export function startGrpcServer(port: number): grpc.Server {
         console.error("[listings gRPC] bind error:", err);
         return;
       }
-      server.start();
       console.log(`[listings gRPC] listening on ${boundPort}`);
     },
   );
 
   return server;
+}
+
+/** Resolves after successful `bindAsync` (for integration tests). */
+export function startGrpcServerAndWait(port: number): Promise<grpc.Server> {
+  const server = buildListingsGrpcServer();
+  const credentials = createListingsGrpcServerCredentials();
+
+  return new Promise((resolve, reject) => {
+    server.bindAsync(
+      `0.0.0.0:${port}`,
+      credentials,
+      (err: Error | null, boundPort: number) => {
+        if (err) {
+          console.error("[listings gRPC] bind error:", err);
+          reject(err);
+          return;
+        }
+        console.log(`[listings gRPC] listening on ${boundPort}`);
+        resolve(server);
+      },
+    );
+  });
 }

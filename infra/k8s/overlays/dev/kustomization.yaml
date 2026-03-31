@@ -4,7 +4,9 @@ resources:
   - ../../base
   - hpa-api-gateway.yaml
 patches:
+  - path: patches/hpa-api-gateway-single-replica.yaml
   - path: patches/listings-analytics-sync-env.yaml
   - path: patches/analytics-analytics-sync-env.yaml
   - path: patches/e2e-high-cap-mode-env.yaml
   - path: patches/gateway-traffic-shaper-cluster-weight.yaml
+  - path: patches/webapp-local-image-pull.yaml

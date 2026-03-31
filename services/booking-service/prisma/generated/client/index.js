@@ -196,14 +196,6 @@ const config = {
         "fromEnvVar": null,
         "value": "darwin",
         "native": true
-      },
-      {
-        "fromEnvVar": null,
-        "value": "debian-openssl-3.0.x"
-      },
-      {
-        "fromEnvVar": null,
-        "value": "linux-arm64-openssl-3.0.x"
       }
     ],
     "previewFeatures": [],
@@ -229,8 +221,8 @@ const config = {
       }
     }
   },
-  "inlineSchema": "generator client {\n  provider      = \"prisma-client-js\"\n  output        = \"../prisma/generated/client\"\n  binaryTargets = [\"native\", \"debian-openssl-3.0.x\", \"linux-arm64-openssl-3.0.x\"]\n}\n\ndatasource db {\n  provider = \"postgresql\"\n  url      = env(\"POSTGRES_URL_BOOKINGS\")\n  schemas  = [\"booking\"]\n}\n\nenum BookingStatus {\n  created              @map(\"created\")\n  pending_confirmation @map(\"pending_confirmation\")\n  confirmed            @map(\"confirmed\")\n  rejected             @map(\"rejected\")\n  cancelled            @map(\"cancelled\")\n  expired              @map(\"expired\")\n  completed            @map(\"completed\")\n\n  @@map(\"booking_status\")\n  @@schema(\"booking\")\n}\n\nmodel Booking {\n  id                 String        @id @default(dbgenerated(\"gen_random_uuid()\")) @db.Uuid\n  listingId          String        @map(\"listing_id\") @db.Uuid\n  tenantId           String        @map(\"tenant_id\") @db.Uuid\n  landlordId         String        @map(\"landlord_id\") @db.Uuid\n  status             BookingStatus\n  startDate          DateTime      @map(\"start_date\") @db.Date\n  endDate            DateTime      @map(\"end_date\") @db.Date\n  priceCentsSnapshot Int           @map(\"price_cents_snapshot\")\n  currencyCode       String        @map(\"currency_code\") @db.VarChar(8)\n  cancellationReason String?       @map(\"cancellation_reason\") @db.Text\n  confirmedAt        DateTime?     @map(\"confirmed_at\")\n  cancelledAt        DateTime?     @map(\"cancelled_at\")\n  completedAt        DateTime?     @map(\"completed_at\")\n  createdAt          DateTime      @default(now()) @map(\"created_at\")\n  updatedAt          DateTime      @updatedAt @map(\"updated_at\")\n\n  @@index([tenantId], map: \"idx_bookings_tenant_id\")\n  @@index([listingId], map: \"idx_bookings_listing_id\")\n  @@index([status], map: \"idx_bookings_status\")\n  @@map(\"bookings\")\n  @@schema(\"booking\")\n}\n\nmodel SearchHistory {\n  id            String   @id @default(dbgenerated(\"gen_random_uuid()\")) @db.Uuid\n  userId        String   @map(\"user_id\") @db.Uuid\n  query         String?  @db.VarChar(256)\n  minPriceCents Int?     @map(\"min_price_cents\")\n  maxPriceCents Int?     @map(\"max_price_cents\")\n  maxDistanceKm Int?     @map(\"max_distance_km\")\n  latitude      Float?\n  longitude     Float?\n  filters       Json?\n  createdAt     DateTime @default(now()) @map(\"created_at\")\n\n  @@index([userId, createdAt(sort: Desc)], map: \"idx_search_history_user_created\")\n  @@map(\"search_history\")\n  @@schema(\"booking\")\n}\n\nmodel WatchlistItem {\n  id        String    @id @default(dbgenerated(\"gen_random_uuid()\")) @db.Uuid\n  userId    String    @map(\"user_id\") @db.Uuid\n  listingId String    @map(\"listing_id\") @db.Uuid\n  source    String?   @db.VarChar(40)\n  addedAt   DateTime  @default(now()) @map(\"added_at\")\n  removedAt DateTime? @map(\"removed_at\")\n  isActive  Boolean   @default(true) @map(\"is_active\")\n\n  @@unique([userId, listingId], map: \"ux_watchlist_user_listing\")\n  @@index([userId, isActive, addedAt(sort: Desc)], map: \"idx_watchlist_user_active_added\")\n  @@map(\"watchlist_items\")\n  @@schema(\"booking\")\n}\n",
-  "inlineSchemaHash": "f8828a7ccbf341b1b535d5f1cccf351d0043d435855962e9c4c189f342917e50",
+  "inlineSchema": "generator client {\n  provider      = \"prisma-client-js\"\n  output        = \"../prisma/generated/client\"\n  binaryTargets = [\"native\"]\n}\n\ndatasource db {\n  provider = \"postgresql\"\n  url      = env(\"POSTGRES_URL_BOOKINGS\")\n  schemas  = [\"booking\"]\n}\n\nenum BookingStatus {\n  created              @map(\"created\")\n  pending_confirmation @map(\"pending_confirmation\")\n  confirmed            @map(\"confirmed\")\n  rejected             @map(\"rejected\")\n  cancelled            @map(\"cancelled\")\n  expired              @map(\"expired\")\n  completed            @map(\"completed\")\n\n  @@map(\"booking_status\")\n  @@schema(\"booking\")\n}\n\nmodel Booking {\n  id                 String        @id @default(dbgenerated(\"gen_random_uuid()\")) @db.Uuid\n  listingId          String        @map(\"listing_id\") @db.Uuid\n  tenantId           String        @map(\"tenant_id\") @db.Uuid\n  landlordId         String        @map(\"landlord_id\") @db.Uuid\n  status             BookingStatus\n  startDate          DateTime      @map(\"start_date\") @db.Date\n  endDate            DateTime      @map(\"end_date\") @db.Date\n  priceCentsSnapshot Int           @map(\"price_cents_snapshot\")\n  currencyCode       String        @map(\"currency_code\") @db.VarChar(8)\n  cancellationReason String?       @map(\"cancellation_reason\") @db.Text\n  confirmedAt        DateTime?     @map(\"confirmed_at\")\n  cancelledAt        DateTime?     @map(\"cancelled_at\")\n  completedAt        DateTime?     @map(\"completed_at\")\n  createdAt          DateTime      @default(now()) @map(\"created_at\")\n  updatedAt          DateTime      @updatedAt @map(\"updated_at\")\n\n  @@index([tenantId], map: \"idx_bookings_tenant_id\")\n  @@index([listingId], map: \"idx_bookings_listing_id\")\n  @@index([status], map: \"idx_bookings_status\")\n  @@map(\"bookings\")\n  @@schema(\"booking\")\n}\n\nmodel SearchHistory {\n  id            String   @id @default(dbgenerated(\"gen_random_uuid()\")) @db.Uuid\n  userId        String   @map(\"user_id\") @db.Uuid\n  query         String?  @db.VarChar(256)\n  minPriceCents Int?     @map(\"min_price_cents\")\n  maxPriceCents Int?     @map(\"max_price_cents\")\n  maxDistanceKm Int?     @map(\"max_distance_km\")\n  latitude      Float?\n  longitude     Float?\n  filters       Json?\n  createdAt     DateTime @default(now()) @map(\"created_at\")\n\n  @@index([userId, createdAt(sort: Desc)], map: \"idx_search_history_user_created\")\n  @@map(\"search_history\")\n  @@schema(\"booking\")\n}\n\nmodel WatchlistItem {\n  id        String    @id @default(dbgenerated(\"gen_random_uuid()\")) @db.Uuid\n  userId    String    @map(\"user_id\") @db.Uuid\n  listingId String    @map(\"listing_id\") @db.Uuid\n  source    String?   @db.VarChar(40)\n  addedAt   DateTime  @default(now()) @map(\"added_at\")\n  removedAt DateTime? @map(\"removed_at\")\n  isActive  Boolean   @default(true) @map(\"is_active\")\n\n  @@unique([userId, listingId], map: \"ux_watchlist_user_listing\")\n  @@index([userId, isActive, addedAt(sort: Desc)], map: \"idx_watchlist_user_active_added\")\n  @@map(\"watchlist_items\")\n  @@schema(\"booking\")\n}\n",
+  "inlineSchemaHash": "2d5c3d0205abd27c2bdc1ea574ebc7a8264d3b498fa7d824e67e974097492099",
   "copyEngine": true
 }
 
@@ -271,14 +263,6 @@ Object.assign(exports, Prisma)
 // file annotations for bundling tools to include these files
 path.join(__dirname, "libquery_engine-darwin.dylib.node");
 path.join(process.cwd(), "prisma/generated/client/libquery_engine-darwin.dylib.node")
-
-// file annotations for bundling tools to include these files
-path.join(__dirname, "libquery_engine-debian-openssl-3.0.x.so.node");
-path.join(process.cwd(), "prisma/generated/client/libquery_engine-debian-openssl-3.0.x.so.node")
-
-// file annotations for bundling tools to include these files
-path.join(__dirname, "libquery_engine-linux-arm64-openssl-3.0.x.so.node");
-path.join(process.cwd(), "prisma/generated/client/libquery_engine-linux-arm64-openssl-3.0.x.so.node")
 // file annotations for bundling tools to include these files
 path.join(__dirname, "schema.prisma");
 path.join(process.cwd(), "prisma/generated/client/schema.prisma")

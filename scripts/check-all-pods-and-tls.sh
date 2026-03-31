@@ -77,41 +77,25 @@ else
   warn "Only ${DB_UP:-0}/8 database ports UP (expected 5441–5448; media=5448)"
 fi
 
-KAFKA_SSL_PORT="${KAFKA_SSL_PORT:-29094}"
 REDIS_PORT="${REDIS_PORT:-6380}"
+_KNS="${HOUSING_NS:-off-campus-housing-tracker}"
 
-# Wait for Kafka SSL port on host (strict TLS). Starts compose if needed. Used in step 3 and before app readiness.
-_ensure_kafka_host_port() {
-  local port="${1:-$KAFKA_SSL_PORT}"
-  local max_sec="${2:-90}"
-  local step=3
-  local waited=0
-  if nc -z 127.0.0.1 "$port" 2>/dev/null || nc -z localhost "$port" 2>/dev/null; then
-    return 0
-  fi
-  if command -v docker >/dev/null 2>&1 && [[ -f "$REPO_ROOT/docker-compose.yml" ]]; then
-    ( cd "$REPO_ROOT" && docker compose up -d zookeeper kafka ) 2>/dev/null || true
-  fi
-  while [[ "$waited" -lt "$max_sec" ]]; do
-    if nc -z 127.0.0.1 "$port" 2>/dev/null || nc -z localhost "$port" 2>/dev/null; then
-      return 0
+# 3. Kafka: in-cluster KRaft (Compose broker removed)
+say "3. Checking Kafka (k8s $_KNS)..."
+if command -v kubectl >/dev/null 2>&1 && kubectl get pod kafka-0 -n "$_KNS" &>/dev/null; then
+  _k_ok=0
+  for _i in 0 1 2; do
+    if kubectl get pod "kafka-${_i}" -n "$_KNS" -o jsonpath='{.status.phase}' 2>/dev/null | grep -qx Running; then
+      _k_ok=$((_k_ok + 1))
     fi
-    sleep "$step"
-    waited=$((waited + step))
   done
-  return 1
-}
-
-# 3. Kafka: external strict TLS (Docker Compose :29094 for housing; RP uses 29093). No in-cluster Kafka/ZK.
-say "3. Checking Kafka (external strict TLS, :$KAFKA_SSL_PORT)..."
-if _ensure_kafka_host_port "$KAFKA_SSL_PORT" 90; then
-  ok "Kafka (external $KAFKA_SSL_PORT): UP"
-else
-  if command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' 2>/dev/null | grep -q "kafka"; then
-    warn "Kafka container present but port $KAFKA_SSL_PORT not reachable after 90s — check compose / listener"
+  if [[ "$_k_ok" -eq 3 ]]; then
+    ok "Kafka (k8s): kafka-0,1,2 Running"
   else
-    warn "Kafka (external $KAFKA_SSL_PORT): DOWN — run: docker compose up -d kafka zookeeper"
+    warn "Kafka (k8s): expected 3 Running brokers, saw $_k_ok"
   fi
+else
+  warn "Kafka (k8s): kafka-0 not found — deploy infra/k8s/kafka-kraft-metallb"
 fi
 
 # 4. Redis external (port 6380 for housing; RP uses 6379) + Lua scripting (cache hits)
@@ -152,8 +136,8 @@ fi
 APP_EXPECTED=${#SERVICES[@]}
 echo "  ℹ️  App deployments to verify: $APP_EXPECTED (${SERVICES[*]})"
 
-# Kafka must be on the host before analytics/notification stabilize (same as step 3).
-_ensure_kafka_host_port "$KAFKA_SSL_PORT" 30 >/dev/null 2>&1 || true
+# Kafka runs in-cluster (KRaft); pods use headless bootstrap from app-config.
+true
 
 # Optional settle time: OCH_APP_READY_WAIT_SEC (default 180), poll OCH_APP_READY_POLL_STEP (default 12)
 APP_WAIT_SEC="${OCH_APP_READY_WAIT_SEC:-180}"
@@ -182,8 +166,7 @@ _count_app_ready() {
 while [[ "$_elapsed" -lt "$APP_WAIT_SEC" ]]; do
   _count_app_ready
   [[ "$READY" -eq "$APP_EXPECTED" ]] && break
-  echo "  ℹ️  App readiness $READY/$APP_EXPECTED (waiting for Kafka + probes; ${_elapsed}s / ${APP_WAIT_SEC}s max)..."
-  _ensure_kafka_host_port "$KAFKA_SSL_PORT" 20 >/dev/null 2>&1 || true
+  echo "  ℹ️  App readiness $READY/$APP_EXPECTED (waiting for probes; ${_elapsed}s / ${APP_WAIT_SEC}s max)..."
   sleep "$APP_POLL_STEP"
   _elapsed=$((_elapsed + APP_POLL_STEP))
 done
@@ -213,14 +196,11 @@ if [[ "${READY:-0}" -ne "$APP_EXPECTED" ]]; then
   echo "  If pods show DB errors, ensure Postgres DBs exist on 5441–5448 (docker compose) or run PREFLIGHT_AUTH_PRISMA_MIGRATE=1 for auth only."
   echo ""
   
-  # Ensure Kafka is up first (required for analytics-service)
-  say "5a. Ensuring Kafka is accessible..."
-  if _ensure_kafka_host_port "$KAFKA_SSL_PORT" 60; then
-    ok "Kafka ($KAFKA_SSL_PORT): UP"
-  else
-    warn "Kafka ($KAFKA_SSL_PORT) still not reachable — check docker compose"
+  say "5a. Kafka (k8s): ensure kafka-0..2 Running in $HOUSING_CHECK_NS"
+  if command -v kubectl >/dev/null 2>&1; then
+    kubectl get pod -n "$HOUSING_CHECK_NS" -l 'app.kubernetes.io/name=kafka' 2>/dev/null || kubectl get pod kafka-0 kafka-1 kafka-2 -n "$HOUSING_CHECK_NS" 2>/dev/null || true
   fi
-  
+
   # Diagnose each not-ready service
   say "5b. Diagnosing not-ready services..."
   DIAG_LOG="/tmp/pod-diagnostics-$(date +%Y%m%d-%H%M%S).log"

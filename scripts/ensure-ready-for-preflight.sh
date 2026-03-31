@@ -4,7 +4,7 @@
 # 2) Ensure curl with HTTP/3 (optional)
 # 3) Ensure Kubernetes API (k3d or Colima)
 # 4) Ensure Redis + all 8 Postgres DBs (5441–5448)
-# 5) Ensure Kafka (Docker :29094 for housing)
+# 5) Ensure Kafka (in-cluster KRaft)
 # 6) k3d only: Ensure required app images (:dev) exist locally and in registry (so pods don't ImagePullBackOff). ENSURE_IMAGES=0 to skip.
 #
 # Usage:
@@ -99,7 +99,7 @@ REDIS_PORT="${REDIS_PORT:-6380}"
 say "4. Ensuring Redis ($REDIS_PORT) and Postgres (5441–5448)..."
 if ! nc -z 127.0.0.1 "$REDIS_PORT" 2>/dev/null; then
   if [[ -f "$SCRIPT_DIR/bring-up-external-infra.sh" ]]; then
-    info "Redis not reachable; bringing up external infra (Redis, Kafka, 8 Postgres)..."
+    info "Redis not reachable; bringing up external infra (Redis, 8 Postgres)..."
     "$SCRIPT_DIR/bring-up-external-infra.sh" 2>&1 || true
   fi
   if ! nc -z 127.0.0.1 "$REDIS_PORT" 2>/dev/null; then
@@ -128,21 +128,15 @@ else
   fi
 fi
 
-KAFKA_SSL_PORT="${KAFKA_SSL_PORT:-29094}"
-# --- 5. Ensure Kafka (Docker :29094 for housing strict TLS; RP uses 29093) ---
-say "5. Ensuring Kafka (Docker :$KAFKA_SSL_PORT)..."
-if command -v docker >/dev/null 2>&1 && [[ -f "$REPO_ROOT/docker-compose.yml" ]]; then
-  ( cd "$REPO_ROOT" && docker compose up -d zookeeper kafka 2>/dev/null ) || true
-  for i in 1 2 3 4 5 6 7 8 9 10; do
-    if nc -z 127.0.0.1 "$KAFKA_SSL_PORT" 2>/dev/null; then
-      ok "Kafka reachable (port $KAFKA_SSL_PORT)"
-      break
-    fi
-    [[ $i -eq 10 ]] && warn "Kafka port $KAFKA_SSL_PORT not reachable after 20s (preflight will start it again)"
-    sleep 2
+_KNS="${HOUSING_NS:-off-campus-housing-tracker}"
+# --- 5. Ensure Kafka (in-cluster KRaft; Compose broker removed) ---
+say "5. Ensuring Kafka (k8s $_KNS)..."
+if command -v kubectl >/dev/null 2>&1 && kubectl get pod kafka-0 -n "$_KNS" &>/dev/null; then
+  for _i in 0 1 2; do
+    kubectl wait pod "kafka-${_i}" -n "$_KNS" --for=condition=Ready --timeout=120s 2>/dev/null && ok "kafka-${_i} Ready" || warn "kafka-${_i} not Ready (continue)"
   done
 else
-  warn "Docker or docker-compose not available; skipping Kafka."
+  warn "kafka-0 not in $_KNS — deploy KRaft StatefulSet or skip until cluster Kafka exists"
 fi
 
 # --- 5b. Colima: host aliases so pods reach Postgres/Redis (get to 1/1 Ready) ---

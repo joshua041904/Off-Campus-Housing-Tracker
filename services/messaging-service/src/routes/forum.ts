@@ -6,29 +6,16 @@ import { pool } from '../lib/db.js'
 import { kafka } from '@common/utils/kafka'
 import { buildMetadata, sendMessagingEvent } from '../kafkaMessagingEvents.js'
 
-// Kafka producer for real-time forum updates (optional - fails gracefully if Kafka is unavailable)
 let kafkaProducer: any = null
-let kafkaConnectionFailed = false
 async function getKafkaProducer() {
-  if (kafkaConnectionFailed) {
-    return null // Don't retry if we've already failed
-  }
   if (!kafkaProducer) {
-    try {
-      kafkaProducer = kafka.producer()
-      // Add connection timeout (match Kafka's 3s connectionTimeout)
-      await Promise.race([
-        kafkaProducer.connect(),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Kafka connection timeout')), 5000)
-        )
-      ])
-    } catch (err) {
-      console.warn('[messaging] Kafka producer connection failed (non-fatal):', (err as Error)?.message || err)
-      kafkaConnectionFailed = true
-      kafkaProducer = null
-      return null
-    }
+    kafkaProducer = kafka.producer()
+    await Promise.race([
+      kafkaProducer.connect(),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Kafka connection timeout')), 5000),
+      ),
+    ])
   }
   return kafkaProducer
 }
@@ -113,29 +100,22 @@ export default function forumRouter(redis: Redis | null, cpuCores: number) {
       const { rows } = await pool.query(insertQuery, [userId, title, content, flair, postUploadType])
       const post = rows[0]
 
-      // Publish to Kafka for real-time notifications
-      try {
-        const producer = await getKafkaProducer()
-        if (producer) {
-          const createdAt =
-            post.created_at instanceof Date ? post.created_at.toISOString() : String(post.created_at)
-          await sendMessagingEvent(producer, post.id, {
-            metadata: buildMetadata({
-              event_type: 'PostCreated',
-              aggregate_id: post.id,
-              aggregate_type: 'post',
-            }),
-            post_id: post.id,
-            user_id: userId,
-            title,
-            content,
-            flair,
-            created_at: createdAt,
-          })
-        }
-      } catch (err) {
-        console.warn('[messaging] Kafka publish failed (non-fatal):', err)
-      }
+      const producer = await getKafkaProducer()
+      const createdAt =
+        post.created_at instanceof Date ? post.created_at.toISOString() : String(post.created_at)
+      await sendMessagingEvent(producer, post.id, {
+        metadata: buildMetadata({
+          event_type: 'PostCreated',
+          aggregate_id: post.id,
+          aggregate_type: 'post',
+        }),
+        post_id: post.id,
+        user_id: userId,
+        title,
+        content,
+        flair,
+        created_at: createdAt,
+      })
 
       res.status(201).json(post)
     } catch (err: any) {
@@ -447,31 +427,24 @@ export default function forumRouter(redis: Redis | null, cpuCores: number) {
       const { rows } = await pool.query(insertQuery, [postId, userId, parent_id || null, content])
       const comment = rows[0]
 
-      // Publish to Kafka for real-time notifications
-      try {
-        const producer = await getKafkaProducer()
-        if (producer) {
-          const createdAt =
-            comment.created_at instanceof Date
-              ? comment.created_at.toISOString()
-              : String(comment.created_at)
-          await sendMessagingEvent(producer, postId, {
-            metadata: buildMetadata({
-              event_type: 'CommentCreated',
-              aggregate_id: comment.id,
-              aggregate_type: 'comment',
-            }),
-            comment_id: comment.id,
-            post_id: postId,
-            user_id: userId,
-            parent_id: parent_id || '',
-            content,
-            created_at: createdAt,
-          })
-        }
-      } catch (err) {
-        console.warn('[messaging] Kafka publish failed (non-fatal):', err)
-      }
+      const producer = await getKafkaProducer()
+      const createdAt =
+        comment.created_at instanceof Date
+          ? comment.created_at.toISOString()
+          : String(comment.created_at)
+      await sendMessagingEvent(producer, postId, {
+        metadata: buildMetadata({
+          event_type: 'CommentCreated',
+          aggregate_id: comment.id,
+          aggregate_type: 'comment',
+        }),
+        comment_id: comment.id,
+        post_id: postId,
+        user_id: userId,
+        parent_id: parent_id || '',
+        content,
+        created_at: createdAt,
+      })
 
       res.status(201).json(comment)
     } catch (err: any) {

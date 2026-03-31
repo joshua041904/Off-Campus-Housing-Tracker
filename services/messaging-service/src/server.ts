@@ -15,6 +15,8 @@
 import express from 'express'
 import os from 'os'
 import { createHttpConcurrencyGuard } from '@common/utils'
+import { ensureKafkaBrokerReady } from '@common/utils/kafka'
+import { MESSAGING_EVENTS_TOPIC } from './kafkaMessagingEvents.js'
 import { startGrpcServer } from './grpc-server.js'
 import { makeRedis } from './lib/cache.js'
 import { requireUser } from './lib/auth.js'
@@ -37,7 +39,8 @@ app.get(['/healthz', '/health'], (_req, res) => {
 app.use(
   createHttpConcurrencyGuard({
     envVar: 'MESSAGING_HTTP_MAX_CONCURRENT',
-    defaultMax: 40,
+    /** Single-pod load tests: allow more in-flight before 503; still bounded (backpressure). */
+    defaultMax: 200,
     serviceLabel: 'messaging-service',
   }),
 )
@@ -47,8 +50,15 @@ app.use(
 app.use('/forum', requireUser, forumRouter(redis, cpuCores))
 app.use('/messages', requireUser, messagesRouter(redis, cpuCores))
 
-app.listen(httpPort, '0.0.0.0', () => {
-  console.log(`[messaging] HTTP server listening on port ${httpPort}`)
-})
+async function main() {
+  await ensureKafkaBrokerReady('messaging-service', { requiredTopics: [MESSAGING_EVENTS_TOPIC] })
+  app.listen(httpPort, '0.0.0.0', () => {
+    console.log(`[messaging] HTTP server listening on port ${httpPort}`)
+  })
+  startGrpcServer(grpcPort)
+}
 
-startGrpcServer(grpcPort)
+void main().catch((e) => {
+  console.error(e)
+  process.exit(1)
+})

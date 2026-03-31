@@ -57,11 +57,14 @@ data:
   # Broker PLAINTEXT is bound to 127.0.0.1 only (healthcheck); clients must use SSL.
   # Required when KAFKA_SSL_ENABLED=true: set KAFKA_CA_CERT to path to CA PEM (e.g. kafka-ssl-secret).
   # Optional mTLS: KAFKA_CLIENT_CERT, KAFKA_CLIENT_KEY. Mount certs via Secret and set env in deployment.
-  # Single broker (Docker Compose: one Kafka, SSL on 9093 / host 29094 for housing; RP uses 29093). Multi-broker when cluster exists — see docs/KAFKA_CURRENT_AND_ROADMAP.md.
-  # Align with infra/k8s/base/kafka-external: ClusterIP :9093 kube-proxies to Endpoints :29094 on the host (strict TLS). If pods ECONNREFUSED :9093, run ./scripts/patch-kafka-external-host.sh and ensure host:29094 listens.
-  KAFKA_BROKER: kafka-external.off-campus-housing-tracker.svc.cluster.local:9093
+  # Default bootstrap: in-cluster KRaft headless Service (apply infra/k8s/kafka-kraft-metallb/; StatefulSet kafka, replicas 3).
+  # Comma-separated list; services/common/src/kafka.ts splits KAFKA_BROKER into multiple seeds.
+  # Optional legacy overlay (kafka-external → host broker): infra/k8s/overlays/kafka-host-compose/
+  KAFKA_BROKER: "kafka-0.kafka.off-campus-housing-tracker.svc.cluster.local:9093,kafka-1.kafka.off-campus-housing-tracker.svc.cluster.local:9093,kafka-2.kafka.off-campus-housing-tracker.svc.cluster.local:9093"
   KAFKA_USE_SSL: "true"
   KAFKA_SSL_ENABLED: "true"
+  # Listings: do not block 201 on Kafka ack (reduces H2 multiplexing tail latency). Errors logged; use ANALYTICS_SYNC_MODE=1 for immediate metrics in dev/E2E.
+  LISTINGS_KAFKA_AWAIT_PUBLISH: "false"
   # Topic prefix for domain event topics: ${ENV_PREFIX}.booking.events, etc. Use dev/staging/prod; no hardcoded env in code.
   ENV_PREFIX: "dev"
   # In-cluster HTTP base for api-gateway proxy (optional override; gateway has same default).

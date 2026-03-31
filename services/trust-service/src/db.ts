@@ -71,3 +71,40 @@ if (poolMetricsMs > 0) {
   const handle = setInterval(tick, poolMetricsMs);
   handle.unref();
 }
+
+function envInt(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+}
+
+/**
+ * Best-effort warm-up so the first real query is less likely to hit a cold DNS/connect failure.
+ * Runs in the background from server bootstrap; does not block HTTP/gRPC bind.
+ */
+export async function warmupTrustDb(): Promise<void> {
+  const w = process.env.TRUST_DB_WARMUP;
+  if (w === "0" || w === "false") return;
+
+  const retries = envInt("TRUST_DB_WARMUP_RETRIES", 12);
+  const baseMs = envInt("TRUST_DB_WARMUP_DELAY_MS", 1000);
+  let last: unknown;
+  for (let i = 0; i < retries; i++) {
+    try {
+      await pool.query("SELECT 1");
+      console.info(`[trust-service] DB warmup ok (attempt ${i + 1}/${retries})`);
+      return;
+    } catch (e) {
+      last = e;
+      const exp = Math.min(5, i);
+      const wait = Math.min(30_000, baseMs * 2 ** exp);
+      console.warn(
+        `[trust-service] DB warmup attempt ${i + 1}/${retries} failed; retry in ${wait}ms`,
+        e,
+      );
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+  console.error("[trust-service] DB warmup exhausted retries", last);
+}

@@ -1,29 +1,27 @@
 #!/usr/bin/env bash
-# Bring up the external stack: Zookeeper, Kafka (SSL), Redis, and 7 Postgres instances (housing platform).
-# Uses docker-compose volumes (pgdata-auth, pgdata-listings, etc.); all have healthchecks.
-# Run before preflight or k8s bring-up so pods can reach host.docker.internal:5441–5448, Redis 6380, Kafka 29094.
-# Housing uses 6380/29094/2182 so it does not conflict with record platform (6379/29093/2181).
+# Bring up the external stack: Redis, MinIO, 8 Postgres. Kafka runs in-cluster (KRaft); see infra/k8s/kafka-kraft-metallb/.
+# Uses docker-compose volumes (pgdata-auth, …); all have healthchecks.
+# Run before preflight or k3s bring-up so pods can reach host.docker.internal:5441–5448, Redis 6380.
 #
 # Usage: ./scripts/bring-up-external-infra.sh
 #
 # Postgres runtime tuning (e.g. docker-compose `command: max_connections=400`) applies only after
 # container recreate. To recycle the 8 Postgres services without wiping volumes, use:
 #   ./scripts/recycle-och-postgres-compose.sh
-# (No restore needed for that change alone — data stays on named volumes.)
-#   SKIP_KAFKA=1             — do not start Kafka (e.g. certs not ready)
+#
 #   SKIP_COMPOSE_UP=1        — only wait for already-running containers
 #   ENFORCE_DB_TUNING=1      — after Postgres up, run enforce-external-db-schemas-and-tuning.sh if present
-#   MAX_WAIT=180             — max seconds to wait for all services (default 180)
-#   RESTORE_BACKUP_DIR=DIR   — after Postgres healthy, restore all 8 DBs from backup dir (e.g. backups/all-8-20260318-174510)
-#   RESTORE_BACKUP_DIR=latest — use newest backups/all-8-* or backups/all-7-* directory (prefer all-8-*)
+#   MAX_WAIT=180             — max seconds to wait for Redis/Postgres (default 180)
+#   RESTORE_BACKUP_DIR=DIR   — after Postgres healthy, restore all 8 DBs from backup dir
+#   RESTORE_BACKUP_DIR=latest — use newest backups/all-8-* or backups/all-7-*
+#   WAIT_K8S_KAFKA=1         — after compose up, wait for kafka-0..2 Ready in off-campus-housing-tracker (optional)
 #
-# Examples (restore is optional; by default no restore is run):
+# Examples:
 #   ./scripts/bring-up-external-infra.sh
-#   RESTORE_BACKUP_DIR=backups/all-8-20260318-174510 ./scripts/bring-up-external-infra.sh
 #   RESTORE_BACKUP_DIR=latest ./scripts/bring-up-external-infra.sh
 #
-# Kafka requires certs in ./certs/kafka-ssl (keystore, truststore, passwords). See Runbook "Kafka SSL".
-# Volumes: pgdata-auth, pgdata-listings, pgdata-bookings, pgdata-messaging, pgdata-notification, pgdata-trust, pgdata-analytics
+# Kafka topics (in-cluster): ./scripts/create-kafka-event-topics-k8s.sh
+# Stack contract (k8s): KAFKA_CONTRACT_LIVE_TARGET=k8s KAFKA_BROKER=… ./scripts/validate-kafka-stack-contract.sh
 
 set -euo pipefail
 
@@ -32,24 +30,23 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
 MAX_WAIT="${MAX_WAIT:-180}"
-SKIP_KAFKA="${SKIP_KAFKA:-0}"
 SKIP_COMPOSE_UP="${SKIP_COMPOSE_UP:-0}"
 ENFORCE_DB_TUNING="${ENFORCE_DB_TUNING:-0}"
+WAIT_K8S_KAFKA="${WAIT_K8S_KAFKA:-0}"
+HOUSING_NS="${HOUSING_NS:-off-campus-housing-tracker}"
 
 say() { printf "\n\033[1m%s\033[0m\n" "$*"; }
-ok()  { echo "✅ $*"; }
-warn(){ echo "⚠️  $*"; }
-info(){ echo "ℹ️  $*"; }
+ok() { echo "✅ $*"; }
+warn() { echo "⚠️  $*"; }
+info() { echo "ℹ️  $*"; }
 
-TOTAL_STEPS="${TOTAL_STEPS:-9}"
 _step_n=0
 step() {
   _step_n=$((_step_n + 1))
-  say "Step ${_step_n}/${TOTAL_STEPS}: $*"
+  say "Step ${_step_n}: $*"
 }
 
-# Docker available? When Colima is running, point CLI at it so docker info succeeds.
-# Prefer socket when Colima VM is up (colima list shows Running); colima status can fail with "empty value".
+# Docker / Colima
 if ! command -v docker >/dev/null 2>&1; then
   warn "docker not found. Install Docker or start Colima."
   exit 1
@@ -65,7 +62,6 @@ if command -v colima >/dev/null 2>&1; then
       fi
     done
   fi
-  # If DOCKER_HOST still not set, try colima status (older path)
   if [[ -z "${DOCKER_HOST:-}" ]] && colima status 2>/dev/null | grep -q "colima is running"; then
     docker context use colima 2>/dev/null || true
     for sock in "$HOME/.colima/default/docker.sock" "$HOME/.colima/docker.sock"; do
@@ -82,48 +78,21 @@ if ! docker info >/dev/null 2>&1; then
   exit 1
 fi
 
-# Kafka SSL: docker-compose mounts ./certs/kafka-ssl
-if [[ "$SKIP_KAFKA" != "1" ]]; then
-  if [[ ! -d "certs/kafka-ssl" ]] || [[ ! -f "certs/kafka-ssl/kafka.keystore.jks" ]]; then
-    warn "Kafka uses strict TLS; certs/kafka-ssl/ (kafka.keystore.jks, etc.) not found. Set SKIP_KAFKA=1 to skip Kafka, or create certs (see Runbook 'Kafka SSL', or pnpm run kafka-ssl / kafka-ssl-from-dev-root.sh)."
-    read -r -p "Continue without Kafka? [y/N] " r
-    if [[ "${r:-n}" != "y" ]] && [[ "${r:-n}" != "Y" ]]; then
-      exit 1
-    fi
-    SKIP_KAFKA=1
-  fi
-fi
-
-step "Bringing up external infra (Zookeeper, Kafka, Redis, MinIO, 8 Postgres)"
-info "Volumes: pg-auth, pg-listings, pg-bookings, pg-messaging, pg-notification, pg-trust, pg-analytics, pg-media, minio_data"
-
-# Single line for all postgres service names so the command cannot be broken by line wrap
 POSTGRES_SERVICES="postgres-auth postgres-listings postgres-bookings postgres-messaging postgres-notification postgres-trust postgres-analytics postgres-media"
 
 if [[ "$SKIP_COMPOSE_UP" != "1" ]]; then
-  step "Starting Zookeeper, then Kafka (if certs OK), Redis, MinIO, Postgres (docker compose)"
-  # Start in dependency order: zookeeper first, then kafka (depends_on zookeeper), redis, then all postgres
-  docker compose up -d zookeeper 2>&1 || true
-  sleep 3
-  if [[ "$SKIP_KAFKA" != "1" ]]; then
-    docker compose up -d kafka 2>&1 || true
-    sleep 2
-  else
-    info "Skipping Kafka (SKIP_KAFKA=1 or certs missing)."
-  fi
+  step "Starting Redis, MinIO, Postgres (8)"
   docker compose up -d redis 2>&1 || true
   docker compose up -d minio 2>&1 || true
   docker compose up -d $POSTGRES_SERVICES 2>&1 || true
-  info "Containers started; waiting for health (max ${MAX_WAIT}s)..."
+  info "Containers started; waiting for health (max ${MAX_WAIT}s)…"
 else
   info "SKIP_COMPOSE_UP=1: only waiting for existing containers."
 fi
 
 REDIS_PORT="${REDIS_PORT:-6380}"
-KAFKA_SSL_PORT="${KAFKA_SSL_PORT:-29094}"
 
 step "Waiting for Redis (${REDIS_PORT})"
-# Wait for Redis (port 6380 for housing; RP uses 6379)
 elapsed=0
 while [[ $elapsed -lt $MAX_WAIT ]]; do
   if nc -z 127.0.0.1 "$REDIS_PORT" 2>/dev/null; then
@@ -137,30 +106,24 @@ if ! nc -z 127.0.0.1 "$REDIS_PORT" 2>/dev/null; then
   warn "Redis ($REDIS_PORT) not reachable after ${MAX_WAIT}s."
 fi
 
-step "Waiting for Kafka SSL (${KAFKA_SSL_PORT}) (if started)"
-# Wait for Kafka SSL port 29094 (if we started it; RP uses 29093)
-if [[ "$SKIP_KAFKA" != "1" ]]; then
-  elapsed=0
-  while [[ $elapsed -lt $MAX_WAIT ]]; do
-    if nc -z 127.0.0.1 "$KAFKA_SSL_PORT" 2>/dev/null; then
-      ok "Kafka ($KAFKA_SSL_PORT): reachable"
-      break
-    fi
-    sleep 5
-    elapsed=$((elapsed + 5))
-  done
-  if ! nc -z 127.0.0.1 "$KAFKA_SSL_PORT" 2>/dev/null; then
-    warn "Kafka ($KAFKA_SSL_PORT) not reachable after ${MAX_WAIT}s. Check certs/kafka-ssl and docker compose logs kafka."
+if [[ "$WAIT_K8S_KAFKA" == "1" ]] && command -v kubectl >/dev/null 2>&1; then
+  step "Waiting for Kubernetes Kafka pods (optional WAIT_K8S_KAFKA=1)"
+  if kubectl get pod kafka-0 -n "$HOUSING_NS" &>/dev/null; then
+    for _i in 0 1 2; do
+      kubectl wait pod "kafka-${_i}" -n "$HOUSING_NS" --for=condition=Ready --timeout=300s 2>/dev/null || warn "kafka-${_i} not Ready in time"
+    done
+    ok "Kubernetes Kafka pods checked ($HOUSING_NS)"
+  else
+    warn "No kafka-0 in $HOUSING_NS — deploy KRaft StatefulSet first"
   fi
 fi
 
-# Wait for all 8 Postgres ports (5441–5448)
 PORTS="5441 5442 5443 5444 5445 5446 5447 5448"
 elapsed=0
 while [[ $elapsed -lt $MAX_WAIT ]]; do
   all_ok=true
   for port in $PORTS; do
-    if ! ( nc -z 127.0.0.1 "$port" 2>/dev/null || nc -z ::1 "$port" 2>/dev/null ); then
+    if ! (nc -z 127.0.0.1 "$port" 2>/dev/null || nc -z ::1 "$port" 2>/dev/null); then
       all_ok=false
       break
     fi
@@ -172,11 +135,10 @@ while [[ $elapsed -lt $MAX_WAIT ]]; do
   sleep 5
   elapsed=$((elapsed + 5))
 done
-if ! ( nc -z 127.0.0.1 5441 2>/dev/null && nc -z 127.0.0.1 5448 2>/dev/null ); then
+if ! (nc -z 127.0.0.1 5441 2>/dev/null && nc -z 127.0.0.1 5448 2>/dev/null); then
   warn "Not all Postgres ports became ready within ${MAX_WAIT}s. Run: docker compose up -d $POSTGRES_SERVICES"
 fi
 
-# Optional: enforce DB tuning/schemas (script may not exist)
 if [[ "$ENFORCE_DB_TUNING" == "1" ]]; then
   if [[ -x "$SCRIPT_DIR/enforce-external-db-schemas-and-tuning.sh" ]]; then
     step "Enforcing DB schemas and tuning (ENFORCE_DB_TUNING=1)"
@@ -188,14 +150,10 @@ fi
 
 step "Summary — container status"
 say "=== External infra status ==="
-docker compose ps zookeeper kafka redis minio $POSTGRES_SERVICES 2>/dev/null || true
-info "Next: ./scripts/ensure-external-databases-created.sh  then  ./scripts/setup-metallb-and-namespaces.sh  then deploy k8s (or run preflight)."
-say "✅ bring-up-external-infra finished (see steps above). Full order: docs/RUN_PIPELINE_ORDER.md"
+docker compose ps redis minio $POSTGRES_SERVICES 2>/dev/null || true
+info "Kafka: in-cluster KRaft only — ./scripts/create-kafka-event-topics-k8s.sh"
+say "✅ bring-up-external-infra finished. See docs/RUN_PIPELINE_ORDER.md"
 
-# ------------------------------------------------------------
-# Optional: auto-restore from backup directory (after infra healthy).
-# Must be after all if/fi blocks so bash structure stays valid.
-# ------------------------------------------------------------
 RESTORE_BACKUP_DIR="${RESTORE_BACKUP_DIR:-}"
 if [[ -n "$RESTORE_BACKUP_DIR" ]]; then
   echo
@@ -215,4 +173,3 @@ fi
 if [[ -z "${RESTORE_BACKUP_DIR:-}" ]]; then
   info "Heads-up: No DB restore was run. To restore all 8 DBs from backup, re-run with RESTORE_BACKUP_DIR=latest  or  RESTORE_BACKUP_DIR=backups/all-8-<timestamp>"
 fi
- 

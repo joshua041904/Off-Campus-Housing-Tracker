@@ -5,7 +5,7 @@ import os from 'os'
 import { pool } from './lib/db.js'
 import { makeRedis, cached, makePostKey, makePostsListKey, makeCommentsKey, makeMessagesKey, makeThreadKey } from './lib/cache.js'
 import { kafka } from '@common/utils/kafka'
-import { registerHealthService, createOchStrictMtlsServerCredentials } from '@common/utils'
+import { registerHealthService, createOchGrpcServerCredentialsForBind } from '@common/utils'
 import { resolveProtoPath } from '@common/utils/proto'
 import { buildMetadata, sendMessagingEvent } from './kafkaMessagingEvents.js'
 import { randomUUID } from 'node:crypto'
@@ -32,28 +32,16 @@ const redis = makeRedis()
 const CPU_CORES = os.cpus().length
 console.log(`[messaging-grpc] Using ${CPU_CORES} CPU cores for parallel processing`)
 
-// Kafka producer for real-time messaging (optional - fails gracefully if Kafka is unavailable)
 let kafkaProducer: any = null
-let kafkaConnectionFailed = false
 async function getKafkaProducer() {
-  if (kafkaConnectionFailed) {
-    return null
-  }
   if (!kafkaProducer) {
-    try {
-      kafkaProducer = kafka.producer()
-      await Promise.race([
-        kafkaProducer.connect(),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Kafka connection timeout')), 5000)
-        ),
-      ])
-    } catch (err) {
-      console.warn('[messaging] Kafka producer connection failed (non-fatal):', (err as Error)?.message || err)
-      kafkaConnectionFailed = true
-      kafkaProducer = null
-      return null
-    }
+    kafkaProducer = kafka.producer()
+    await Promise.race([
+      kafkaProducer.connect(),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Kafka connection timeout')), 5000),
+      ),
+    ])
   }
   return kafkaProducer
 }
@@ -355,33 +343,27 @@ const handlers = {
 
     const messageId = randomUUID()
     const createdAt = new Date().toISOString()
-    try {
-      const producer = await getKafkaProducer()
-      if (producer) {
-        await Promise.race([
-          sendMessagingEvent(producer, recipient_id, {
-            metadata: buildMetadata({
-              event_type: 'MessageSent',
-              aggregate_id: messageId,
-              aggregate_type: 'message',
-            }),
-            message_id: messageId,
-            sender_id,
-            recipient_id,
-            thread_id: parent_message_id ? 'thread-pending' : '',
-            message_type,
-            subject,
-            content,
-            created_at: createdAt,
-          }),
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Kafka send timeout')), 2000)
-          ),
-        ])
-      }
-    } catch (err) {
-      console.warn('[messaging] Kafka publish failed (non-fatal):', err)
-    }
+    const producer = await getKafkaProducer()
+    await Promise.race([
+      sendMessagingEvent(producer, recipient_id, {
+        metadata: buildMetadata({
+          event_type: 'MessageSent',
+          aggregate_id: messageId,
+          aggregate_type: 'message',
+        }),
+        message_id: messageId,
+        sender_id,
+        recipient_id,
+        thread_id: parent_message_id ? 'thread-pending' : '',
+        message_type,
+        subject,
+        content,
+        created_at: createdAt,
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Kafka send timeout')), 2000),
+      ),
+    ])
 
     callback(null, {
       message: {
@@ -411,28 +393,22 @@ const handlers = {
 
     const replyId = randomUUID()
     const replyCreated = new Date().toISOString()
-    try {
-      const producer = await getKafkaProducer()
-      if (producer) {
-        await sendMessagingEvent(producer, message_id, {
-          metadata: buildMetadata({
-            event_type: 'MessageReplied',
-            aggregate_id: replyId,
-            aggregate_type: 'message',
-            causation_id: message_id,
-          }),
-          message_id: replyId,
-          parent_message_id: message_id,
-          sender_id,
-          recipient_id: '',
-          thread_id: '',
-          content,
-          created_at: replyCreated,
-        })
-      }
-    } catch (err) {
-      console.warn('[messaging] Kafka publish failed (non-fatal):', err)
-    }
+    const producer = await getKafkaProducer()
+    await sendMessagingEvent(producer, message_id, {
+      metadata: buildMetadata({
+        event_type: 'MessageReplied',
+        aggregate_id: replyId,
+        aggregate_type: 'message',
+        causation_id: message_id,
+      }),
+      message_id: replyId,
+      parent_message_id: message_id,
+      sender_id,
+      recipient_id: '',
+      thread_id: '',
+      content,
+      created_at: replyCreated,
+    })
 
     callback(null, {
       message: {
@@ -454,24 +430,18 @@ const handlers = {
   async UpdateMessage(call: any, callback: any) {
     const { message_id, user_id, subject, content } = call.request
     const updatedAt = new Date().toISOString()
-    try {
-      const producer = await getKafkaProducer()
-      if (producer) {
-        await sendMessagingEvent(producer, message_id, {
-          metadata: buildMetadata({
-            event_type: 'MessageUpdated',
-            aggregate_id: message_id,
-            aggregate_type: 'message',
-          }),
-          message_id,
-          subject: subject || 'Updated',
-          content: content || 'Updated',
-          updated_at: updatedAt,
-        })
-      }
-    } catch (err) {
-      console.warn('[messaging] Kafka MessageUpdated failed (non-fatal):', err)
-    }
+    const producer = await getKafkaProducer()
+    await sendMessagingEvent(producer, message_id, {
+      metadata: buildMetadata({
+        event_type: 'MessageUpdated',
+        aggregate_id: message_id,
+        aggregate_type: 'message',
+      }),
+      message_id,
+      subject: subject || 'Updated',
+      content: content || 'Updated',
+      updated_at: updatedAt,
+    })
     callback(null, {
       message: {
         id: message_id,
@@ -486,22 +456,16 @@ const handlers = {
   async DeleteMessage(call: any, callback: any) {
     const { message_id } = call.request
     const deletedAt = new Date().toISOString()
-    try {
-      const producer = await getKafkaProducer()
-      if (producer) {
-        await sendMessagingEvent(producer, message_id, {
-          metadata: buildMetadata({
-            event_type: 'MessageDeleted',
-            aggregate_id: message_id,
-            aggregate_type: 'message',
-          }),
-          message_id,
-          deleted_at: deletedAt,
-        })
-      }
-    } catch (err) {
-      console.warn('[messaging] Kafka MessageDeleted failed (non-fatal):', err)
-    }
+    const producer = await getKafkaProducer()
+    await sendMessagingEvent(producer, message_id, {
+      metadata: buildMetadata({
+        event_type: 'MessageDeleted',
+        aggregate_id: message_id,
+        aggregate_type: 'message',
+      }),
+      message_id,
+      deleted_at: deletedAt,
+    })
     callback(null, { success: true })
   },
 
@@ -520,22 +484,18 @@ const handlers = {
   async MarkMessageRead(call: any, callback: any) {
     const { message_id, user_id } = call.request
     const readAt = new Date().toISOString()
-    try {
+    if (message_id && user_id) {
       const producer = await getKafkaProducer()
-      if (producer && message_id && user_id) {
-        await sendMessagingEvent(producer, message_id, {
-          metadata: buildMetadata({
-            event_type: 'MessageMarkedRead',
-            aggregate_id: message_id,
-            aggregate_type: 'message',
-          }),
-          message_id,
-          user_id,
-          read_at: readAt,
-        })
-      }
-    } catch (err) {
-      console.warn('[messaging] Kafka MessageMarkedRead failed (non-fatal):', err)
+      await sendMessagingEvent(producer, message_id, {
+        metadata: buildMetadata({
+          event_type: 'MessageMarkedRead',
+          aggregate_id: message_id,
+          aggregate_type: 'message',
+        }),
+        message_id,
+        user_id,
+        read_at: readAt,
+      })
     }
     callback(null, { success: true })
   },
@@ -589,8 +549,7 @@ export function startGrpcServer(port: number) {
 
   let credentials: grpc.ServerCredentials
   try {
-    credentials = createOchStrictMtlsServerCredentials('messaging gRPC')
-    console.log('[messaging gRPC] strict mTLS (client cert required)')
+    credentials = createOchGrpcServerCredentialsForBind('messaging gRPC')
   } catch (e) {
     console.error(e)
     process.exit(1)
@@ -601,7 +560,6 @@ export function startGrpcServer(port: number) {
       console.error('[messaging] gRPC server bind failed:', err)
       return
     }
-    server.start()
     console.log(`[messaging] gRPC server listening on port ${actualPort} (HTTP/2 only)`)
   })
 

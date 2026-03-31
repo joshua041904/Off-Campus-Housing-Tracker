@@ -1,0 +1,289 @@
+# 3× combined broker+controller (KRaft), TLS on INTERNAL / EXTERNAL / CONTROLLER.
+# Before apply: remove or scale to zero the legacy ZooKeeper-backed kafka Deployment in the same namespace
+# (both use app=kafka and would share the headless Service endpoints).
+#
+# KRaft metadata: CLUSTER_ID / KAFKA_CLUSTER_ID must stay stable for the life of the PVCs. If you change
+# listeners, voters, or cluster id, wipe data PVCs (data-kafka-*) or brokers will refuse to start with
+# cluster.id mismatch. The startup script fails fast when meta.properties cluster.id ≠ env.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka
+  namespace: off-campus-housing-tracker
+  labels: { app: kafka }
+spec:
+  serviceName: kafka
+  replicas: 3
+  # Parallel: all replicas must exist for KRaft controller.quorum.voters DNS (kafka-2) before any broker can boot.
+  # OrderedReady deadlocks: kafka-0 waits for kafka-2, but kafka-2 is not created until kafka-0 is Ready.
+  # Headless Service uses publishNotReadyAddresses so not-ready pods still get DNS entries.
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels: { app: kafka }
+  template:
+    metadata:
+      labels: { app: kafka }
+    spec:
+      serviceAccountName: kafka
+      initContainers:
+        # Peers must exist in headless Service DNS before KRaft connects to controller.quorum.voters.
+        # Parallel scheduling + slow PVC provisioning can otherwise start kafka-0 while kafka-1/2 have no IP yet.
+        - name: wait-quorum-dns
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          command:
+            - sh
+            - -c
+            - |
+              set -u
+              suffix=".kafka.${POD_NAMESPACE}.svc.cluster.local"
+              for o in 0 1 2; do
+                host="kafka-${o}${suffix}"
+                echo "waiting for DNS: ${host}"
+                n=0
+                ok=0
+                while [ "$n" -lt 600 ]; do
+                  # Ignore first "Address:" (CoreDNS server uses :53); pod A records are plain IPv4 lines.
+                  if nslookup "$host" 2>&1 | grep -qE '^Address: [0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+                    echo "ok ${host}"
+                    ok=1
+                    break
+                  fi
+                  n=$((n+1))
+                  sleep 2
+                done
+                if [ "$ok" != 1 ]; then
+                  echo "timeout waiting for ${host}"
+                  exit 1
+                fi
+              done
+        - name: fetch-external-lb-ip
+          image: docker.io/library/python:3.12-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          command:
+            - python3
+            - -c
+            - |
+              import json, os, ssl, time, urllib.error, urllib.request
+              ns = open("/var/run/secrets/kubernetes.io/serviceaccount/namespace").read().strip()
+              token = open("/var/run/secrets/kubernetes.io/serviceaccount/token").read().strip()
+              ca = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+              pod = os.environ["POD_NAME"]
+              ord_ = pod.removeprefix("kafka-")
+              ctx = ssl.create_default_context(cafile=ca)
+              for _ in range(180):
+                  url = f"https://kubernetes.default.svc.cluster.local/api/v1/namespaces/{ns}/services/kafka-{ord_}-external"
+                  req = urllib.request.Request(url, headers={"Authorization": "Bearer " + token})
+                  try:
+                      with urllib.request.urlopen(req, context=ctx, timeout=15) as resp:
+                          data = json.load(resp)
+                  except urllib.error.HTTPError:
+                      time.sleep(2)
+                      continue
+                  ing = ((data.get("status") or {}).get("loadBalancer") or {}).get("ingress") or []
+                  if ing and ing[0].get("ip"):
+                      ip = ing[0]["ip"]
+                      open("/shared/external-lb-ipv4", "w").write(ip)
+                      print(f"kafka-{ord_}-external LoadBalancer IP: {ip}", flush=True)
+                      raise SystemExit(0)
+                  time.sleep(2)
+              print("timeout waiting for MetalLB IP", flush=True)
+              raise SystemExit(1)
+          volumeMounts:
+            - { name: external-lb-ip, mountPath: /shared }
+      containers:
+        - name: kafka
+          image: confluentinc/cp-kafka:7.5.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -euo pipefail
+              . /etc/confluent/docker/bash-config
+              export KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM=""
+              export KAFKA_LISTENER_NAME_INTERNAL_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM=""
+              export KAFKA_LISTENER_NAME_EXTERNAL_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM=""
+              export KAFKA_LISTENER_NAME_CONTROLLER_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM=""
+              ORD="${HOSTNAME##*-}"
+              EXTERNAL_IP="$(tr -d '[:space:]' </shared-lb/external-lb-ipv4)"
+              [[ -n "$EXTERNAL_IP" ]] || { echo "FATAL: empty MetalLB IP in /shared-lb/external-lb-ipv4"; exit 1; }
+              export KAFKA_NODE_ID="$ORD"
+              # Per-broker FQDN for INTERNAL; MetalLB IP for EXTERNAL. CONTROLLER must not appear in advertised.listeners.
+              INTERNAL_ADVERT="${HOSTNAME}.kafka.${POD_NAMESPACE}.svc.cluster.local"
+              export KAFKA_ADVERTISED_LISTENERS="INTERNAL://${INTERNAL_ADVERT}:9093,EXTERNAL://${EXTERNAL_IP}:9094"
+              WANT_CLUSTER_ID="${KAFKA_CLUSTER_ID:-${CLUSTER_ID:-}}"
+              echo "===> Configuring Kafka (KRaft) node.id=${KAFKA_NODE_ID} cluster.id=${WANT_CLUSTER_ID} ..."
+              echo "===> KAFKA_ADVERTISED_LISTENERS=${KAFKA_ADVERTISED_LISTENERS}"
+              /etc/confluent/docker/configure
+              # Confluent configure can omit or overwrite advertised.listeners; force stable values for KRaft heartbeats.
+              KAFKA_PROP=/etc/kafka/kafka.properties
+              ADV_LINE="advertised.listeners=INTERNAL://${INTERNAL_ADVERT}:9093,EXTERNAL://${EXTERNAL_IP}:9094"
+              if grep -qE '^advertised\.listeners=' "$KAFKA_PROP" 2>/dev/null; then
+                sed -i "s|^advertised.listeners=.*|${ADV_LINE}|" "$KAFKA_PROP"
+              else
+                echo "$ADV_LINE" >> "$KAFKA_PROP"
+              fi
+              export KAFKA_ADVERTISED_LISTENERS="INTERNAL://${INTERNAL_ADVERT}:9093,EXTERNAL://${EXTERNAL_IP}:9094"
+              # Explicit empty = disable hostname verification (missing prop defaults to https and breaks controller quorum TLS).
+              for k in ssl.endpoint.identification.algorithm listener.name.internal.ssl.endpoint.identification.algorithm listener.name.external.ssl.endpoint.identification.algorithm listener.name.controller.ssl.endpoint.identification.algorithm; do
+                if grep -qE "^${k}=" "$KAFKA_PROP" 2>/dev/null; then
+                  sed -i "s|^${k}=.*|${k}=|" "$KAFKA_PROP"
+                else
+                  echo "${k}=" >> "$KAFKA_PROP"
+                fi
+              done
+              k=listener.name.controller.ssl.client.auth
+              if grep -qE "^${k}=" "$KAFKA_PROP" 2>/dev/null; then
+                sed -i "s|^${k}=.*|${k}=none|" "$KAFKA_PROP"
+              else
+                echo "${k}=none" >> "$KAFKA_PROP"
+              fi
+              META=/var/lib/kafka/data/meta.properties
+              if [[ -f "$META" ]]; then
+                EXISTING="$(grep -E '^cluster\.id=' "$META" | head -1 | cut -d= -f2- || true)"
+                EXISTING="$(echo -n "$EXISTING" | tr -d '\r')"
+                if [[ -n "$EXISTING" && -n "$WANT_CLUSTER_ID" && "$EXISTING" != "$WANT_CLUSTER_ID" ]]; then
+                  echo "FATAL: ${META} has cluster.id=${EXISTING} but env CLUSTER_ID/KAFKA_CLUSTER_ID=${WANT_CLUSTER_ID}."
+                  echo "       Delete PVCs data-kafka-0,data-kafka-1,data-kafka-2 or restore matching cluster id."
+                  exit 1
+                fi
+              fi
+              rm -f /var/lib/kafka/data/.kafka_cleanshutdown
+              echo "===> Running preflight (KRaft storage format if needed + checks) ..."
+              /etc/confluent/docker/ensure
+              echo "===> Launching Kafka ..."
+              exec /etc/confluent/docker/launch
+          ports:
+            - { name: internal, containerPort: 9093 }
+            - { name: external, containerPort: 9094 }
+            - { name: controller, containerPort: 9095 }
+          env:
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef: { fieldPath: metadata.name }
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef: { fieldPath: metadata.namespace }
+            # Colima / single-node dev: default Kafka heap + 3 replicas can OOM (exit 137); cap JVM heap explicitly.
+            - { name: KAFKA_HEAP_OPTS, value: "-Xms256m -Xmx384m" }
+            - { name: KAFKA_PROCESS_ROLES, value: "broker,controller" }
+            # Confluent dub.sh requires CLUSTER_ID for KRaft; Kafka also accepts KAFKA_CLUSTER_ID.
+            - { name: CLUSTER_ID, value: "KfF3uZ3kQsyKJvYU8vHvBA" }
+            - { name: KAFKA_CLUSTER_ID, value: "KfF3uZ3kQsyKJvYU8vHvBA" }
+            - name: KAFKA_LISTENERS
+              value: "INTERNAL://0.0.0.0:9093,EXTERNAL://0.0.0.0:9094,CONTROLLER://0.0.0.0:9095"
+            - name: KAFKA_CONTROLLER_QUORUM_VOTERS
+              value: "0@kafka-0.kafka.off-campus-housing-tracker.svc.cluster.local:9095,1@kafka-1.kafka.off-campus-housing-tracker.svc.cluster.local:9095,2@kafka-2.kafka.off-campus-housing-tracker.svc.cluster.local:9095"
+            - { name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP, value: "INTERNAL:SSL,EXTERNAL:SSL,CONTROLLER:SSL" }
+            - { name: KAFKA_INTER_BROKER_LISTENER_NAME, value: "INTERNAL" }
+            - { name: KAFKA_CONTROLLER_LISTENER_NAMES, value: "CONTROLLER" }
+            - { name: KAFKA_DEFAULT_REPLICATION_FACTOR, value: "3" }
+            - { name: KAFKA_MIN_INSYNC_REPLICAS, value: "2" }
+            - { name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR, value: "3" }
+            - { name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR, value: "3" }
+            - { name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR, value: "2" }
+            - { name: KAFKA_AUTO_CREATE_TOPICS_ENABLE, value: "false" }
+            # mTLS: required on INTERNAL + EXTERNAL; CONTROLLER stays none (listener.name.controller.ssl.client.auth + props patch).
+            - { name: KAFKA_SSL_CLIENT_AUTH, value: "required" }
+            - { name: KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM, value: "" }
+            # Global SSL (keystore/truststore paths + password files from secret volume)
+            - { name: KAFKA_SSL_KEYSTORE_FILENAME, value: "kafka.keystore.jks" }
+            - { name: KAFKA_SSL_KEYSTORE_LOCATION, value: "/etc/kafka/secrets/kafka.keystore.jks" }
+            - { name: KAFKA_SSL_KEYSTORE_CREDENTIALS, value: "/etc/kafka/secrets/kafka.keystore-password" }
+            - { name: KAFKA_SSL_KEY_CREDENTIALS, value: "/etc/kafka/secrets/kafka.key-password" }
+            - { name: KAFKA_SSL_TRUSTSTORE_FILENAME, value: "kafka.truststore.jks" }
+            - { name: KAFKA_SSL_TRUSTSTORE_LOCATION, value: "/etc/kafka/secrets/kafka.truststore.jks" }
+            - { name: KAFKA_SSL_TRUSTSTORE_CREDENTIALS, value: "/etc/kafka/secrets/kafka.truststore-password" }
+            # Per-listener SSL (Confluent requires explicit passwords for multi-listener SSL)
+            - { name: KAFKA_LISTENER_NAME_INTERNAL_SSL_CLIENT_AUTH, value: "required" }
+            - { name: KAFKA_LISTENER_NAME_INTERNAL_SSL_KEYSTORE_FILENAME, value: "kafka.keystore.jks" }
+            - { name: KAFKA_LISTENER_NAME_INTERNAL_SSL_KEYSTORE_LOCATION, value: "/etc/kafka/secrets/kafka.keystore.jks" }
+            - name: KAFKA_LISTENER_NAME_INTERNAL_SSL_KEYSTORE_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: kafka-ssl-secret, key: kafka.keystore-password }
+            - name: KAFKA_LISTENER_NAME_INTERNAL_SSL_KEY_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: kafka-ssl-secret, key: kafka.keystore-password }
+            - { name: KAFKA_LISTENER_NAME_INTERNAL_SSL_TRUSTSTORE_FILENAME, value: "kafka.truststore.jks" }
+            - { name: KAFKA_LISTENER_NAME_INTERNAL_SSL_TRUSTSTORE_LOCATION, value: "/etc/kafka/secrets/kafka.truststore.jks" }
+            - name: KAFKA_LISTENER_NAME_INTERNAL_SSL_TRUSTSTORE_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: kafka-ssl-secret, key: kafka.truststore-password }
+            - { name: KAFKA_LISTENER_NAME_INTERNAL_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM, value: "" }
+            - { name: KAFKA_LISTENER_NAME_EXTERNAL_SSL_CLIENT_AUTH, value: "required" }
+            - { name: KAFKA_LISTENER_NAME_EXTERNAL_SSL_KEYSTORE_FILENAME, value: "kafka.keystore.jks" }
+            - { name: KAFKA_LISTENER_NAME_EXTERNAL_SSL_KEYSTORE_LOCATION, value: "/etc/kafka/secrets/kafka.keystore.jks" }
+            - name: KAFKA_LISTENER_NAME_EXTERNAL_SSL_KEYSTORE_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: kafka-ssl-secret, key: kafka.keystore-password }
+            - name: KAFKA_LISTENER_NAME_EXTERNAL_SSL_KEY_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: kafka-ssl-secret, key: kafka.keystore-password }
+            - { name: KAFKA_LISTENER_NAME_EXTERNAL_SSL_TRUSTSTORE_FILENAME, value: "kafka.truststore.jks" }
+            - { name: KAFKA_LISTENER_NAME_EXTERNAL_SSL_TRUSTSTORE_LOCATION, value: "/etc/kafka/secrets/kafka.truststore.jks" }
+            - name: KAFKA_LISTENER_NAME_EXTERNAL_SSL_TRUSTSTORE_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: kafka-ssl-secret, key: kafka.truststore-password }
+            - { name: KAFKA_LISTENER_NAME_EXTERNAL_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM, value: "" }
+            - { name: KAFKA_LISTENER_NAME_CONTROLLER_SSL_CLIENT_AUTH, value: "none" }
+            - { name: KAFKA_LISTENER_NAME_CONTROLLER_SSL_KEYSTORE_FILENAME, value: "kafka.keystore.jks" }
+            - { name: KAFKA_LISTENER_NAME_CONTROLLER_SSL_KEYSTORE_LOCATION, value: "/etc/kafka/secrets/kafka.keystore.jks" }
+            - name: KAFKA_LISTENER_NAME_CONTROLLER_SSL_KEYSTORE_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: kafka-ssl-secret, key: kafka.keystore-password }
+            - name: KAFKA_LISTENER_NAME_CONTROLLER_SSL_KEY_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: kafka-ssl-secret, key: kafka.keystore-password }
+            - { name: KAFKA_LISTENER_NAME_CONTROLLER_SSL_TRUSTSTORE_FILENAME, value: "kafka.truststore.jks" }
+            - { name: KAFKA_LISTENER_NAME_CONTROLLER_SSL_TRUSTSTORE_LOCATION, value: "/etc/kafka/secrets/kafka.truststore.jks" }
+            - name: KAFKA_LISTENER_NAME_CONTROLLER_SSL_TRUSTSTORE_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: kafka-ssl-secret, key: kafka.truststore-password }
+            - { name: KAFKA_LISTENER_NAME_CONTROLLER_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM, value: "" }
+            # Optional rack awareness: patch in KAFKA_BROKER_RACK (e.g. from topology labels) when nodes are zoned.
+            # Advertised listeners: INTERNAL + EXTERNAL only (set in container command). CONTROLLER stays off advertised.*.
+          volumeMounts:
+            - { name: kafka-ssl-secret, mountPath: /etc/kafka/secrets, readOnly: true }
+            - { name: data, mountPath: /var/lib/kafka/data }
+            - { name: external-lb-ip, mountPath: /shared-lb, readOnly: true }
+          readinessProbe:
+            tcpSocket: { port: 9093 }
+            initialDelaySeconds: 90
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            tcpSocket: { port: 9093 }
+            initialDelaySeconds: 240
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 8
+          resources:
+            requests: { cpu: "500m", memory: "1Gi" }
+            limits: { cpu: "2", memory: "2Gi" }
+      volumes:
+        - name: external-lb-ip
+          emptyDir: {}
+        - name: kafka-ssl-secret
+          secret:
+            secretName: kafka-ssl-secret
+            optional: false
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
