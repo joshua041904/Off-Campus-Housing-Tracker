@@ -19,6 +19,8 @@ COLIMA_CPU="${COLIMA_CPU:-12}"
 COLIMA_MEMORY="${COLIMA_MEMORY:-16}"   # GiB (16 for stable control plane; was 12)
 COLIMA_DISK="${COLIMA_DISK:-256}"     # GiB
 COLIMA_NETWORK_ADDRESS="${COLIMA_NETWORK_ADDRESS:-1}"
+# Pin k3s to match docs/NEW_CLUSTER_SETUP.md (override with COLIMA_K3S_VERSION= or empty to omit flag).
+COLIMA_K3S_VERSION="${COLIMA_K3S_VERSION:-v1.29.6+k3s1}"
 
 say() { printf "\n\033[1m%s\033[0m\n" "$*"; }
 ok() { echo "✅ $*"; }
@@ -56,9 +58,16 @@ ok "Profile deleted in ${_delete_sec}s"
 # Step 3: Start (1–2 min for VM + k3s) with 12 CPU / 16GiB / 256GiB for stable control plane; --network-address for same setup as Runbook
 # ---------------------------------------------------------------------------
 say "Step 3/4: Starting Colima with Kubernetes (${COLIMA_CPU} CPU, ${COLIMA_MEMORY}GiB, ${COLIMA_DISK}GiB; typically 1–2 min)..."
+info "  k3s version: ${COLIMA_K3S_VERSION:-'(default profile — set COLIMA_K3S_VERSION to pin)'}"
 _args=(--with-kubernetes --vm-type vz --cpu "$COLIMA_CPU" --memory "$COLIMA_MEMORY" --disk "$COLIMA_DISK")
 [[ "$COLIMA_NETWORK_ADDRESS" == "1" ]] && _args+=(--network-address)
-colima start "${_args[@]}" 2>&1 || colima start --with-kubernetes --cpu "$COLIMA_CPU" --memory "$COLIMA_MEMORY" --disk "$COLIMA_DISK" 2>&1 || { echo "❌ colima start failed. Try: colima start --with-kubernetes --cpu $COLIMA_CPU --memory $COLIMA_MEMORY --disk $COLIMA_DISK"; exit 1; }
+[[ -n "${COLIMA_K3S_VERSION:-}" ]] && _args+=(--kubernetes-version "$COLIMA_K3S_VERSION")
+if ! colima start "${_args[@]}" 2>&1; then
+  _fallback=(--with-kubernetes --cpu "$COLIMA_CPU" --memory "$COLIMA_MEMORY" --disk "$COLIMA_DISK")
+  [[ "$COLIMA_NETWORK_ADDRESS" == "1" ]] && _fallback+=(--network-address)
+  [[ -n "${COLIMA_K3S_VERSION:-}" ]] && _fallback+=(--kubernetes-version "$COLIMA_K3S_VERSION")
+  colima start "${_fallback[@]}" 2>&1 || { echo "❌ colima start failed. Try: colima start --with-kubernetes --network-address --cpu $COLIMA_CPU --memory $COLIMA_MEMORY --disk $COLIMA_DISK"; exit 1; }
+fi
 ok "Colima started"
 
 # Let k3s boot undisturbed (reduces 51820 race). Set POST_START_SLEEP=0 to skip.

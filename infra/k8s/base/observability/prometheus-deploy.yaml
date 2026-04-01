@@ -10,6 +10,8 @@ data:
       evaluation_interval: 15s
     rule_files:
       - /etc/prometheus/rules/och-slo.yml
+      - /etc/prometheus/rules/kafka-health.yml
+      - /etc/prometheus/rules/auth-outbox.yml
     scrape_configs:
       - job_name: 'prometheus'
         static_configs:
@@ -124,6 +126,16 @@ spec:
                 items:
                   - key: och-slo.yml
                     path: rules/och-slo.yml
+            - configMap:
+                name: prometheus-rules-kafka-health
+                items:
+                  - key: kafka-health.yml
+                    path: rules/kafka-health.yml
+            - configMap:
+                name: prometheus-rules-auth-outbox
+                items:
+                  - key: auth-outbox.yml
+                    path: rules/auth-outbox.yml
 ---
 apiVersion: v1
 kind: Service

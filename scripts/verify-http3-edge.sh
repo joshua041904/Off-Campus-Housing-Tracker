@@ -28,9 +28,9 @@ DEPLOY="${DEPLOY:-caddy-h3}"
 SVC="${SVC:-caddy-h3}"
 TARGET="${TARGET:-https://off-campus-housing.test}"
 
-# Use Homebrew curl when available (supports --http3). Fallback: PATH curl.
+# Prefer Homebrew curl (HTTP/3). Check common symlink and opt paths; fallback: PATH curl.
 CURL_CMD=""
-for p in /opt/homebrew/bin/curl /usr/local/bin/curl; do
+for p in /opt/homebrew/opt/curl/bin/curl /opt/homebrew/bin/curl /usr/local/opt/curl/bin/curl /usr/local/bin/curl; do
   [[ -x "$p" ]] && { CURL_CMD="$p"; break; }
 done
 [[ -z "$CURL_CMD" ]] && CURL_CMD="curl"
@@ -105,6 +105,15 @@ if kubectl get svc "$SVC" -n "$NS" -o jsonpath='{.spec.type}' 2>/dev/null | grep
   fi
 fi
 
+# Pin TLS/QUIC to the live LoadBalancer IP when known (avoids stale resolver before ensure-edge-hosts runs).
+TARGET_HOST="${TARGET#https://}"
+TARGET_HOST="${TARGET_HOST#http://}"
+TARGET_HOST="${TARGET_HOST%%/*}"
+CURL_RESOLVE=()
+if [[ -n "${LB_IP:-}" ]] && [[ -n "$TARGET_HOST" ]]; then
+  CURL_RESOLVE=(--resolve "${TARGET_HOST}:443:${LB_IP}")
+fi
+
 # --- Step 3 & 6: alt-svc header (curl -I over TLS) ---
 # Try a reverse_proxy path first (root /) so Caddy's full pipeline runs and injects alt-svc.
 # Fallback: /_caddy/healthz (Caddyfile now adds alt-svc there too; plain respond short-circuits otherwise).
@@ -116,7 +125,7 @@ if command -v "$CURL_CMD" &>/dev/null; then
   fi
   _alt_svc_ok=""
   for _url in "$TARGET" "${TARGET}/_caddy/healthz"; do
-    HEADERS=$("$CURL_CMD" -sS -I -m 10 $CA_OPT "$_url" 2>/dev/null || true)
+    HEADERS=$("$CURL_CMD" -sS -I -m 10 "${CURL_RESOLVE[@]}" $CA_OPT "$_url" 2>/dev/null || true)
     if echo "$HEADERS" | grep -qi 'alt-svc:.*h3'; then
       _alt_svc_ok=1
       break
@@ -146,7 +155,7 @@ if command -v "$CURL_CMD" &>/dev/null; then
   if [[ -f "$REPO_ROOT/certs/dev-root.pem" ]]; then
     CA_OPT="--cacert $REPO_ROOT/certs/dev-root.pem"
   fi
-  OUT=$("$CURL_CMD" -sS -I -m 15 --http3 $CA_OPT "$TARGET" 2>&1 || true)
+  OUT=$("$CURL_CMD" -sS -I -m 15 "${CURL_RESOLVE[@]}" --http3 $CA_OPT "$TARGET" 2>&1 || true)
   if echo "$OUT" | grep -q 'HTTP/3 200'; then
     ok "HTTP/3 200 from $TARGET (using $CURL_CMD)"
     echo "$OUT" | head -5 | sed 's/^/     /'

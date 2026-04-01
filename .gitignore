@@ -1,6 +1,8 @@
 # Dependencies
 node_modules/
 .pnpm-store/
+# Local venv for scripts/generate-kafka-alignment-report.py (matplotlib; PEP 668–safe)
+.venv-kafka-alignment-report/
 
 # webapp/ is part of the repo — do not add rules that ignore webapp/ or its contents
 # (e.g. avoid ignoring webapp/ or **/webapp). Use webapp/.gitkeep so the folder is tracked.
@@ -45,6 +47,14 @@ coverage/
 
 # Local dev only (copy from docs/PR_REVIEW_GRPC_HANDLER_PASTE.example.txt if you want this path)
 docs/PR_REVIEW_GRPC_HANDLER_PASTE.txt
+
+# Cursor / local commit hygiene — not part of product CI (strip “Made-with: Cursor” from rebase message files)
+scripts/strip-cursor-footer.sh
+
+# Entire docs/ tree — ignore *untracked* files and folders here so local copies / exports are not committed by mistake.
+# Already-tracked files under docs/ stay tracked until removed: git rm -r --cached docs/
+# Remove the line below if your workflow adds new markdown under docs/ and you want it versioned without git add -f.
+docs/
 
 # Preflight / control-plane telemetry dumps (repo root; dev noise)
 telemetry-during-*.log

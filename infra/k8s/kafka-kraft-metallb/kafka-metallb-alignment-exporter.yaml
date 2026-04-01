@@ -1,0 +1,97 @@
+# Optional: scrapes LB vs broker advertised EXTERNAL for Prometheus (housing-pods job).
+# Requires prometheus_client + kubernetes (installed via initContainer).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kafka-metallb-alignment-exporter
+  namespace: off-campus-housing-tracker
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kafka-metallb-alignment-exporter
+  namespace: off-campus-housing-tracker
+rules:
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kafka-metallb-alignment-exporter
+  namespace: off-campus-housing-tracker
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kafka-metallb-alignment-exporter
+subjects:
+  - kind: ServiceAccount
+    name: kafka-metallb-alignment-exporter
+    namespace: off-campus-housing-tracker
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-metallb-alignment-exporter
+  namespace: off-campus-housing-tracker
+  labels: { app: kafka-metallb-alignment-exporter }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: kafka-metallb-alignment-exporter }
+  template:
+    metadata:
+      labels: { app: kafka-metallb-alignment-exporter }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9108"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: kafka-metallb-alignment-exporter
+      initContainers:
+        - name: pip
+          image: python:3.12-slim-bookworm
+          imagePullPolicy: IfNotPresent
+          command:
+            - pip
+            - install
+            - -q
+            - -t
+            - /deps
+            - kubernetes
+            - prometheus-client
+          volumeMounts:
+            - { name: pydeps, mountPath: /deps }
+      containers:
+        - name: exporter
+          image: python:3.12-slim-bookworm
+          imagePullPolicy: IfNotPresent
+          env:
+            - { name: HOUSING_NS, value: off-campus-housing-tracker }
+            - { name: KAFKA_BROKER_REPLICAS, value: "3" }
+            - { name: METRICS_PORT, value: "9108" }
+            - { name: PYTHONPATH, value: /deps }
+            - { name: PYTHONUNBUFFERED, value: "1" }
+          ports:
+            - { name: metrics, containerPort: 9108 }
+          command: [python3, /scripts/exporter.py]
+          volumeMounts:
+            - { name: pydeps, mountPath: /deps }
+            - { name: script, mountPath: /scripts, readOnly: true }
+          resources:
+            requests: { cpu: "50m", memory: "128Mi" }
+            limits: { cpu: "250m", memory: "256Mi" }
+      volumes:
+        - name: pydeps
+          emptyDir: {}
+        - name: script
+          configMap:
+            name: kafka-metallb-alignment-exporter-script
+            defaultMode: 0o444

@@ -1,0 +1,38 @@
+{
+  "title": "Off-Campus Housing - domain model (cross-service, logical)",
+  "description": "Curated semantic relationships. Physical FKs stop at service boundaries; links here are IDs + events (Kafka) + gRPC.",
+  "entities": [
+    { "id": "User", "note": "auth DB; referenced by UUID everywhere" },
+    { "id": "Listing", "note": "listings DB" },
+    { "id": "Booking", "note": "bookings DB; tenant/landlord = User ids" },
+    { "id": "Conversation", "note": "messaging DB" },
+    { "id": "Message", "note": "messaging DB (HTTP path may use messages.*)" },
+    { "id": "Review", "note": "trust / reputation aggregates" },
+    { "id": "AbuseReport", "note": "trust DB" },
+    { "id": "Notification", "note": "notification DB / prefs" },
+    { "id": "AnalyticsProjection", "note": "analytics DB (events, daily_metrics)" },
+    { "id": "Trust", "note": "trust service / reputation (Kafka-driven updates)" },
+    { "id": "Analytics", "note": "analytics ingestion (Kafka consumers)" },
+    { "id": "Media", "note": "media DB" }
+  ],
+  "relationships": [
+    { "from": "User", "to": "Listing", "label": "creates (user_id)" },
+    { "from": "Listing", "to": "Booking", "label": "booked as (listing_id)" },
+    { "from": "User", "to": "Booking", "label": "tenant (tenant_id)" },
+    { "from": "User", "to": "Booking", "label": "landlord (landlord_id)" },
+    { "from": "Booking", "to": "Review", "label": "may yield reputation change" },
+    { "from": "Listing", "to": "AbuseReport", "label": "flag target" },
+    { "from": "User", "to": "AbuseReport", "label": "reporter" },
+    { "from": "Booking", "to": "Notification", "label": "events → notify" },
+    { "from": "Listing", "to": "AnalyticsProjection", "label": "listing events" },
+    { "from": "Listing", "to": "Conversation", "label": "optional listing_id scope" },
+    { "from": "Conversation", "to": "Message", "label": "contains" },
+    { "from": "User", "to": "Message", "label": "sender" },
+    { "from": "Listing", "to": "Media", "label": "attachments metadata" }
+  ],
+  "async_links": [
+    { "from": "Listing", "to": "Trust", "label": "Kafka: flagged / moderation", "style": "dashed" },
+    { "from": "Message", "to": "Analytics", "label": "Kafka: message.sent", "style": "dashed" },
+    { "from": "Booking", "to": "Notification", "label": "Kafka: outbox", "style": "dashed" }
+  ]
+}

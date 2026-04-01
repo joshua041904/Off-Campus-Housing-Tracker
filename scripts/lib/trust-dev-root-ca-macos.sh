@@ -21,6 +21,11 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   exit 0
 fi
 
+if [[ "${TRUST_DEV_ROOT_CA_SKIP:-0}" == "1" ]]; then
+  info "TRUST_DEV_ROOT_CA_SKIP=1 — skipping macOS keychain trust (non-interactive / automation). Host curl/k6 may need --cacert or manual trust."
+  exit 0
+fi
+
 if [[ ! -f "$CA_FILE" ]] || [[ ! -s "$CA_FILE" ]]; then
   warn "CA file missing or empty: $CA_FILE — cannot add to keychain. Run rotation or preflight so certs/dev-root.pem exists."
   exit 1

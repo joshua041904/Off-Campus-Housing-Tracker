@@ -1,0 +1,118 @@
+# Kafka alignment: static validation on every PR; optional live suite when a cluster has Kafka (workflow_dispatch + k3s).
+name: Kafka alignment
+
+on:
+  pull_request:
+    paths:
+      - "scripts/tests/kafka-alignment-suite.sh"
+      - "scripts/kafka-runtime-sync.sh"
+      - "scripts/kafka-sync-metallb.sh"
+      - "scripts/check-kafka-config-drift.sh"
+      - "scripts/verify-kafka-tls-sans.sh"
+      - "scripts/generate-kafka-alignment-report.py"
+      - "scripts/requirements-kafka-alignment-report.txt"
+      - "infra/docker/kafka-alignment-cron/**"
+      - "infra/k8s/kafka-ops/**"
+      - "Makefile"
+      - ".github/workflows/kafka-alignment.yml"
+  push:
+    branches: [main, master, develop]
+    paths:
+      - "scripts/tests/kafka-alignment-suite.sh"
+      - "scripts/kafka-runtime-sync.sh"
+      - "scripts/kafka-sync-metallb.sh"
+      - "scripts/check-kafka-config-drift.sh"
+      - "scripts/verify-kafka-tls-sans.sh"
+      - "scripts/generate-kafka-alignment-report.py"
+      - "scripts/requirements-kafka-alignment-report.txt"
+      - "infra/docker/kafka-alignment-cron/**"
+      - "infra/k8s/kafka-ops/**"
+      - "Makefile"
+      - ".github/workflows/kafka-alignment.yml"
+  workflow_dispatch:
+    inputs:
+      run_live_suite:
+        description: "Install k3s and run make kafka-alignment-suite if statefulset/kafka exists"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Shellcheck alignment scripts
+        run: |
+          set -euo pipefail
+          shellcheck -S error scripts/tests/kafka-alignment-suite.sh
+          shellcheck -S error scripts/kafka-runtime-sync.sh
+          shellcheck -S error scripts/check-kafka-config-drift.sh
+
+      - name: Bash syntax + Python
+        run: |
+          set -euo pipefail
+          bash -n scripts/tests/kafka-alignment-suite.sh
+          bash -n scripts/kafka-runtime-sync.sh
+          bash -n scripts/kafka-sync-metallb.sh
+          python3 -m py_compile scripts/generate-kafka-alignment-report.py
+
+      - name: Makefile targets
+        run: |
+          set -euo pipefail
+          grep -q '^kafka-alignment-suite:' Makefile
+          grep -q '^kafka-health:' Makefile
+
+  live:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_live_suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: [static]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: "v1.29.0"
+
+      - name: Install k3s
+        run: |
+          set -euo pipefail
+          curl -sfL https://get.k3s.io | sudo sh -s - --write-kubeconfig-mode 644
+          mkdir -p "$HOME/.kube"
+          sudo cp /etc/rancher/k3s/k3s.yaml "$HOME/.kube/config"
+          sudo chown "$(id -u):$(id -g)" "$HOME/.kube/config"
+          kubectl get nodes -o wide
+
+      - name: MetalLB smoke (same as ephemeral-cluster)
+        env:
+          CI_MODE: "1"
+        run: bash scripts/ci/ephemeral-k3s-converge.sh
+
+      - name: Kafka alignment suite (fails if Kafka is deployed and misaligned)
+        run: |
+          set -euo pipefail
+          if kubectl get statefulset kafka -n off-campus-housing-tracker --request-timeout=15s >/dev/null 2>&1; then
+            make kafka-alignment-suite
+          else
+            echo "No statefulset/kafka in off-campus-housing-tracker — live suite skipped (deploy Kafka on this cluster to exercise)."
+          fi
+
+      - name: Upload alignment artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kafka-alignment-report
+          path: |
+            bench_logs/kafka-alignment-suite-*.log
+            bench_logs/kafka-alignment-report/*
+          if-no-files-found: ignore

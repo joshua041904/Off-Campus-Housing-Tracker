@@ -1,0 +1,33 @@
+# PR static gate (addresses Copilot-class CI failures):
+# 1) Kustomize — kubectl kustomize base/dev + kafka bundle; proto files on disk; client dry-run apply.
+# 2) Diagrams — PlantUML no longer fails on empty uml/c4 (scripts/plantuml/render-all.sh); placeholder optional.
+# 3) validate-onboard — same kustomize/proto checks as (1); no cascade from diagram-only issues.
+#
+# Live cluster: run workflow "Post-deploy verify" (self-hosted or kubeconfig secret) → make post-deploy-verify.
+name: Dev onboard lite
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/**'
+      - 'infra/k8s/**'
+      - 'Makefile'
+      - 'diagrams/uml/**'
+      - 'diagrams/c4/**'
+
+jobs:
+  validate-onboard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify bash (Make uses SHELL for recipes)
+        run: bash --version
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'v1.29.0'
+
+      - name: Run dev-onboard-lite
+        run: make dev-onboard-lite

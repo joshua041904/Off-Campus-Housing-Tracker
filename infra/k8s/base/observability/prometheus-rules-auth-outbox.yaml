@@ -1,0 +1,24 @@
+# Auth transactional outbox — requires Prometheus to scrape auth-service /metrics (auth_outbox_unpublished_count).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules-auth-outbox
+  namespace: observability
+  labels:
+    app: prometheus
+    och.dev/role: auth-rules
+data:
+  auth-outbox.yml: |
+    groups:
+    - name: auth-outbox
+      interval: 30s
+      rules:
+      - alert: AuthOutboxUnpublishedBacklog
+        expr: auth_outbox_unpublished_count > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Auth outbox has unpublished lifecycle events
+          description: >
+            auth.auth_outbox rows await Kafka publish for 5m — check broker, TLS, and AUTH_OUTBOX_PUBLISHER.

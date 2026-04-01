@@ -1,0 +1,16 @@
+# Kafka KRaft / controller election alerts — add rules here once metrics exist.
+# Suggested sources: broker JMX (kafka.controller.*), Strimzi PodMonitor, or log-scraping sidecar
+# incrementing kafka_controller_election_total on "became leader" / QuorumController lines.
+#
+# Example (disabled):
+# groups:
+#   - name: och-kafka-election
+#     rules:
+#       - alert: KafkaElectionSpike
+#         expr: increase(kafka_controller_election_total[5m]) > 2
+#         for: 2m
+#         labels:
+#           severity: critical
+#         annotations:
+#           summary: "Kafka controller election spike"
+groups: []

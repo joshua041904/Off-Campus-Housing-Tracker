@@ -1,0 +1,78 @@
+{
+  "title": "Cross-service data flow (curated: HTTP/gRPC + Kafka)",
+  "description": "Not inferred from SQL. Kafka brokers are a nested cluster; edge targets kb0 for layout (logical cluster). Optional KAFKA_BROKER_STATUS_JSON merges health → hexagon colors.",
+  "kafka_cluster": {
+    "brokers": [
+      { "id": "kb0", "label": "broker-0" },
+      { "id": "kb1", "label": "broker-1" },
+      { "id": "kb2", "label": "broker-2" }
+    ]
+  },
+  "clusters": [
+    {
+      "id": "edge",
+      "label": "Edge",
+      "nodes": ["gateway", "caddy"]
+    },
+    {
+      "id": "svc",
+      "label": "Application services",
+      "nodes": [
+        "auth",
+        "listings",
+        "bookings",
+        "messaging",
+        "notification",
+        "trust",
+        "analytics",
+        "media",
+        "event_layer"
+      ]
+    },
+    {
+      "id": "data",
+      "label": "Data plane",
+      "nodes": ["postgres_fleet"]
+    }
+  ],
+  "labels": {
+    "gateway": "API Gateway",
+    "caddy": "Caddy (TLS / HTTP3)",
+    "auth": "Auth",
+    "listings": "Listings",
+    "bookings": "Bookings",
+    "messaging": "Messaging",
+    "notification": "Notification",
+    "trust": "Trust",
+    "analytics": "Analytics",
+    "media": "Media",
+    "event_layer": "Event layer",
+    "postgres_fleet": "Postgres (per-service DBs)",
+    "kb0": "broker-0",
+    "kb1": "broker-1",
+    "kb2": "broker-2"
+  },
+  "edges": [
+    { "from": "caddy", "to": "gateway", "label": "TLS terminate" },
+    { "from": "gateway", "to": "auth", "label": "HTTP/gRPC" },
+    { "from": "gateway", "to": "listings", "label": "HTTP/gRPC" },
+    { "from": "gateway", "to": "bookings", "label": "HTTP/gRPC" },
+    { "from": "gateway", "to": "messaging", "label": "HTTP/gRPC" },
+    { "from": "gateway", "to": "media", "label": "HTTP/gRPC" },
+    { "from": "listings", "to": "postgres_fleet", "label": "SQL" },
+    { "from": "bookings", "to": "postgres_fleet", "label": "SQL" },
+    { "from": "messaging", "to": "postgres_fleet", "label": "SQL" },
+    { "from": "auth", "to": "postgres_fleet", "label": "SQL" },
+    { "from": "notification", "to": "postgres_fleet", "label": "SQL" },
+    { "from": "trust", "to": "postgres_fleet", "label": "SQL" },
+    { "from": "analytics", "to": "postgres_fleet", "label": "SQL" },
+    { "from": "media", "to": "postgres_fleet", "label": "SQL" },
+    { "from": "event_layer", "to": "kb0", "label": "produce", "style": "dashed" },
+    { "from": "listings", "to": "kb0", "label": "domain events", "style": "dashed" },
+    { "from": "bookings", "to": "kb0", "label": "domain events", "style": "dashed" },
+    { "from": "messaging", "to": "kb0", "label": "domain events", "style": "dashed" },
+    { "from": "kb0", "to": "analytics", "label": "consume", "style": "dashed" },
+    { "from": "kb0", "to": "notification", "label": "consume", "style": "dashed" },
+    { "from": "kb0", "to": "trust", "label": "consume", "style": "dashed" }
+  ]
+}

@@ -14,9 +14,10 @@
  */
 import express from 'express'
 import os from 'os'
-import { createHttpConcurrencyGuard } from '@common/utils'
+import { createHttpConcurrencyGuard, userLifecycleV1Topic } from '@common/utils'
 import { ensureKafkaBrokerReady } from '@common/utils/kafka'
 import { MESSAGING_EVENTS_TOPIC } from './kafkaMessagingEvents.js'
+import { startMessagingUserLifecycleConsumer } from './user-lifecycle-consumer.js'
 import { startGrpcServer } from './grpc-server.js'
 import { makeRedis } from './lib/cache.js'
 import { requireUser } from './lib/auth.js'
@@ -51,11 +52,18 @@ app.use('/forum', requireUser, forumRouter(redis, cpuCores))
 app.use('/messages', requireUser, messagesRouter(redis, cpuCores))
 
 async function main() {
-  await ensureKafkaBrokerReady('messaging-service', { requiredTopics: [MESSAGING_EVENTS_TOPIC] })
+  await ensureKafkaBrokerReady('messaging-service', {
+    requiredTopics: [MESSAGING_EVENTS_TOPIC, userLifecycleV1Topic()],
+  })
   app.listen(httpPort, '0.0.0.0', () => {
     console.log(`[messaging] HTTP server listening on port ${httpPort}`)
   })
   startGrpcServer(grpcPort)
+  setImmediate(() => {
+    void startMessagingUserLifecycleConsumer().catch((e) =>
+      console.error('[messaging-service] user lifecycle consumer:', e),
+    )
+  })
 }
 
 void main().catch((e) => {

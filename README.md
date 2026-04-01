@@ -1,107 +1,128 @@
 # Off-Campus-Housing-Tracker
 
-## Overview
-
-**Off-Campus-Housing-Tracker** is a **Kubernetes-native**, event-driven platform for off-campus housing: listings, bookings, messaging, trust, and analytics. Local development targets **Colima + k3s**; the same patterns apply in-cluster with **Caddy**, **Envoy**, **ingress-nginx**, and **strict TLS** (including **Kafka mTLS** on the KRaft path).
-
-Principles: event-driven architecture, domain-isolated data, horizontal scalability, no cross-domain database access, CI-first workflows. The layout is meant to be traceable end-to-end (edge TLS / HTTP/3 → gateway → gRPC and REST → Kafka and per-service databases → observability).
+**TL;DR:** README is the fast path. Everything long-form lives under **`docs/`**.
 
 ---
 
-## Features
-
-- **Listing search and discovery** — filters (price, distance, tags), geolocation, availability  
-- **Booking lifecycle** — reservations, landlord approval, cancellation; payment hooks later  
-- **Messaging** — conversations, messages, read receipts, attachments  
-- **Notifications** — booking confirmations, reminders, price drops, reviews (Kafka-driven)  
-- **Trust and safety** — reviews, ratings, abuse reports, moderation, listing flags  
-- **Analytics** — event aggregation and insights off the request path  
-
----
-
-## Documentation map
-
-| What you need | Where |
-|---------------|--------|
-| **Domain model, decomposed architecture, service ownership, ports, runbook-style steps** | [**docs/DESIGN.md**](docs/DESIGN.md) |
-| **Engineering decisions, security, IaC, deep architecture** | [**ENGINEERING.md**](ENGINEERING.md) |
-| **gRPC handlers** | [**docs/GRPC_ONBOARDING.md**](docs/GRPC_ONBOARDING.md) |
-| **Colima / MetalLB / `make demo`** | [**docs/MAKE_DEMO.md**](docs/MAKE_DEMO.md) |
-| **TLS, certs, local testing** | [**docs/LOCAL_TLS_AND_TESTING_GUIDE.md**](docs/LOCAL_TLS_AND_TESTING_GUIDE.md) |
-| **CA rotation** | [**docs/CA_ROTATION_AND_CLIENT_TRUST.md**](docs/CA_ROTATION_AND_CLIENT_TRUST.md) |
-| **Full pipeline order** | [**docs/RUN_PIPELINE_ORDER.md**](docs/RUN_PIPELINE_ORDER.md) |
-| **PR / review paste template (example)** | [`docs/PR_REVIEW_GRPC_HANDLER_PASTE.example.txt`](docs/PR_REVIEW_GRPC_HANDLER_PASTE.example.txt) |
-
----
-
-## Build and run (Makefile)
-
-Orchestration is in the [**Makefile**](Makefile). Default target: **`make menu`** (same as **`make`**).
-
-### Prerequisites
-
-- **Colima** (or another **k3s** / **kubectl** setup) and a Docker-compatible runtime  
-- **Node** and **pnpm** (see root `package.json` → `packageManager`)  
-- **kubectl** pointed at the cluster — on Colima after the cluster exists:  
-  `export KUBECONFIG="$HOME/.colima/default/kubeconfig"`  
-  (hint: **`make kubeconfig-colima`**)
-
-### First-time bootstrap
-
-1. Clone the repository and `cd` into it.  
-2. Run **`make up`**.  
-   Runs **`deps`** (`pnpm install`, Playwright Chromium), **`cluster`** (Colima + k3s + MetalLB pool from `METALLB_POOL`, default `192.168.64.240-192.168.64.250`), **`tls-first-time`** (CA/leaf, strict TLS bootstrap, Kafka JKS — broker certs merge **MetalLB** IPs for `kafka-*-external` when the API server is reachable), **`infra-host`** / **`infra-cluster`**, **`metallb-fix`**, **`hosts-sanity`**, **`preflight-gate`**, and related steps.  
-   It does **not** run the long **`scripts/run-preflight-scale-and-all-suites.sh`** matrix by default.  
-3. When the recipe finishes, use **`make strict-canonical`** or **`make test`** as prompted.
-
-### Faster repeat runs
-
-- **`make up-fast`** — same as **`make up`** but skips **`deps`** when dependencies are already installed.
-
-### Discover commands
-
-- **`make help`** — targets with `##` descriptions  
-- **`make menu`** — short curated menu  
-
-### Edge hostname and DNS
-
-**Playwright**, **k6** edge scripts, and **`make verify-curl-http3`** expect **`https://off-campus-housing.test`**. Add the MetalLB (or edge) IP to **`/etc/hosts`**, or use **`OCH_EDGE_IP`** / **`OCH_AUTO_EDGE_HOSTS`** (see **`scripts/lib/edge-test-url.sh`**).  
-**`kubectl port-forward` to api-gateway** is for debugging only — not for integrated E2E or **`scripts/run-housing-k6-edge-smoke.sh`**.
-
-### Sanity checks (cluster up)
-
-| Goal | Command |
-|------|---------|
-| Kafka KRaft + TLS + advertised listeners + quorum | **`make verify-kafka-cluster`** |
-| Ingress **`/api`** + **`/auth`** → gateway, DNS→LB, curl health | **`make verify-preflight-edge-routing`** |
-| Housing Kafka bootstrap seeds | **`make verify-kafka-bootstrap`** |
-| k6 / edge debugging | **`make diagnose-k6-edge`** |
-
-### Full preflight + test matrix
+## Quick start (do this first)
 
 ```bash
-pnpm preflight-and-suites
-# or
-bash scripts/run-preflight-scale-and-all-suites.sh
+# 1. Build images once (dev-onboard does not build them for you)
+make images
+
+# 2. Full local stack (~20–28 min first time; see docs/DEV_ONBOARDING.md)
+RESTORE_BACKUP_DIR=latest make dev-onboard
 ```
 
-See the script header for **`PREFLIGHT_*`**, **`RUN_SUITES`**, **`PREFLIGHT_APP_SCOPE`**, etc.
+**Prereqs:** Colima (or k3s) + Docker, **pnpm** (see root `packageManager`), **kubectl** pointed at the cluster (`export KUBECONFIG="$HOME/.colima/default/kubeconfig"` or `make kubeconfig-colima`).
+
+After workloads apply, sanity-check: `kubectl get pods -n off-campus-housing-tracker`. **`ImagePullBackOff`** / **`ErrImageNeverPull`** means build or load images (`make images` or per-service rebuild below).
+
+**Daily development** (fast loop — you do **not** re-run full onboard for every change):
+
+```bash
+pnpm run rebuild:service:<name>    # see table below
+kubectl rollout restart deployment/<deployment> -n off-campus-housing-tracker
+```
+
+The **`pnpm`** shortcuts rebuild the image and roll the Deployment. If you only changed code already in the image, a **`rollout restart`** alone is enough.
+
+| `pnpm` shortcut | Kubernetes deployment |
+|-----------------|-------------------------|
+| `pnpm run rebuild:service:analytics` | `analytics-service` |
+| `pnpm run rebuild:service:auth` | `auth-service` |
+| `pnpm run rebuild:service:booking` | `booking-service` |
+| `pnpm run rebuild:service:cron` | `cron-jobs` (if that Deployment exists in your cluster) |
+| `pnpm run rebuild:service:listings` | `listings-service` |
+| `pnpm run rebuild:service:media` | `media-service` |
+| `pnpm run rebuild:service:messaging` | `messaging-service` |
+| `pnpm run rebuild:service:notification` | `notification-service` |
+| `pnpm run rebuild:service:search` | `listings-service` (search workloads) |
+| `pnpm run rebuild:service:trust` | `trust-service` |
+| `pnpm run rebuild:service:watchdog` | `transport-watchdog` (sidecar / gateway pairing; see script header) |
+| `pnpm run rebuild:gateway:rollout` | `api-gateway` |
+
+**Event-layer verification** is test-only (`pnpm run test:event-layer` / Vitest); there is no service image. **Anything else** with a **`services/<name>/Dockerfile`:** `SERVICES=<name>` **`bash scripts/rebuild-och-images-and-rollout.sh`** (comma- or space-separated list supported).
+
+**Webapp + multiple services:** `./scripts/rebuild-housing-colima.sh` or `pnpm run rebuild:housing:colima` (see **docs/LOCAL_DEV.md** if needed).
 
 ---
 
-## Rebuilding images after code changes (Colima)
+## What this system is
 
-| You changed | Run |
-|-------------|-----|
-| **Webapp** (+ optional **listings-service**) | `./scripts/rebuild-housing-colima.sh` or **`pnpm run rebuild:housing:colima`** |
-| **One backend** | **`pnpm run rebuild:service:<name>`** or `SERVICES=<name> ./scripts/rebuild-och-images-and-rollout.sh` |
-| **Several backends** | `SERVICES="svc-a svc-b" ./scripts/rebuild-och-images-and-rollout.sh` |
-| **Webapp + backends** | `SERVICES="listings-service auth-service" ./scripts/rebuild-housing-colima.sh` |
+Kubernetes-native, **event-driven** platform for off-campus housing: **listings, booking, messaging, notifications, trust, analytics, and media**, fronted by **api-gateway** and the **webapp** (nginx), with **domain-isolated Postgres** per service (no shared app DB across domains).
 
-Webapp needs **`NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`** from **`webapp/.env.local`** at build time (**`webapp/env.local.template`**). More detail: **`docs/WEBAPP_GOOGLE_MAPS_AND_DEPLOY.txt`**, **`GITHUB_ISSUES_EXECUTABLE.txt`**, **`GITHUB_PR_DESCRIPTION.txt`**.
+- **Edge:** Caddy (HTTP/3), Envoy (gRPC), ingress-nginx — **strict TLS**, local hostname **`https://off-campus-housing.test`** (MetalLB + `/etc/hosts`; see **`make ensure-edge-hosts`**).
+- **Messaging:** **Kafka** — 3-broker **KRaft**, TLS/mTLS on the main dev path.
+- **Data plane (local typical):** Postgres per service, Redis, MinIO; automation via **Makefile** + **`scripts/`**.
+
+Protocol-aware traffic (**HTTP/1.1, HTTP/2, HTTP/3**) is a first-class testing concern (k6, Playwright, strict-canonical flows).
 
 ---
 
-## Contributing / technical depth
+## Dev workflow
 
-For **why** the stack is shaped this way (Caddy vs Envoy, Kustomize, observability, performance), read [**ENGINEERING.md**](ENGINEERING.md). For **what each service owns** and **architecture diagrams** (broken into layers), read [**docs/DESIGN.md**](docs/DESIGN.md).
+| When | What |
+|------|------|
+| First machine / cold cluster | `make images` then `RESTORE_BACKUP_DIR=latest make dev-onboard` |
+| Stuck or flaky onboard | **docs/DEV_ONBOARDING_FAILURE_MODES.md** |
+| Day to day | `pnpm run rebuild:service:…` and/or `kubectl rollout restart …` |
+
+---
+
+## Validation
+
+```bash
+make strict-canonical
+make test
+```
+
+**`make test`** runs the workspace test set (gateway, services, cron-jobs, event-layer verification, etc.). For browser E2E and heavier gates, see **`package.json`** scripts (`test:webapp:e2e`, `preflight-and-suites`, …).
+
+**Architecture docs (C4, UML, ER, diagrams):** `make generate-architecture` **clears then refills** **`diagrams/data-modeling/png/`** (Graphviz + PlantUML; class diagrams document **proto/RPC** surfaces). Narrative in **`docs/architecture/architecture.md`** and **`docs/architecture-book/`**. For rubric **§2.1** (one zip-ready folder: PNG + XMI + class XML + write-up): `make bundle-2.1-submission` → **`docs/architecture-submission/2.1-architecture-diagram/`** (includes **`domain.png`** and **all `physical-*.png`** when Postgres is up during generation).
+
+---
+
+## What makes this repo different (high level)
+
+- Deterministic **make dev-onboard** path (KRaft, TLS guards, edge checks — details in **docs/DEV_ONBOARDING.md**).
+- **Kafka quorum + TLS** as part of the default local story, not an afterthought.
+- **Protocol and performance** tooling (k6, CSV/report flows, CI guards) wired through the Makefile and docs.
+
+---
+
+## Documentation
+
+| Topic | Location |
+|-------|----------|
+| Architecture & service ownership | [docs/DESIGN.md](docs/DESIGN.md) |
+| Engineering deep dive | [ENGINEERING.md](ENGINEERING.md) |
+| Full local onboarding | [docs/DEV_ONBOARDING.md](docs/DEV_ONBOARDING.md) |
+| Onboard failure modes | [docs/DEV_ONBOARDING_FAILURE_MODES.md](docs/DEV_ONBOARDING_FAILURE_MODES.md) |
+| DB layout, ER diagrams, EXPLAIN samples | [docs/DB_SCHEMA_ER_AND_QUERY_PLANS.md](docs/DB_SCHEMA_ER_AND_QUERY_PLANS.md) |
+| TLS & local testing | [docs/LOCAL_TLS_AND_TESTING_GUIDE.md](docs/LOCAL_TLS_AND_TESTING_GUIDE.md) |
+| Pipeline order | [docs/RUN_PIPELINE_ORDER.md](docs/RUN_PIPELINE_ORDER.md) |
+| Makefile / demo flows | [docs/MAKE_DEMO.md](docs/MAKE_DEMO.md) |
+| gRPC handlers | [docs/GRPC_ONBOARDING.md](docs/GRPC_ONBOARDING.md) |
+| CA rotation | [docs/CA_ROTATION_AND_CLIENT_TRUST.md](docs/CA_ROTATION_AND_CLIENT_TRUST.md) |
+
+**More:** browse **`docs/`** — design notes, runbooks, perf write-ups.
+
+---
+
+## Useful Makefile targets
+
+| Command | Purpose |
+|---------|---------|
+| `make help` | All targets with `##` descriptions |
+| `make menu` | Short curated menu |
+| `make verify` | Kafka cluster + edge routing checks |
+| `make diagnose` | Narrower diagnostics |
+
+Full preflight / suite driver (optional, heavy): **`pnpm preflight-and-suites`** or **`bash scripts/run-preflight-scale-and-all-suites.sh`**.
+
+---
+
+## Philosophy
+
+Pay the complexity **once** during onboarding so day-to-day service work stays a tight **rebuild + rollout** loop. **README = entry point; `docs/` = depth.**

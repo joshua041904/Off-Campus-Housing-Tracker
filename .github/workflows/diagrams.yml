@@ -1,0 +1,50 @@
+# Optional: regenerate curated diagrams when tooling or JSON inputs change.
+# No Postgres — physical per-DB diagrams are local-only via make generate-diagrams.
+name: Diagrams
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "scripts/diagram/**"
+      - "scripts/diagram/data/**"
+      - "diagrams/theme.frag"
+      - "diagrams/uml/**"
+      - "diagrams/c4/**"
+      - "Makefile"
+
+jobs:
+  diagrams:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Graphviz, jq, PlantUML
+        run: sudo apt-get update && sudo apt-get install -y graphviz jq plantuml
+
+      - name: Generate curated diagrams (SVG + PNG bundle)
+        env:
+          KAFKA_BROKER_STATUS_JSON: ${{ github.workspace }}/scripts/diagram/data/kafka-broker-status.example.json
+        run: |
+          chmod +x scripts/diagram/*.sh
+          mkdir -p diagrams/domain diagrams/flow diagrams/poster diagrams/data-modeling/png
+          ./scripts/diagram/build-unified-logical-er-dot.sh ./scripts/diagram/data/unified-logical-er.json diagrams/domain/unified-logical-er.dot
+          DOT_DPI=160 ./scripts/diagram/render.sh diagrams/domain/unified-logical-er.dot diagrams/domain/unified-logical-er.svg diagrams/data-modeling/png/unified-logical-er.png
+          ./scripts/diagram/build-domain-dot.sh ./scripts/diagram/data/domain-model.json diagrams/domain/domain.dot
+          ./scripts/diagram/render.sh diagrams/domain/domain.dot diagrams/domain/domain.svg diagrams/data-modeling/png/domain.png
+          ./scripts/diagram/build-data-flow-dot.sh ./scripts/diagram/data/data-flow-model.json diagrams/flow/data-flow.dot
+          ./scripts/diagram/render.sh diagrams/flow/data-flow.dot diagrams/flow/data-flow.svg diagrams/data-modeling/png/data-flow.png
+          ./scripts/diagram/build-poster-dot.sh diagrams/poster/system-architecture.dot
+          DOT_DPI=300 ./scripts/diagram/render.sh diagrams/poster/system-architecture.dot diagrams/poster/system-architecture.svg diagrams/data-modeling/png/system-architecture-poster.png
+          chmod +x scripts/plantuml/render-all.sh
+          bash scripts/plantuml/render-all.sh
+
+      - name: Upload diagrams
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagrams-curated
+          path: |
+            diagrams/domain/*.svg
+            diagrams/flow/*.svg
+            diagrams/poster/*.svg
+            diagrams/data-modeling/png/*.png

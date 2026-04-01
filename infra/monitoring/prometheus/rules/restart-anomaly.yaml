@@ -1,0 +1,35 @@
+# PrometheusRule: pod restart anomaly detection
+# Requires kube-state-metrics (or compatible) exposing kube_pod_container_status_restarts_total.
+# Apply with your Prometheus Operator or mount into Prometheus rules_path.
+#
+# Example (kube-prometheus): add to prometheusRules additionalScrapeConfigs / additionalPrometheusRulesMap.
+---
+groups:
+  - name: och-restart-anomaly
+    rules:
+      - alert: PodRestartBurst
+        expr: increase(kube_pod_container_status_restarts_total[5m]) > 3
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Pod restart burst"
+          description: "Container {{ $labels.container }} in {{ $labels.namespace }}/{{ $labels.pod }} restarted >3 times in 5m."
+
+      - alert: PodRestartDrift
+        expr: increase(kube_pod_container_status_restarts_total[1h]) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pod restart drift"
+          description: "Container {{ $labels.container }} in {{ $labels.namespace }}/{{ $labels.pod }} restarted >5 times in 1h."
+
+      - alert: NamespaceRestartSpike
+        expr: sum by (namespace) (increase(kube_pod_container_status_restarts_total[10m])) > 10
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Namespace restart spike"
+          description: "Namespace {{ $labels.namespace }}: sum of container restarts >10 in 10m."

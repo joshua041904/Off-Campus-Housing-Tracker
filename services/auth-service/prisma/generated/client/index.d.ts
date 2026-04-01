@@ -43,6 +43,11 @@ export type Passkey = $Result.DefaultSelection<Prisma.$PasskeyPayload>
  * 
  */
 export type PasskeyChallenge = $Result.DefaultSelection<Prisma.$PasskeyChallengePayload>
+/**
+ * Model AuthOutbox
+ * Transactional outbox: INSERT with domain write; background worker publishes to Kafka.
+ */
+export type AuthOutbox = $Result.DefaultSelection<Prisma.$AuthOutboxPayload>
 
 /**
  * ##  Prisma Client ʲˢ
@@ -221,6 +226,16 @@ export class PrismaClient<
     * ```
     */
   get passkeyChallenge(): Prisma.PasskeyChallengeDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.authOutbox`: Exposes CRUD operations for the **AuthOutbox** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more AuthOutboxes
+    * const authOutboxes = await prisma.authOutbox.findMany()
+    * ```
+    */
+  get authOutbox(): Prisma.AuthOutboxDelegate<ExtArgs, ClientOptions>;
 }
 
 export namespace Prisma {
@@ -666,7 +681,8 @@ export namespace Prisma {
     MfaSettings: 'MfaSettings',
     VerificationCode: 'VerificationCode',
     Passkey: 'Passkey',
-    PasskeyChallenge: 'PasskeyChallenge'
+    PasskeyChallenge: 'PasskeyChallenge',
+    AuthOutbox: 'AuthOutbox'
   };
 
   export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -685,7 +701,7 @@ export namespace Prisma {
       omit: GlobalOmitOptions
     }
     meta: {
-      modelProps: "user" | "oAuthProvider" | "mfaSettings" | "verificationCode" | "passkey" | "passkeyChallenge"
+      modelProps: "user" | "oAuthProvider" | "mfaSettings" | "verificationCode" | "passkey" | "passkeyChallenge" | "authOutbox"
       txIsolationLevel: Prisma.TransactionIsolationLevel
     }
     model: {
@@ -1133,6 +1149,80 @@ export namespace Prisma {
           }
         }
       }
+      AuthOutbox: {
+        payload: Prisma.$AuthOutboxPayload<ExtArgs>
+        fields: Prisma.AuthOutboxFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.AuthOutboxFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AuthOutboxPayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.AuthOutboxFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AuthOutboxPayload>
+          }
+          findFirst: {
+            args: Prisma.AuthOutboxFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AuthOutboxPayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.AuthOutboxFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AuthOutboxPayload>
+          }
+          findMany: {
+            args: Prisma.AuthOutboxFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AuthOutboxPayload>[]
+          }
+          create: {
+            args: Prisma.AuthOutboxCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AuthOutboxPayload>
+          }
+          createMany: {
+            args: Prisma.AuthOutboxCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.AuthOutboxCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AuthOutboxPayload>[]
+          }
+          delete: {
+            args: Prisma.AuthOutboxDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AuthOutboxPayload>
+          }
+          update: {
+            args: Prisma.AuthOutboxUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AuthOutboxPayload>
+          }
+          deleteMany: {
+            args: Prisma.AuthOutboxDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.AuthOutboxUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.AuthOutboxUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AuthOutboxPayload>[]
+          }
+          upsert: {
+            args: Prisma.AuthOutboxUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AuthOutboxPayload>
+          }
+          aggregate: {
+            args: Prisma.AuthOutboxAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateAuthOutbox>
+          }
+          groupBy: {
+            args: Prisma.AuthOutboxGroupByArgs<ExtArgs>
+            result: $Utils.Optional<AuthOutboxGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.AuthOutboxCountArgs<ExtArgs>
+            result: $Utils.Optional<AuthOutboxCountAggregateOutputType> | number
+          }
+        }
+      }
     }
   } & {
     other: {
@@ -1235,6 +1325,7 @@ export namespace Prisma {
     verificationCode?: VerificationCodeOmit
     passkey?: PasskeyOmit
     passkeyChallenge?: PasskeyChallengeOmit
+    authOutbox?: AuthOutboxOmit
   }
 
   /* Types for Logging */
@@ -1381,6 +1472,10 @@ export namespace Prisma {
     emailVerified: boolean | null
     phoneVerified: boolean | null
     mfaEnabled: boolean | null
+    isDeleted: boolean | null
+    deletedAt: Date | null
+    deletionState: string | null
+    displayUsername: string | null
     createdAt: Date | null
     updatedAt: Date | null
   }
@@ -1393,6 +1488,10 @@ export namespace Prisma {
     emailVerified: boolean | null
     phoneVerified: boolean | null
     mfaEnabled: boolean | null
+    isDeleted: boolean | null
+    deletedAt: Date | null
+    deletionState: string | null
+    displayUsername: string | null
     createdAt: Date | null
     updatedAt: Date | null
   }
@@ -1406,6 +1505,10 @@ export namespace Prisma {
     phoneVerified: number
     mfaEnabled: number
     settings: number
+    isDeleted: number
+    deletedAt: number
+    deletionState: number
+    displayUsername: number
     createdAt: number
     updatedAt: number
     _all: number
@@ -1420,6 +1523,10 @@ export namespace Prisma {
     emailVerified?: true
     phoneVerified?: true
     mfaEnabled?: true
+    isDeleted?: true
+    deletedAt?: true
+    deletionState?: true
+    displayUsername?: true
     createdAt?: true
     updatedAt?: true
   }
@@ -1432,6 +1539,10 @@ export namespace Prisma {
     emailVerified?: true
     phoneVerified?: true
     mfaEnabled?: true
+    isDeleted?: true
+    deletedAt?: true
+    deletionState?: true
+    displayUsername?: true
     createdAt?: true
     updatedAt?: true
   }
@@ -1445,6 +1556,10 @@ export namespace Prisma {
     phoneVerified?: true
     mfaEnabled?: true
     settings?: true
+    isDeleted?: true
+    deletedAt?: true
+    deletionState?: true
+    displayUsername?: true
     createdAt?: true
     updatedAt?: true
     _all?: true
@@ -1524,13 +1639,17 @@ export namespace Prisma {
 
   export type UserGroupByOutputType = {
     id: string
-    email: string
+    email: string | null
     passwordHash: string | null
     phone: string | null
     emailVerified: boolean
     phoneVerified: boolean
     mfaEnabled: boolean
     settings: JsonValue | null
+    isDeleted: boolean
+    deletedAt: Date | null
+    deletionState: string
+    displayUsername: string | null
     createdAt: Date
     updatedAt: Date
     _count: UserCountAggregateOutputType | null
@@ -1561,6 +1680,10 @@ export namespace Prisma {
     phoneVerified?: boolean
     mfaEnabled?: boolean
     settings?: boolean
+    isDeleted?: boolean
+    deletedAt?: boolean
+    deletionState?: boolean
+    displayUsername?: boolean
     createdAt?: boolean
     updatedAt?: boolean
     oauthProviders?: boolean | User$oauthProvidersArgs<ExtArgs>
@@ -1579,6 +1702,10 @@ export namespace Prisma {
     phoneVerified?: boolean
     mfaEnabled?: boolean
     settings?: boolean
+    isDeleted?: boolean
+    deletedAt?: boolean
+    deletionState?: boolean
+    displayUsername?: boolean
     createdAt?: boolean
     updatedAt?: boolean
   }, ExtArgs["result"]["user"]>
@@ -1592,6 +1719,10 @@ export namespace Prisma {
     phoneVerified?: boolean
     mfaEnabled?: boolean
     settings?: boolean
+    isDeleted?: boolean
+    deletedAt?: boolean
+    deletionState?: boolean
+    displayUsername?: boolean
     createdAt?: boolean
     updatedAt?: boolean
   }, ExtArgs["result"]["user"]>
@@ -1605,11 +1736,15 @@ export namespace Prisma {
     phoneVerified?: boolean
     mfaEnabled?: boolean
     settings?: boolean
+    isDeleted?: boolean
+    deletedAt?: boolean
+    deletionState?: boolean
+    displayUsername?: boolean
     createdAt?: boolean
     updatedAt?: boolean
   }
 
-  export type UserOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "email" | "passwordHash" | "phone" | "emailVerified" | "phoneVerified" | "mfaEnabled" | "settings" | "createdAt" | "updatedAt", ExtArgs["result"]["user"]>
+  export type UserOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "email" | "passwordHash" | "phone" | "emailVerified" | "phoneVerified" | "mfaEnabled" | "settings" | "isDeleted" | "deletedAt" | "deletionState" | "displayUsername" | "createdAt" | "updatedAt", ExtArgs["result"]["user"]>
   export type UserInclude<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     oauthProviders?: boolean | User$oauthProvidersArgs<ExtArgs>
     mfaSettings?: boolean | User$mfaSettingsArgs<ExtArgs>
@@ -1630,13 +1765,17 @@ export namespace Prisma {
     }
     scalars: $Extensions.GetPayloadResult<{
       id: string
-      email: string
+      email: string | null
       passwordHash: string | null
       phone: string | null
       emailVerified: boolean
       phoneVerified: boolean
       mfaEnabled: boolean
       settings: Prisma.JsonValue | null
+      isDeleted: boolean
+      deletedAt: Date | null
+      deletionState: string
+      displayUsername: string | null
       createdAt: Date
       updatedAt: Date
     }, ExtArgs["result"]["user"]>
@@ -2074,6 +2213,10 @@ export namespace Prisma {
     readonly phoneVerified: FieldRef<"User", 'Boolean'>
     readonly mfaEnabled: FieldRef<"User", 'Boolean'>
     readonly settings: FieldRef<"User", 'Json'>
+    readonly isDeleted: FieldRef<"User", 'Boolean'>
+    readonly deletedAt: FieldRef<"User", 'DateTime'>
+    readonly deletionState: FieldRef<"User", 'String'>
+    readonly displayUsername: FieldRef<"User", 'String'>
     readonly createdAt: FieldRef<"User", 'DateTime'>
     readonly updatedAt: FieldRef<"User", 'DateTime'>
   }
@@ -8015,6 +8158,1087 @@ export namespace Prisma {
 
 
   /**
+   * Model AuthOutbox
+   */
+
+  export type AggregateAuthOutbox = {
+    _count: AuthOutboxCountAggregateOutputType | null
+    _avg: AuthOutboxAvgAggregateOutputType | null
+    _sum: AuthOutboxSumAggregateOutputType | null
+    _min: AuthOutboxMinAggregateOutputType | null
+    _max: AuthOutboxMaxAggregateOutputType | null
+  }
+
+  export type AuthOutboxAvgAggregateOutputType = {
+    retryCount: number | null
+  }
+
+  export type AuthOutboxSumAggregateOutputType = {
+    retryCount: number | null
+  }
+
+  export type AuthOutboxMinAggregateOutputType = {
+    id: string | null
+    aggregateType: string | null
+    aggregateId: string | null
+    eventType: string | null
+    topic: string | null
+    payload: Uint8Array | null
+    createdAt: Date | null
+    publishedAt: Date | null
+    retryCount: number | null
+  }
+
+  export type AuthOutboxMaxAggregateOutputType = {
+    id: string | null
+    aggregateType: string | null
+    aggregateId: string | null
+    eventType: string | null
+    topic: string | null
+    payload: Uint8Array | null
+    createdAt: Date | null
+    publishedAt: Date | null
+    retryCount: number | null
+  }
+
+  export type AuthOutboxCountAggregateOutputType = {
+    id: number
+    aggregateType: number
+    aggregateId: number
+    eventType: number
+    topic: number
+    payload: number
+    createdAt: number
+    publishedAt: number
+    retryCount: number
+    _all: number
+  }
+
+
+  export type AuthOutboxAvgAggregateInputType = {
+    retryCount?: true
+  }
+
+  export type AuthOutboxSumAggregateInputType = {
+    retryCount?: true
+  }
+
+  export type AuthOutboxMinAggregateInputType = {
+    id?: true
+    aggregateType?: true
+    aggregateId?: true
+    eventType?: true
+    topic?: true
+    payload?: true
+    createdAt?: true
+    publishedAt?: true
+    retryCount?: true
+  }
+
+  export type AuthOutboxMaxAggregateInputType = {
+    id?: true
+    aggregateType?: true
+    aggregateId?: true
+    eventType?: true
+    topic?: true
+    payload?: true
+    createdAt?: true
+    publishedAt?: true
+    retryCount?: true
+  }
+
+  export type AuthOutboxCountAggregateInputType = {
+    id?: true
+    aggregateType?: true
+    aggregateId?: true
+    eventType?: true
+    topic?: true
+    payload?: true
+    createdAt?: true
+    publishedAt?: true
+    retryCount?: true
+    _all?: true
+  }
+
+  export type AuthOutboxAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which AuthOutbox to aggregate.
+     */
+    where?: AuthOutboxWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AuthOutboxes to fetch.
+     */
+    orderBy?: AuthOutboxOrderByWithRelationInput | AuthOutboxOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: AuthOutboxWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AuthOutboxes from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AuthOutboxes.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned AuthOutboxes
+    **/
+    _count?: true | AuthOutboxCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to average
+    **/
+    _avg?: AuthOutboxAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: AuthOutboxSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: AuthOutboxMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: AuthOutboxMaxAggregateInputType
+  }
+
+  export type GetAuthOutboxAggregateType<T extends AuthOutboxAggregateArgs> = {
+        [P in keyof T & keyof AggregateAuthOutbox]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateAuthOutbox[P]>
+      : GetScalarType<T[P], AggregateAuthOutbox[P]>
+  }
+
+
+
+
+  export type AuthOutboxGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: AuthOutboxWhereInput
+    orderBy?: AuthOutboxOrderByWithAggregationInput | AuthOutboxOrderByWithAggregationInput[]
+    by: AuthOutboxScalarFieldEnum[] | AuthOutboxScalarFieldEnum
+    having?: AuthOutboxScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: AuthOutboxCountAggregateInputType | true
+    _avg?: AuthOutboxAvgAggregateInputType
+    _sum?: AuthOutboxSumAggregateInputType
+    _min?: AuthOutboxMinAggregateInputType
+    _max?: AuthOutboxMaxAggregateInputType
+  }
+
+  export type AuthOutboxGroupByOutputType = {
+    id: string
+    aggregateType: string
+    aggregateId: string
+    eventType: string
+    topic: string
+    payload: Uint8Array
+    createdAt: Date
+    publishedAt: Date | null
+    retryCount: number
+    _count: AuthOutboxCountAggregateOutputType | null
+    _avg: AuthOutboxAvgAggregateOutputType | null
+    _sum: AuthOutboxSumAggregateOutputType | null
+    _min: AuthOutboxMinAggregateOutputType | null
+    _max: AuthOutboxMaxAggregateOutputType | null
+  }
+
+  type GetAuthOutboxGroupByPayload<T extends AuthOutboxGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<AuthOutboxGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof AuthOutboxGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], AuthOutboxGroupByOutputType[P]>
+            : GetScalarType<T[P], AuthOutboxGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type AuthOutboxSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    aggregateType?: boolean
+    aggregateId?: boolean
+    eventType?: boolean
+    topic?: boolean
+    payload?: boolean
+    createdAt?: boolean
+    publishedAt?: boolean
+    retryCount?: boolean
+  }, ExtArgs["result"]["authOutbox"]>
+
+  export type AuthOutboxSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    aggregateType?: boolean
+    aggregateId?: boolean
+    eventType?: boolean
+    topic?: boolean
+    payload?: boolean
+    createdAt?: boolean
+    publishedAt?: boolean
+    retryCount?: boolean
+  }, ExtArgs["result"]["authOutbox"]>
+
+  export type AuthOutboxSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    aggregateType?: boolean
+    aggregateId?: boolean
+    eventType?: boolean
+    topic?: boolean
+    payload?: boolean
+    createdAt?: boolean
+    publishedAt?: boolean
+    retryCount?: boolean
+  }, ExtArgs["result"]["authOutbox"]>
+
+  export type AuthOutboxSelectScalar = {
+    id?: boolean
+    aggregateType?: boolean
+    aggregateId?: boolean
+    eventType?: boolean
+    topic?: boolean
+    payload?: boolean
+    createdAt?: boolean
+    publishedAt?: boolean
+    retryCount?: boolean
+  }
+
+  export type AuthOutboxOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "aggregateType" | "aggregateId" | "eventType" | "topic" | "payload" | "createdAt" | "publishedAt" | "retryCount", ExtArgs["result"]["authOutbox"]>
+
+  export type $AuthOutboxPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "AuthOutbox"
+    objects: {}
+    scalars: $Extensions.GetPayloadResult<{
+      id: string
+      aggregateType: string
+      aggregateId: string
+      eventType: string
+      topic: string
+      payload: Uint8Array
+      createdAt: Date
+      publishedAt: Date | null
+      retryCount: number
+    }, ExtArgs["result"]["authOutbox"]>
+    composites: {}
+  }
+
+  type AuthOutboxGetPayload<S extends boolean | null | undefined | AuthOutboxDefaultArgs> = $Result.GetResult<Prisma.$AuthOutboxPayload, S>
+
+  type AuthOutboxCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<AuthOutboxFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: AuthOutboxCountAggregateInputType | true
+    }
+
+  export interface AuthOutboxDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['AuthOutbox'], meta: { name: 'AuthOutbox' } }
+    /**
+     * Find zero or one AuthOutbox that matches the filter.
+     * @param {AuthOutboxFindUniqueArgs} args - Arguments to find a AuthOutbox
+     * @example
+     * // Get one AuthOutbox
+     * const authOutbox = await prisma.authOutbox.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends AuthOutboxFindUniqueArgs>(args: SelectSubset<T, AuthOutboxFindUniqueArgs<ExtArgs>>): Prisma__AuthOutboxClient<$Result.GetResult<Prisma.$AuthOutboxPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one AuthOutbox that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {AuthOutboxFindUniqueOrThrowArgs} args - Arguments to find a AuthOutbox
+     * @example
+     * // Get one AuthOutbox
+     * const authOutbox = await prisma.authOutbox.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends AuthOutboxFindUniqueOrThrowArgs>(args: SelectSubset<T, AuthOutboxFindUniqueOrThrowArgs<ExtArgs>>): Prisma__AuthOutboxClient<$Result.GetResult<Prisma.$AuthOutboxPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first AuthOutbox that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AuthOutboxFindFirstArgs} args - Arguments to find a AuthOutbox
+     * @example
+     * // Get one AuthOutbox
+     * const authOutbox = await prisma.authOutbox.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends AuthOutboxFindFirstArgs>(args?: SelectSubset<T, AuthOutboxFindFirstArgs<ExtArgs>>): Prisma__AuthOutboxClient<$Result.GetResult<Prisma.$AuthOutboxPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first AuthOutbox that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AuthOutboxFindFirstOrThrowArgs} args - Arguments to find a AuthOutbox
+     * @example
+     * // Get one AuthOutbox
+     * const authOutbox = await prisma.authOutbox.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends AuthOutboxFindFirstOrThrowArgs>(args?: SelectSubset<T, AuthOutboxFindFirstOrThrowArgs<ExtArgs>>): Prisma__AuthOutboxClient<$Result.GetResult<Prisma.$AuthOutboxPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more AuthOutboxes that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AuthOutboxFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all AuthOutboxes
+     * const authOutboxes = await prisma.authOutbox.findMany()
+     * 
+     * // Get first 10 AuthOutboxes
+     * const authOutboxes = await prisma.authOutbox.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const authOutboxWithIdOnly = await prisma.authOutbox.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends AuthOutboxFindManyArgs>(args?: SelectSubset<T, AuthOutboxFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AuthOutboxPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a AuthOutbox.
+     * @param {AuthOutboxCreateArgs} args - Arguments to create a AuthOutbox.
+     * @example
+     * // Create one AuthOutbox
+     * const AuthOutbox = await prisma.authOutbox.create({
+     *   data: {
+     *     // ... data to create a AuthOutbox
+     *   }
+     * })
+     * 
+     */
+    create<T extends AuthOutboxCreateArgs>(args: SelectSubset<T, AuthOutboxCreateArgs<ExtArgs>>): Prisma__AuthOutboxClient<$Result.GetResult<Prisma.$AuthOutboxPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many AuthOutboxes.
+     * @param {AuthOutboxCreateManyArgs} args - Arguments to create many AuthOutboxes.
+     * @example
+     * // Create many AuthOutboxes
+     * const authOutbox = await prisma.authOutbox.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends AuthOutboxCreateManyArgs>(args?: SelectSubset<T, AuthOutboxCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many AuthOutboxes and returns the data saved in the database.
+     * @param {AuthOutboxCreateManyAndReturnArgs} args - Arguments to create many AuthOutboxes.
+     * @example
+     * // Create many AuthOutboxes
+     * const authOutbox = await prisma.authOutbox.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many AuthOutboxes and only return the `id`
+     * const authOutboxWithIdOnly = await prisma.authOutbox.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends AuthOutboxCreateManyAndReturnArgs>(args?: SelectSubset<T, AuthOutboxCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AuthOutboxPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a AuthOutbox.
+     * @param {AuthOutboxDeleteArgs} args - Arguments to delete one AuthOutbox.
+     * @example
+     * // Delete one AuthOutbox
+     * const AuthOutbox = await prisma.authOutbox.delete({
+     *   where: {
+     *     // ... filter to delete one AuthOutbox
+     *   }
+     * })
+     * 
+     */
+    delete<T extends AuthOutboxDeleteArgs>(args: SelectSubset<T, AuthOutboxDeleteArgs<ExtArgs>>): Prisma__AuthOutboxClient<$Result.GetResult<Prisma.$AuthOutboxPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one AuthOutbox.
+     * @param {AuthOutboxUpdateArgs} args - Arguments to update one AuthOutbox.
+     * @example
+     * // Update one AuthOutbox
+     * const authOutbox = await prisma.authOutbox.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends AuthOutboxUpdateArgs>(args: SelectSubset<T, AuthOutboxUpdateArgs<ExtArgs>>): Prisma__AuthOutboxClient<$Result.GetResult<Prisma.$AuthOutboxPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more AuthOutboxes.
+     * @param {AuthOutboxDeleteManyArgs} args - Arguments to filter AuthOutboxes to delete.
+     * @example
+     * // Delete a few AuthOutboxes
+     * const { count } = await prisma.authOutbox.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends AuthOutboxDeleteManyArgs>(args?: SelectSubset<T, AuthOutboxDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more AuthOutboxes.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AuthOutboxUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many AuthOutboxes
+     * const authOutbox = await prisma.authOutbox.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends AuthOutboxUpdateManyArgs>(args: SelectSubset<T, AuthOutboxUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more AuthOutboxes and returns the data updated in the database.
+     * @param {AuthOutboxUpdateManyAndReturnArgs} args - Arguments to update many AuthOutboxes.
+     * @example
+     * // Update many AuthOutboxes
+     * const authOutbox = await prisma.authOutbox.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more AuthOutboxes and only return the `id`
+     * const authOutboxWithIdOnly = await prisma.authOutbox.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends AuthOutboxUpdateManyAndReturnArgs>(args: SelectSubset<T, AuthOutboxUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AuthOutboxPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one AuthOutbox.
+     * @param {AuthOutboxUpsertArgs} args - Arguments to update or create a AuthOutbox.
+     * @example
+     * // Update or create a AuthOutbox
+     * const authOutbox = await prisma.authOutbox.upsert({
+     *   create: {
+     *     // ... data to create a AuthOutbox
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the AuthOutbox we want to update
+     *   }
+     * })
+     */
+    upsert<T extends AuthOutboxUpsertArgs>(args: SelectSubset<T, AuthOutboxUpsertArgs<ExtArgs>>): Prisma__AuthOutboxClient<$Result.GetResult<Prisma.$AuthOutboxPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of AuthOutboxes.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AuthOutboxCountArgs} args - Arguments to filter AuthOutboxes to count.
+     * @example
+     * // Count the number of AuthOutboxes
+     * const count = await prisma.authOutbox.count({
+     *   where: {
+     *     // ... the filter for the AuthOutboxes we want to count
+     *   }
+     * })
+    **/
+    count<T extends AuthOutboxCountArgs>(
+      args?: Subset<T, AuthOutboxCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], AuthOutboxCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a AuthOutbox.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AuthOutboxAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends AuthOutboxAggregateArgs>(args: Subset<T, AuthOutboxAggregateArgs>): Prisma.PrismaPromise<GetAuthOutboxAggregateType<T>>
+
+    /**
+     * Group by AuthOutbox.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AuthOutboxGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends AuthOutboxGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: AuthOutboxGroupByArgs['orderBy'] }
+        : { orderBy?: AuthOutboxGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, AuthOutboxGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetAuthOutboxGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the AuthOutbox model
+   */
+  readonly fields: AuthOutboxFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for AuthOutbox.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__AuthOutboxClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the AuthOutbox model
+   */
+  interface AuthOutboxFieldRefs {
+    readonly id: FieldRef<"AuthOutbox", 'String'>
+    readonly aggregateType: FieldRef<"AuthOutbox", 'String'>
+    readonly aggregateId: FieldRef<"AuthOutbox", 'String'>
+    readonly eventType: FieldRef<"AuthOutbox", 'String'>
+    readonly topic: FieldRef<"AuthOutbox", 'String'>
+    readonly payload: FieldRef<"AuthOutbox", 'Bytes'>
+    readonly createdAt: FieldRef<"AuthOutbox", 'DateTime'>
+    readonly publishedAt: FieldRef<"AuthOutbox", 'DateTime'>
+    readonly retryCount: FieldRef<"AuthOutbox", 'Int'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * AuthOutbox findUnique
+   */
+  export type AuthOutboxFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AuthOutbox
+     */
+    select?: AuthOutboxSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AuthOutbox
+     */
+    omit?: AuthOutboxOmit<ExtArgs> | null
+    /**
+     * Filter, which AuthOutbox to fetch.
+     */
+    where: AuthOutboxWhereUniqueInput
+  }
+
+  /**
+   * AuthOutbox findUniqueOrThrow
+   */
+  export type AuthOutboxFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AuthOutbox
+     */
+    select?: AuthOutboxSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AuthOutbox
+     */
+    omit?: AuthOutboxOmit<ExtArgs> | null
+    /**
+     * Filter, which AuthOutbox to fetch.
+     */
+    where: AuthOutboxWhereUniqueInput
+  }
+
+  /**
+   * AuthOutbox findFirst
+   */
+  export type AuthOutboxFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AuthOutbox
+     */
+    select?: AuthOutboxSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AuthOutbox
+     */
+    omit?: AuthOutboxOmit<ExtArgs> | null
+    /**
+     * Filter, which AuthOutbox to fetch.
+     */
+    where?: AuthOutboxWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AuthOutboxes to fetch.
+     */
+    orderBy?: AuthOutboxOrderByWithRelationInput | AuthOutboxOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for AuthOutboxes.
+     */
+    cursor?: AuthOutboxWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AuthOutboxes from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AuthOutboxes.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of AuthOutboxes.
+     */
+    distinct?: AuthOutboxScalarFieldEnum | AuthOutboxScalarFieldEnum[]
+  }
+
+  /**
+   * AuthOutbox findFirstOrThrow
+   */
+  export type AuthOutboxFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AuthOutbox
+     */
+    select?: AuthOutboxSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AuthOutbox
+     */
+    omit?: AuthOutboxOmit<ExtArgs> | null
+    /**
+     * Filter, which AuthOutbox to fetch.
+     */
+    where?: AuthOutboxWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AuthOutboxes to fetch.
+     */
+    orderBy?: AuthOutboxOrderByWithRelationInput | AuthOutboxOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for AuthOutboxes.
+     */
+    cursor?: AuthOutboxWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AuthOutboxes from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AuthOutboxes.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of AuthOutboxes.
+     */
+    distinct?: AuthOutboxScalarFieldEnum | AuthOutboxScalarFieldEnum[]
+  }
+
+  /**
+   * AuthOutbox findMany
+   */
+  export type AuthOutboxFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AuthOutbox
+     */
+    select?: AuthOutboxSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AuthOutbox
+     */
+    omit?: AuthOutboxOmit<ExtArgs> | null
+    /**
+     * Filter, which AuthOutboxes to fetch.
+     */
+    where?: AuthOutboxWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of AuthOutboxes to fetch.
+     */
+    orderBy?: AuthOutboxOrderByWithRelationInput | AuthOutboxOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing AuthOutboxes.
+     */
+    cursor?: AuthOutboxWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` AuthOutboxes from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` AuthOutboxes.
+     */
+    skip?: number
+    distinct?: AuthOutboxScalarFieldEnum | AuthOutboxScalarFieldEnum[]
+  }
+
+  /**
+   * AuthOutbox create
+   */
+  export type AuthOutboxCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AuthOutbox
+     */
+    select?: AuthOutboxSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AuthOutbox
+     */
+    omit?: AuthOutboxOmit<ExtArgs> | null
+    /**
+     * The data needed to create a AuthOutbox.
+     */
+    data: XOR<AuthOutboxCreateInput, AuthOutboxUncheckedCreateInput>
+  }
+
+  /**
+   * AuthOutbox createMany
+   */
+  export type AuthOutboxCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many AuthOutboxes.
+     */
+    data: AuthOutboxCreateManyInput | AuthOutboxCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * AuthOutbox createManyAndReturn
+   */
+  export type AuthOutboxCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AuthOutbox
+     */
+    select?: AuthOutboxSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the AuthOutbox
+     */
+    omit?: AuthOutboxOmit<ExtArgs> | null
+    /**
+     * The data used to create many AuthOutboxes.
+     */
+    data: AuthOutboxCreateManyInput | AuthOutboxCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * AuthOutbox update
+   */
+  export type AuthOutboxUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AuthOutbox
+     */
+    select?: AuthOutboxSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AuthOutbox
+     */
+    omit?: AuthOutboxOmit<ExtArgs> | null
+    /**
+     * The data needed to update a AuthOutbox.
+     */
+    data: XOR<AuthOutboxUpdateInput, AuthOutboxUncheckedUpdateInput>
+    /**
+     * Choose, which AuthOutbox to update.
+     */
+    where: AuthOutboxWhereUniqueInput
+  }
+
+  /**
+   * AuthOutbox updateMany
+   */
+  export type AuthOutboxUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update AuthOutboxes.
+     */
+    data: XOR<AuthOutboxUpdateManyMutationInput, AuthOutboxUncheckedUpdateManyInput>
+    /**
+     * Filter which AuthOutboxes to update
+     */
+    where?: AuthOutboxWhereInput
+    /**
+     * Limit how many AuthOutboxes to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * AuthOutbox updateManyAndReturn
+   */
+  export type AuthOutboxUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AuthOutbox
+     */
+    select?: AuthOutboxSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the AuthOutbox
+     */
+    omit?: AuthOutboxOmit<ExtArgs> | null
+    /**
+     * The data used to update AuthOutboxes.
+     */
+    data: XOR<AuthOutboxUpdateManyMutationInput, AuthOutboxUncheckedUpdateManyInput>
+    /**
+     * Filter which AuthOutboxes to update
+     */
+    where?: AuthOutboxWhereInput
+    /**
+     * Limit how many AuthOutboxes to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * AuthOutbox upsert
+   */
+  export type AuthOutboxUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AuthOutbox
+     */
+    select?: AuthOutboxSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AuthOutbox
+     */
+    omit?: AuthOutboxOmit<ExtArgs> | null
+    /**
+     * The filter to search for the AuthOutbox to update in case it exists.
+     */
+    where: AuthOutboxWhereUniqueInput
+    /**
+     * In case the AuthOutbox found by the `where` argument doesn't exist, create a new AuthOutbox with this data.
+     */
+    create: XOR<AuthOutboxCreateInput, AuthOutboxUncheckedCreateInput>
+    /**
+     * In case the AuthOutbox was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<AuthOutboxUpdateInput, AuthOutboxUncheckedUpdateInput>
+  }
+
+  /**
+   * AuthOutbox delete
+   */
+  export type AuthOutboxDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AuthOutbox
+     */
+    select?: AuthOutboxSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AuthOutbox
+     */
+    omit?: AuthOutboxOmit<ExtArgs> | null
+    /**
+     * Filter which AuthOutbox to delete.
+     */
+    where: AuthOutboxWhereUniqueInput
+  }
+
+  /**
+   * AuthOutbox deleteMany
+   */
+  export type AuthOutboxDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which AuthOutboxes to delete
+     */
+    where?: AuthOutboxWhereInput
+    /**
+     * Limit how many AuthOutboxes to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * AuthOutbox without action
+   */
+  export type AuthOutboxDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AuthOutbox
+     */
+    select?: AuthOutboxSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AuthOutbox
+     */
+    omit?: AuthOutboxOmit<ExtArgs> | null
+  }
+
+
+  /**
    * Enums
    */
 
@@ -8037,6 +9261,10 @@ export namespace Prisma {
     phoneVerified: 'phoneVerified',
     mfaEnabled: 'mfaEnabled',
     settings: 'settings',
+    isDeleted: 'isDeleted',
+    deletedAt: 'deletedAt',
+    deletionState: 'deletionState',
+    displayUsername: 'displayUsername',
     createdAt: 'createdAt',
     updatedAt: 'updatedAt'
   };
@@ -8110,6 +9338,21 @@ export namespace Prisma {
   };
 
   export type PasskeyChallengeScalarFieldEnum = (typeof PasskeyChallengeScalarFieldEnum)[keyof typeof PasskeyChallengeScalarFieldEnum]
+
+
+  export const AuthOutboxScalarFieldEnum: {
+    id: 'id',
+    aggregateType: 'aggregateType',
+    aggregateId: 'aggregateId',
+    eventType: 'eventType',
+    topic: 'topic',
+    payload: 'payload',
+    createdAt: 'createdAt',
+    publishedAt: 'publishedAt',
+    retryCount: 'retryCount'
+  };
+
+  export type AuthOutboxScalarFieldEnum = (typeof AuthOutboxScalarFieldEnum)[keyof typeof AuthOutboxScalarFieldEnum]
 
 
   export const SortOrder: {
@@ -8222,6 +9465,20 @@ export namespace Prisma {
 
 
   /**
+   * Reference to a field of type 'Bytes'
+   */
+  export type BytesFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Bytes'>
+    
+
+
+  /**
+   * Reference to a field of type 'Bytes[]'
+   */
+  export type ListBytesFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Bytes[]'>
+    
+
+
+  /**
    * Reference to a field of type 'Int'
    */
   export type IntFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Int'>
@@ -8257,13 +9514,17 @@ export namespace Prisma {
     OR?: UserWhereInput[]
     NOT?: UserWhereInput | UserWhereInput[]
     id?: StringFilter<"User"> | string
-    email?: StringFilter<"User"> | string
+    email?: StringNullableFilter<"User"> | string | null
     passwordHash?: StringNullableFilter<"User"> | string | null
     phone?: StringNullableFilter<"User"> | string | null
     emailVerified?: BoolFilter<"User"> | boolean
     phoneVerified?: BoolFilter<"User"> | boolean
     mfaEnabled?: BoolFilter<"User"> | boolean
     settings?: JsonNullableFilter<"User">
+    isDeleted?: BoolFilter<"User"> | boolean
+    deletedAt?: DateTimeNullableFilter<"User"> | Date | string | null
+    deletionState?: StringFilter<"User"> | string
+    displayUsername?: StringNullableFilter<"User"> | string | null
     createdAt?: DateTimeFilter<"User"> | Date | string
     updatedAt?: DateTimeFilter<"User"> | Date | string
     oauthProviders?: OAuthProviderListRelationFilter
@@ -8274,13 +9535,17 @@ export namespace Prisma {
 
   export type UserOrderByWithRelationInput = {
     id?: SortOrder
-    email?: SortOrder
+    email?: SortOrderInput | SortOrder
     passwordHash?: SortOrderInput | SortOrder
     phone?: SortOrderInput | SortOrder
     emailVerified?: SortOrder
     phoneVerified?: SortOrder
     mfaEnabled?: SortOrder
     settings?: SortOrderInput | SortOrder
+    isDeleted?: SortOrder
+    deletedAt?: SortOrderInput | SortOrder
+    deletionState?: SortOrder
+    displayUsername?: SortOrderInput | SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
     oauthProviders?: OAuthProviderOrderByRelationAggregateInput
@@ -8301,6 +9566,10 @@ export namespace Prisma {
     phoneVerified?: BoolFilter<"User"> | boolean
     mfaEnabled?: BoolFilter<"User"> | boolean
     settings?: JsonNullableFilter<"User">
+    isDeleted?: BoolFilter<"User"> | boolean
+    deletedAt?: DateTimeNullableFilter<"User"> | Date | string | null
+    deletionState?: StringFilter<"User"> | string
+    displayUsername?: StringNullableFilter<"User"> | string | null
     createdAt?: DateTimeFilter<"User"> | Date | string
     updatedAt?: DateTimeFilter<"User"> | Date | string
     oauthProviders?: OAuthProviderListRelationFilter
@@ -8311,13 +9580,17 @@ export namespace Prisma {
 
   export type UserOrderByWithAggregationInput = {
     id?: SortOrder
-    email?: SortOrder
+    email?: SortOrderInput | SortOrder
     passwordHash?: SortOrderInput | SortOrder
     phone?: SortOrderInput | SortOrder
     emailVerified?: SortOrder
     phoneVerified?: SortOrder
     mfaEnabled?: SortOrder
     settings?: SortOrderInput | SortOrder
+    isDeleted?: SortOrder
+    deletedAt?: SortOrderInput | SortOrder
+    deletionState?: SortOrder
+    displayUsername?: SortOrderInput | SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
     _count?: UserCountOrderByAggregateInput
@@ -8330,13 +9603,17 @@ export namespace Prisma {
     OR?: UserScalarWhereWithAggregatesInput[]
     NOT?: UserScalarWhereWithAggregatesInput | UserScalarWhereWithAggregatesInput[]
     id?: StringWithAggregatesFilter<"User"> | string
-    email?: StringWithAggregatesFilter<"User"> | string
+    email?: StringNullableWithAggregatesFilter<"User"> | string | null
     passwordHash?: StringNullableWithAggregatesFilter<"User"> | string | null
     phone?: StringNullableWithAggregatesFilter<"User"> | string | null
     emailVerified?: BoolWithAggregatesFilter<"User"> | boolean
     phoneVerified?: BoolWithAggregatesFilter<"User"> | boolean
     mfaEnabled?: BoolWithAggregatesFilter<"User"> | boolean
     settings?: JsonNullableWithAggregatesFilter<"User">
+    isDeleted?: BoolWithAggregatesFilter<"User"> | boolean
+    deletedAt?: DateTimeNullableWithAggregatesFilter<"User"> | Date | string | null
+    deletionState?: StringWithAggregatesFilter<"User"> | string
+    displayUsername?: StringNullableWithAggregatesFilter<"User"> | string | null
     createdAt?: DateTimeWithAggregatesFilter<"User"> | Date | string
     updatedAt?: DateTimeWithAggregatesFilter<"User"> | Date | string
   }
@@ -8682,15 +9959,93 @@ export namespace Prisma {
     createdAt?: DateTimeWithAggregatesFilter<"PasskeyChallenge"> | Date | string
   }
 
+  export type AuthOutboxWhereInput = {
+    AND?: AuthOutboxWhereInput | AuthOutboxWhereInput[]
+    OR?: AuthOutboxWhereInput[]
+    NOT?: AuthOutboxWhereInput | AuthOutboxWhereInput[]
+    id?: UuidFilter<"AuthOutbox"> | string
+    aggregateType?: StringFilter<"AuthOutbox"> | string
+    aggregateId?: StringFilter<"AuthOutbox"> | string
+    eventType?: StringFilter<"AuthOutbox"> | string
+    topic?: StringFilter<"AuthOutbox"> | string
+    payload?: BytesFilter<"AuthOutbox"> | Uint8Array
+    createdAt?: DateTimeFilter<"AuthOutbox"> | Date | string
+    publishedAt?: DateTimeNullableFilter<"AuthOutbox"> | Date | string | null
+    retryCount?: IntFilter<"AuthOutbox"> | number
+  }
+
+  export type AuthOutboxOrderByWithRelationInput = {
+    id?: SortOrder
+    aggregateType?: SortOrder
+    aggregateId?: SortOrder
+    eventType?: SortOrder
+    topic?: SortOrder
+    payload?: SortOrder
+    createdAt?: SortOrder
+    publishedAt?: SortOrderInput | SortOrder
+    retryCount?: SortOrder
+  }
+
+  export type AuthOutboxWhereUniqueInput = Prisma.AtLeast<{
+    id?: string
+    AND?: AuthOutboxWhereInput | AuthOutboxWhereInput[]
+    OR?: AuthOutboxWhereInput[]
+    NOT?: AuthOutboxWhereInput | AuthOutboxWhereInput[]
+    aggregateType?: StringFilter<"AuthOutbox"> | string
+    aggregateId?: StringFilter<"AuthOutbox"> | string
+    eventType?: StringFilter<"AuthOutbox"> | string
+    topic?: StringFilter<"AuthOutbox"> | string
+    payload?: BytesFilter<"AuthOutbox"> | Uint8Array
+    createdAt?: DateTimeFilter<"AuthOutbox"> | Date | string
+    publishedAt?: DateTimeNullableFilter<"AuthOutbox"> | Date | string | null
+    retryCount?: IntFilter<"AuthOutbox"> | number
+  }, "id">
+
+  export type AuthOutboxOrderByWithAggregationInput = {
+    id?: SortOrder
+    aggregateType?: SortOrder
+    aggregateId?: SortOrder
+    eventType?: SortOrder
+    topic?: SortOrder
+    payload?: SortOrder
+    createdAt?: SortOrder
+    publishedAt?: SortOrderInput | SortOrder
+    retryCount?: SortOrder
+    _count?: AuthOutboxCountOrderByAggregateInput
+    _avg?: AuthOutboxAvgOrderByAggregateInput
+    _max?: AuthOutboxMaxOrderByAggregateInput
+    _min?: AuthOutboxMinOrderByAggregateInput
+    _sum?: AuthOutboxSumOrderByAggregateInput
+  }
+
+  export type AuthOutboxScalarWhereWithAggregatesInput = {
+    AND?: AuthOutboxScalarWhereWithAggregatesInput | AuthOutboxScalarWhereWithAggregatesInput[]
+    OR?: AuthOutboxScalarWhereWithAggregatesInput[]
+    NOT?: AuthOutboxScalarWhereWithAggregatesInput | AuthOutboxScalarWhereWithAggregatesInput[]
+    id?: UuidWithAggregatesFilter<"AuthOutbox"> | string
+    aggregateType?: StringWithAggregatesFilter<"AuthOutbox"> | string
+    aggregateId?: StringWithAggregatesFilter<"AuthOutbox"> | string
+    eventType?: StringWithAggregatesFilter<"AuthOutbox"> | string
+    topic?: StringWithAggregatesFilter<"AuthOutbox"> | string
+    payload?: BytesWithAggregatesFilter<"AuthOutbox"> | Uint8Array
+    createdAt?: DateTimeWithAggregatesFilter<"AuthOutbox"> | Date | string
+    publishedAt?: DateTimeNullableWithAggregatesFilter<"AuthOutbox"> | Date | string | null
+    retryCount?: IntWithAggregatesFilter<"AuthOutbox"> | number
+  }
+
   export type UserCreateInput = {
     id?: string
-    email: string
+    email?: string | null
     passwordHash?: string | null
     phone?: string | null
     emailVerified?: boolean
     phoneVerified?: boolean
     mfaEnabled?: boolean
     settings?: NullableJsonNullValueInput | InputJsonValue
+    isDeleted?: boolean
+    deletedAt?: Date | string | null
+    deletionState?: string
+    displayUsername?: string | null
     createdAt?: Date | string
     updatedAt?: Date | string
     oauthProviders?: OAuthProviderCreateNestedManyWithoutUserInput
@@ -8701,13 +10056,17 @@ export namespace Prisma {
 
   export type UserUncheckedCreateInput = {
     id?: string
-    email: string
+    email?: string | null
     passwordHash?: string | null
     phone?: string | null
     emailVerified?: boolean
     phoneVerified?: boolean
     mfaEnabled?: boolean
     settings?: NullableJsonNullValueInput | InputJsonValue
+    isDeleted?: boolean
+    deletedAt?: Date | string | null
+    deletionState?: string
+    displayUsername?: string | null
     createdAt?: Date | string
     updatedAt?: Date | string
     oauthProviders?: OAuthProviderUncheckedCreateNestedManyWithoutUserInput
@@ -8718,13 +10077,17 @@ export namespace Prisma {
 
   export type UserUpdateInput = {
     id?: StringFieldUpdateOperationsInput | string
-    email?: StringFieldUpdateOperationsInput | string
+    email?: NullableStringFieldUpdateOperationsInput | string | null
     passwordHash?: NullableStringFieldUpdateOperationsInput | string | null
     phone?: NullableStringFieldUpdateOperationsInput | string | null
     emailVerified?: BoolFieldUpdateOperationsInput | boolean
     phoneVerified?: BoolFieldUpdateOperationsInput | boolean
     mfaEnabled?: BoolFieldUpdateOperationsInput | boolean
     settings?: NullableJsonNullValueInput | InputJsonValue
+    isDeleted?: BoolFieldUpdateOperationsInput | boolean
+    deletedAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    deletionState?: StringFieldUpdateOperationsInput | string
+    displayUsername?: NullableStringFieldUpdateOperationsInput | string | null
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
     oauthProviders?: OAuthProviderUpdateManyWithoutUserNestedInput
@@ -8735,13 +10098,17 @@ export namespace Prisma {
 
   export type UserUncheckedUpdateInput = {
     id?: StringFieldUpdateOperationsInput | string
-    email?: StringFieldUpdateOperationsInput | string
+    email?: NullableStringFieldUpdateOperationsInput | string | null
     passwordHash?: NullableStringFieldUpdateOperationsInput | string | null
     phone?: NullableStringFieldUpdateOperationsInput | string | null
     emailVerified?: BoolFieldUpdateOperationsInput | boolean
     phoneVerified?: BoolFieldUpdateOperationsInput | boolean
     mfaEnabled?: BoolFieldUpdateOperationsInput | boolean
     settings?: NullableJsonNullValueInput | InputJsonValue
+    isDeleted?: BoolFieldUpdateOperationsInput | boolean
+    deletedAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    deletionState?: StringFieldUpdateOperationsInput | string
+    displayUsername?: NullableStringFieldUpdateOperationsInput | string | null
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
     oauthProviders?: OAuthProviderUncheckedUpdateManyWithoutUserNestedInput
@@ -8752,39 +10119,51 @@ export namespace Prisma {
 
   export type UserCreateManyInput = {
     id?: string
-    email: string
+    email?: string | null
     passwordHash?: string | null
     phone?: string | null
     emailVerified?: boolean
     phoneVerified?: boolean
     mfaEnabled?: boolean
     settings?: NullableJsonNullValueInput | InputJsonValue
+    isDeleted?: boolean
+    deletedAt?: Date | string | null
+    deletionState?: string
+    displayUsername?: string | null
     createdAt?: Date | string
     updatedAt?: Date | string
   }
 
   export type UserUpdateManyMutationInput = {
     id?: StringFieldUpdateOperationsInput | string
-    email?: StringFieldUpdateOperationsInput | string
+    email?: NullableStringFieldUpdateOperationsInput | string | null
     passwordHash?: NullableStringFieldUpdateOperationsInput | string | null
     phone?: NullableStringFieldUpdateOperationsInput | string | null
     emailVerified?: BoolFieldUpdateOperationsInput | boolean
     phoneVerified?: BoolFieldUpdateOperationsInput | boolean
     mfaEnabled?: BoolFieldUpdateOperationsInput | boolean
     settings?: NullableJsonNullValueInput | InputJsonValue
+    isDeleted?: BoolFieldUpdateOperationsInput | boolean
+    deletedAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    deletionState?: StringFieldUpdateOperationsInput | string
+    displayUsername?: NullableStringFieldUpdateOperationsInput | string | null
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
   export type UserUncheckedUpdateManyInput = {
     id?: StringFieldUpdateOperationsInput | string
-    email?: StringFieldUpdateOperationsInput | string
+    email?: NullableStringFieldUpdateOperationsInput | string | null
     passwordHash?: NullableStringFieldUpdateOperationsInput | string | null
     phone?: NullableStringFieldUpdateOperationsInput | string | null
     emailVerified?: BoolFieldUpdateOperationsInput | boolean
     phoneVerified?: BoolFieldUpdateOperationsInput | boolean
     mfaEnabled?: BoolFieldUpdateOperationsInput | boolean
     settings?: NullableJsonNullValueInput | InputJsonValue
+    isDeleted?: BoolFieldUpdateOperationsInput | boolean
+    deletedAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    deletionState?: StringFieldUpdateOperationsInput | string
+    displayUsername?: NullableStringFieldUpdateOperationsInput | string | null
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
   }
@@ -9156,6 +10535,90 @@ export namespace Prisma {
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
+  export type AuthOutboxCreateInput = {
+    id: string
+    aggregateType: string
+    aggregateId: string
+    eventType: string
+    topic: string
+    payload: Uint8Array
+    createdAt?: Date | string
+    publishedAt?: Date | string | null
+    retryCount?: number
+  }
+
+  export type AuthOutboxUncheckedCreateInput = {
+    id: string
+    aggregateType: string
+    aggregateId: string
+    eventType: string
+    topic: string
+    payload: Uint8Array
+    createdAt?: Date | string
+    publishedAt?: Date | string | null
+    retryCount?: number
+  }
+
+  export type AuthOutboxUpdateInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    aggregateType?: StringFieldUpdateOperationsInput | string
+    aggregateId?: StringFieldUpdateOperationsInput | string
+    eventType?: StringFieldUpdateOperationsInput | string
+    topic?: StringFieldUpdateOperationsInput | string
+    payload?: BytesFieldUpdateOperationsInput | Uint8Array
+    createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
+    publishedAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    retryCount?: IntFieldUpdateOperationsInput | number
+  }
+
+  export type AuthOutboxUncheckedUpdateInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    aggregateType?: StringFieldUpdateOperationsInput | string
+    aggregateId?: StringFieldUpdateOperationsInput | string
+    eventType?: StringFieldUpdateOperationsInput | string
+    topic?: StringFieldUpdateOperationsInput | string
+    payload?: BytesFieldUpdateOperationsInput | Uint8Array
+    createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
+    publishedAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    retryCount?: IntFieldUpdateOperationsInput | number
+  }
+
+  export type AuthOutboxCreateManyInput = {
+    id: string
+    aggregateType: string
+    aggregateId: string
+    eventType: string
+    topic: string
+    payload: Uint8Array
+    createdAt?: Date | string
+    publishedAt?: Date | string | null
+    retryCount?: number
+  }
+
+  export type AuthOutboxUpdateManyMutationInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    aggregateType?: StringFieldUpdateOperationsInput | string
+    aggregateId?: StringFieldUpdateOperationsInput | string
+    eventType?: StringFieldUpdateOperationsInput | string
+    topic?: StringFieldUpdateOperationsInput | string
+    payload?: BytesFieldUpdateOperationsInput | Uint8Array
+    createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
+    publishedAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    retryCount?: IntFieldUpdateOperationsInput | number
+  }
+
+  export type AuthOutboxUncheckedUpdateManyInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    aggregateType?: StringFieldUpdateOperationsInput | string
+    aggregateId?: StringFieldUpdateOperationsInput | string
+    eventType?: StringFieldUpdateOperationsInput | string
+    topic?: StringFieldUpdateOperationsInput | string
+    payload?: BytesFieldUpdateOperationsInput | Uint8Array
+    createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
+    publishedAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    retryCount?: IntFieldUpdateOperationsInput | number
+  }
+
   export type StringFilter<$PrismaModel = never> = {
     equals?: string | StringFieldRefInput<$PrismaModel>
     in?: string[] | ListStringFieldRefInput<$PrismaModel>
@@ -9212,6 +10675,17 @@ export namespace Prisma {
     gt?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
     gte?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
     not?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | JsonNullValueFilter
+  }
+
+  export type DateTimeNullableFilter<$PrismaModel = never> = {
+    equals?: Date | string | DateTimeFieldRefInput<$PrismaModel> | null
+    in?: Date[] | string[] | ListDateTimeFieldRefInput<$PrismaModel> | null
+    notIn?: Date[] | string[] | ListDateTimeFieldRefInput<$PrismaModel> | null
+    lt?: Date | string | DateTimeFieldRefInput<$PrismaModel>
+    lte?: Date | string | DateTimeFieldRefInput<$PrismaModel>
+    gt?: Date | string | DateTimeFieldRefInput<$PrismaModel>
+    gte?: Date | string | DateTimeFieldRefInput<$PrismaModel>
+    not?: NestedDateTimeNullableFilter<$PrismaModel> | Date | string | null
   }
 
   export type DateTimeFilter<$PrismaModel = never> = {
@@ -9274,6 +10748,10 @@ export namespace Prisma {
     phoneVerified?: SortOrder
     mfaEnabled?: SortOrder
     settings?: SortOrder
+    isDeleted?: SortOrder
+    deletedAt?: SortOrder
+    deletionState?: SortOrder
+    displayUsername?: SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
   }
@@ -9286,6 +10764,10 @@ export namespace Prisma {
     emailVerified?: SortOrder
     phoneVerified?: SortOrder
     mfaEnabled?: SortOrder
+    isDeleted?: SortOrder
+    deletedAt?: SortOrder
+    deletionState?: SortOrder
+    displayUsername?: SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
   }
@@ -9298,6 +10780,10 @@ export namespace Prisma {
     emailVerified?: SortOrder
     phoneVerified?: SortOrder
     mfaEnabled?: SortOrder
+    isDeleted?: SortOrder
+    deletedAt?: SortOrder
+    deletionState?: SortOrder
+    displayUsername?: SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
   }
@@ -9370,6 +10856,20 @@ export namespace Prisma {
     _count?: NestedIntNullableFilter<$PrismaModel>
     _min?: NestedJsonNullableFilter<$PrismaModel>
     _max?: NestedJsonNullableFilter<$PrismaModel>
+  }
+
+  export type DateTimeNullableWithAggregatesFilter<$PrismaModel = never> = {
+    equals?: Date | string | DateTimeFieldRefInput<$PrismaModel> | null
+    in?: Date[] | string[] | ListDateTimeFieldRefInput<$PrismaModel> | null
+    notIn?: Date[] | string[] | ListDateTimeFieldRefInput<$PrismaModel> | null
+    lt?: Date | string | DateTimeFieldRefInput<$PrismaModel>
+    lte?: Date | string | DateTimeFieldRefInput<$PrismaModel>
+    gt?: Date | string | DateTimeFieldRefInput<$PrismaModel>
+    gte?: Date | string | DateTimeFieldRefInput<$PrismaModel>
+    not?: NestedDateTimeNullableWithAggregatesFilter<$PrismaModel> | Date | string | null
+    _count?: NestedIntNullableFilter<$PrismaModel>
+    _min?: NestedDateTimeNullableFilter<$PrismaModel>
+    _max?: NestedDateTimeNullableFilter<$PrismaModel>
   }
 
   export type DateTimeWithAggregatesFilter<$PrismaModel = never> = {
@@ -9566,17 +11066,6 @@ export namespace Prisma {
     not?: NestedBigIntFilter<$PrismaModel> | bigint | number
   }
 
-  export type DateTimeNullableFilter<$PrismaModel = never> = {
-    equals?: Date | string | DateTimeFieldRefInput<$PrismaModel> | null
-    in?: Date[] | string[] | ListDateTimeFieldRefInput<$PrismaModel> | null
-    notIn?: Date[] | string[] | ListDateTimeFieldRefInput<$PrismaModel> | null
-    lt?: Date | string | DateTimeFieldRefInput<$PrismaModel>
-    lte?: Date | string | DateTimeFieldRefInput<$PrismaModel>
-    gt?: Date | string | DateTimeFieldRefInput<$PrismaModel>
-    gte?: Date | string | DateTimeFieldRefInput<$PrismaModel>
-    not?: NestedDateTimeNullableFilter<$PrismaModel> | Date | string | null
-  }
-
   export type PasskeyUserIdCredentialIdCompoundUniqueInput = {
     userId: string
     credentialId: string
@@ -9642,20 +11131,6 @@ export namespace Prisma {
     _max?: NestedBigIntFilter<$PrismaModel>
   }
 
-  export type DateTimeNullableWithAggregatesFilter<$PrismaModel = never> = {
-    equals?: Date | string | DateTimeFieldRefInput<$PrismaModel> | null
-    in?: Date[] | string[] | ListDateTimeFieldRefInput<$PrismaModel> | null
-    notIn?: Date[] | string[] | ListDateTimeFieldRefInput<$PrismaModel> | null
-    lt?: Date | string | DateTimeFieldRefInput<$PrismaModel>
-    lte?: Date | string | DateTimeFieldRefInput<$PrismaModel>
-    gt?: Date | string | DateTimeFieldRefInput<$PrismaModel>
-    gte?: Date | string | DateTimeFieldRefInput<$PrismaModel>
-    not?: NestedDateTimeNullableWithAggregatesFilter<$PrismaModel> | Date | string | null
-    _count?: NestedIntNullableFilter<$PrismaModel>
-    _min?: NestedDateTimeNullableFilter<$PrismaModel>
-    _max?: NestedDateTimeNullableFilter<$PrismaModel>
-  }
-
   export type PasskeyChallengeCountOrderByAggregateInput = {
     id?: SortOrder
     userId?: SortOrder
@@ -9681,6 +11156,94 @@ export namespace Prisma {
     type?: SortOrder
     expiresAt?: SortOrder
     createdAt?: SortOrder
+  }
+
+  export type BytesFilter<$PrismaModel = never> = {
+    equals?: Uint8Array | BytesFieldRefInput<$PrismaModel>
+    in?: Uint8Array[] | ListBytesFieldRefInput<$PrismaModel>
+    notIn?: Uint8Array[] | ListBytesFieldRefInput<$PrismaModel>
+    not?: NestedBytesFilter<$PrismaModel> | Uint8Array
+  }
+
+  export type IntFilter<$PrismaModel = never> = {
+    equals?: number | IntFieldRefInput<$PrismaModel>
+    in?: number[] | ListIntFieldRefInput<$PrismaModel>
+    notIn?: number[] | ListIntFieldRefInput<$PrismaModel>
+    lt?: number | IntFieldRefInput<$PrismaModel>
+    lte?: number | IntFieldRefInput<$PrismaModel>
+    gt?: number | IntFieldRefInput<$PrismaModel>
+    gte?: number | IntFieldRefInput<$PrismaModel>
+    not?: NestedIntFilter<$PrismaModel> | number
+  }
+
+  export type AuthOutboxCountOrderByAggregateInput = {
+    id?: SortOrder
+    aggregateType?: SortOrder
+    aggregateId?: SortOrder
+    eventType?: SortOrder
+    topic?: SortOrder
+    payload?: SortOrder
+    createdAt?: SortOrder
+    publishedAt?: SortOrder
+    retryCount?: SortOrder
+  }
+
+  export type AuthOutboxAvgOrderByAggregateInput = {
+    retryCount?: SortOrder
+  }
+
+  export type AuthOutboxMaxOrderByAggregateInput = {
+    id?: SortOrder
+    aggregateType?: SortOrder
+    aggregateId?: SortOrder
+    eventType?: SortOrder
+    topic?: SortOrder
+    payload?: SortOrder
+    createdAt?: SortOrder
+    publishedAt?: SortOrder
+    retryCount?: SortOrder
+  }
+
+  export type AuthOutboxMinOrderByAggregateInput = {
+    id?: SortOrder
+    aggregateType?: SortOrder
+    aggregateId?: SortOrder
+    eventType?: SortOrder
+    topic?: SortOrder
+    payload?: SortOrder
+    createdAt?: SortOrder
+    publishedAt?: SortOrder
+    retryCount?: SortOrder
+  }
+
+  export type AuthOutboxSumOrderByAggregateInput = {
+    retryCount?: SortOrder
+  }
+
+  export type BytesWithAggregatesFilter<$PrismaModel = never> = {
+    equals?: Uint8Array | BytesFieldRefInput<$PrismaModel>
+    in?: Uint8Array[] | ListBytesFieldRefInput<$PrismaModel>
+    notIn?: Uint8Array[] | ListBytesFieldRefInput<$PrismaModel>
+    not?: NestedBytesWithAggregatesFilter<$PrismaModel> | Uint8Array
+    _count?: NestedIntFilter<$PrismaModel>
+    _min?: NestedBytesFilter<$PrismaModel>
+    _max?: NestedBytesFilter<$PrismaModel>
+  }
+
+  export type IntWithAggregatesFilter<$PrismaModel = never> = {
+    equals?: number | IntFieldRefInput<$PrismaModel>
+    in?: number[] | ListIntFieldRefInput<$PrismaModel>
+    notIn?: number[] | ListIntFieldRefInput<$PrismaModel>
+    lt?: number | IntFieldRefInput<$PrismaModel>
+    lte?: number | IntFieldRefInput<$PrismaModel>
+    gt?: number | IntFieldRefInput<$PrismaModel>
+    gte?: number | IntFieldRefInput<$PrismaModel>
+    not?: NestedIntWithAggregatesFilter<$PrismaModel> | number
+    _count?: NestedIntFilter<$PrismaModel>
+    _avg?: NestedFloatFilter<$PrismaModel>
+    _sum?: NestedIntFilter<$PrismaModel>
+    _min?: NestedIntFilter<$PrismaModel>
+    _max?: NestedIntFilter<$PrismaModel>
   }
 
   export type OAuthProviderCreateNestedManyWithoutUserInput = {
@@ -9747,6 +11310,10 @@ export namespace Prisma {
 
   export type BoolFieldUpdateOperationsInput = {
     set?: boolean
+  }
+
+  export type NullableDateTimeFieldUpdateOperationsInput = {
+    set?: Date | string | null
   }
 
   export type DateTimeFieldUpdateOperationsInput = {
@@ -9924,16 +11491,24 @@ export namespace Prisma {
     divide?: bigint | number
   }
 
-  export type NullableDateTimeFieldUpdateOperationsInput = {
-    set?: Date | string | null
-  }
-
   export type UserUpdateOneRequiredWithoutPasskeysNestedInput = {
     create?: XOR<UserCreateWithoutPasskeysInput, UserUncheckedCreateWithoutPasskeysInput>
     connectOrCreate?: UserCreateOrConnectWithoutPasskeysInput
     upsert?: UserUpsertWithoutPasskeysInput
     connect?: UserWhereUniqueInput
     update?: XOR<XOR<UserUpdateToOneWithWhereWithoutPasskeysInput, UserUpdateWithoutPasskeysInput>, UserUncheckedUpdateWithoutPasskeysInput>
+  }
+
+  export type BytesFieldUpdateOperationsInput = {
+    set?: Uint8Array
+  }
+
+  export type IntFieldUpdateOperationsInput = {
+    set?: number
+    increment?: number
+    decrement?: number
+    multiply?: number
+    divide?: number
   }
 
   export type NestedStringFilter<$PrismaModel = never> = {
@@ -9967,6 +11542,17 @@ export namespace Prisma {
   export type NestedBoolFilter<$PrismaModel = never> = {
     equals?: boolean | BooleanFieldRefInput<$PrismaModel>
     not?: NestedBoolFilter<$PrismaModel> | boolean
+  }
+
+  export type NestedDateTimeNullableFilter<$PrismaModel = never> = {
+    equals?: Date | string | DateTimeFieldRefInput<$PrismaModel> | null
+    in?: Date[] | string[] | ListDateTimeFieldRefInput<$PrismaModel> | null
+    notIn?: Date[] | string[] | ListDateTimeFieldRefInput<$PrismaModel> | null
+    lt?: Date | string | DateTimeFieldRefInput<$PrismaModel>
+    lte?: Date | string | DateTimeFieldRefInput<$PrismaModel>
+    gt?: Date | string | DateTimeFieldRefInput<$PrismaModel>
+    gte?: Date | string | DateTimeFieldRefInput<$PrismaModel>
+    not?: NestedDateTimeNullableFilter<$PrismaModel> | Date | string | null
   }
 
   export type NestedDateTimeFilter<$PrismaModel = never> = {
@@ -10067,6 +11653,20 @@ export namespace Prisma {
     not?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | JsonNullValueFilter
   }
 
+  export type NestedDateTimeNullableWithAggregatesFilter<$PrismaModel = never> = {
+    equals?: Date | string | DateTimeFieldRefInput<$PrismaModel> | null
+    in?: Date[] | string[] | ListDateTimeFieldRefInput<$PrismaModel> | null
+    notIn?: Date[] | string[] | ListDateTimeFieldRefInput<$PrismaModel> | null
+    lt?: Date | string | DateTimeFieldRefInput<$PrismaModel>
+    lte?: Date | string | DateTimeFieldRefInput<$PrismaModel>
+    gt?: Date | string | DateTimeFieldRefInput<$PrismaModel>
+    gte?: Date | string | DateTimeFieldRefInput<$PrismaModel>
+    not?: NestedDateTimeNullableWithAggregatesFilter<$PrismaModel> | Date | string | null
+    _count?: NestedIntNullableFilter<$PrismaModel>
+    _min?: NestedDateTimeNullableFilter<$PrismaModel>
+    _max?: NestedDateTimeNullableFilter<$PrismaModel>
+  }
+
   export type NestedDateTimeWithAggregatesFilter<$PrismaModel = never> = {
     equals?: Date | string | DateTimeFieldRefInput<$PrismaModel>
     in?: Date[] | string[] | ListDateTimeFieldRefInput<$PrismaModel>
@@ -10142,17 +11742,6 @@ export namespace Prisma {
     not?: NestedBigIntFilter<$PrismaModel> | bigint | number
   }
 
-  export type NestedDateTimeNullableFilter<$PrismaModel = never> = {
-    equals?: Date | string | DateTimeFieldRefInput<$PrismaModel> | null
-    in?: Date[] | string[] | ListDateTimeFieldRefInput<$PrismaModel> | null
-    notIn?: Date[] | string[] | ListDateTimeFieldRefInput<$PrismaModel> | null
-    lt?: Date | string | DateTimeFieldRefInput<$PrismaModel>
-    lte?: Date | string | DateTimeFieldRefInput<$PrismaModel>
-    gt?: Date | string | DateTimeFieldRefInput<$PrismaModel>
-    gte?: Date | string | DateTimeFieldRefInput<$PrismaModel>
-    not?: NestedDateTimeNullableFilter<$PrismaModel> | Date | string | null
-  }
-
   export type NestedBigIntWithAggregatesFilter<$PrismaModel = never> = {
     equals?: bigint | number | BigIntFieldRefInput<$PrismaModel>
     in?: bigint[] | number[] | ListBigIntFieldRefInput<$PrismaModel>
@@ -10180,18 +11769,37 @@ export namespace Prisma {
     not?: NestedFloatFilter<$PrismaModel> | number
   }
 
-  export type NestedDateTimeNullableWithAggregatesFilter<$PrismaModel = never> = {
-    equals?: Date | string | DateTimeFieldRefInput<$PrismaModel> | null
-    in?: Date[] | string[] | ListDateTimeFieldRefInput<$PrismaModel> | null
-    notIn?: Date[] | string[] | ListDateTimeFieldRefInput<$PrismaModel> | null
-    lt?: Date | string | DateTimeFieldRefInput<$PrismaModel>
-    lte?: Date | string | DateTimeFieldRefInput<$PrismaModel>
-    gt?: Date | string | DateTimeFieldRefInput<$PrismaModel>
-    gte?: Date | string | DateTimeFieldRefInput<$PrismaModel>
-    not?: NestedDateTimeNullableWithAggregatesFilter<$PrismaModel> | Date | string | null
-    _count?: NestedIntNullableFilter<$PrismaModel>
-    _min?: NestedDateTimeNullableFilter<$PrismaModel>
-    _max?: NestedDateTimeNullableFilter<$PrismaModel>
+  export type NestedBytesFilter<$PrismaModel = never> = {
+    equals?: Uint8Array | BytesFieldRefInput<$PrismaModel>
+    in?: Uint8Array[] | ListBytesFieldRefInput<$PrismaModel>
+    notIn?: Uint8Array[] | ListBytesFieldRefInput<$PrismaModel>
+    not?: NestedBytesFilter<$PrismaModel> | Uint8Array
+  }
+
+  export type NestedBytesWithAggregatesFilter<$PrismaModel = never> = {
+    equals?: Uint8Array | BytesFieldRefInput<$PrismaModel>
+    in?: Uint8Array[] | ListBytesFieldRefInput<$PrismaModel>
+    notIn?: Uint8Array[] | ListBytesFieldRefInput<$PrismaModel>
+    not?: NestedBytesWithAggregatesFilter<$PrismaModel> | Uint8Array
+    _count?: NestedIntFilter<$PrismaModel>
+    _min?: NestedBytesFilter<$PrismaModel>
+    _max?: NestedBytesFilter<$PrismaModel>
+  }
+
+  export type NestedIntWithAggregatesFilter<$PrismaModel = never> = {
+    equals?: number | IntFieldRefInput<$PrismaModel>
+    in?: number[] | ListIntFieldRefInput<$PrismaModel>
+    notIn?: number[] | ListIntFieldRefInput<$PrismaModel>
+    lt?: number | IntFieldRefInput<$PrismaModel>
+    lte?: number | IntFieldRefInput<$PrismaModel>
+    gt?: number | IntFieldRefInput<$PrismaModel>
+    gte?: number | IntFieldRefInput<$PrismaModel>
+    not?: NestedIntWithAggregatesFilter<$PrismaModel> | number
+    _count?: NestedIntFilter<$PrismaModel>
+    _avg?: NestedFloatFilter<$PrismaModel>
+    _sum?: NestedIntFilter<$PrismaModel>
+    _min?: NestedIntFilter<$PrismaModel>
+    _max?: NestedIntFilter<$PrismaModel>
   }
 
   export type OAuthProviderCreateWithoutUserInput = {
@@ -10431,13 +12039,17 @@ export namespace Prisma {
 
   export type UserCreateWithoutOauthProvidersInput = {
     id?: string
-    email: string
+    email?: string | null
     passwordHash?: string | null
     phone?: string | null
     emailVerified?: boolean
     phoneVerified?: boolean
     mfaEnabled?: boolean
     settings?: NullableJsonNullValueInput | InputJsonValue
+    isDeleted?: boolean
+    deletedAt?: Date | string | null
+    deletionState?: string
+    displayUsername?: string | null
     createdAt?: Date | string
     updatedAt?: Date | string
     mfaSettings?: MfaSettingsCreateNestedOneWithoutUserInput
@@ -10447,13 +12059,17 @@ export namespace Prisma {
 
   export type UserUncheckedCreateWithoutOauthProvidersInput = {
     id?: string
-    email: string
+    email?: string | null
     passwordHash?: string | null
     phone?: string | null
     emailVerified?: boolean
     phoneVerified?: boolean
     mfaEnabled?: boolean
     settings?: NullableJsonNullValueInput | InputJsonValue
+    isDeleted?: boolean
+    deletedAt?: Date | string | null
+    deletionState?: string
+    displayUsername?: string | null
     createdAt?: Date | string
     updatedAt?: Date | string
     mfaSettings?: MfaSettingsUncheckedCreateNestedOneWithoutUserInput
@@ -10479,13 +12095,17 @@ export namespace Prisma {
 
   export type UserUpdateWithoutOauthProvidersInput = {
     id?: StringFieldUpdateOperationsInput | string
-    email?: StringFieldUpdateOperationsInput | string
+    email?: NullableStringFieldUpdateOperationsInput | string | null
     passwordHash?: NullableStringFieldUpdateOperationsInput | string | null
     phone?: NullableStringFieldUpdateOperationsInput | string | null
     emailVerified?: BoolFieldUpdateOperationsInput | boolean
     phoneVerified?: BoolFieldUpdateOperationsInput | boolean
     mfaEnabled?: BoolFieldUpdateOperationsInput | boolean
     settings?: NullableJsonNullValueInput | InputJsonValue
+    isDeleted?: BoolFieldUpdateOperationsInput | boolean
+    deletedAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    deletionState?: StringFieldUpdateOperationsInput | string
+    displayUsername?: NullableStringFieldUpdateOperationsInput | string | null
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
     mfaSettings?: MfaSettingsUpdateOneWithoutUserNestedInput
@@ -10495,13 +12115,17 @@ export namespace Prisma {
 
   export type UserUncheckedUpdateWithoutOauthProvidersInput = {
     id?: StringFieldUpdateOperationsInput | string
-    email?: StringFieldUpdateOperationsInput | string
+    email?: NullableStringFieldUpdateOperationsInput | string | null
     passwordHash?: NullableStringFieldUpdateOperationsInput | string | null
     phone?: NullableStringFieldUpdateOperationsInput | string | null
     emailVerified?: BoolFieldUpdateOperationsInput | boolean
     phoneVerified?: BoolFieldUpdateOperationsInput | boolean
     mfaEnabled?: BoolFieldUpdateOperationsInput | boolean
     settings?: NullableJsonNullValueInput | InputJsonValue
+    isDeleted?: BoolFieldUpdateOperationsInput | boolean
+    deletedAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    deletionState?: StringFieldUpdateOperationsInput | string
+    displayUsername?: NullableStringFieldUpdateOperationsInput | string | null
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
     mfaSettings?: MfaSettingsUncheckedUpdateOneWithoutUserNestedInput
@@ -10511,13 +12135,17 @@ export namespace Prisma {
 
   export type UserCreateWithoutMfaSettingsInput = {
     id?: string
-    email: string
+    email?: string | null
     passwordHash?: string | null
     phone?: string | null
     emailVerified?: boolean
     phoneVerified?: boolean
     mfaEnabled?: boolean
     settings?: NullableJsonNullValueInput | InputJsonValue
+    isDeleted?: boolean
+    deletedAt?: Date | string | null
+    deletionState?: string
+    displayUsername?: string | null
     createdAt?: Date | string
     updatedAt?: Date | string
     oauthProviders?: OAuthProviderCreateNestedManyWithoutUserInput
@@ -10527,13 +12155,17 @@ export namespace Prisma {
 
   export type UserUncheckedCreateWithoutMfaSettingsInput = {
     id?: string
-    email: string
+    email?: string | null
     passwordHash?: string | null
     phone?: string | null
     emailVerified?: boolean
     phoneVerified?: boolean
     mfaEnabled?: boolean
     settings?: NullableJsonNullValueInput | InputJsonValue
+    isDeleted?: boolean
+    deletedAt?: Date | string | null
+    deletionState?: string
+    displayUsername?: string | null
     createdAt?: Date | string
     updatedAt?: Date | string
     oauthProviders?: OAuthProviderUncheckedCreateNestedManyWithoutUserInput
@@ -10559,13 +12191,17 @@ export namespace Prisma {
 
   export type UserUpdateWithoutMfaSettingsInput = {
     id?: StringFieldUpdateOperationsInput | string
-    email?: StringFieldUpdateOperationsInput | string
+    email?: NullableStringFieldUpdateOperationsInput | string | null
     passwordHash?: NullableStringFieldUpdateOperationsInput | string | null
     phone?: NullableStringFieldUpdateOperationsInput | string | null
     emailVerified?: BoolFieldUpdateOperationsInput | boolean
     phoneVerified?: BoolFieldUpdateOperationsInput | boolean
     mfaEnabled?: BoolFieldUpdateOperationsInput | boolean
     settings?: NullableJsonNullValueInput | InputJsonValue
+    isDeleted?: BoolFieldUpdateOperationsInput | boolean
+    deletedAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    deletionState?: StringFieldUpdateOperationsInput | string
+    displayUsername?: NullableStringFieldUpdateOperationsInput | string | null
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
     oauthProviders?: OAuthProviderUpdateManyWithoutUserNestedInput
@@ -10575,13 +12211,17 @@ export namespace Prisma {
 
   export type UserUncheckedUpdateWithoutMfaSettingsInput = {
     id?: StringFieldUpdateOperationsInput | string
-    email?: StringFieldUpdateOperationsInput | string
+    email?: NullableStringFieldUpdateOperationsInput | string | null
     passwordHash?: NullableStringFieldUpdateOperationsInput | string | null
     phone?: NullableStringFieldUpdateOperationsInput | string | null
     emailVerified?: BoolFieldUpdateOperationsInput | boolean
     phoneVerified?: BoolFieldUpdateOperationsInput | boolean
     mfaEnabled?: BoolFieldUpdateOperationsInput | boolean
     settings?: NullableJsonNullValueInput | InputJsonValue
+    isDeleted?: BoolFieldUpdateOperationsInput | boolean
+    deletedAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    deletionState?: StringFieldUpdateOperationsInput | string
+    displayUsername?: NullableStringFieldUpdateOperationsInput | string | null
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
     oauthProviders?: OAuthProviderUncheckedUpdateManyWithoutUserNestedInput
@@ -10591,13 +12231,17 @@ export namespace Prisma {
 
   export type UserCreateWithoutVerificationCodesInput = {
     id?: string
-    email: string
+    email?: string | null
     passwordHash?: string | null
     phone?: string | null
     emailVerified?: boolean
     phoneVerified?: boolean
     mfaEnabled?: boolean
     settings?: NullableJsonNullValueInput | InputJsonValue
+    isDeleted?: boolean
+    deletedAt?: Date | string | null
+    deletionState?: string
+    displayUsername?: string | null
     createdAt?: Date | string
     updatedAt?: Date | string
     oauthProviders?: OAuthProviderCreateNestedManyWithoutUserInput
@@ -10607,13 +12251,17 @@ export namespace Prisma {
 
   export type UserUncheckedCreateWithoutVerificationCodesInput = {
     id?: string
-    email: string
+    email?: string | null
     passwordHash?: string | null
     phone?: string | null
     emailVerified?: boolean
     phoneVerified?: boolean
     mfaEnabled?: boolean
     settings?: NullableJsonNullValueInput | InputJsonValue
+    isDeleted?: boolean
+    deletedAt?: Date | string | null
+    deletionState?: string
+    displayUsername?: string | null
     createdAt?: Date | string
     updatedAt?: Date | string
     oauthProviders?: OAuthProviderUncheckedCreateNestedManyWithoutUserInput
@@ -10639,13 +12287,17 @@ export namespace Prisma {
 
   export type UserUpdateWithoutVerificationCodesInput = {
     id?: StringFieldUpdateOperationsInput | string
-    email?: StringFieldUpdateOperationsInput | string
+    email?: NullableStringFieldUpdateOperationsInput | string | null
     passwordHash?: NullableStringFieldUpdateOperationsInput | string | null
     phone?: NullableStringFieldUpdateOperationsInput | string | null
     emailVerified?: BoolFieldUpdateOperationsInput | boolean
     phoneVerified?: BoolFieldUpdateOperationsInput | boolean
     mfaEnabled?: BoolFieldUpdateOperationsInput | boolean
     settings?: NullableJsonNullValueInput | InputJsonValue
+    isDeleted?: BoolFieldUpdateOperationsInput | boolean
+    deletedAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    deletionState?: StringFieldUpdateOperationsInput | string
+    displayUsername?: NullableStringFieldUpdateOperationsInput | string | null
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
     oauthProviders?: OAuthProviderUpdateManyWithoutUserNestedInput
@@ -10655,13 +12307,17 @@ export namespace Prisma {
 
   export type UserUncheckedUpdateWithoutVerificationCodesInput = {
     id?: StringFieldUpdateOperationsInput | string
-    email?: StringFieldUpdateOperationsInput | string
+    email?: NullableStringFieldUpdateOperationsInput | string | null
     passwordHash?: NullableStringFieldUpdateOperationsInput | string | null
     phone?: NullableStringFieldUpdateOperationsInput | string | null
     emailVerified?: BoolFieldUpdateOperationsInput | boolean
     phoneVerified?: BoolFieldUpdateOperationsInput | boolean
     mfaEnabled?: BoolFieldUpdateOperationsInput | boolean
     settings?: NullableJsonNullValueInput | InputJsonValue
+    isDeleted?: BoolFieldUpdateOperationsInput | boolean
+    deletedAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    deletionState?: StringFieldUpdateOperationsInput | string
+    displayUsername?: NullableStringFieldUpdateOperationsInput | string | null
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
     oauthProviders?: OAuthProviderUncheckedUpdateManyWithoutUserNestedInput
@@ -10671,13 +12327,17 @@ export namespace Prisma {
 
   export type UserCreateWithoutPasskeysInput = {
     id?: string
-    email: string
+    email?: string | null
     passwordHash?: string | null
     phone?: string | null
     emailVerified?: boolean
     phoneVerified?: boolean
     mfaEnabled?: boolean
     settings?: NullableJsonNullValueInput | InputJsonValue
+    isDeleted?: boolean
+    deletedAt?: Date | string | null
+    deletionState?: string
+    displayUsername?: string | null
     createdAt?: Date | string
     updatedAt?: Date | string
     oauthProviders?: OAuthProviderCreateNestedManyWithoutUserInput
@@ -10687,13 +12347,17 @@ export namespace Prisma {
 
   export type UserUncheckedCreateWithoutPasskeysInput = {
     id?: string
-    email: string
+    email?: string | null
     passwordHash?: string | null
     phone?: string | null
     emailVerified?: boolean
     phoneVerified?: boolean
     mfaEnabled?: boolean
     settings?: NullableJsonNullValueInput | InputJsonValue
+    isDeleted?: boolean
+    deletedAt?: Date | string | null
+    deletionState?: string
+    displayUsername?: string | null
     createdAt?: Date | string
     updatedAt?: Date | string
     oauthProviders?: OAuthProviderUncheckedCreateNestedManyWithoutUserInput
@@ -10719,13 +12383,17 @@ export namespace Prisma {
 
   export type UserUpdateWithoutPasskeysInput = {
     id?: StringFieldUpdateOperationsInput | string
-    email?: StringFieldUpdateOperationsInput | string
+    email?: NullableStringFieldUpdateOperationsInput | string | null
     passwordHash?: NullableStringFieldUpdateOperationsInput | string | null
     phone?: NullableStringFieldUpdateOperationsInput | string | null
     emailVerified?: BoolFieldUpdateOperationsInput | boolean
     phoneVerified?: BoolFieldUpdateOperationsInput | boolean
     mfaEnabled?: BoolFieldUpdateOperationsInput | boolean
     settings?: NullableJsonNullValueInput | InputJsonValue
+    isDeleted?: BoolFieldUpdateOperationsInput | boolean
+    deletedAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    deletionState?: StringFieldUpdateOperationsInput | string
+    displayUsername?: NullableStringFieldUpdateOperationsInput | string | null
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
     oauthProviders?: OAuthProviderUpdateManyWithoutUserNestedInput
@@ -10735,13 +12403,17 @@ export namespace Prisma {
 
   export type UserUncheckedUpdateWithoutPasskeysInput = {
     id?: StringFieldUpdateOperationsInput | string
-    email?: StringFieldUpdateOperationsInput | string
+    email?: NullableStringFieldUpdateOperationsInput | string | null
     passwordHash?: NullableStringFieldUpdateOperationsInput | string | null
     phone?: NullableStringFieldUpdateOperationsInput | string | null
     emailVerified?: BoolFieldUpdateOperationsInput | boolean
     phoneVerified?: BoolFieldUpdateOperationsInput | boolean
     mfaEnabled?: BoolFieldUpdateOperationsInput | boolean
     settings?: NullableJsonNullValueInput | InputJsonValue
+    isDeleted?: BoolFieldUpdateOperationsInput | boolean
+    deletedAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    deletionState?: StringFieldUpdateOperationsInput | string
+    displayUsername?: NullableStringFieldUpdateOperationsInput | string | null
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
     oauthProviders?: OAuthProviderUncheckedUpdateManyWithoutUserNestedInput

@@ -16,13 +16,11 @@ This will:
 2. Wait for the API and fix kubeconfig (localhost).
 3. Install MetalLB (L2 pool) and bring up the platform (namespaces, TLS, kustomize, Caddy LoadBalancer).
 
-Pool default: `192.168.5.240-192.168.5.250`. Override:
+MetalLB pool: **leave `METALLB_POOL` unset** so `install-metallb-colima.sh` picks `.240-.250` on the **current** VM /24 (bridged eth0 or node InternalIP). Override only after checking `colima ssh -- ip -4 addr show eth0`:
 
 ```bash
 METALLB_POOL=192.168.64.240-192.168.64.250 ./scripts/setup-new-colima-cluster.sh
 ```
-
-Find the VM’s subnet first: `colima ssh -- ip addr` (after step 1), then pick a range in that subnet.
 
 ---
 
@@ -44,10 +42,10 @@ Wait until it prints “Control plane stable (3/3). Next: …”.
 ./scripts/colima-metallb-bring-up.sh
 ```
 
-Optional pool (use a range in your Colima VM subnet):
+Optional pool (only if auto-detect is wrong — must match VM eth0 /24):
 
 ```bash
-METALLB_POOL=192.168.5.240-192.168.5.250 ./scripts/colima-metallb-bring-up.sh
+METALLB_POOL=192.168.64.240-192.168.64.250 ./scripts/colima-metallb-bring-up.sh
 ```
 
 To only install MetalLB (no bring-up): `./scripts/install-metallb-colima.sh` then later `./scripts/bring-up-colima-cluster.sh`.

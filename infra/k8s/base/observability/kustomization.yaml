@@ -8,9 +8,12 @@ resources:
   - otel-collector-deploy.yaml
   - jaeger-deploy.yaml
   - prometheus-rules-och-slo.yaml
+  - prometheus-rules-kafka-health.yaml
+  - prometheus-rules-auth-outbox.yaml
   - prometheus-deploy.yaml
   - grafana-dashboard-providers.yaml
   - grafana-dashboards-transport.yaml
+  - grafana-dashboard-auth-outbox.yaml
   - grafana-deploy.yaml
   - grafana-dashboards.yaml
   # ServiceMonitor/PodMonitor require Prometheus Operator CRDs. Excluded from default apply so

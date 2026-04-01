@@ -1,152 +1,19 @@
-feat(och): E2E traffic stack + shared HTTP guard; fix(ci) listings /create + cron-jobs; Playwright + main baseline docs
+fix(ci): Kafka alignment, CI gates, chaos/resilience, auth outbox
 
-WHY
----
-  • After PR #15 (feature/system-build → main), listings-service failed CI with TS1472/TS1005: the
-    POST /create handler was truncated — outer try/catch and app.post(...) never closed, and
-    `return app` appeared inside the route. INSERT also referenced undefined `lat`/`lng`.
-  • cron-jobs Docker/CI could hit `sh: tsc: not found` when `tsc` was not resolved from PATH;
-    `pnpm exec tsc` pins the compiler to the package.
-  • Parallel Playwright workers can stampede the gateway/backends; we shape load with a traffic
-    shaper, optional Redis weighted budget, watchdog throttle, and a **labeled** E2E inflight cap
-    (429 when over cap) — not by cutting workers to 2. Heavy spec files run in **serial** mode;
-    Playwright stays at **4 workers** with **x-test-mode** + **x-e2e-test** on all browser requests.
-  • UI E2E flakes tied to saturation and brittle locators: stable testids, section-scoped flows,
-    HTTPS-only E2E base URL normalization, strict-edge script with dev CA.
-  • Redis middleware typing: use ReturnType<typeof createClient> so gateway code matches the
-    concrete client from createClient(), not a mismatched RedisClientType generic.
-  • Integration branch `feature/system-build` is merged (PR #15); perf/docs should baseline on
-    `main` and the remote feature branch was removed to avoid stale checkouts.
-
-WHAT CHANGED
-------------
-  fix(ci) — listings-service (services/listings-service/src/http-server.ts)
-  • Close POST /create with outer catch, handler `},`, and `app.post` `);` before `return app`.
-  • Derive `lat`/`lng` from JSON body for INSERT placeholders $11/$12.
-
-  listings-service — unit + HTTP/Postgres integration & README
-  • Vitest unit: **validation.test.ts**, **search-listings-query.test.ts**, **http-app.test.ts** (Kafka/
-    analytics **vi.mock**). Default **vitest.config** excludes **\*.integration.test.ts**.
-  • **vitest.integration.config.ts** + **pnpm run test:integration**: **listings-http.integration.test.ts**
-    loads **createListingsHttpApp** after setting **POSTGRES_URL_LISTINGS** (default 127.0.0.1:5442);
-    **POST /create**, **GET /listings/:id**, **GET /search** + SQL row check; **describe.skipIf** when DB
-    or **listings.listings** missing (exit 0). **ANALYTICS_SYNC_MODE=0** for tests. gRPC: see
-    **listings-grpc.integration.test.ts** + **OCH_GRPC_INSECURE_TEST_BIND** via vitest integration env only.
-  • **test:all** = unit + integration. **supertest** devDependency.
-  • CI: after `bootstrap-all-dbs.sh`, **listings-service** matrix runs **test** then **test:integration**
-    with **POSTGRES_URL_LISTINGS** on port 5442.
-  • README documents unit vs integration, docker-compose **5442**, and gRPC limitation.
-  • Removed placeholder **smoke.test.ts**. **KAFKAJS_NO_PARTITIONER_WARNING=1** on test scripts.
-  • README: **HTTP 4012 / gRPC 50062**, grpcurl UUID + port fix, unit + integration sections.
-
-  fix(ci) — cron-jobs (services/cron-jobs/package.json)
-  • `"build": "pnpm exec tsc -p tsconfig.json"` for reliable compiler resolution.
-
-  Common (services/common)
-  • `createHttpConcurrencyGuard` in `http-concurrency-guard.ts` — exported from index;
-    E2E_HIGH_CAP_MODE / PLAYWRIGHT_CONCURRENCY_BOOST doubles numeric default when per-service
-    HTTP_MAX_CONCURRENT is unset.
-
-  Services using shared guard
-  • analytics, auth, booking, listings, messaging, notification, trust — HTTP middleware uses
-    @common guard where applicable; messaging drops duplicate local guard module.
-
-  API gateway (services/api-gateway)
-  • gateway-traffic-skip, **e2e-test-mode-inflight-cap** (requests with x-test-mode or x-e2e-test:
-    max concurrent default 60, over cap → **429** + Retry-After; env GATEWAY_E2E_TEST_INFLIGHT_CAP /
-    GATEWAY_E2E_TEST_INFLIGHT_MAX), e2e-traffic-shaper, cluster-weight-budget (Redis Lua EVAL),
-    watchdog-throttle-poll; CORS + rate-limit skip honor **x-test-mode**; Redis types via
-    ReturnType<typeof createClient>.
-
-  Transport watchdog (services/transport-watchdog)
-  • Sidecar: polls gateway readyz, sets/deletes Redis throttle key; Dockerfile from repo root;
-    workspace build: `pnpm --filter transport-watchdog run build`.
-
-  Kubernetes / scripts
-  • api-gateway deploy: transport-watchdog container; dev patches for E2E_HIGH_CAP_MODE,
-    E2E_TRAFFIC_SHAPER / GATEWAY_CLUSTER_WEIGHT_* / GATEWAY_WATCHDOG_POLL /
-    GATEWAY_E2E_TEST_INFLIGHT_CAP + GATEWAY_E2E_TEST_INFLIGHT_MAX.
-  • build-housing-images-k3s.sh includes transport-watchdog; scripts/rebuild-traffic-control-stack.sh.
-
-  Playwright / webapp
-  • **workers: 4** (fixed); **test.describe.configure({ mode: "serial" })** on heavy files:
-    flows.spec.ts, listings-filters-maps.spec.ts, system-integrity.spec.ts.
-  • extraHTTPHeaders: **x-test-mode: 1** (with x-e2e-test) for gateway labeled-cap + rate-limit bypass.
-  • listing-created-banner testid; journey/spec updates; playwright.config normalizeE2E_API_BASE;
-    webapp-playwright-strict-edge.sh (NODE_EXTRA_CA_CERTS + edge URL).
-  • run-playwright-e2e-preflight.sh documents edge recovery window as cluster idle-stability gate.
-
-  CI
-  • docker-build.yml matrix: transport-watchdog.
-
-  Docs / issue templates
-  • Perf and PR workflow docs: baseline branch references use `main` (former feature/system-build
-    line merged in PR #15); GITHUB_ISSUES_EXECUTABLE.txt aligned.
-
-  Bench / infra (as in branch)
-  • protocol-matrix / bench artifact updates, haproxy/k8s reference tweaks where committed.
-
-RUN
----
-  Rebuild and roll out (gateway + services that embed the guard + sidecar):
-
-    SERVICES="api-gateway auth-service booking-service listings-service messaging-service \
-analytics-service trust-service notification-service" \
-      ./scripts/rebuild-och-images-and-rollout.sh
-    ./scripts/rebuild-traffic-control-stack.sh
-
-    kubectl apply -k infra/k8s/overlays/dev
-
-  Local strict Playwright (edge TLS):
-
-    ./scripts/webapp-playwright-strict-edge.sh
-
-  Verify typecheck (representative):
-
-    pnpm -C services/common build
-    pnpm -C services/listings-service exec tsc --noEmit
-    pnpm -C services/listings-service test
-    pnpm -C services/listings-service run test:integration
-    pnpm -C services/cron-jobs run build
-    pnpm -C services/api-gateway exec tsc --noEmit
-    cd webapp && pnpm exec playwright test --list
-
-PR body
--------
-  Lead with the CI unblock: listings /create brace and lat/lng fix + cron-jobs `pnpm exec tsc`.
-  Then: shared HTTP concurrency guard, gateway **labeled E2E inflight cap (429)** + E2E shaper +
-  Redis weighted budget (Lua) + transport watchdog sidecar, dev kustomize patches, Playwright
-  **4 workers + serial heavy suites + x-test-mode**, docker-build for sidecar image.
-  Note: `main` is the integration baseline; `feature/system-build` merged (PR #15) and remote
-  branch removed — docs updated accordingly.
-
-Suggested subjects (pick one style)
------------------------------------
-  Single squash / one-liner:
-    feat(och): E2E traffic + HTTP guard; fix listings /create + cron-jobs tsc; Playwright + dev k8s
-
-  If keeping two commits on the branch:
-    fix(ci): repair listings POST /create braces, lat/lng; cron-jobs pnpm exec tsc
-    feat(och): E2E traffic stack, shared createHttpConcurrencyGuard, transport-watchdog, trust merge
-
-feat(grpc): unify credential binding + enforce proto/server alignment
----
-  • Centralized insecure test bind via **createOchGrpcServerCredentialsForBind** in
-    **services/common/src/grpc-server-credentials.ts** (mTLS log lines live there too; no
-    **OCH_GRPC_INSECURE_TEST_BIND** reads under **services/*-service/src** — verified by
-    **scripts/ci/verify-housing-grpc-matrix.sh**).
-  • Removed deprecated **server.start()** after **bindAsync** on all housing **grpc-server.ts**
-    files (grpc-js starts the server implicitly).
-  • **Kafka required**: **ensureKafkaBrokerReady** in **services/common/src/kafka.ts** (admin
-    connect + **listTopics**); listings/booking/messaging/media/analytics/notification **server.ts**
-    await barrier before listeners; **Redpanda** service in **och-ci** test job + **KAFKA_BROKER** /
-    **OCH_KAFKA_TOPIC_SUFFIX**; **vitest.integration.global-setup.ts**; **waitForKafkaTopicHighBeyond**
-    in **kafka-wait.ts** for listings integration; Playwright preflight optional
-    **PLAYWRIGHT_WAIT_KAFKA_CONTAINER** / **PLAYWRIGHT_WAIT_KAFKA_DEPLOYMENT**.
-  • **verify-housing-grpc-matrix.sh**: require **createOchGrpcServerCredentialsForBind** per service;
-    **listings-grpc.integration.test.ts** + **TRUNCATE** + **vitest** integration **fileParallelism: false**,
-    **testTimeout** / **hookTimeout** 30s.
-  • **.github/workflows/ci.yml**: test job **kafka** (Redpanda) + **OCH_KAFKA_TOPIC_SUFFIX** from
-    **github.run_id**; verify script bans **OCH_KAFKA_DISABLED** / noop helpers.
+- Kafka ↔ MetalLB: drift checks (check-kafka-config-drift, kafka-runtime-sync, kafka-sync-metallb),
+  alignment test suite, golden-snapshot; preflight 6a2c9 on by default (skip:
+  PREFLIGHT_SKIP_KAFKA_ALIGNMENT_SUITE=1); metallb alignment exporter; kafka-ops CronJob + Dockerfile;
+  Prometheus rules (runtime drift, alignment tests, suite missing).
+- Make: kafka-health, kafka-alignment-suite, chaos-suite-kafka, golden-snapshot.
+- CI: kafka-alignment + ephemeral/kafka-cluster-verify path filters; nightly chaos; diagrams workflow
+  (generated repo-root diagrams/, docs/assets, architecture submission/book/design/lld, scripts/architecture
+  not part of this commit).
+- Auth: transactional outbox (publisher, metrics, tests, inspect/replay); Grafana/Prometheus outbox assets;
+  user-lifecycle consumers across services.
+- Infra: k8s :dev deploy pins, observability, proto/config, prisma migrations, bench_logs cleanup.
+- CI hardening: dev-onboard-lite proto-on-disk + kustomize + kubectl apply --dry-run=client; PlantUML no .puml → exit 0;
+  diagrams/uml/placeholder.puml; post-deploy-verify workflow (self-hosted or kubeconfig secret); hydrate-certs-for-ci
+  (POST_DEPLOY_CERTS_ARCHIVE_B64 or pull kafka-ssl-secret / dev-root-ca); smoke/k6/canary scripts + Makefile targets;
+  api-gateway GET /health; alignment suite post-destructive verify; matplotlib venv + golden CHAOS destructive alignment.
 
 Made with Tom.

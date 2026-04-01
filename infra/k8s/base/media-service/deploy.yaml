@@ -7,7 +7,10 @@ metadata:
 spec:
   replicas: 1
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector: { matchLabels: { app: media-service } }
   template:
     metadata:
@@ -92,11 +95,12 @@ spec:
                 - -tls-client-cert=/etc/certs/tls.crt
                 - -tls-client-key=/etc/certs/tls.key
                 - -tls-server-name=localhost
-                - -connect-timeout=15s
-                - -rpc-timeout=15s
-            initialDelaySeconds: 30
-            periodSeconds: 5
-            timeoutSeconds: 25
+                - -connect-timeout=8s
+                - -rpc-timeout=8s
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 18
+            successThreshold: 1
             failureThreshold: 6
           # Liveness: TCP only — avoid restart storms on transient DB blips (readiness uses strict gRPC+DB).
           livenessProbe:

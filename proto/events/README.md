@@ -12,7 +12,7 @@
 
 | File | Package | Messages |
 |------|---------|----------|
-| auth.proto | events.auth | UserCreatedV1, UserDeletedV1, UserRoleUpdatedV1, UserSuspendedV1 |
+| auth.proto | events.auth | UserCreatedV1, UserDeletedV1, **UserAccountDeletedV1**, **UserDeletionAckV1**, UserRoleUpdatedV1, UserSuspendedV1 |
 | booking.proto | events.booking | BookingCreatedV1, BookingConfirmedV1, BookingCancelledV1, BookingCompletedV1 |
 | listing.proto | events.listing | ListingCreatedV1, ListingUpdatedV1, ListingDeletedV1, ListingPriceUpdatedV1 |
 | trust.proto | events.trust | ListingFlaggedV1, ListingUnflaggedV1, ReviewCreatedV1, UserReputationUpdatedV1 |
@@ -34,6 +34,8 @@ Created by `scripts/create-kafka-event-topics.sh` (keep in sync with this table)
 - `${ENV_PREFIX}.analytics.events` — watchlist funnel / insight signals (`proto/events/analytics.proto`)
 - `${ENV_PREFIX}.notification.events`
 - `${ENV_PREFIX}.media.events`
+- `${ENV_PREFIX}.user.lifecycle.v1` — account deletion / anonymization (`UserAccountDeletedV1` in envelope)
+- `${ENV_PREFIX}.user.lifecycle.ack.v1` — optional per-consumer ACK (`UserDeletionAckV1`)
 - `${ENV_PREFIX}.messaging.dlq` — DLQ for failed envelopes
 
 Partition key = **entity_id** (never event_id or random), except messaging uses **conversation_id**. Envelope required. Create: `ENV_PREFIX=dev ./scripts/create-kafka-event-topics.sh`. Verify: `./scripts/verify-proto-events-topics.sh`. See docs/KAFKA_STRATEGY.md and docs/OUTBOX_PUBLISHER_AND_CONSUMER_CONTRACT.md.

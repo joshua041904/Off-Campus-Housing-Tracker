@@ -72,7 +72,7 @@ IFS=$'\n\t'
 #   - PREFLIGHT_SKIP_KAFKA_JKS_VERIFY=1 — skip keytool verify on kafka.keystore.jks (PEM/JKS drift not caught).
 #   - PREFLIGHT_SKIP_KAFKA_TLS_SAN_GATE=1 — skip step 6a2c (pnpm verify:kafka-bootstrap + verify:kafka-tls-sans). Do not use in CI you care about.
 #   - PREFLIGHT_SKIP_KAFKA_ADVERTISED_LISTENERS_GATE=1 — skip step 6a2c2 (KRaft only: each broker advertised.listeners INTERNAL FQDN kafka-N.kafka.<ns>.svc.cluster.local:9093 + EXTERNAL <kafka-N-external LB IP>:9094).
-#   - PREFLIGHT_SKIP_KAFKA_KRAFT_HEALTH_GATES=1 — skip steps 6a2c3–6a2c5 (quorum describe, kafka-0 leadership-churn log scan, kafka-broker-api-versions on kafka:9093). Use make verify-kafka-cluster locally for the full ritual.
+#   - PREFLIGHT_SKIP_KAFKA_KRAFT_HEALTH_GATES=1 — skip verify-kafka-cluster.sh entirely (quorum, leadership logs, broker API, and the rest of the ritual). Default: full verify-kafka-cluster.sh (6a2c0, 6a2c, 6a2c2, 6a2c6, 6a2c3–5); preflight does not use VERIFY_KAFKA_HEALTH_ONLY.
 #   - PREFLIGHT_SKIP_EDGE_ROUTING_GATES=1 — skip 6b1–6b2 (Ingress /api+/auth→api-gateway:4020 order, DNS→caddy-h3 or ingress-nginx-controller LB). Fixes silent k6 0-byte runs from edge drift.
 #   - PREFLIGHT_SKIP_EDGE_INGRESS_PARITY_GATE=1 / PREFLIGHT_SKIP_EDGE_DNS_LB_GATE=1 — granular edge skips (see scripts/verify-preflight-edge-routing.sh).
 #   - PREFLIGHT_KAFKA_TLS_PREFLIGHT_JOB=1 — after 6a2c, run infra/k8s/kafka-certs/kafka-tls-preflight-job.yaml (in-cluster mTLS to headless :9093). Default 0 (opt-in: slower, needs brokers + och-kafka-ssl-secret).
@@ -113,6 +113,10 @@ IFS=$'\n\t'
 #   PREFLIGHT_PHASE_D_SKIP_SCHEMA / PREFLIGHT_PHASE_D_SKIP_EXPLAIN / PREFLIGHT_PHASE_D_PG_SNAPSHOT — see scripts/perf/run-preflight-phase-d-tail-lab.sh
 #   CAPTURE_STOP_TIMEOUT=30 (default when running suites) — bounds packet capture stop phase so it never blocks; set higher for full pcap copy/analyze.
 #   PREFLIGHT_TELEMETRY=1 (default) capture control-plane telemetry during run (apiserver metrics every 8s) and post-run snapshot; set 0 to disable. TELEMETRY_PERF=1 / TELEMETRY_HTOP=1 for optional perf/htop. run-preflight-with-telemetry.sh is a thin wrapper that sets PREFLIGHT_MAIN_LOG and RUN_FULL_LOAD=0.
+#   Forensics (SRE): PREFLIGHT_POD_SNAPSHOT=1 — pods-before.json at start, pods-after.json + restart-causes-after.txt + restart-timeline.csv/.png on EXIT.
+#     PREFLIGHT_FORENSIC=1 — also runs scripts/cluster-log-sweep.sh + scripts/network-command-center.sh into $PREFLIGHT_RUN_DIR/forensics/ (heavy).
+#     PREFLIGHT_FAIL_ON_RECENT_RESTART=1 — exit 1 if any container lastState.terminated.finishedAt within PREFLIGHT_RECENT_RESTART_WINDOW_SEC (default 7200).
+#     See docs/CLUSTER_FORENSICS_AND_OBSERVABILITY.md.
 #
 #   --- Load-lab orchestration (step 7a k6 edge grid): interference, not infra saturation ---
 #   When TIME_WAIT and conntrack stay low, node CPU looks moderate, and standalone k6 scripts are clean — but
@@ -320,7 +324,7 @@ IFS=$'\n\t'
 #   4     Scale to baseline (1 replica per app, 2 Caddy, exporters 1, Envoy 1).
 #   5     Strict TLS/mTLS preflight (ensure-strict-tls-mtls-preflight.sh). Verify Caddy strict TLS (no curl 60).
 #   6     6a1–6a2: Force deployments, ensure Kafka (compose or KRaft topics); 6a2b validate-kafka-stack-contract.sh;
-#         6a2c verify:kafka-bootstrap + verify:kafka-tls-sans (SAN drift + MetalLB IP SANs when LB assigned); 6a2c2 KRaft advertised.listeners INTERNAL+EXTERNAL; 6a2c3–6a2c5 verify-kafka-cluster.sh (VERIFY_KAFKA_HEALTH_ONLY: quorum, no renounce spam, broker API); optional 6a2d mTLS Job (PREFLIGHT_KAFKA_TLS_PREFLIGHT_JOB=1).
+#         6a2c verify:kafka-bootstrap + verify:kafka-tls-sans (SAN drift + MetalLB IP SANs when LB assigned); 6a2c2 KRaft advertised.listeners INTERNAL+EXTERNAL; verify-kafka-cluster.sh full ritual (meta identity, SANs, advertised, CA consistency, quorum, leadership logs, broker API); optional 6a2d mTLS Job (PREFLIGHT_KAFKA_TLS_PREFLIGHT_JOB=1).
 #         6b: wait-for-all-services-ready (PREFLIGHT_READY_MAX_WAIT default 900s, INITIAL_WAIT 90s).
 #         6b1–6b2: verify-preflight-edge-routing.sh (ingress /api+/auth→gateway, DNS→caddy-h3 or ingress-nginx-controller LB).
 #         6b3: cluster nodes Ready (k3d) + pod summary.
@@ -572,6 +576,19 @@ PREFLIGHT_PERF_ARTIFACTS="${PREFLIGHT_PERF_ARTIFACTS:-1}"
 info "PREFLIGHT_PERF_ARTIFACTS=${PREFLIGHT_PERF_ARTIFACTS} (matrix + protocol-comparison.csv + canonical bundle under PREFLIGHT_RUN_DIR; 0=skip)"
 info "PREFLIGHT_PERF_MATRIX_STRICT=${PREFLIGHT_PERF_MATRIX_STRICT:-0} PREFLIGHT_PERF_EXTRACT_PROTOCOL_CSV=${PREFLIGHT_PERF_EXTRACT_PROTOCOL_CSV:-1} PREFLIGHT_OPEN_PROTOCOL_CSV=${PREFLIGHT_OPEN_PROTOCOL_CSV:-1}"
 
+# Forensics: pod snapshots (before/after JSON), restart-causes summary, optional CSV/PNG timeline; PREFLIGHT_FORENSIC=1 also runs cluster-log-sweep + network-command-center.
+# PREFLIGHT_FAIL_ON_RECENT_RESTART=1 — fail exit if any container lastState.terminated.finishedAt within PREFLIGHT_RECENT_RESTART_WINDOW_SEC (default 7200).
+PREFLIGHT_POD_SNAPSHOT="${PREFLIGHT_POD_SNAPSHOT:-0}"
+PREFLIGHT_FORENSIC="${PREFLIGHT_FORENSIC:-0}"
+_PREFLIGHT_FORENSICS_ENABLED=0
+[[ "${PREFLIGHT_POD_SNAPSHOT}" == "1" || "${PREFLIGHT_FORENSIC}" == "1" ]] && _PREFLIGHT_FORENSICS_ENABLED=1
+if [[ "${_PREFLIGHT_FORENSICS_ENABLED}" == "1" ]] && [[ -f "$SCRIPT_DIR/lib/preflight-forensics.sh" ]]; then
+  # shellcheck source=scripts/lib/preflight-forensics.sh
+  source "$SCRIPT_DIR/lib/preflight-forensics.sh"
+  _preflight_forensics_begin
+  info "PREFLIGHT_POD_SNAPSHOT=${PREFLIGHT_POD_SNAPSHOT} PREFLIGHT_FORENSIC=${PREFLIGHT_FORENSIC} (artifacts under \$PREFLIGHT_RUN_DIR)"
+fi
+
 # Telemetry: capture control-plane pressure during run and post-run snapshot (same as run-preflight-with-telemetry.sh).
 # Set PREFLIGHT_TELEMETRY=0 to disable. TELEMETRY_PERF=1 / TELEMETRY_HTOP=1 for optional perf/htop.
 PREFLIGHT_TELEMETRY="${PREFLIGHT_TELEMETRY:-1}"
@@ -603,6 +620,18 @@ _preflight_telemetry_on_exit() {
   [[ -n "$TELEMETRY_PERF_DATA" ]] && [[ -f "$TELEMETRY_PERF_DATA" ]] && echo "TELEMETRY_PERF_DATA=$TELEMETRY_PERF_DATA (perf report -i $TELEMETRY_PERF_DATA)"
   [[ -n "${PREFLIGHT_RUN_DIR:-}" ]] && [[ -f "${TELEMETRY_LIVE_CSV:-$REPO_ROOT/live-telemetry.csv}" ]] && cp -f "${TELEMETRY_LIVE_CSV:-$REPO_ROOT/live-telemetry.csv}" "$PREFLIGHT_RUN_DIR/live-telemetry.csv" 2>/dev/null || true
 }
+
+_preflight_combined_exit() {
+  local e=$?
+  _preflight_telemetry_on_exit
+  if [[ "${_PREFLIGHT_FORENSICS_ENABLED:-0}" == "1" ]] && [[ -f "${SCRIPT_DIR}/lib/preflight-forensics.sh" ]]; then
+    # shellcheck source=scripts/lib/preflight-forensics.sh
+    source "${SCRIPT_DIR}/lib/preflight-forensics.sh"
+    _preflight_forensics_finalize || e=1
+  fi
+  exit "$e"
+}
+
 if [[ "$PREFLIGHT_TELEMETRY" == "1" ]]; then
   TELEMETRY_TS="$PREFLIGHT_RUN_STAMP"
   TELEMETRY_DURING="$PREFLIGHT_RUN_DIR/telemetry-during.log"
@@ -611,9 +640,11 @@ if [[ "$PREFLIGHT_TELEMETRY" == "1" ]]; then
   # Live CSV for dashboard: fixed name at repo root so a static file server can fetch it; copy also under run dir.
   TELEMETRY_LIVE_CSV="${TELEMETRY_LIVE_CSV:-$REPO_ROOT/live-telemetry.csv}"
   [[ "${TELEMETRY_PERF:-0}" == "1" ]] && TELEMETRY_PERF_DATA="$PREFLIGHT_RUN_DIR/perf.data"
-  trap 'e=$?; _preflight_telemetry_on_exit; exit $e' EXIT
+  trap 'e=$?; _preflight_combined_exit' EXIT
   : > "$TELEMETRY_DURING"
   # Telemetry loop is started after step 0 (kill stale) so it is never mistaken for a stale process.
+elif [[ "${_PREFLIGHT_FORENSICS_ENABLED:-0}" == "1" ]]; then
+  trap 'e=$?; _preflight_combined_exit' EXIT
 fi
 
 _phase_a_only()  { [[ "$PREFLIGHT_PHASE" == "A" ]]; }
@@ -1880,8 +1911,13 @@ _apply_k3d_host_aliases() {
         fi
       fi
     else
-      _host_ip=$(docker run --rm --network k3d-off-campus-housing-tracker 2>/dev/null alpine getent hosts host.k3d.internal 2>/dev/null | awk '{print $1}' || true)
-      [[ -z "$_host_ip" ]] && _host_ip=$(docker run --rm alpine getent hosts host.docker.internal 2>/dev/null | awk '{print $1}' || true)
+      _host_ip="$(
+        docker run --rm --network k3d-off-campus-housing-tracker alpine \
+          sh -c 'getent hosts host.k3d.internal' 2>/dev/null | awk '{print $1}' || true
+      )"
+      [[ -z "$_host_ip" ]] && _host_ip="$(
+        docker run --rm alpine sh -c 'getent hosts host.docker.internal' 2>/dev/null | awk '{print $1}' || true
+      )"
       _host_ip="${_host_ip:-172.20.0.1}"
     fi
   fi
@@ -2745,18 +2781,71 @@ elif [[ "${PREFLIGHT_SKIP_KAFKA_ADVERTISED_LISTENERS_GATE:-0}" == "1" ]]; then
   warn "PREFLIGHT_SKIP_KAFKA_ADVERTISED_LISTENERS_GATE=1 — skipping KRaft advertised.listeners verification"
 fi
 
-# 6a2c3–6a2c5. KRaft quorum + leadership log sanity + broker API on headless :9093 (same checks as make verify-kafka-cluster phases 3–5).
+# 6a2c2b. Single gate: LB vs advertised + TLS leaf SAN vs LB IPs (fails before full verify-kafka-cluster ritual).
+if [[ "${PREFLIGHT_KAFKA_SUBSTRATE:-kraft}" == "kraft" ]] && [[ "${PREFLIGHT_SKIP_KAFKA_RUNTIME_SYNC_GATE:-0}" != "1" ]]; then
+  say "6a2c2b. kafka-runtime-sync (advertised + TLS SAN vs MetalLB)…"
+  chmod +x "$SCRIPT_DIR/kafka-runtime-sync.sh" 2>/dev/null || true
+  if [[ -f "$SCRIPT_DIR/kafka-runtime-sync.sh" ]]; then
+    HOUSING_NS="$_sk_ns" KAFKA_BROKER_REPLICAS="$_sk_rep" bash "$SCRIPT_DIR/kafka-runtime-sync.sh" --check-only "$_sk_ns" "$_sk_rep" \
+      || fail "6a2c2b kafka-runtime-sync failed — SAN/advertised/LB drift (run: make kafka-sync-metallb or ./scripts/kafka-runtime-sync.sh --remediate)"
+    ok "6a2c2b kafka-runtime-sync gate passed"
+  else
+    fail "6a2c2b kafka-runtime-sync.sh missing"
+  fi
+elif [[ "${PREFLIGHT_SKIP_KAFKA_RUNTIME_SYNC_GATE:-0}" == "1" ]]; then
+  warn "PREFLIGHT_SKIP_KAFKA_RUNTIME_SYNC_GATE=1 — skipping kafka-runtime-sync gate"
+fi
+
+# verify-kafka-cluster.sh: full ritual (6a2c0 meta, 6a2c SANs, 6a2c2 advertised, 6a2c6 CA/JKS, 6a2c3–5 quorum/logs/API).
+# Do not pass VERIFY_KAFKA_HEALTH_ONLY=1 here — that skipped meta/SAN/advertised inside verify-kafka-cluster.sh. Clear inherited skips for this subprocess.
 if [[ "${PREFLIGHT_KAFKA_SUBSTRATE:-kraft}" == "kraft" ]] && [[ "${PREFLIGHT_SKIP_KAFKA_KRAFT_HEALTH_GATES:-0}" != "1" ]]; then
-  say "6a2c3–6a2c5. Kafka KRaft health (quorum, leadership logs, broker API on kafka:9093)..."
+  say "verify-kafka-cluster.sh (full). Kafka KRaft: meta identity, TLS SANs, advertised.listeners, CA consistency, quorum, leadership logs, broker API (kafka:9093)..."
   chmod +x "$SCRIPT_DIR/verify-kafka-cluster.sh" 2>/dev/null || true
   if [[ -f "$SCRIPT_DIR/verify-kafka-cluster.sh" ]]; then
-    VERIFY_KAFKA_HEALTH_ONLY=1 HOUSING_NS="$_sk_ns" KAFKA_BROKER_REPLICAS="$_sk_rep" bash "$SCRIPT_DIR/verify-kafka-cluster.sh" "$_sk_ns" "$_sk_rep" || fail "6a2c3–6a2c5 verify-kafka-cluster.sh (health gates) failed — check quorum, broker logs, or headless Service/DNS"
-    ok "6a2c3–6a2c5 KRaft health gates passed"
+    VERIFY_KAFKA_HEALTH_ONLY=0 \
+      VERIFY_KAFKA_SKIP_META_IDENTITY=0 \
+      VERIFY_KAFKA_SKIP_TLS_SANS=0 \
+      VERIFY_KAFKA_SKIP_ADVERTISED=0 \
+      VERIFY_KAFKA_SKIP_TLS_CONSISTENCY=0 \
+      VERIFY_KAFKA_SKIP_QUORUM_GATE=0 \
+      VERIFY_KAFKA_SKIP_LEADERSHIP_CHURN_GATE=0 \
+      VERIFY_KAFKA_SKIP_BROKER_API_GATE=0 \
+      HOUSING_NS="$_sk_ns" KAFKA_BROKER_REPLICAS="$_sk_rep" \
+      bash "$SCRIPT_DIR/verify-kafka-cluster.sh" "$_sk_ns" "$_sk_rep" \
+      || fail "verify-kafka-cluster.sh failed — fix meta/SANs/advertised/CA/quorum/broker API (see script phases)"
+    ok "verify-kafka-cluster.sh (full ritual) passed"
   else
-    fail "6a2c3–6a2c5 verify-kafka-cluster.sh missing"
+    fail "verify-kafka-cluster.sh missing"
   fi
 elif [[ "${PREFLIGHT_SKIP_KAFKA_KRAFT_HEALTH_GATES:-0}" == "1" ]]; then
-  warn "PREFLIGHT_SKIP_KAFKA_KRAFT_HEALTH_GATES=1 — skipping KRaft quorum / leadership-churn / broker API gates"
+  warn "PREFLIGHT_SKIP_KAFKA_KRAFT_HEALTH_GATES=1 — skipping verify-kafka-cluster.sh (entire Kafka cluster ritual)"
+fi
+
+# 6a2c9. Kafka alignment suite — ON by default for KRaft (safe tests: runtime re-check + TLS verifier); skip with PREFLIGHT_SKIP_KAFKA_ALIGNMENT_SUITE=1.
+# Skipped automatically when entire KRaft health ritual is skipped. Destructive suite: PREFLIGHT_KAFKA_ALIGNMENT_SUITE_DESTRUCTIVE=1.
+if [[ "${PREFLIGHT_KAFKA_SUBSTRATE:-kraft}" == "kraft" ]] && [[ "${PREFLIGHT_SKIP_KAFKA_ALIGNMENT_SUITE:-0}" != "1" ]]; then
+  if [[ "${PREFLIGHT_SKIP_KAFKA_KRAFT_HEALTH_GATES:-0}" == "1" ]]; then
+    warn "PREFLIGHT_SKIP_KAFKA_KRAFT_HEALTH_GATES=1 — skipping 6a2c9 Kafka alignment suite (no KRaft ritual)"
+  else
+    say "6a2c9. Kafka alignment test suite (strict default; skip: PREFLIGHT_SKIP_KAFKA_ALIGNMENT_SUITE=1)…"
+    chmod +x "$SCRIPT_DIR/tests/kafka-alignment-suite.sh" 2>/dev/null || true
+    if [[ ! -f "$SCRIPT_DIR/tests/kafka-alignment-suite.sh" ]]; then
+      fail "6a2c9 scripts/tests/kafka-alignment-suite.sh missing"
+    fi
+    if [[ "${PREFLIGHT_KAFKA_ALIGNMENT_SUITE_DESTRUCTIVE:-0}" == "1" ]]; then
+      _ka_suite_mode=1
+      warn "PREFLIGHT_KAFKA_ALIGNMENT_SUITE_DESTRUCTIVE=1 — suite will mutate Kafka (Services, pods, rollout, advertised.listeners)"
+    else
+      _ka_suite_mode=0
+    fi
+    HOUSING_NS="$_sk_ns" KAFKA_BROKER_REPLICAS="$_sk_rep" KAFKA_ALIGNMENT_SKIP_TEST1_VERIFY=1 \
+      KAFKA_ALIGNMENT_TEST_MODE="$_ka_suite_mode" \
+      bash "$SCRIPT_DIR/tests/kafka-alignment-suite.sh" \
+      || fail "6a2c9 Kafka alignment suite failed — fix MetalLB/TLS/advertised drift (make kafka-sync-metallb / kafka-runtime-sync --remediate) or set PREFLIGHT_SKIP_KAFKA_ALIGNMENT_SUITE=1 to opt out"
+    ok "6a2c9 Kafka alignment suite passed"
+  fi
+elif [[ "${PREFLIGHT_KAFKA_SUBSTRATE:-kraft}" == "kraft" ]] && [[ "${PREFLIGHT_SKIP_KAFKA_ALIGNMENT_SUITE:-0}" == "1" ]]; then
+  warn "PREFLIGHT_SKIP_KAFKA_ALIGNMENT_SUITE=1 — skipping 6a2c9 Kafka alignment suite"
 fi
 
 # 6a2d. Optional in-cluster mTLS handshake Job (headless INTERNAL :9093, och-kafka-ssl-secret).
@@ -2841,18 +2930,19 @@ kubectl get pods -n ingress-nginx --no-headers 2>/dev/null | head -5
 kubectl get pods -n envoy-test --no-headers 2>/dev/null | head -5
 ok "6b3 cluster health and pod summary done"
 
-# End of 3a–6b block (Phase C skips above and runs only 7 and 8).
-# Single fi closes if ! _phase_c_only (line ~1227). Use plain if/fi (avoid `} fi` after `&& { … }` — some bash builds mis-parse).
+# End of 3a-6b block. Phase C skips this whole section and runs only steps 7 and 8.
+# Next fi closes if _phase_a_only; following fi closes if ! _phase_c_only (opened near Phase 1B).
 if _phase_a_only; then
-  ok "Phase A complete — control-plane sanity. Run Phase B for cert, then full or Phase C for load. See docs/PREFLIGHT_PHASES_README.md"
+  ok "Phase A complete - control-plane sanity. Run Phase B for cert, then full or Phase C for load. See docs/PREFLIGHT_PHASES_README.md"
   exit 0
 fi
 fi
 
-# 6c. (pgbench moved to step 8 so all 8 pgbench runs come after test suites and do not block or slow earlier steps.)
+# 6c: pgbench moved to step 8 so all eight pgbench runs come after test suites.
 
-# 6d. Ensure xk6-http3 binary is built when RUN_K6=1 (so k6 HTTP/3 phases run in step 7). Skip if already present or SKIP_XK6_BUILD=1.
-if [[ "${RUN_K6:-0}" == "1" ]] && [[ "${SKIP_XK6_BUILD:-0}" != "1" ]]; then
+# 6d. Ensure xk6-http3 binary is built when RUN_K6=1 (k6 HTTP/3 phases in step 7). Skip if already present or SKIP_XK6_BUILD=1.
+if [[ "${RUN_K6:-0}" == "1" ]] && [[ "${SKIP_XK6_BUILD:-0}" != "1" ]]
+then
   K6_HTTP3_BIN=""
   for candidate in "$REPO_ROOT/.k6-build/bin/k6-http3" "$REPO_ROOT/.k6-build/k6-http3"; do
     if [[ -x "$candidate" ]]; then K6_HTTP3_BIN="$candidate"; break; fi
@@ -2861,7 +2951,18 @@ if [[ "${RUN_K6:-0}" == "1" ]] && [[ "${SKIP_XK6_BUILD:-0}" != "1" ]]; then
     ok "xk6-http3 already built: $K6_HTTP3_BIN"
   elif [[ -f "$SCRIPT_DIR/build-k6-http3.sh" ]]; then
     say "6d. Building xk6-http3 (required for k6 HTTP/3 phases)..."
-    ( cd "$REPO_ROOT" && chmod +x "$SCRIPT_DIR/build-k6-http3.sh" 2>/dev/null && "$SCRIPT_DIR/build-k6-http3.sh" 2>&1 ) && ok "xk6-http3 build done" || warn "xk6-http3 build had issues (HTTP/3 phases will be skipped if binary missing)"
+    _k6_build_ok=0
+    _k6_oldpwd=$(pwd)
+    if cd "$REPO_ROOT"; then
+      chmod +x "$SCRIPT_DIR/build-k6-http3.sh" 2>/dev/null || true
+      if "$SCRIPT_DIR/build-k6-http3.sh" 2>&1; then _k6_build_ok=1; fi
+    fi
+    cd "$_k6_oldpwd" >/dev/null 2>&1 || true
+    if [[ "$_k6_build_ok" -eq 1 ]]; then
+      ok "xk6-http3 build done"
+    else
+      warn "xk6-http3 build had issues (HTTP/3 phases will be skipped if binary missing)"
+    fi
   else
     warn "build-k6-http3.sh not found; HTTP/3 phases will be skipped if .k6-build/bin/k6-http3 missing"
   fi
@@ -3257,7 +3358,19 @@ fi
 export TRANSPORT_STUDY=1
 if [[ -f "$SCRIPT_DIR/run-transport-study-experiments.sh" ]]; then
   say "7b. Transport-layer study experiments"
-  export WIRE_CAPTURE_DIR="${WIRE_CAPTURE_DIR:-$(ls -td /tmp/rotation-wire-* 2>/dev/null | head -1)}"
+  if [[ -z "${WIRE_CAPTURE_DIR:-}" ]]; then
+    _och_wire_newest="" _och_wire_best=-1
+    shopt -s nullglob
+    for d in /tmp/rotation-wire-*; do
+      [[ -d "$d" ]] || continue
+      _och_t=$(stat -f %m "$d" 2>/dev/null || stat -c %Y "$d" 2>/dev/null || echo 0)
+      ((_och_t > _och_wire_best)) && { _och_wire_best=$_och_t; _och_wire_newest=$d; }
+    done
+    shopt -u nullglob
+    export WIRE_CAPTURE_DIR="${_och_wire_newest}"
+  else
+    export WIRE_CAPTURE_DIR
+  fi
   [[ "${ROTATION_UDP_STATS:-0}" != "1" ]] && info "  ROTATION_UDP_STATS=0: Experiment 1 UDP drop diff will be skipped (set 1 for Colima)"
   ( set +e; TRANSPORT_STUDY=1 "$SCRIPT_DIR/run-transport-study-experiments.sh" ) || warn "Transport study had issues"
 fi
@@ -3422,7 +3535,7 @@ if [[ "${RUN_PGBENCH:-0}" == "1" ]]; then
         if [[ -f "$_f" ]]; then
           echo ""
           echo "  ========== $(basename "$_f" .txt) (DB/schema plan; Index Scan vs Seq Scan in plan) =========="
-          cat "$_f" | sed 's/^/  /'
+          sed 's/^/  /' < "$_f"
         fi
       done
       echo ""

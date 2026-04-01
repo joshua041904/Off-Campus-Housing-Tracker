@@ -1,0 +1,4 @@
+@startuml placeholder
+title Placeholder diagram (CI / local PlantUML smoke)
+Alice -> Bob: hello
+@enduml

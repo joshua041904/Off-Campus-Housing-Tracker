@@ -2,6 +2,8 @@
 # Build every OCH backend image in HOUSING_DOCKER_SERVICES_DEFAULT, load into Colima Docker, and
 # rollout restart each Deployment that exists in the namespace (transport-watchdog → api-gateway).
 #
+# End-to-end ship check (rollouts + Kafka + alignment): ./scripts/golden-snapshot-verify.sh or make golden-snapshot
+#
 # Usage (repo root, Colima running):
 #   ./scripts/rebuild-all-housing-images-k3s.sh
 #   ROLLOUT=0 ./scripts/rebuild-all-housing-images-k3s.sh   # build + load only

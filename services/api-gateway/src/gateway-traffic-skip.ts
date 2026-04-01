@@ -9,7 +9,7 @@ export function gatewayPathOnly(req: Request): string {
 export function skipsGatewayTrafficControls(req: Request): boolean {
   if (req.method === "OPTIONS") return true;
   const p = gatewayPathOnly(req);
-  if (p === "/healthz" || p === "/api/healthz") return true;
+  if (p === "/healthz" || p === "/api/healthz" || p === "/health" || p === "/api/health") return true;
   if (p === "/readyz" || p === "/api/readyz") return true;
   if (p === "/metrics") return true;
   if (p === "/whoami") return true;

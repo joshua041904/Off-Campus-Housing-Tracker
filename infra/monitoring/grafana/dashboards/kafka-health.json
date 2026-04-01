@@ -1,0 +1,20 @@
+{
+  "title": "OCH — Kafka health (stub)",
+  "uid": "och-kafka-health",
+  "schemaVersion": 39,
+  "version": 1,
+  "tags": ["och", "kafka"],
+  "timezone": "browser",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Wire: broker uptime, ISR, consumer lag, controller elections",
+      "type": "text",
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 0 },
+      "options": {
+        "content": "Connect to Kafka JMX / Strimzi metrics. Forensic logs: kubectl logs kafka-0 -c kafka --since=24h | grep -E 'QuorumController|RaftManager|disconnected'"
+      }
+    }
+  ],
+  "time": { "from": "now-6h", "to": "now" }
+}

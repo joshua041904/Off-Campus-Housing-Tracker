@@ -37,6 +37,8 @@ if ! command -v pg_restore >/dev/null 2>&1; then
 fi
 
 echo "🧨 Dropping and recreating auth DB..."
+psql -h "$HOST" -p "$PORT" -U postgres -d postgres -v ON_ERROR_STOP=0 -q -t -c \
+  "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$DB' AND pid <> pg_backend_pid();" 2>/dev/null || true
 psql -h "$HOST" -p "$PORT" -U postgres -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS $DB;"
 psql -h "$HOST" -p "$PORT" -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE $DB;"
 

@@ -12,6 +12,7 @@ Housing **notification heartbeat** worker only: every **5 minutes** (UTC) it `PO
 
 ```bash
 pnpm install
+pnpm run build
 NOTIFICATION_HEARTBEAT_URL=http://127.0.0.1:4015/internal/cron/heartbeat pnpm start
 ```
 
