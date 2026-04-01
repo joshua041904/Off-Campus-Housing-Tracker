@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# After bring-up-external-infra.sh: bootstrap all DBs from infra/db, then restore auth from backups/5437-auth.dump if present.
+# After bring-up-external-infra.sh when NOT using RESTORE_BACKUP_DIR: bootstrap all DBs from infra/db, then optional 5437-auth.dump.
+# If you used RESTORE_BACKUP_DIR (all-8 dumps), bring-up-cluster-and-infra.sh skips this script by default — dumps already contain schemas.
 # Expects Postgres on 5441–5447 (and optionally 5448 for media). Redis and Kafka already up (6380, 9092/29094).
 #
 # Usage:

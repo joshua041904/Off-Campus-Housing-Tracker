@@ -12,7 +12,6 @@
 #   KAFKA_ADVERTISED_VERIFY_TIMEOUT — kubectl exec timeout seconds (default 25)
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NS="${1:-${HOUSING_NS:-off-campus-housing-tracker}}"
 REPLICAS="${2:-${KAFKA_BROKER_REPLICAS:-3}}"
 EXEC_TO="${KAFKA_ADVERTISED_VERIFY_TIMEOUT:-25}"
@@ -30,7 +29,6 @@ for ((i = 0; i < REPLICAS; i++)); do
   pod="kafka-${i}"
   svc="kafka-${i}-external"
   internal_fqdn="${pod}.kafka.${NS}.svc.cluster.local"
-  want_internal="INTERNAL://${internal_fqdn}:9093"
 
   if ! kubectl get pod "$pod" -n "$NS" --request-timeout=20s >/dev/null 2>&1; then
     bad "Pod $pod not found in $NS"
@@ -52,7 +50,6 @@ for ((i = 0; i < REPLICAS; i++)); do
     continue
   fi
 
-  want_external="EXTERNAL://${lb_ip}:9094"
   line="$(kubectl exec -n "$NS" "$pod" -c kafka --request-timeout="${EXEC_TO}s" -- \
     grep -E '^advertised\.listeners=' /etc/kafka/kafka.properties 2>/dev/null | head -1 || true)"
   if [[ -z "$line" ]]; then

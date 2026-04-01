@@ -1,6 +1,7 @@
 import express, { type NextFunction, type Request, type Response } from "express";
-import { kafka, register, httpCounter, createHttpConcurrencyGuard } from "@common/utils";
+import { kafka, register, httpCounter, createHttpConcurrencyGuard, userLifecycleV1Topic } from "@common/utils";
 import { ensureKafkaBrokerReady } from "@common/utils/kafka";
+import { startBookingUserLifecycleConsumer } from "./user-lifecycle-consumer.js";
 import { Prisma } from "../prisma/generated/client/index.js";
 import { prisma } from "./lib/prisma.js";
 import { randomUUID } from "node:crypto";
@@ -356,11 +357,18 @@ app.get("/:bookingId", requireUser, async (req: AuthedRequest, res: Response) =>
 });
 
 async function main() {
-  await ensureKafkaBrokerReady("booking-service", { requiredTopics: [BOOKING_EVENTS_TOPIC] });
+  await ensureKafkaBrokerReady("booking-service", {
+    requiredTopics: [BOOKING_EVENTS_TOPIC, userLifecycleV1Topic()],
+  });
   app.listen(HTTP_PORT, "0.0.0.0", () => {
     console.log(`[booking] HTTP server listening on port ${HTTP_PORT}`);
   });
   startGrpcServer(GRPC_PORT);
+  setImmediate(() => {
+    void startBookingUserLifecycleConsumer().catch((e) =>
+      console.error("[booking-service] user lifecycle consumer:", e),
+    );
+  });
 }
 
 void main().catch((e) => {

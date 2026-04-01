@@ -27,19 +27,27 @@ RUN corepack enable && corepack prepare pnpm@9.11.0 --activate
 # Copy installed dependencies from deps stage
 COPY --from=deps /app /app
 
-# Copy source code (changes frequently, invalidates cache)
+# Copy source (no node_modules in build context — this replaces service dirs from deps).
 COPY services/common ./services/common
 COPY services/cron-jobs ./services/cron-jobs
+
+# Re-link node_modules after COPY (otherwise tsc and other devDeps are missing).
+RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
+    --mount=type=cache,id=pnpm-cache,target=/root/.cache/pnpm \
+    pnpm -w \
+      --filter @common/utils... \
+      --filter cron-jobs... \
+      install --frozen-lockfile --ignore-scripts
 
 # Build with cache mount for faster subsequent builds
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
     pnpm -C services/common build \
  && pnpm -C services/cron-jobs build \
- && pnpm -C services/cron-jobs prune --prod --config.confirmModulesPurge=false
+ && pnpm -C services/cron-jobs prune --prod --config.confirmModulesPurge=false --ignore-scripts
 
 # Produce isolated deploy bundle (production deps only). Use same store mount so deploy copies from cache — no network.
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
-    pnpm deploy --filter cron-jobs --prod /app/deploy
+    pnpm deploy --filter cron-jobs --prod /app/deploy --ignore-scripts
 
 # ---------- runtime ----------
 FROM node:20-alpine

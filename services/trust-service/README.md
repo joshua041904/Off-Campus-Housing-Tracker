@@ -25,7 +25,9 @@ Apply schema: `PGPASSWORD=postgres ./scripts/ensure-trust-schema.sh` or `psql -h
 
 | Area | Files / notes |
 |------|----------------|
+| **HTTP flag listing** | [`src/http-server.ts`](src/http-server.ts) — `POST /flag-listing` (same insert as gRPC `FlagListing`; requires `x-user-id`). |
 | **HTTP report abuse** | [`src/http-server.ts`](src/http-server.ts) — `POST /report-abuse` (validation, `INSERT`, generic `500` on catch). |
+| **Integration tests** | `pnpm run test:integration` — real DB on **5446**; `SKIP_TRUST_INTEGRATION=1` to skip. Repo root: `make trust-integration-tests`. |
 | **gRPC report / flag** | [`src/grpc-server.ts`](src/grpc-server.ts) — `ReportAbuse`, `FlagListing` (same `INSERT` idea; errors → `INTERNAL` + `"failed"`). |
 | **Schema intent** | [`infra/db/01-trust-schema.sql`](../../infra/db/01-trust-schema.sql) — comment: *one listing can be flagged multiple times*; **no** `UNIQUE` on `(listing_id, reporter_id)` etc., so duplicate reports = **multiple rows** today (not corrupted state, but may not match idempotent product behavior). |
 | **Peer review pattern to copy** | Same [`src/http-server.ts`](src/http-server.ts): `peer-review` maps `23505` / `"unique"` → **409** `{ "error": "duplicate review" }`. Flag paths do not yet (needs product rule: duplicate = new row vs **409** vs return existing `flag_id`). |

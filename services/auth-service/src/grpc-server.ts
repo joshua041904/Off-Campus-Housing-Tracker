@@ -211,7 +211,7 @@ const authService = {
       
       // Cache miss - check database
       const existing = await prisma.$queryRaw<Array<{ id: string }>>`
-        SELECT id FROM auth.users WHERE email = ${email}
+        SELECT id FROM auth.users WHERE email = ${email} AND COALESCE(is_deleted, false) = false
       `.then((r: Array<any>) => r[0] || null);
       const checkDuration = Date.now() - checkStart;
       console.log(`[gRPC] Register: SELECT existing user took ${checkDuration}ms (cache miss)`);
@@ -326,7 +326,7 @@ const authService = {
           SELECT id, email, password_hash as "passwordHash", mfa_enabled as "mfaEnabled",
                  email_verified as "emailVerified", phone_verified as "phoneVerified", created_at as "createdAt"
           FROM auth.users
-          WHERE email = ${email}
+          WHERE email = ${email} AND COALESCE(is_deleted, false) = false
         `.then((r: Array<any>) => r[0] || null);
         
         if (dbUser) {
@@ -488,17 +488,25 @@ const authService = {
         }
       }
 
-      // Verify user exists
-      const user = await prisma.$queryRaw<Array<{ id: string; email: string; createdAt: Date }>>`
-        SELECT id, email, created_at as "createdAt"
+      // Verify user exists and is not deleted
+      const user = await prisma.$queryRaw<
+        Array<{ id: string; email: string | null; createdAt: Date; isDeleted: boolean }>
+      >`
+        SELECT id, email, created_at as "createdAt", COALESCE(is_deleted, false) as "isDeleted"
         FROM auth.users
         WHERE id = ${userId}::uuid
-      `.then((r: Array<{ id: string; email: string; createdAt: Date }>) => r[0] || null);
+      `.then((r: Array<{ id: string; email: string | null; createdAt: Date; isDeleted: boolean }>) => r[0] || null);
       
       if (!user) {
         return callback({
           code: grpc.status.UNAUTHENTICATED,
           message: "user not found",
+        });
+      }
+      if (user.isDeleted) {
+        return callback({
+          code: grpc.status.UNAUTHENTICATED,
+          message: "account deleted",
         });
       }
 
@@ -571,12 +579,14 @@ const authService = {
         }
       }
 
-      // Verify user exists
-      const user = await prisma.$queryRaw<Array<{ id: string; email: string }>>`
-        SELECT id, email
+      // Verify user exists and is not deleted
+      const user = await prisma.$queryRaw<
+        Array<{ id: string; email: string | null; isDeleted: boolean }>
+      >`
+        SELECT id, email, COALESCE(is_deleted, false) as "isDeleted"
         FROM auth.users
         WHERE id = ${userId}::uuid
-      `.then((r: Array<{ id: string; email: string }>) => r[0] || null);
+      `.then((r: Array<{ id: string; email: string | null; isDeleted: boolean }>) => r[0] || null);
       
       if (!user) {
         return callback({
@@ -584,10 +594,16 @@ const authService = {
           message: "user not found",
         });
       }
+      if (user.isDeleted) {
+        return callback({
+          code: grpc.status.UNAUTHENTICATED,
+          message: "account deleted",
+        });
+      }
 
       // Generate new token
       const newJti = randomUUID();
-      const newPayload: any = { sub: user.id, email: user.email, jti: newJti };
+      const newPayload: any = { sub: user.id, email: user.email ?? "", jti: newJti };
       const newToken = signJwt(newPayload);
 
       const duration = Date.now() - startTime;

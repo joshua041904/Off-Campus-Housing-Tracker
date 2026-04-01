@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Canonical dev deploy: k3s up → namespace → secrets → ConfigMap → manifests → wait readiness → smoke test.
-# External infra (Postgres 5441–5448, Kafka, Redis) must be up; run bootstrap-all-dbs.sh or restore-auth-db.sh first.
+# External infra (Postgres 5441–5448, Redis) must be up; in-cluster Kafka (KRaft) should be applied and ready. Run bootstrap-all-dbs.sh or restore as needed.
 #
 # Usage: ./scripts/deploy-dev.sh
 #   SKIP_SMOKE=1           — do not run smoke test after deploy

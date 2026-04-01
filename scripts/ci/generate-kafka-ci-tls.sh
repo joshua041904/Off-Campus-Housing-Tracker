@@ -87,7 +87,7 @@ echo -n "$PASS" > "$OUT/kafka.truststore-password"
 echo -n "$PASS" > "$OUT/kafka.key-password"
 
 chmod +x "$REPO_ROOT/scripts/verify-kafka-broker-keystore-jks.sh" 2>/dev/null || true
-KAFKA_KEYSTORE_PATH="$OUT/kafka.keystore.jks" \
+env KAFKA_KEYSTORE_PATH="$OUT/kafka.keystore.jks" \
   KAFKA_KEYSTORE_PASSWORD_FILE="$OUT/kafka.keystore-password" \
   REPO_ROOT="$REPO_ROOT" \
   bash "$REPO_ROOT/scripts/verify-kafka-broker-keystore-jks.sh" || exit 1

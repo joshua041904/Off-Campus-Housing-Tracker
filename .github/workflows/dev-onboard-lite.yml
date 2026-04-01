@@ -1,0 +1,25 @@
+name: Dev onboard lite
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/**'
+      - 'infra/k8s/**'
+      - 'Makefile'
+
+jobs:
+  validate-onboard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify bash (Make uses SHELL for recipes)
+        run: bash --version
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'v1.29.0'
+
+      - name: Run dev-onboard-lite
+        run: make dev-onboard-lite

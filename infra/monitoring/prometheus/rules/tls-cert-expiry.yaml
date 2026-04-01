@@ -1,0 +1,13 @@
+# TLS expiry alerts — enable after exposing tls_cert_expiry_seconds or similar
+# (e.g. scripts/tls-k8s-secrets-expiry.sh + node_exporter textfile, or x509-certificate-exporter).
+#
+# Example (disabled):
+# groups:
+#   - name: och-tls-expiry
+#     rules:
+#       - alert: TLSCertExpiringSoon
+#         expr: (tls_cert_expiry_seconds - time()) / 86400 < 14
+#         for: 1h
+#         labels:
+#           severity: warning
+groups: []

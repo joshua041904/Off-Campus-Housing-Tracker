@@ -8,7 +8,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE SCHEMA IF NOT EXISTS media;
 
-CREATE TABLE media.media_files (
+CREATE TABLE IF NOT EXISTS media.media_files (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id     UUID NOT NULL,
   object_key  TEXT NOT NULL,
@@ -20,8 +20,8 @@ CREATE TABLE media.media_files (
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_media_user_id ON media.media_files(user_id);
-CREATE INDEX idx_media_status ON media.media_files(status);
+CREATE INDEX IF NOT EXISTS idx_media_user_id ON media.media_files(user_id);
+CREATE INDEX IF NOT EXISTS idx_media_status ON media.media_files(status);
 
 COMMENT ON TABLE media.media_files IS 'Metadata only; file bytes in object storage. status: pending (presigned URL issued), uploaded (CompleteUpload verified), failed.';
 

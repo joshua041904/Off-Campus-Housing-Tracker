@@ -1,0 +1,20 @@
+{
+  "title": "OCH — TLS / HTTP3 health (stub)",
+  "uid": "och-tls-health",
+  "schemaVersion": 39,
+  "version": 1,
+  "tags": ["och", "tls", "quic"],
+  "timezone": "browser",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Wire: TLS handshake errors, cert expiry, HTTP/3 success from your exporters",
+      "type": "text",
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 0 },
+      "options": {
+        "content": "Populate with metrics from Caddy/Envoy/gateway or custom probes. See docs/CLUSTER_FORENSICS_AND_OBSERVABILITY.md."
+      }
+    }
+  ],
+  "time": { "from": "now-6h", "to": "now" }
+}

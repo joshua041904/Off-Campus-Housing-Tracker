@@ -1,6 +1,13 @@
 /* cspell:ignore healthz */
 import express, { type Request, type Response, type NextFunction } from "express";
-import { register, httpCounter, createHttpConcurrencyGuard } from "@common/utils";
+import {
+  register,
+  httpCounter,
+  createHttpConcurrencyGuard,
+  encodeUserAccountDeletedEnvelope,
+  USER_ACCOUNT_DELETED_V1,
+  userLifecycleV1Topic,
+} from "@common/utils";
 import { signJwt, verifyJwt, type JwtPayload as TokenPayload } from "@common/utils/auth";
 import { randomUUID } from "node:crypto";
 import { createClient } from "redis";
@@ -146,7 +153,8 @@ app.post("/register", async (req: Request, res: Response) => {
 
     // Use raw SQL query to access auth.users table directly
     const existing = await prisma.$queryRaw<Array<{ id: string; email: string }>>`
-      SELECT id, email FROM auth.users WHERE email = ${email}
+      SELECT id, email FROM auth.users
+      WHERE email = ${email} AND COALESCE(is_deleted, false) = false
     `.then((r: Array<any>) => r[0] || null);
     if (existing) {
       // Cache the existing user for future lookups
@@ -236,11 +244,13 @@ app.post("/login", async (req: Request, res: Response) => {
         emailVerified: boolean;
         phoneVerified: boolean;
         createdAt: Date;
+        isDeleted: boolean;
       }>>`
-        SELECT id, email, password_hash as "passwordHash", mfa_enabled as "mfaEnabled", 
-               email_verified as "emailVerified", phone_verified as "phoneVerified", created_at as "createdAt"
+        SELECT id, email, password_hash as "passwordHash", mfa_enabled as "mfaEnabled",
+               email_verified as "emailVerified", phone_verified as "phoneVerified", created_at as "createdAt",
+               COALESCE(is_deleted, false) as "isDeleted"
         FROM auth.users
-        WHERE email = ${email}
+        WHERE email = ${email} AND COALESCE(is_deleted, false) = false
       `.then((r: Array<any>) => r[0] || null);
       
       if (dbUser) {
@@ -354,14 +364,17 @@ app.post("/validate", async (req: Request, res: Response) => {
     }
 
     // Verify user exists
-    const user = await prisma.$queryRaw<Array<{ id: string; email: string; created_at: Date }>>`
-      SELECT id, email, created_at
+    const user = await prisma.$queryRaw<Array<{ id: string; email: string | null; created_at: Date; is_deleted: boolean }>>`
+      SELECT id, email, created_at, COALESCE(is_deleted, false) as is_deleted
       FROM auth.users
       WHERE id = ${userId}::uuid
-    `.then((r: Array<{ id: string; email: string; created_at: Date }>) => r[0] || null);
+    `.then((r: Array<{ id: string; email: string | null; created_at: Date; is_deleted: boolean }>) => r[0] || null);
     
     if (!user) {
       return res.status(401).json({ error: "user not found", valid: false });
+    }
+    if (user.is_deleted) {
+      return res.status(401).json({ error: "account deleted", valid: false });
     }
 
     return res.status(200).json({
@@ -403,19 +416,22 @@ app.post("/refresh", async (req: Request, res: Response) => {
     }
 
     // Verify user exists
-    const user = await prisma.$queryRaw<Array<{ id: string; email: string }>>`
-      SELECT id, email
+    const user = await prisma.$queryRaw<Array<{ id: string; email: string | null; is_deleted: boolean }>>`
+      SELECT id, email, COALESCE(is_deleted, false) as is_deleted
       FROM auth.users
       WHERE id = ${userId}::uuid
-    `.then((r: Array<{ id: string; email: string }>) => r[0] || null);
+    `.then((r: Array<{ id: string; email: string | null; is_deleted: boolean }>) => r[0] || null);
     
     if (!user) {
       return res.status(401).json({ error: "user not found" });
     }
+    if (user.is_deleted) {
+      return res.status(401).json({ error: "account deleted" });
+    }
 
     // Generate new token
     const newJti = randomUUID();
-    const newPayload: WithJti = { sub: user.id, email: user.email, jti: newJti };
+    const newPayload: WithJti = { sub: user.id, email: user.email ?? "", jti: newJti };
     const newToken = signJwt(newPayload);
 
     return res.status(200).json({ token: newToken });
@@ -426,47 +442,129 @@ app.post("/refresh", async (req: Request, res: Response) => {
 });
 
 /**
- * Delete account endpoint:
- * - Requires authentication (Authorization: Bearer <token>)
- * - Deletes user from database (cascade deletes related records)
- * - Invalidates user cache
- * - Revokes all tokens (by invalidating all jti for this user)
- * - Returns 204 on success
+ * Delete account: soft delete + PII purge + transactional outbox row (user.account.deleted.v1).
+ * Kafka send runs in background publisher. Idempotent: second call returns already_deleted (same JWT OK).
  */
 app.delete("/account", async (req: Request, res: Response) => {
   const auth = req.headers.authorization?.split(" ")[1];
   if (!auth) return res.status(401).json({ error: "missing token" });
-  
+
   try {
     const payload = verifyJwt(auth) as WithJti;
     const userId = payload.sub;
-    
+
     if (!userId) {
       return res.status(401).json({ error: "invalid token" });
     }
 
-    // Fetch user email before deletion (for cache invalidation)
-    const user = await prisma.$queryRaw<Array<{ email: string }>>`
-      SELECT email FROM auth.users WHERE id = ${userId}::uuid
-    `.then((r: Array<any>) => r[0] || null);
+    const row = await prisma.$queryRaw<
+      Array<{ email: string | null; is_deleted: boolean }>
+    >`
+      SELECT email, COALESCE(is_deleted, false) as is_deleted
+      FROM auth.users WHERE id = ${userId}::uuid
+    `.then((r) => r[0] || null);
 
-    if (!user) {
+    if (!row) {
       return res.status(404).json({ error: "user not found" });
     }
 
-    // Invalidate user cache BEFORE delete so concurrent login gets cache miss then DB "not found" → 401
-    if (user.email) {
-      await invalidateUserCache(user.email);
+    if (row.is_deleted) {
+      return res.status(202).json({ status: "already_deleted", user_id: userId });
     }
 
-    // Delete user (cascade will handle related records: oauth_providers, mfa_settings, verification_codes, passkeys)
-    await prisma.$executeRaw`
-      DELETE FROM auth.users WHERE id = ${userId}::uuid
-    `;
+    const jti = payload.jti;
+    if (jti) {
+      try {
+        const revoked = await redis.get(`revoked:${jti}`);
+        if (revoked) {
+          return res.status(401).json({ error: "token revoked" });
+        }
+      } catch {
+        /* continue */
+      }
+    }
 
-    // Revoke all tokens for this user by setting a marker
-    // Note: We can't revoke all tokens individually, but we can mark the user as deleted
-    // Future token validation should check if user exists
+    const topic = userLifecycleV1Topic();
+    const outcome = await prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<
+        Array<{ email: string | null; is_deleted: boolean }>
+      >`
+        SELECT email, COALESCE(is_deleted, false) AS is_deleted
+        FROM auth.users WHERE id = ${userId}::uuid FOR UPDATE
+      `;
+      const u = locked[0];
+      if (!u) {
+        return { kind: "notfound" as const };
+      }
+      if (u.is_deleted) {
+        return { kind: "already_deleted" as const };
+      }
+
+      const eventId = randomUUID();
+      const deletedAtIso = new Date().toISOString();
+      const suffix = userId.replace(/-/g, "").slice(0, 8);
+      const displayUsername = `deleted_user_${suffix}`;
+      const deletedAt = new Date(deletedAtIso);
+      const envelope = encodeUserAccountDeletedEnvelope({
+        eventId,
+        payload: {
+          userId,
+          deletionMode: "anonymize",
+          gdprErasure: true,
+          requestedBy: "self",
+          deletedAtIso,
+          reason: "user_requested",
+        },
+      });
+
+      await tx.$executeRaw`DELETE FROM auth.oauth_providers WHERE user_id = ${userId}::uuid`;
+      await tx.$executeRaw`DELETE FROM auth.mfa_settings WHERE user_id = ${userId}::uuid`;
+      await tx.$executeRaw`DELETE FROM auth.verification_codes WHERE user_id = ${userId}::uuid`;
+      await tx.$executeRaw`DELETE FROM auth.passkeys WHERE user_id = ${userId}::uuid`;
+      await tx.$executeRaw`DELETE FROM auth.passkey_challenges WHERE user_id = ${userId}::uuid`;
+      await tx.$executeRaw`
+        UPDATE auth.users SET
+          email = NULL,
+          password_hash = NULL,
+          phone = NULL,
+          email_verified = false,
+          phone_verified = false,
+          mfa_enabled = false,
+          settings = NULL,
+          is_deleted = true,
+          deleted_at = ${deletedAt},
+          deletion_state = 'anonymized',
+          display_username = ${displayUsername},
+          updated_at = NOW()
+        WHERE id = ${userId}::uuid AND COALESCE(is_deleted, false) = false
+      `;
+      await tx.$executeRaw`
+        INSERT INTO auth.auth_outbox (id, aggregate_type, aggregate_id, event_type, topic, payload, created_at)
+        VALUES (
+          ${eventId}::uuid,
+          'user',
+          ${userId},
+          ${USER_ACCOUNT_DELETED_V1},
+          ${topic},
+          ${envelope},
+          NOW()
+        )
+      `;
+
+      return { kind: "accepted" as const, eventId, emailWas: u.email };
+    });
+
+    if (outcome.kind === "notfound") {
+      return res.status(404).json({ error: "user not found" });
+    }
+    if (outcome.kind === "already_deleted") {
+      return res.status(202).json({ status: "already_deleted", user_id: userId });
+    }
+
+    if (outcome.emailWas) {
+      await invalidateUserCache(outcome.emailWas);
+    }
+
     try {
       if (payload.jti) {
         const now = Math.floor(Date.now() / 1000);
@@ -474,20 +572,17 @@ app.delete("/account", async (req: Request, res: Response) => {
         const ttl = Math.max(1, exp - now);
         await redis.set(`revoked:${payload.jti}`, "1", { EX: ttl });
       }
-      // Also mark user as deleted (for any other tokens)
-      await redis.set(`user:deleted:${userId}`, "1", { EX: 86400 }); // 24h TTL
+      await redis.set(`user:deleted:${userId}`, "1", { EX: 86400 * 7 });
     } catch (redisErr) {
-      console.warn("auth-service: failed to revoke tokens in Redis:", redisErr);
-      // Continue - account deletion succeeded even if token revocation failed
+      console.warn("auth-service: redis revoke after delete:", redisErr);
     }
 
-    console.log(`[auth-service] Account deleted for user ${userId} (${user.email})`);
-    return res.status(204).send();
-  } catch (err: any) {
+    console.log(`[auth-service] Account anonymized for user ${userId} (outbox ${outcome.eventId})`);
+    return res
+      .status(202)
+      .json({ status: "accepted", user_id: userId, event_id: outcome.eventId });
+  } catch (err: unknown) {
     console.error("auth-service: delete account error:", err);
-    if (err.code === 'P2003' || err.message?.includes('foreign key')) {
-      return res.status(409).json({ error: "cannot delete account: related data exists" });
-    }
     return res.status(500).json({ error: "internal error" });
   }
 });
@@ -502,8 +597,12 @@ app.get("/me", (req: Request, res: Response) => {
       email_verified: boolean;
       phone_verified: boolean;
       mfa_enabled: boolean;
+      is_deleted: boolean;
+      display_username: string | null;
     }>>`
-      SELECT email_verified, phone_verified, mfa_enabled
+      SELECT email_verified, phone_verified, mfa_enabled,
+             COALESCE(is_deleted, false) as is_deleted,
+             display_username
       FROM auth.users
       WHERE id = ${payload.sub}::uuid
     `.then((r: any[]) => {
@@ -512,6 +611,8 @@ app.get("/me", (req: Request, res: Response) => {
         emailVerified: r[0]?.email_verified || false,
         phoneVerified: r[0]?.phone_verified || false,
         mfaEnabled: r[0]?.mfa_enabled || false,
+        is_deleted: r[0]?.is_deleted || false,
+        display_username: r[0]?.display_username ?? null,
       });
     }).catch(() => {
       res.json(payload);
@@ -685,7 +786,12 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
 
 // Start HTTP server
 const httpPort = process.env.AUTH_PORT || 4001;
-app.listen(httpPort, () => console.log(`auth HTTP server up on port ${httpPort}`));
+app.listen(httpPort, () => {
+  console.log(`auth HTTP server up on port ${httpPort}`);
+  void import("./lib/auth-outbox-publisher.js").then(({ startAuthOutboxPublisher }) => {
+    startAuthOutboxPublisher(prisma);
+  });
+});
 
 // Start gRPC server
 if (process.env.ENABLE_GRPC !== "false") {

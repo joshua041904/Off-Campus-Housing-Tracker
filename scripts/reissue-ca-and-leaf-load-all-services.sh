@@ -5,13 +5,16 @@
 # Same CA signs the leaf; dev-root-ca (tests) and off-campus-housing-local-tls (Caddy) stay in sync.
 #
 # Updates: dev-root-ca, LEAF_TLS_SECRET (default off-campus-housing-local-tls), service-tls (off-campus-housing-tracker + ingress-nginx),
+# och-service-tls (alias of service-tls for Deployments that mount och-service-tls — auth, listings, …; keeps mTLS trust aligned with api-gateway),
 # envoy-test (via sync-envoy-tls-secrets), certs/, restarts Caddy and optionally all services.
 #
 # Prerequisites: Cluster reachable (kubectl cluster-info), openssl.
 # Run from repo root, or ensure PATH includes scripts/shims for kubectl.
 #
 # Usage: ./scripts/reissue-ca-and-leaf-load-all-services.sh
+# Preferred entry for full dev TLS ordering: ./scripts/generate-canonical-dev-tls.sh (or: make tls-first-time).
 #   RESTART_SERVICES=1     (default) — restart service deployments after updating secrets (sequential ordered rollout)
+#   REISSUE_SKIP_CADDY_ROLLOUT=1 — skip step 5 Caddy restart (dev-onboard: run after Kafka TLS guard via rollout-deferred-after-kafka-tls.sh)
 #   HOST=off-campus-housing.test      — leaf CN and SANs (default off-campus-housing.test)
 #   REISSUE_CAP=0          — no cap (default). Set >0 to limit total seconds; exits 1 if exceeded.
 #   CADDY_ROLLOUT_TIMEOUT  — seconds to wait for Caddy rollout (default 120)
@@ -23,7 +26,7 @@
 #   REISSUE_STEP2_USE_APPLY=1 (default) — use kubectl apply -f (single write per secret). Set 0 to use legacy delete+create.
 #   REISSUE_PHASE1_ABORT=1 (default) — Phase 1: health gate before first apply; abort on first write failure (max 1 retry after readyz). Set 0 for legacy 12 retries.
 #   REISSUE_STEP2_SLEEP=5 — when REISSUE_PHASE1_ABORT=1 we enforce at least 5s between mutating calls.
-#   OCH_ROLLOUT_STATUS_TIMEOUT — seconds for each kubectl rollout status during step 7 (default 180).
+#   OCH_ROLLOUT_STATUS_TIMEOUT — seconds for each kubectl rollout status during step 7 (default 180; dev-onboard strict sets 300).
 
 set -euo pipefail
 
@@ -567,6 +570,22 @@ data:
     sleep "$STEP2_SLEEP"
     ok "service-tls updated (off-campus-housing-tracker) — tls.crt=leaf only, ca.crt=CA"
   fi
+  # api-gateway mounts service-tls; auth and most services mount och-service-tls — must match or gRPC mTLS /readyz fails (wrong CA).
+  log_progress "step 2c: syncing och-service-tls from service-tls…"
+  _ochd=$(mktemp -d)
+  if _kubectl_step2 -n "$NS_APP" get secret service-tls -o jsonpath='{.data.ca\.crt}' 2>/dev/null | base64 -d >"$_ochd/ca.crt" \
+    && _kubectl_step2 -n "$NS_APP" get secret service-tls -o jsonpath='{.data.tls\.crt}' 2>/dev/null | base64 -d >"$_ochd/tls.crt" \
+    && _kubectl_step2 -n "$NS_APP" get secret service-tls -o jsonpath='{.data.tls\.key}' 2>/dev/null | base64 -d >"$_ochd/tls.key"; then
+    _kubectl_step2 -n "$NS_APP" create secret generic och-service-tls \
+      --from-file=ca.crt="$_ochd/ca.crt" \
+      --from-file=tls.crt="$_ochd/tls.crt" \
+      --from-file=tls.key="$_ochd/tls.key" \
+      --dry-run=client -o yaml | _kubectl_step2 apply -f - --request-timeout=45s
+    ok "och-service-tls synced from service-tls (alias)"
+  else
+    warn "Could not read service-tls to sync och-service-tls"
+  fi
+  rm -rf "$_ochd"
   [[ -n "$SSH_DIR" ]] && rm -rf "$SSH_DIR"
 
   log_progress "step 3: syncing TLS to envoy-test…"
@@ -617,7 +636,10 @@ data:
 
   # Step 5: Restart Caddy and wait for pods Ready using only short GETs (no long-lived watch).
   # If deploy caddy-h3 does not exist (e.g. fresh cluster before preflight 3c2), skip so preflight can continue; 3c2 will apply Caddy later.
-  if ! kubectl get deploy caddy-h3 -n "$NS_ING" --request-timeout=10s >/dev/null 2>&1; then
+  if [[ "${REISSUE_SKIP_CADDY_ROLLOUT:-0}" == "1" ]]; then
+    log_progress "step 5: skipped (REISSUE_SKIP_CADDY_ROLLOUT=1 — Caddy rollout deferred until after Kafka TLS is stable)"
+    say "5. Skipping Caddy rollout (deferred)"
+  elif ! kubectl get deploy caddy-h3 -n "$NS_ING" --request-timeout=10s >/dev/null 2>&1; then
     log_progress "step 5: skipping (deploy caddy-h3 not found in $NS_ING; preflight will apply Caddy in 3c2)"
     say "5. Restarting Caddy…"
     warn "Caddy deploy not found in ingress-nginx; skipping rollout (preflight applies Caddy in step 3c2)."
@@ -734,7 +756,7 @@ data:
     OCH_ROLLOUT_NS="$NS_APP" NS_ING="$NS_ING" och_rollout_ordered_housing_apps
     unset -f och_kubectl 2>/dev/null || true
     if kctl get deploy envoy-test -n envoy-test --request-timeout=5s >/dev/null 2>&1; then
-      if [[ "$_use_vm_restart" == "1" ]]; then
+      if [[ "${USE_COLIMA_SSH:-0}" == "1" ]]; then
         colima ssh -- env KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl -n envoy-test rollout restart deploy/envoy-test --request-timeout=30s 2>/dev/null && ok "envoy-test restarted" || true
       else
         kctl -n envoy-test rollout restart deploy/envoy-test 2>/dev/null && ok "envoy-test restarted" || true

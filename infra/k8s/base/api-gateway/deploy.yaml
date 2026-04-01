@@ -10,6 +10,9 @@ spec:
   replicas: 1
   strategy:
     type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       app: api-gateway
@@ -56,6 +59,13 @@ spec:
             - name: GRPC_CLIENT_KEY
               value: "/etc/certs/tls.key"
             # Optional: GRPC_SERVER_NAME for non-cluster gRPC targets. In-cluster *.svc.cluster.local uses the target host automatically (see services/common grpc-clients.ts).
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
           volumeMounts:
             - name: service-tls
               mountPath: /etc/certs
@@ -65,9 +75,10 @@ spec:
             httpGet:
               path: /readyz
               port: 4020
-            periodSeconds: 5
-            initialDelaySeconds: 5
+            initialDelaySeconds: 20
+            periodSeconds: 10
             timeoutSeconds: 5
+            successThreshold: 1
             failureThreshold: 6
           livenessProbe:
             httpGet:

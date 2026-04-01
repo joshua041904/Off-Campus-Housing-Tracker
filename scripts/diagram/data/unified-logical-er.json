@@ -1,0 +1,103 @@
+{
+  "title": "Unified logical ER — system data model (not one physical database)",
+  "subtitle": "Solid = same-service or documented logical reference | Dashed = async/event | Dotted = projection/event → read model",
+  "clusters": [
+    {
+      "id": "auth",
+      "label": "Auth",
+      "fillcolor": "#cce5ff",
+      "entities": [
+        { "id": "users", "label": "users" },
+        { "id": "sessions", "label": "sessions" },
+        { "id": "passkeys", "label": "passkeys" },
+        { "id": "mfa_settings", "label": "mfa_settings" }
+      ]
+    },
+    {
+      "id": "listings",
+      "label": "Listings",
+      "fillcolor": "#ccffcc",
+      "entities": [
+        { "id": "listings", "label": "listings" },
+        { "id": "listing_media_ref", "label": "listing_media" },
+        { "id": "listings_outbox", "label": "outbox_events" }
+      ]
+    },
+    {
+      "id": "bookings",
+      "label": "Bookings",
+      "fillcolor": "#ffddaa",
+      "entities": [
+        { "id": "bookings", "label": "bookings" },
+        { "id": "booking_outbox", "label": "outbox_events" }
+      ]
+    },
+    {
+      "id": "messaging",
+      "label": "Messaging",
+      "fillcolor": "#e6ccff",
+      "entities": [
+        { "id": "conversations", "label": "conversations" },
+        { "id": "messages", "label": "messages" },
+        { "id": "messaging_outbox", "label": "outbox_events" }
+      ]
+    },
+    {
+      "id": "trust",
+      "label": "Trust",
+      "fillcolor": "#ffcccc",
+      "entities": [
+        { "id": "reviews", "label": "reviews" },
+        { "id": "abuse_reports", "label": "abuse_reports" },
+        { "id": "trust_outbox", "label": "outbox_events" },
+        { "id": "trust_processed", "label": "processed_events" }
+      ]
+    },
+    {
+      "id": "notification",
+      "label": "Notification",
+      "fillcolor": "#fff9c4",
+      "entities": [
+        { "id": "notifications", "label": "notifications" },
+        { "id": "notification_outbox", "label": "outbox_events" }
+      ]
+    },
+    {
+      "id": "analytics",
+      "label": "Analytics",
+      "fillcolor": "#e8e8e8",
+      "entities": [
+        { "id": "analytics_events", "label": "events / facts" },
+        { "id": "analytics_projections", "label": "daily_metrics / projections" }
+      ]
+    },
+    {
+      "id": "media",
+      "label": "Media",
+      "fillcolor": "#b2dfdb",
+      "entities": [
+        { "id": "media_objects", "label": "media assets" }
+      ]
+    }
+  ],
+  "edges": [
+    { "from": "users", "to": "listings", "label": "owner / user_id (logical)", "kind": "fk" },
+    { "from": "listings", "to": "bookings", "label": "listing_id (logical)", "kind": "fk" },
+    { "from": "users", "to": "bookings", "label": "tenant_id (logical)", "kind": "fk" },
+    { "from": "users", "to": "bookings", "label": "landlord_id (logical)", "kind": "fk" },
+    { "from": "bookings", "to": "reviews", "label": "booking_id (logical)", "kind": "fk" },
+    { "from": "listings", "to": "listing_media_ref", "label": "listing_id", "kind": "fk" },
+    { "from": "listings", "to": "conversations", "label": "listing scope (optional)", "kind": "fk" },
+    { "from": "conversations", "to": "messages", "label": "thread", "kind": "fk" },
+    { "from": "users", "to": "messages", "label": "sender (logical)", "kind": "fk" },
+    { "from": "listings", "to": "abuse_reports", "label": "flag target (logical)", "kind": "fk" },
+    { "from": "users", "to": "abuse_reports", "label": "reporter (logical)", "kind": "fk" },
+    { "from": "listings", "to": "media_objects", "label": "attachment ref (logical)", "kind": "fk" },
+    { "from": "booking_outbox", "to": "notifications", "label": "BookingConfirmed / domain events", "kind": "async" },
+    { "from": "listings_outbox", "to": "trust_processed", "label": "listing.flagged etc.", "kind": "async" },
+    { "from": "messaging_outbox", "to": "analytics_projections", "label": "message.sent", "kind": "async" },
+    { "from": "booking_outbox", "to": "analytics_projections", "label": "booking lifecycle", "kind": "projection" },
+    { "from": "listings_outbox", "to": "analytics_projections", "label": "listing events", "kind": "projection" },
+    { "from": "analytics_events", "to": "analytics_projections", "label": "rollup / ETL", "kind": "fk" }
+  ]
+}

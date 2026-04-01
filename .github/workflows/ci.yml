@@ -2,12 +2,17 @@
 # final aggregate gate fails the workflow if anomaly or any required job failed (nothing silently skipped).
 name: och-ci
 
+# pull_request: all PRs. push: default branch only — avoids duplicate runs on PR branches (push + PR
+# both firing → same concurrency group → cancel-in-progress kills the other run → mass Cancelled tests).
 on:
   push:
+    branches: [main, master, develop]
   pull_request:
 
+# Same branch name for pull_request (head) and push → one group cancels duplicate fires (PR sync used to
+# run both events with different keys and double every matrix job).
 concurrency:
-  group: och-ci-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 env:
@@ -59,6 +64,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
+      max-parallel: 5
       matrix:
         service:
           - api-gateway
@@ -87,8 +93,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm -C services/${{ matrix.service }} build
 
-  test:
-    name: Test (${{ matrix.service }})
+  # One ZooKeeper + one TLS Kafka (scripts/ci/start-kafka-tls-ci.sh), shared Postgres/Redis — avoids N parallel
+  # broker bootstraps (runner time + queue pressure). Per-service topic suffix still isolates Kafka namespaces.
+  integration-tests:
+    name: Integration tests (all services, single broker)
     runs-on: ubuntu-latest
     needs: build
     env:
@@ -97,21 +105,6 @@ jobs:
       KAFKA_CA_CERT: ${{ github.workspace }}/certs/kafka-ssl-ci/ca-cert.pem
       KAFKA_CLIENT_CERT: ${{ github.workspace }}/certs/kafka-ssl-ci/client.crt
       KAFKA_CLIENT_KEY: ${{ github.workspace }}/certs/kafka-ssl-ci/client.key
-      # Per matrix job so parallel workers never share the same topic namespace on a shared broker.
-      OCH_KAFKA_TOPIC_SUFFIX: ${{ github.run_id }}-${{ matrix.service }}
-    strategy:
-      fail-fast: false
-      matrix:
-        service:
-          - api-gateway
-          - auth-service
-          - listings-service
-          - booking-service
-          - messaging-service
-          - trust-service
-          - analytics-service
-          - media-service
-          - notification-service
     # Match docker-compose: one Postgres per domain DB on 5441–5448 + Redis on 6380 (Vitest defaults).
     services:
       postgres-auth:
@@ -231,7 +224,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - name: Ephemeral Kafka TLS (mTLS) + start Confluent broker
+      # Single Docker TLS broker (Zookeeper+Kafka) for Vitest — not in-cluster KRaft. Three-broker KRaft
+      # manifests are validated in kafka-dns-validate (kustomize + replicas:3 assert) + kafka-cluster-verify (scripts).
+      - name: Ephemeral Kafka TLS (mTLS) + start Confluent broker (once)
         run: |
           set -euo pipefail
           sudo apt-get update -y
@@ -252,20 +247,28 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y postgresql-client
           PGPASSWORD=postgres bash scripts/bootstrap-all-dbs.sh
-      - run: pnpm -C services/${{ matrix.service }} test --if-present
-      - name: listings-service Postgres + HTTP integration
-        if: matrix.service == 'listings-service'
-        env:
-          POSTGRES_URL_LISTINGS: postgresql://postgres:postgres@127.0.0.1:5442/listings
-          ANALYTICS_SYNC_MODE: "0"
-          KAFKA_CONNECT_TIMEOUT_MS: "15000"
-          OCH_GRPC_INSECURE_TEST_BIND: "1"
-        run: pnpm -C services/listings-service run test:integration
+      - name: Run service tests sequentially (shared broker)
+        run: |
+          set -euo pipefail
+          RID="${{ github.run_id }}"
+          for svc in api-gateway auth-service listings-service booking-service messaging-service trust-service analytics-service media-service notification-service; do
+            echo "::group::Test $svc"
+            export OCH_KAFKA_TOPIC_SUFFIX="${RID}-${svc}"
+            pnpm -C "services/${svc}" test --if-present
+            if [ "$svc" = listings-service ]; then
+              export POSTGRES_URL_LISTINGS="postgresql://postgres:postgres@127.0.0.1:5442/listings"
+              export ANALYTICS_SYNC_MODE="0"
+              export KAFKA_CONNECT_TIMEOUT_MS="15000"
+              export OCH_GRPC_INSECURE_TEST_BIND="1"
+              pnpm -C services/listings-service run test:integration
+            fi
+            echo "::endgroup::"
+          done
 
   transport-validation:
     name: Transport validation (Python tooling)
     runs-on: ubuntu-latest
-    needs: test
+    needs: integration-tests
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -300,7 +303,7 @@ jobs:
         env:
           PROM_URL: ${{ vars.OCH_PROMETHEUS_URL }}
 
-  # Independent of test/transport-validation so a red test matrix does not skip this check.
+  # Independent of integration-tests/transport-validation so a red test job does not skip this check.
   quic-hostname-invariant:
     name: Enforce QUIC hostname invariant
     runs-on: ubuntu-latest
@@ -311,7 +314,6 @@ jobs:
 
   playwright-strict:
     name: Strict Playwright
-    if: vars.RUN_STRICT_PLAYWRIGHT == 'true'
     runs-on: ubuntu-latest
     needs: transport-validation
     env:
@@ -326,8 +328,21 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: cd webapp && pnpm exec playwright install chromium --with-deps
-      - run: cd webapp && pnpm run test:e2e:strict-verticals-and-integrity
+      - name: Full strict E2E (RUN_STRICT_PLAYWRIGHT) or Playwright smoke (default)
+        env:
+          RUN_STRICT_PLAYWRIGHT: ${{ vars.RUN_STRICT_PLAYWRIGHT }}
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE/webapp"
+          pnpm exec playwright install chromium --with-deps
+          if [ "${RUN_STRICT_PLAYWRIGHT:-}" = "true" ]; then
+            bash "$GITHUB_WORKSPACE/scripts/dev-generate-certs.sh"
+            export NODE_EXTRA_CA_CERTS="$GITHUB_WORKSPACE/certs/dev-root.pem"
+            PLAYWRIGHT_VERTICAL_STRICT=1 PLAYWRIGHT_STRICT_HTTP3=1 pnpm run test:e2e:strict-verticals-and-integrity
+          else
+            echo "RUN_STRICT_PLAYWRIGHT not true — Playwright toolchain smoke (test --list)"
+            pnpm exec playwright test --list
+          fi
 
   och-ci-gate:
     name: Aggregate gate (performance + structural)
@@ -337,7 +352,7 @@ jobs:
       - rollup-wasm-guard
       - protocol-anomaly
       - build
-      - test
+      - integration-tests
       - transport-validation
       - slo-policy
       - quic-hostname-invariant
@@ -348,7 +363,7 @@ jobs:
           ROLLUP_GUARD: ${{ needs.rollup-wasm-guard.result }}
           PROTOCOL_ANOMALY: ${{ needs.protocol-anomaly.result }}
           BUILD: ${{ needs.build.result }}
-          TEST: ${{ needs.test.result }}
+          INTEGRATION: ${{ needs['integration-tests'].result }}
           TV: ${{ needs.transport-validation.result }}
           SLO: ${{ needs.slo-policy.result }}
           QUIC: ${{ needs.quic-hostname-invariant.result }}
@@ -359,11 +374,11 @@ jobs:
           [ "$ROLLUP_GUARD" = success ] || fail "rollup-wasm-guard: $ROLLUP_GUARD (native @rollup/rollup-* leaked into node_modules — use @rollup/wasm-node override)"
           [ "$PROTOCOL_ANOMALY" = success ] || fail "protocol-anomaly: $PROTOCOL_ANOMALY (HTTP/2 matrix collapse or missing artifacts — tuning required)"
           [ "$BUILD" = success ] || fail "build matrix: $BUILD"
-          [ "$TEST" = success ] || fail "test matrix: $TEST"
+          [ "$INTEGRATION" = success ] || fail "integration-tests: $INTEGRATION"
           [ "$TV" = success ] || fail "transport-validation: $TV"
           [ "$SLO" = success ] || fail "slo-policy: $SLO"
           [ "$QUIC" = success ] || fail "quic-hostname-invariant: $QUIC"
           if [ "$PW" != skipped ]; then
-            [ "$PW" = success ] || fail "playwright-strict: $PW"
+            [ "$PW" = success ] || fail "playwright-strict: $PW (set RUN_STRICT_PLAYWRIGHT=true for full edge E2E)"
           fi
           echo "och-ci: all required jobs succeeded."

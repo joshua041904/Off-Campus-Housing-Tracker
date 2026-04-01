@@ -5,24 +5,51 @@
 # ROLE: PERF  - ceiling/model/report/graph workflows
 # ROLE: CI    - headless-safe and regression guard flows
 # ROLE: SRE   - packet capture and strict canonical validation
+#
+# GNU Make runs recipes with $(SHELL) -c; Ubuntu /bin/sh is dash (no pipefail).
+# Use bash so targets with set -euo pipefail behave like macOS / CI consistently.
+SHELL := /usr/bin/env bash
 
 REPO_ROOT := $(abspath .)
 SCRIPTS := $(REPO_ROOT)/scripts
 BENCH := $(REPO_ROOT)/bench_logs
 export PATH := $(SCRIPTS)/shims:/opt/homebrew/bin:/usr/local/bin:$(PATH)
 
+# Strict dev-onboard: force verification gates (sub-makes inherit when dev-onboard runs).
+DEV_ONBOARD_STRICT ?= 1
+# Reissue: restart app Deployments after TLS secret updates (default 1). dev-onboard exports 0 so Kafka rolls before apps.
+RESTART_SERVICES_AFTER_TLS ?= 1
+# After Phase-0 dump restore, skip infra/db SQL in bring-up-cluster-and-infra (dev-onboard exports 1).
+SKIP_BOOTSTRAP ?= 0
+# Skip dump restore in bring-up-external-infra when Phase-0 already restored (dev-onboard exports 1 before make up).
+SKIP_AUTO_RESTORE ?= 0
+# apply-kafka-kraft: scale brokers to 0 before kafka-ssl-secret refresh (single JKS view). dev-onboard exports 1.
+KAFKA_TLS_ATOMIC_BEFORE_REFRESH ?= 0
+HOUSING_NS ?= off-campus-housing-tracker
+KAFKA_BROKER_REPLICAS ?= 3
+# tls-first-time: skip kafka-ssl-from-dev-root.sh here; apply-kafka-kraft / kafka-refresh-tls-from-lb creates JKS after LB SANs exist.
+TLS_FIRST_TIME_DEFER_KAFKA_JKS ?= 0
+# reissue: skip Caddy rollout during tls-first-time; dev-onboard rolls Caddy after Kafka TLS guard.
+REISSUE_SKIP_CADDY_ROLLOUT ?= 0
+# make up: skip HTTP/3 edge probe when Caddy rollout is deferred (dev-onboard Phase 1); Phase 9 verifies edge.
+SKIP_VERIFY_CURL_HTTP3 ?= 0
+
 .DEFAULT_GOAL := menu
 
-.PHONY: menu help up up-fast deps kubeconfig-colima cluster colima-net colima-patch-app-config-db-gateway tls-first-time trust-ca-macos verify-curl-http3 verify-docker-ports recycle-postgres-infra infra-host infra-cluster \
-	metallb-fix hosts-sanity preflight-gate sslkeylog-seed ollama-note ollama-env verify-kafka-bootstrap verify-kafka-cluster verify-preflight-edge-routing diagnose-k6-edge cleanup-kafka-ops-pods test test-current model summarize-ceiling strict-canonical ceiling collapse-trust collapse-messaging collapse-all \
+.PHONY: menu help setup reset verify diagnose clean-data-modeling-png generate-diagrams generate-uml generate-architecture bundle-2.1-submission generate-architecture-docs kafka-broker-status-stub db-schema-er-docs index-audit-md real-query-plan-suite up up-fast deps kubeconfig-colima cluster colima-net colima-patch-app-config-db-gateway tls-first-time trust-ca-macos verify-curl-http3 verify-docker-ports recycle-postgres-infra infra-host infra-cluster \
+	metallb-fix hosts-sanity ensure-edge-hosts wait-for-caddy-ip preflight-gate sslkeylog-seed ollama-note ollama-env verify-network-coherence verify-kafka-bootstrap verify-kafka-cluster check-kafka-config-drift kafka-runtime-sync kafka-sync-metallb kafka-alignment-suite kafka-health golden-snapshot chaos-suite-kafka verify-preflight-edge-routing diagnose-k6-edge cleanup-kafka-ops-pods apply-kafka-kraft kafka-refresh-tls-from-lb kafka-tls-rotate-atomic kafka-tls-guard kafka-tls-guard-remediate kafka-quorum-stable service-tls-alias-guard edge-readiness-gate onboarding-kafka-preflight kafka-onboarding-reset kafka-lb-reset kafka-headless-reset kafka-clean-slate kafka-rolling-restart onboarding-edge dev-onboard dev-onboard-hardened-reset dev-onboard-eks dev-onboard-lite ephemeral-k3s-smoke chaos-kafka-broker chaos-metallb-kafka-lb chaos-test sync-prometheus-kafka-rules colima-bridged colima-bridged-clean metallb-bring-up test test-current model summarize-ceiling strict-canonical ceiling collapse-trust collapse-messaging collapse-all \
 	protocol-matrix packet-capture perf-lab perf-full generate-report graph-capacity heatmap-tail compare-run regression-guard \
 	slack-report discord-report ci ci-full certify ceiling-default performance-lab-interpret performance-lab-interpret-latest performance-lab-one capacity-recommend capacity-one protocol-happiness transport-routing-hints transport-routing-hints-sync-k8s perf-lab-dashboards bundle-performance-lab-10 strict-envelope-check adaptive-pool-suggest declare-readiness shellcheck-preflight transport-lab full-edge-transport-validation endpoint-coverage collapse-smoke explain-all-dbs demo demo-network demo-full demo-k3d stack images images-all kustomize-apply \
-	deploy-dev rollouts preflight-metallb test-e2e-integrated packet-capture-standalone
+	deploy-dev rollouts preflight-metallb test-e2e-integrated packet-capture-standalone certify-production \
+	cluster-forensic-sweep forensic-log-sweep network-command-center deploy-monitoring-help tls-secrets-expiry-textfile \
+	chaos-suite governed-chaos failure-budget resilience-menu generate-chaos-report-md \
+	metrics-server-ready trust-integration-tests
 
 # Default orchestration knobs for team "one-command" workflow.
 UP_REQUIRE_COLIMA ?= 1
 UP_METALLB_ENABLED ?= 1
-METALLB_POOL ?= 192.168.64.240-192.168.64.250
+# METALLB_POOL: do not default here — empty lets setup/install scripts auto-derive .240-.250 on Colima/node subnet.
+# Override when needed: make cluster METALLB_POOL=10.0.2.240-10.0.2.250
 UP_K6_USE_METALLB ?= 1
 UP_METALLB_USE_K3D ?= 0
 UP_RUN_PREFLIGHT ?= 0
@@ -54,8 +81,56 @@ CI_MODE ?= 0
 HEADLESS ?= 0
 KUBECONFIG_COLIMA ?= $(HOME)/.colima/default/kubeconfig
 RESTORE_BACKUP_DIR ?= latest
-HOSTS_AUTO ?= 0
+# Default 1: append off-campus-housing.test → MetalLB IP via sudo when needed (set 0 for hints only).
+HOSTS_AUTO ?= 1
 EXTERNAL_IP ?=
+
+# Public entrypoints (teammates): full bootstrap, health checks, Kafka nuclear reset, diagnostics.
+setup: dev-onboard ## Alias: deterministic local onboarding (same as make dev-onboard)
+reset: kafka-clean-slate ## Alias: wipe Kafka broker data + service reset (DESTROYS PVCs)
+verify: ## Kafka cluster + edge routing checks
+	$(MAKE) verify-kafka-cluster
+	$(MAKE) verify-preflight-edge-routing
+diagnose: ## Narrower diagnostics (DNS, bootstrap, k6 edge hints)
+	$(MAKE) verify-kafka-dns
+	$(MAKE) verify-kafka-bootstrap
+	$(MAKE) diagnose-k6-edge
+
+clean-data-modeling-png: ## Delete diagrams/data-modeling/png/*.png (next generate-architecture recreates)
+	bash $(SCRIPTS)/diagram/clean-data-modeling-png.sh
+
+generate-diagrams: ## Graphviz: unified logical ER + domain + flow + poster + physical (SVG+PNG, heat overlay)
+	@command -v jq >/dev/null || { echo "install jq"; exit 1; }
+	@command -v dot >/dev/null || { echo "install graphviz (dot)"; exit 1; }
+	$(SCRIPTS)/diagram/generate-all.sh "$(REPO_ROOT)/diagrams"
+
+generate-uml: ## PlantUML (C4 + class/sequence/state) → diagrams/data-modeling/png/ (plantuml or PLANTUML_DOCKER=1)
+	bash $(SCRIPTS)/plantuml/render-all.sh
+
+generate-architecture: ## Fresh PNG bucket: wipe data-modeling/png, then Graphviz + PlantUML
+	$(MAKE) clean-data-modeling-png
+	$(MAKE) generate-diagrams
+	$(MAKE) generate-uml
+
+bundle-2.1-submission: ## §2.1 package: copy PNGs + class XMI + MANIFEST → docs/architecture-submission/2.1-architecture-diagram/
+	bash $(SCRIPTS)/architecture/bundle-2.1-submission.sh
+
+generate-architecture-docs: ## Diagrams + docs/architecture copies + per-service service/*.md (needs Postgres)
+	@command -v jq >/dev/null || { echo "install jq"; exit 1; }
+	@command -v dot >/dev/null || { echo "install graphviz (dot)"; exit 1; }
+	$(SCRIPTS)/diagram/generate-architecture-docs.sh "$(REPO_ROOT)/diagrams"
+
+kafka-broker-status-stub: ## Example kafka-broker-status.json for KAFKA_BROKER_STATUS_JSON / data-flow colors
+	$(SCRIPTS)/diagram/fetch-kafka-broker-status-stub.sh "$(REPO_ROOT)/scripts/diagram/data/kafka-broker-status.local.json"
+
+db-schema-er-docs: ## Markdown: columns, indexes, pg_settings, Mermaid ER, EXPLAIN ANALYZE
+	$(SCRIPTS)/generate-db-schema-er-and-plans.sh
+
+index-audit-md: ## Index definitions + idx_scan matrix → reports/index-audit-*.md
+	$(SCRIPTS)/diagram/generate-index-audit-md.sh
+
+real-query-plan-suite: ## Realistic EXPLAIN ANALYZE → reports/real-query-plans-*.md
+	$(SCRIPTS)/run-real-query-plan-suite.sh
 
 help: ## List targets and short descriptions
 	@echo "Off-Campus-Housing-Tracker — common make targets"
@@ -63,7 +138,12 @@ help: ## List targets and short descriptions
 	@grep -hE '^[a-zA-Z0-9_.-]+:.*##' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*##"} {printf "  \033[36m%-26s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "Core:"
-	@echo "  make up               Full bootstrap (cluster + infra + TLS + deploy)"
+	@echo "  make up               Full bootstrap (cluster + infra + TLS + /etc/hosts for edge; no KRaft / no deploy-dev)"
+	@echo "  make dev-onboard      Strict local onboard (staged Kafka TLS + verify gates); make setup alias"
+	@echo "  make dev-onboard-eks  EKS: verify Kafka + edge only (no MetalLB/hosts reset)"
+	@echo "  make dev-onboard-lite CI-safe static checks (scripts + kustomize)"
+	@echo "  make golden-snapshot   Rebuild all :dev images, roll everything, kafka-health + alignment suite"
+	@echo "  make setup / verify / reset / diagnose  — teammate shortcuts (see help)"
 	@echo "  make test             Strict canonical preflight + performance lab"
 	@echo "  make test-current     Service ceiling sweep + model derivation"
 	@echo "  make model            Derive model from latest protocol-comparison.csv"
@@ -73,6 +153,16 @@ help: ## List targets and short descriptions
 	@echo "  make capacity-recommend  Generate pool/ingress/dashboard outputs from performance-lab"
 	@echo "  make capacity-one        One command: lab + capacity + happiness + H2 hints + dashboards + 10-file bundle"
 	@echo "  make explain-all-dbs     EXPLAIN ANALYZE across housing Postgres (5441–5448)"
+	@echo "  make generate-diagrams        Unified logical ER + domain + flow + poster + physical (SVG+PNG)"
+	@echo "  make generate-uml              PlantUML C4 + UML → diagrams/data-modeling/png/"
+	@echo "  make clean-data-modeling-png   Delete diagrams/data-modeling/png/*.png only"
+	@echo "  make generate-architecture     clean PNG dir, then generate-diagrams + generate-uml"
+	@echo "  make bundle-2.1-submission     Copy PNGs + class XMI into docs/architecture-submission/2.1-architecture-diagram/"
+	@echo "  make generate-architecture-docs  Same + sync docs/architecture + services/*.md"
+	@echo "  make kafka-broker-status-stub  Example JSON for KAFKA_BROKER_STATUS_JSON (Kafka colors in data-flow)"
+	@echo "  make db-schema-er-docs   Full DB schema Markdown (Mermaid + settings + indexes + EXPLAIN)"
+	@echo "  make index-audit-md      Index definitions + idx_scan matrix → reports/"
+	@echo "  make real-query-plan-suite  Realistic EXPLAIN plans → reports/real-query-plans-*.md"
 	@echo ""
 	@echo "Advanced:"
 	@echo "  make collapse-trust"
@@ -97,6 +187,7 @@ menu: ## Friendly workflow menu (default target)
 	@echo ""
 	@echo "Core (most people use):"
 	@echo "  make up"
+	@echo "  make dev-onboard   # full stack incl. KRaft + deploy (see docs/DEV_ONBOARDING.md)"
 	@echo "  make up-fast"
 	@echo "  make strict-canonical"
 	@echo "  make test-current"
@@ -115,6 +206,8 @@ menu: ## Friendly workflow menu (default target)
 	@echo ""
 	@echo "SRE / deep infra:"
 	@echo "  make packet-capture TARGET_IP=<ip>"
+	@echo "  make cluster-forensic-sweep | make forensic-log-sweep | make network-command-center"
+	@echo "  make chaos-suite | make governed-chaos | make resilience-menu"
 	@echo "  make demo-network"
 	@echo "  make demo-k3d"
 	@echo ""
@@ -139,9 +232,15 @@ up: ## One-command cluster + infra + certs + deploy bootstrap (default: no prefl
 	$(MAKE) colima-net
 	$(MAKE) tls-first-time
 	$(MAKE) trust-ca-macos
+	$(MAKE) wait-for-caddy-ip
+	$(MAKE) hosts-sanity
+ifeq ($(SKIP_VERIFY_CURL_HTTP3),1)
+	@echo "SKIP_VERIFY_CURL_HTTP3=1 — skipping verify-curl-http3 (Caddy TLS not rolled yet; use after deferred Caddy rollout)"
+else
 	$(MAKE) verify-curl-http3
+endif
 	$(MAKE) infra-host
-	$(MAKE) infra-cluster
+	SKIP_CLUSTER=1 $(MAKE) infra-cluster
 	$(MAKE) metallb-fix
 	$(MAKE) hosts-sanity
 	$(MAKE) preflight-gate
@@ -158,9 +257,15 @@ up-fast: ## Full bootstrap flow without deps/playwright install
 	$(MAKE) colima-net
 	$(MAKE) tls-first-time
 	$(MAKE) trust-ca-macos
+	$(MAKE) wait-for-caddy-ip
+	$(MAKE) hosts-sanity
+ifeq ($(SKIP_VERIFY_CURL_HTTP3),1)
+	@echo "SKIP_VERIFY_CURL_HTTP3=1 — skipping verify-curl-http3 (Caddy TLS not rolled yet; use after deferred Caddy rollout)"
+else
 	$(MAKE) verify-curl-http3
+endif
 	$(MAKE) infra-host
-	$(MAKE) infra-cluster
+	SKIP_CLUSTER=1 $(MAKE) infra-cluster
 	$(MAKE) metallb-fix
 	$(MAKE) hosts-sanity
 	$(MAKE) preflight-gate
@@ -171,9 +276,14 @@ up-fast: ## Full bootstrap flow without deps/playwright install
 
 # ROLE: DEV — fast path dependencies
 deps: ## Install workspace deps + Playwright browser; ensure cluster script executable
-	pnpm install
-	pnpm --filter webapp exec playwright install chromium
-	chmod +x $(SCRIPTS)/setup-new-colima-cluster.sh
+	@set -euo pipefail; \
+	if command -v fnm >/dev/null 2>&1; then eval "$$(fnm env)"; fi; \
+	if ! command -v pnpm >/dev/null 2>&1; then \
+	  echo "ERROR: pnpm not on PATH. Install pnpm or use fnm/nvm (e.g. brew install fnm && fnm use)."; \
+	  exit 1; \
+	fi; \
+	cd $(REPO_ROOT) && pnpm install && pnpm --filter webapp exec playwright install chromium
+	chmod +x $(SCRIPTS)/setup-new-colima-cluster.sh $(SCRIPTS)/ensure-edge-hosts.sh $(SCRIPTS)/kafka-onboarding-reset.sh $(SCRIPTS)/kafka-clean-slate.sh $(SCRIPTS)/apply-kafka-kraft-staged.sh $(SCRIPTS)/kafka-refresh-tls-from-lb.sh $(SCRIPTS)/wait-for-kafka-external-lb-ips.sh $(SCRIPTS)/detect-k8s-environment.sh $(SCRIPTS)/dev-onboard-local.sh $(SCRIPTS)/kafka-rolling-restart.sh $(SCRIPTS)/kafka-tls-guard.sh $(SCRIPTS)/kafka-tls-rotate-atomic.sh $(SCRIPTS)/export-kafka-ca-metric.sh $(SCRIPTS)/rollout-deferred-after-kafka-tls.sh $(SCRIPTS)/kafka-quorum-stable.sh $(SCRIPTS)/service-tls-alias-guard.sh $(SCRIPTS)/edge-readiness-gate.sh $(SCRIPTS)/generate-canonical-dev-tls.sh $(SCRIPTS)/verify-kafka-no-static-advertised-env.sh $(SCRIPTS)/check-kafka-config-drift.sh $(SCRIPTS)/kafka-runtime-sync.sh $(SCRIPTS)/kafka-sync-metallb.sh $(SCRIPTS)/tests/kafka-alignment-suite.sh $(SCRIPTS)/chaos-kafka-alignment-stochastic.sh $(SCRIPTS)/golden-snapshot-verify.sh $(SCRIPTS)/auth-outbox-inspect.sh $(SCRIPTS)/auth-outbox-replay.sh
 
 # ROLE: DEV — optional kubeconfig export helper
 kubeconfig-colima: ## Print/export Colima kubeconfig path for current shell
@@ -181,8 +291,29 @@ kubeconfig-colima: ## Print/export Colima kubeconfig path for current shell
 	@echo "  export KUBECONFIG=\"$(KUBECONFIG_COLIMA)\""
 
 # ROLE: DEV — cluster bootstrap (Colima/k3s + MetalLB pool)
-cluster: ## Start Colima+k3s and apply MetalLB pool
-	METALLB_POOL=$(METALLB_POOL) $(SCRIPTS)/setup-new-colima-cluster.sh
+cluster: ## Start Colima+k3s + MetalLB (METALLB_POOL empty = auto .240-.250 on VM subnet)
+	METALLB_POOL="$(METALLB_POOL)" $(SCRIPTS)/setup-new-colima-cluster.sh
+
+# ROLE: DEV — bridged Colima + MetalLB path (historical team flow; --network-address, auto MetalLB /24)
+colima-bridged: ## Start Colima+k3s with --network-address + 6443 tunnel + wait API (no VM delete)
+	bash -n $(SCRIPTS)/colima-start-k3s-bridged.sh
+	chmod +x $(SCRIPTS)/colima-start-k3s-bridged.sh
+	$(SCRIPTS)/colima-start-k3s-bridged.sh
+
+colima-bridged-clean: ## colima stop/delete + bridged start + tunnel (fresh VM; pinned k3s via COLIMA_K3S_VERSION)
+	bash -n $(SCRIPTS)/colima-start-k3s-bridged-clean.sh
+	chmod +x $(SCRIPTS)/colima-start-k3s-bridged-clean.sh
+	$(SCRIPTS)/colima-start-k3s-bridged-clean.sh
+
+metallb-bring-up: ## After colima-bridged: namespaces + MetalLB (leave METALLB_POOL unset for auto pool)
+	bash -n $(SCRIPTS)/colima-metallb-bring-up.sh
+	chmod +x $(SCRIPTS)/colima-metallb-bring-up.sh
+	$(SCRIPTS)/colima-metallb-bring-up.sh
+
+# ROLE: CI — k3s + MetalLB + trivial LoadBalancer smoke (GitHub Actions; see .github/workflows/ephemeral-cluster.yml)
+ephemeral-k3s-smoke: ## Ephemeral cluster LB proof (requires kubectl + working cluster; sets METALLB_POOL if unset)
+	chmod +x $(SCRIPTS)/ci/ephemeral-k3s-converge.sh
+	bash $(SCRIPTS)/ci/ephemeral-k3s-converge.sh
 
 # ROLE: DEV — verify Colima subnet vs MetalLB pool
 colima-net: ## Show Colima eth0 subnet for MetalLB sanity
@@ -193,12 +324,10 @@ colima-patch-app-config-db-gateway: ## Patch ConfigMap app-config: host.docker.i
 	bash -n $(SCRIPTS)/colima-patch-app-config-db-host-to-gateway.sh
 	$(SCRIPTS)/colima-patch-app-config-db-host-to-gateway.sh
 
-# ROLE: DEV/SRE — strict TLS + Kafka JKS chain
-tls-first-time: ## Generate/reissue CA+leaf, envoy cert, strict bootstrap, kafka JKS
-	KAFKA_SSL=1 $(SCRIPTS)/reissue-ca-and-leaf-load-all-services.sh
-	$(SCRIPTS)/generate-envoy-client-cert.sh
-	$(SCRIPTS)/strict-tls-bootstrap.sh
-	$(SCRIPTS)/kafka-ssl-from-dev-root.sh
+# ROLE: DEV/SRE — strict TLS + Kafka JKS chain (defer Kafka JKS with TLS_FIRST_TIME_DEFER_KAFKA_JKS=1 for dev-onboard ordering)
+tls-first-time: ## Canonical TLS: reissue → Envoy client cert → strict bootstrap → optional kafka JKS (scripts/generate-canonical-dev-tls.sh)
+	chmod +x $(SCRIPTS)/generate-canonical-dev-tls.sh
+	KAFKA_SSL=1 RESTART_SERVICES=$(RESTART_SERVICES_AFTER_TLS) REISSUE_SKIP_CADDY_ROLLOUT=$(REISSUE_SKIP_CADDY_ROLLOUT) $(SCRIPTS)/generate-canonical-dev-tls.sh
 
 # ROLE: DEV/SRE — KRaft headless Service: pod IP vs EndpointSlice (stale DNS detector)
 verify-kafka-dns: ## Requires kubectl context; fails if kafka-N DNS slice ≠ pod IP
@@ -218,6 +347,52 @@ verify-kafka-cluster: ## Full KRaft ritual: TLS SANs, advertised listeners, quor
 	chmod +x $(REPO_ROOT)/scripts/verify-kafka-cluster.sh
 	$(REPO_ROOT)/scripts/verify-kafka-cluster.sh
 
+check-kafka-config-drift: ## Compare kafka-N-external LB IP to broker advertised EXTERNAL (kubectl + exec)
+	bash -n $(REPO_ROOT)/scripts/check-kafka-config-drift.sh
+	chmod +x $(REPO_ROOT)/scripts/check-kafka-config-drift.sh
+	$(REPO_ROOT)/scripts/check-kafka-config-drift.sh
+
+kafka-runtime-sync: ## Gate: no LB↔advertised drift + TLS SAN vs LB (optional --remediate on script CLI)
+	bash -n $(REPO_ROOT)/scripts/kafka-runtime-sync.sh
+	chmod +x $(REPO_ROOT)/scripts/kafka-runtime-sync.sh
+	$(REPO_ROOT)/scripts/kafka-runtime-sync.sh
+
+kafka-sync-metallb: ## Drift-aware: verify-only if aligned; else refresh TLS from LB + rollout + verify-kafka-cluster
+	bash -n $(REPO_ROOT)/scripts/kafka-sync-metallb.sh
+	bash -n $(REPO_ROOT)/scripts/kafka-runtime-sync.sh
+	chmod +x $(REPO_ROOT)/scripts/kafka-sync-metallb.sh
+	chmod +x $(REPO_ROOT)/scripts/kafka-runtime-sync.sh
+	$(REPO_ROOT)/scripts/kafka-sync-metallb.sh
+
+kafka-alignment-suite: ## Alignment test suite (safe by default; full chaos: KAFKA_ALIGNMENT_TEST_MODE=1 make kafka-alignment-suite)
+	bash -n $(REPO_ROOT)/scripts/tests/kafka-alignment-suite.sh
+	chmod +x $(REPO_ROOT)/scripts/tests/kafka-alignment-suite.sh
+	python3 -m py_compile $(REPO_ROOT)/scripts/generate-kafka-alignment-report.py
+	$(REPO_ROOT)/scripts/tests/kafka-alignment-suite.sh
+
+kafka-health: ## Full Kafka alignment gate: verify-kafka-cluster + kafka-runtime-sync --check-only + alignment suite (non-destructive)
+	bash -n $(REPO_ROOT)/scripts/verify-kafka-cluster.sh
+	bash -n $(REPO_ROOT)/scripts/kafka-runtime-sync.sh
+	bash -n $(REPO_ROOT)/scripts/tests/kafka-alignment-suite.sh
+	chmod +x $(REPO_ROOT)/scripts/verify-kafka-cluster.sh $(REPO_ROOT)/scripts/kafka-runtime-sync.sh $(REPO_ROOT)/scripts/tests/kafka-alignment-suite.sh
+	VERIFY_KAFKA_HEALTH_ONLY=0 \
+	  VERIFY_KAFKA_SKIP_META_IDENTITY=0 \
+	  VERIFY_KAFKA_SKIP_TLS_SANS=0 \
+	  VERIFY_KAFKA_SKIP_ADVERTISED=0 \
+	  VERIFY_KAFKA_SKIP_TLS_CONSISTENCY=0 \
+	  VERIFY_KAFKA_SKIP_QUORUM_GATE=0 \
+	  VERIFY_KAFKA_SKIP_LEADERSHIP_CHURN_GATE=0 \
+	  VERIFY_KAFKA_SKIP_BROKER_API_GATE=0 \
+	  $(REPO_ROOT)/scripts/verify-kafka-cluster.sh
+	$(REPO_ROOT)/scripts/kafka-runtime-sync.sh --check-only
+	KAFKA_ALIGNMENT_SKIP_TEST1_VERIFY=1 KAFKA_ALIGNMENT_TEST_MODE=0 $(REPO_ROOT)/scripts/tests/kafka-alignment-suite.sh
+
+# ROLE: SRE — Colima eth0 / MetalLB pool / node InternalIP / Kafka EXTERNAL must share one /24 (CERTIFY_SKIP_NETWORK_COHERENCE=1 to skip in certify-production)
+verify-network-coherence: ## Fail on subnet split-brain (VM vs MetalLB vs Kafka advert); see scripts/verify-network-coherence.sh
+	bash -n $(REPO_ROOT)/scripts/verify-network-coherence.sh
+	chmod +x $(REPO_ROOT)/scripts/verify-network-coherence.sh
+	$(REPO_ROOT)/scripts/verify-network-coherence.sh
+
 verify-preflight-edge-routing: ## Ingress /api+/auth parity, DNS→LB, curl /api+/auth health (kubectl + DNS + certs/dev-root.pem)
 	bash -n $(REPO_ROOT)/scripts/verify-preflight-edge-routing.sh
 	chmod +x $(REPO_ROOT)/scripts/verify-preflight-edge-routing.sh
@@ -231,8 +406,142 @@ cleanup-kafka-ops-pods: ## Delete finished Jobs (and pods) for kafka-quorum-chec
 	bash -n $(REPO_ROOT)/scripts/cleanup-kafka-ops-cronjob-pods.sh
 	$(REPO_ROOT)/scripts/cleanup-kafka-ops-cronjob-pods.sh
 
+# ROLE: DEV — reset Kafka LB + headless Services before apply (fresh MetalLB IPs / EndpointSlices)
+kafka-lb-reset: ## Delete kafka-0/1/2-external LoadBalancers only (namespace off-campus-housing-tracker)
+	@for s in kafka-0-external kafka-1-external kafka-2-external; do \
+	  kubectl delete svc $$s -n off-campus-housing-tracker --ignore-not-found --request-timeout=30s; \
+	done
+	@echo "✅ kafka-lb-reset done"
+
+kafka-headless-reset: ## Delete headless kafka Service + EndpointSlices (recreated by apply-kafka-kraft)
+	@kubectl delete svc kafka -n off-campus-housing-tracker --ignore-not-found --request-timeout=30s
+	@kubectl delete endpoints kafka -n off-campus-housing-tracker --ignore-not-found --request-timeout=30s 2>/dev/null || true
+	@kubectl delete endpointslices -n off-campus-housing-tracker -l kubernetes.io/service-name=kafka --ignore-not-found --request-timeout=30s 2>/dev/null || true
+	@echo "✅ kafka-headless-reset done"
+
+kafka-onboarding-reset: ## kafka-lb-reset + kafka-headless-reset (dev-onboard runs this before apply-kafka-kraft)
+	bash $(SCRIPTS)/kafka-onboarding-reset.sh
+
+# ROLE: DEV — nuclear: StatefulSet + PVCs + Service reset (KAFKA_CLEAN_SLATE_CONFIRM=YES skips prompt)
+kafka-clean-slate: ## DESTROYS Kafka broker data; then run apply-kafka-kraft or dev-onboard
+	bash $(SCRIPTS)/kafka-clean-slate.sh
+
+# ROLE: DEV — in-cluster KRaft (3 brokers): staged Services/LB → refresh broker TLS SANs → StatefulSet
+apply-kafka-kraft: ## Staged: headless + external LB svcs → wait IPs → kafka-ssl refresh → PDB + SS (KAFKA_TLS_ATOMIC_BEFORE_REFRESH=1 scales to 0 first)
+	chmod +x $(SCRIPTS)/apply-kafka-kraft-staged.sh $(SCRIPTS)/kafka-refresh-tls-from-lb.sh $(SCRIPTS)/wait-for-kafka-external-lb-ips.sh
+	HOUSING_NS=$(HOUSING_NS) KAFKA_TLS_ATOMIC_BEFORE_REFRESH=$(KAFKA_TLS_ATOMIC_BEFORE_REFRESH) KAFKA_BROKER_REPLICAS=$(KAFKA_BROKER_REPLICAS) bash $(SCRIPTS)/apply-kafka-kraft-staged.sh
+
+kafka-refresh-tls-from-lb: ## Regenerate kafka-ssl-secret after kafka-*-external have LB IPs (requires svcs applied)
+	chmod +x $(SCRIPTS)/kafka-refresh-tls-from-lb.sh $(SCRIPTS)/wait-for-kafka-external-lb-ips.sh
+	bash $(SCRIPTS)/kafka-refresh-tls-from-lb.sh
+
+kafka-rolling-restart: ## Ordered delete kafka pods 2→1→0 with verify-kafka-cluster between (maintenance)
+	chmod +x $(SCRIPTS)/kafka-rolling-restart.sh
+	bash $(SCRIPTS)/kafka-rolling-restart.sh
+
+kafka-tls-guard: ## Mounted CA + JKS uniformity across brokers, och-kafka CA, logs, verify-kafka-cluster (fail-fast)
+	chmod +x $(SCRIPTS)/kafka-tls-guard.sh
+	KAFKA_BROKER_REPLICAS=$(KAFKA_BROKER_REPLICAS) HOUSING_NS=$(HOUSING_NS) bash $(SCRIPTS)/kafka-tls-guard.sh
+
+kafka-tls-rotate-atomic: ## Scale Kafka 0 → kafka-refresh-tls-from-lb → scale back → kafka-tls-guard (JKS atomicity)
+	chmod +x $(SCRIPTS)/kafka-tls-rotate-atomic.sh $(SCRIPTS)/kafka-refresh-tls-from-lb.sh $(SCRIPTS)/wait-for-kafka-external-lb-ips.sh $(SCRIPTS)/kafka-tls-guard.sh
+	KAFKA_BROKER_REPLICAS=$(KAFKA_BROKER_REPLICAS) HOUSING_NS=$(HOUSING_NS) bash $(SCRIPTS)/kafka-tls-rotate-atomic.sh
+
+kafka-tls-guard-remediate: ## Recovery from PKIX/JKS drift: atomic rotate + full guard
+	$(MAKE) kafka-tls-rotate-atomic
+
+kafka-quorum-stable: ## Gate: no QuorumController "leader is (none)" in kafka-0 logs for KAFKA_QUORUM_STABLE_WINDOW_SEC (default 30s)
+	chmod +x $(SCRIPTS)/kafka-quorum-stable.sh
+	HOUSING_NS=$(HOUSING_NS) bash $(SCRIPTS)/kafka-quorum-stable.sh
+
+service-tls-alias-guard: ## Fail if service-tls vs och-service-tls ca.crt fingerprints differ
+	chmod +x $(SCRIPTS)/service-tls-alias-guard.sh
+	HOUSING_NS=$(HOUSING_NS) bash $(SCRIPTS)/service-tls-alias-guard.sh
+
+edge-readiness-gate: ## MetalLB IP on caddy-h3 + in-pod Caddy + api-gateway /healthz HTTP 200
+	chmod +x $(SCRIPTS)/edge-readiness-gate.sh
+	NS_ING=$(NS_ING) HOUSING_NS=$(HOUSING_NS) bash $(SCRIPTS)/edge-readiness-gate.sh
+
+# DESTRUCTIVE: wipes Kafka; requires existing cluster + ingress NS. Does not run make up or Docker.
+dev-onboard-hardened-reset: ## Kafka clean slate → canonical TLS reissue-only → ensure secrets → apply-kafka → guards → housing rollouts
+	@echo "⚠️  dev-onboard-hardened-reset destroys Kafka broker data (KAFKA_CLEAN_SLATE_CONFIRM=YES)"
+	chmod +x $(SCRIPTS)/kafka-clean-slate.sh $(SCRIPTS)/generate-canonical-dev-tls.sh $(SCRIPTS)/ensure-housing-cluster-secrets.sh $(SCRIPTS)/kafka-quorum-stable.sh $(SCRIPTS)/service-tls-alias-guard.sh $(SCRIPTS)/rollout-deferred-after-kafka-tls.sh
+	KAFKA_CLEAN_SLATE_CONFIRM=YES bash $(SCRIPTS)/kafka-clean-slate.sh
+	CANONICAL_TLS_REISSUE_ONLY=1 KAFKA_SSL=1 RESTART_SERVICES=0 REISSUE_SKIP_CADDY_ROLLOUT=0 $(SCRIPTS)/generate-canonical-dev-tls.sh
+	HOUSING_NS=$(HOUSING_NS) bash $(SCRIPTS)/ensure-housing-cluster-secrets.sh
+	HOUSING_NS=$(HOUSING_NS) KAFKA_TLS_ATOMIC_BEFORE_REFRESH=$(KAFKA_TLS_ATOMIC_BEFORE_REFRESH) $(MAKE) apply-kafka-kraft
+	$(MAKE) kafka-tls-guard
+	HOUSING_NS=$(HOUSING_NS) bash $(SCRIPTS)/service-tls-alias-guard.sh
+	HOUSING_NS=$(HOUSING_NS) bash $(SCRIPTS)/kafka-quorum-stable.sh
+	HOUSING_NS=$(HOUSING_NS) bash $(SCRIPTS)/rollout-deferred-after-kafka-tls.sh
+	@echo "✅ dev-onboard-hardened-reset complete"
+
+# ROLE: DEV — after KRaft pods Ready: DNS slice check, topic preflight, bootstrap string vs kafka-0..2
+onboarding-kafka-preflight: ## Stale job cleanup + verify-kafka-dns + preflight-kafka-k8s + verify-kafka-bootstrap
+	$(MAKE) cleanup-kafka-ops-pods
+	$(MAKE) verify-kafka-dns
+	$(MAKE) preflight-kafka-k8s
+	$(MAKE) verify-kafka-bootstrap
+
+# ROLE: DEV — wait until Caddy has MetalLB IP (avoids race before strict ensure-edge-hosts)
+wait-for-caddy-ip: ## Poll caddy-h3 EXTERNAL-IP up to ~120s (ingress-nginx)
+	@echo "Waiting for caddy-h3 LoadBalancer IP (ingress-nginx)..."
+	@i=0; \
+	while [ $$i -lt 60 ]; do \
+	  ip=$$(kubectl -n ingress-nginx get svc caddy-h3 -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null | tr -d '\r'); \
+	  if [ -n "$$ip" ]; then echo "✅ caddy-h3 LoadBalancer IP: $$ip"; exit 0; fi; \
+	  i=$$((i + 1)); sleep 2; \
+	done; \
+	echo "❌ Timed out waiting for caddy-h3 EXTERNAL-IP (~120s). Check: kubectl -n ingress-nginx get svc caddy-h3"; \
+	exit 1
+
+# ROLE: DEV — after deploy-dev (Caddy/ingress up): curl / API health via off-campus-housing.test
+onboarding-edge: ## verify-preflight-edge-routing (MetalLB + hosts + TLS)
+	$(MAKE) verify-preflight-edge-routing
+
+# ROLE: DEV — deterministic local onboard (EKS: dev-onboard-eks). Wrapper: scripts/dev-onboard-local.sh (set -euo pipefail).
+dev-onboard: ## LOCAL: phased onboard + TLS/Kafka gates (alias-guard, quorum-stable, edge-readiness); EKS: verify-only
+	@chmod +x $(SCRIPTS)/detect-k8s-environment.sh $(SCRIPTS)/dev-onboard-local.sh
+	@_och_env=$$(bash $(SCRIPTS)/detect-k8s-environment.sh 2>/dev/null || echo LOCAL); \
+	if [ "$$_och_env" = "EKS" ]; then \
+	  $(MAKE) dev-onboard-eks; \
+	else \
+	  DEV_ONBOARD_STRICT="$(DEV_ONBOARD_STRICT)" RESTORE_BACKUP_DIR="$(RESTORE_BACKUP_DIR)" bash $(SCRIPTS)/dev-onboard-local.sh; \
+	fi
+
+dev-onboard-eks: ## EKS / AWS provider: no MetalLB/hosts reset — verify Kafka + edge only
+	@echo "=== dev-onboard-eks (verify-only; use ACM/cert-manager + real DNS in prod) ==="
+	$(MAKE) verify-kafka-cluster
+	$(MAKE) verify-preflight-edge-routing
+	@echo "✅ dev-onboard-eks complete"
+
+dev-onboard-lite: ## CI-safe: bash -n scripts, kustomize kafka bundle, onboard script wiring (avoids full make -n tree)
+	@set -euo pipefail; \
+	echo "▶ bash -n scripts/*.sh"; \
+	for _f in "$(SCRIPTS)"/*.sh; do [ -f "$$_f" ] || continue; bash -n "$$_f"; done; \
+	echo "▶ kubectl kustomize infra/k8s/kafka-kraft-metallb"; \
+	kubectl kustomize "$(REPO_ROOT)/infra/k8s/kafka-kraft-metallb" >/dev/null \
+	  || { echo "kubectl kustomize failed (showing output):" >&2; kubectl kustomize "$(REPO_ROOT)/infra/k8s/kafka-kraft-metallb" >&2 || true; exit 1; }; \
+	echo "▶ kubectl kustomize infra/k8s/base + overlays/dev"; \
+	kubectl kustomize "$(REPO_ROOT)/infra/k8s/base" >/dev/null \
+	  && kubectl kustomize "$(REPO_ROOT)/infra/k8s/overlays/dev" >/dev/null \
+	  || { echo "housing kustomize failed" >&2; exit 1; }; \
+	echo "▶ static onboard wiring"; \
+	test -x "$(SCRIPTS)/dev-onboard-local.sh"; \
+	test -x "$(SCRIPTS)/apply-kafka-kraft-staged.sh"; \
+	test -x "$(SCRIPTS)/generate-canonical-dev-tls.sh"; \
+	bash -n "$(SCRIPTS)/generate-canonical-dev-tls.sh"; \
+	bash -n "$(SCRIPTS)/ci/ephemeral-k3s-converge.sh"; \
+	grep -q 'generate-canonical-dev-tls.sh' "$(REPO_ROOT)/Makefile"; \
+	grep -q 'apply-kafka-kraft' "$(SCRIPTS)/dev-onboard-local.sh"; \
+	grep -q 'kafka-refresh-tls-from-lb' "$(SCRIPTS)/apply-kafka-kraft-staged.sh"; \
+	grep -q 'kafka-quorum-stable' "$(SCRIPTS)/dev-onboard-local.sh"; \
+	grep -q 'service-tls-alias-guard' "$(SCRIPTS)/dev-onboard-local.sh"; \
+	grep -q 'edge-readiness-gate' "$(SCRIPTS)/dev-onboard-local.sh"; \
+	echo "✅ dev-onboard-lite OK"
+
 # ROLE: DEV — trust local CA on macOS only
-trust-ca-macos: ## Trust dev-root.pem in macOS Keychain (no-op on non-macOS)
+trust-ca-macos: ## Trust dev-root.pem in macOS Keychain (no-op on non-macOS). TRUST_DEV_ROOT_CA_SKIP=1 skips (avoids blocking on Keychain UI).
 	@if [ "$$(uname -s)" = "Darwin" ]; then \
 	  $(SCRIPTS)/lib/trust-dev-root-ca-macos.sh $(REPO_ROOT)/certs/dev-root.pem; \
 	else \
@@ -240,38 +549,39 @@ trust-ca-macos: ## Trust dev-root.pem in macOS Keychain (no-op on non-macOS)
 	fi
 
 # ROLE: DEV/SRE — verify local curl HTTP/3 capability
+# Host probe first; on Colima many Macs cannot reach MetalLB UDP/TCP — then in-cluster QUIC is authoritative.
 verify-curl-http3: ## Verify curl HTTP/3 support and edge probe script
 	$(SCRIPTS)/verify-curl-http3.sh
-	$(SCRIPTS)/verify-http3-edge.sh
+	$(SCRIPTS)/verify-http3-edge.sh || { echo "⚠️  Host edge HTTP/3 probe failed; running in-cluster QUIC verify (Colima-safe)…"; $(SCRIPTS)/verify-caddy-http3-in-cluster.sh; }
 
-# ROLE: DEV — host docker data-plane bring-up
-infra-host: ## Bring up host external infra (Postgres/Redis/Kafka/MinIO)
+# ROLE: DEV — host docker data-plane bring-up (no Compose Kafka; KRaft in cluster)
+infra-host: ## Bring up host external infra (Postgres/Redis/MinIO); RESTORE_BACKUP_DIR=latest restores newest backup
 	@mkdir -p $(BENCH)
 	@export PGPASSWORD=postgres; \
-	RESTORE_BACKUP_DIR=$(RESTORE_BACKUP_DIR) $(SCRIPTS)/bring-up-external-infra.sh
+	SKIP_AUTO_RESTORE=$(SKIP_AUTO_RESTORE) RESTORE_BACKUP_DIR=$(RESTORE_BACKUP_DIR) $(SCRIPTS)/bring-up-external-infra.sh
 
-# ROLE: DEV — cluster deploy + restore
-infra-cluster: ## Bring up cluster apps + housing restore
+# ROLE: DEV — cluster deploy + restore (SKIP_CLUSTER=1 after `make cluster` avoids re-running setup-new-colima-cluster.sh)
+infra-cluster: ## Compose + DBs; RESTORE_BACKUP_DIR=latest skips SQL bootstrap (dump-only). FORCE_SQL_BOOTSTRAP=1 to layer infra/db SQL.
 	@export PGPASSWORD=postgres; \
-	RESTORE_BACKUP_DIR=$(RESTORE_BACKUP_DIR) $(SCRIPTS)/bring-up-cluster-and-infra.sh
+	SKIP_CLUSTER=$(SKIP_CLUSTER) SKIP_BOOTSTRAP=$(SKIP_BOOTSTRAP) RESTORE_BACKUP_DIR=$(RESTORE_BACKUP_DIR) $(SCRIPTS)/bring-up-cluster-and-infra.sh
 
 # ROLE: SRE — ensure Caddy LB IP exists and patch MetalLB if needed
-metallb-fix: ## Check caddy-h3 LB IP and apply MetalLB fix helper
-	kubectl -n ingress-nginx get svc caddy-h3 -o wide
-	$(SCRIPTS)/apply-metallb-pool-colima.sh || true
-	kubectl get svc -n ingress-nginx
-
-# ROLE: DEV — hosts entry sanity or optional auto-add
-hosts-sanity: ## Validate off-campus-housing.test hosts mapping (HOSTS_AUTO=1 with EXTERNAL_IP to auto-append)
-	@if grep -Eq '(^|[[:space:]])off-campus-housing\.test($|[[:space:]])' /etc/hosts 2>/dev/null; then \
-	  echo "hosts mapping present for off-campus-housing.test"; \
-	elif [ "$(HOSTS_AUTO)" = "1" ] && [ -n "$(EXTERNAL_IP)" ]; then \
-	  echo "Adding hosts entry with sudo: $(EXTERNAL_IP) off-campus-housing.test"; \
-	  sudo sh -c 'echo "$(EXTERNAL_IP) off-campus-housing.test" >> /etc/hosts'; \
+# METALLB_FIX_LENIENT=0 (dev-onboard strict): pool apply must succeed. Default 1: tolerate apply failure.
+metallb-fix: ## Check caddy-h3 LB IP and apply MetalLB fix helper (caddy may not exist until after deploy-dev)
+	@kubectl -n ingress-nginx get svc caddy-h3 -o wide 2>/dev/null || echo "ℹ️  caddy-h3 not in cluster yet (normal before first deploy-dev)."
+	@if [ "$${METALLB_FIX_LENIENT:-1}" = "1" ]; then \
+	  $(SCRIPTS)/apply-metallb-pool-colima.sh || true; \
 	else \
-	  echo "⚠ hosts mapping missing. Add manually:"; \
-	  echo "  sudo sh -c '\''echo \"<EXTERNAL_IP> off-campus-housing.test\" >> /etc/hosts'\''"; \
+	  $(SCRIPTS)/apply-metallb-pool-colima.sh; \
 	fi
+	@kubectl get svc -n ingress-nginx 2>/dev/null || echo "ℹ️  Could not list ingress-nginx services (ns missing until deploy)."
+
+# ROLE: DEV — /etc/hosts for edge hostname ↔ MetalLB (kubectl discovery; HOSTS_AUTO=0 for hints only)
+hosts-sanity: ## Edge hostname in /etc/hosts (auto: HOSTS_AUTO=1 default; EXTERNAL_IP= to pin LB IP)
+	@HOSTS_AUTO="$(HOSTS_AUTO)" EXTERNAL_IP="$(EXTERNAL_IP)" EDGE_HOSTS_STRICT=0 bash $(SCRIPTS)/ensure-edge-hosts.sh
+
+ensure-edge-hosts: ## Idempotent hosts line for OCH edge hostname (EDGE_HOSTS_STRICT=1 fails if LB IP missing — dev-onboard uses this after deploy)
+	@HOSTS_AUTO="$(HOSTS_AUTO)" EXTERNAL_IP="$(EXTERNAL_IP)" EDGE_HOSTS_STRICT="$${EDGE_HOSTS_STRICT:-0}" bash $(SCRIPTS)/ensure-edge-hosts.sh
 
 # ROLE: DEV — quick preflight gate before long runs
 preflight-gate: ## Run ensure-ready-for-preflight gate
@@ -430,6 +740,10 @@ shellcheck-preflight: ## ShellCheck scripts/run-preflight-scale-and-all-suites.s
 verify-docker-ports: ## Require mapped host ports for OCH Postgres + Redis (docker ps)
 	bash $(SCRIPTS)/ci/verify-docker-ports.sh
 
+# ROLE: LIFECYCLE — register → DELETE /account → poll auth.auth_outbox drain (+ optional processed_events). Needs auth HTTP + psql.
+verify-deletion-flow: ## VERIFY_AUTH_URL, POSTGRES_URL_AUTH (or 5441 defaults); optional VERIFY_POSTGRES_URL_* for consumers
+	bash $(SCRIPTS)/verify-deletion-flow.sh
+
 # ROLE: DEV — recreate 8 Postgres containers so compose `command:` (e.g. max_connections) applies; keeps volumes
 recycle-postgres-infra: ## Safe stop/rm/up for OCH Postgres + optional psql max_connections check
 	bash $(SCRIPTS)/recycle-och-postgres-compose.sh
@@ -450,6 +764,31 @@ endpoint-coverage: ## Heuristic route inventory vs tests → bench_logs/performa
 
 collapse-smoke: ## k6 gateway health H2/H3 smoke (fail_rate<1%, p95<800 on H2 script)
 	bash $(SCRIPTS)/protocol/collapse-smoke-h2-h3.sh "$(BENCH)/transport-lab"
+
+# ROLE: SRE — destructive dev-only chaos (require CHAOS_CONFIRM=1 inside scripts)
+chaos-kafka-broker: ## Delete kafka-1 pod, then verify-kafka-cluster (optional START_K6_LOAD=1 CHAOS_K6_SCRIPT=path)
+	CHAOS_CONFIRM=1 bash $(SCRIPTS)/chaos-kafka-broker.sh
+
+chaos-metallb-kafka-lb: ## Delete kafka-0-external Service, refresh TLS path, verify-kafka-cluster
+	CHAOS_CONFIRM=1 bash $(SCRIPTS)/chaos-metallb-kafka-lb.sh
+
+chaos-test: chaos-kafka-broker ## Alias: broker-delete chaos path
+
+sync-prometheus-kafka-rules: ## Apply Kafka health Prometheus rule ConfigMap (observability ns)
+	kubectl apply -f $(REPO_ROOT)/infra/k8s/base/observability/prometheus-rules-kafka-health.yaml
+
+# ROLE: SRE — production readiness chain (needs live cluster + prior perf artifacts for some gates)
+certify-production: ## verify-network-coherence + verify-kafka-cluster + edge + transport + strict-envelope + collapse-smoke
+	@set -euo pipefail; \
+	if [ "$${CERTIFY_SKIP_NETWORK_COHERENCE:-0}" != "1" ]; then \
+	  echo "▶ verify-network-coherence"; $(MAKE) verify-network-coherence; \
+	fi; \
+	echo "▶ verify-kafka-cluster"; $(MAKE) verify-kafka-cluster; \
+	echo "▶ verify-preflight-edge-routing"; $(MAKE) verify-preflight-edge-routing; \
+	echo "▶ full-edge-transport-validation"; $(MAKE) full-edge-transport-validation; \
+	echo "▶ strict-envelope-check"; $(MAKE) strict-envelope-check; \
+	echo "▶ collapse-smoke"; $(MAKE) collapse-smoke; \
+	echo ""; echo "✅ certify-production complete"
 
 # ROLE: PERF — EXPLAIN across all housing Postgres instances (host ports 5441–5448; see script for DB list)
 explain-all-dbs: ## Run EXPLAIN ANALYZE for every housing DB (needs local psql + reachable Postgres)
@@ -576,10 +915,15 @@ images-all: ## Build all housing :dev images, load Colima, rollout each deploy (
 	bash -n $(SCRIPTS)/rebuild-all-housing-images-k3s.sh
 	bash $(SCRIPTS)/rebuild-all-housing-images-k3s.sh
 
+golden-snapshot: ## Rebuild all :dev + restart all deploys & Kafka + kafka-health + alignment suite (GOLDEN_SNAPSHOT_CHAOS=1 for chaos)
+	bash -n $(SCRIPTS)/golden-snapshot-verify.sh
+	chmod +x $(SCRIPTS)/golden-snapshot-verify.sh
+	bash $(SCRIPTS)/golden-snapshot-verify.sh
+
 kustomize-apply: ## Apply dev overlay (kubectl kustomize, or kustomize if installed)
 	cd $(REPO_ROOT) && (command -v kustomize >/dev/null && kustomize build infra/k8s/overlays/dev || kubectl kustomize infra/k8s/overlays/dev) | kubectl apply -f -
 
-deploy-dev: ## Apply + smoke + rollout wait (./scripts/deploy-dev.sh)
+deploy-dev: ## Apply + smoke + rollout wait (SKIP_STRICT_ENVELOPE=1 if strict-envelope check should be skipped)
 	bash $(SCRIPTS)/deploy-dev.sh
 
 rollouts: deploy-dev ## Alias: same as deploy-dev
@@ -612,3 +956,50 @@ test-e2e-integrated: ## Port-forward api-gateway + Playwright (needs running clu
 
 packet-capture-standalone: ## gRPC/HTTP2/HTTP3 capture smoke (needs cluster + MetalLB IP; sets PORT=443 if TARGET_IP set)
 	bash $(SCRIPTS)/test-packet-capture-standalone.sh
+
+cluster-forensic-sweep: ## Restart + log keyword sweep → bench_logs/forensics/cluster-sweep-*.log
+	@mkdir -p $(BENCH)/forensics
+	bash $(SCRIPTS)/cluster-log-sweep.sh
+
+network-command-center: ## Capture + QUIC/TLS/HTTP3 analysis → bench_logs/forensics/network-cc-*
+	@mkdir -p $(BENCH)/forensics
+	bash $(SCRIPTS)/network-command-center.sh
+
+deploy-monitoring-help: ## Print paths for Prometheus rules + Grafana stubs (apply via your stack)
+	@echo "Prometheus rules: $(REPO_ROOT)/infra/monitoring/prometheus/rules/"
+	@echo "Grafana stubs:      $(REPO_ROOT)/infra/monitoring/grafana/dashboards/"
+	@echo "Docs:               $(REPO_ROOT)/docs/CLUSTER_FORENSICS_AND_OBSERVABILITY.md"
+
+tls-secrets-expiry-textfile: ## Emit Prometheus textfile lines (stdout); pipe to node_exporter textfile dir
+	bash $(SCRIPTS)/tls-k8s-secrets-expiry.sh
+
+forensic-log-sweep: ## Raw kubectl logs per container → bench_logs/forensics/run-*/forensic/ (or FORENSIC_LOG_ROOT)
+	@mkdir -p $(BENCH)/forensics
+	bash $(SCRIPTS)/forensic-log-sweep.sh
+
+chaos-suite: ## Safe baseline chaos artifacts + report (override CHAOS_SUITE_ARTIFACT_DIR, CHAOS_SUITE=full for more)
+	CHAOS_SUITE=baseline bash $(SCRIPTS)/run-chaos-suite.sh
+
+chaos-suite-kafka: ## baseline + stochastic Kafka/LB/TLS chaos (needs CHAOS_CONFIRM=1 KAFKA_ALIGNMENT_TEST_MODE=1)
+	CHAOS_SUITE=baseline-kafka CHAOS_KAFKA_ALIGNMENT=1 CHAOS_CONFIRM=1 KAFKA_ALIGNMENT_TEST_MODE=1 bash $(SCRIPTS)/run-chaos-suite.sh
+
+governed-chaos: ## chaos-suite + failure-budget sample + resilience stub + second report
+	bash $(SCRIPTS)/run-governed-chaos.sh
+
+failure-budget: ## Print JSON: availability vs observability/slo.yaml (override AVAILABILITY_PCT=)
+	python3 $(SCRIPTS)/calc-failure-budget.py
+
+generate-chaos-report-md: ## Regenerate chaos-report.md from CHAOS_REPORT_DIR (default latest bench_logs/chaos-suite-*)
+	@d="$${CHAOS_REPORT_DIR:-}"; \
+	if [[ -z "$$d" ]]; then d=$$(ls -dt $(BENCH)/chaos-suite-* $(BENCH)/chaos-* 2>/dev/null | head -1); fi; \
+	if [[ -z "$$d" || ! -d "$$d" ]]; then echo "No bench_logs/chaos-suite-* dir; run make chaos-suite first"; exit 1; fi; \
+	python3 $(SCRIPTS)/generate-chaos-report.py --dir "$$d" --scenario "manual regen"
+
+resilience-menu: ## Interactive bash menu (forensics + chaos); non-interactive: RESILIENCE_MENU_CHOICE=5 make resilience-menu
+	bash $(SCRIPTS)/resilience-interactive-menu.sh
+
+metrics-server-ready: ## Restart kube-system/metrics-server and wait until kubectl top nodes works (k3s/Colima)
+	bash $(SCRIPTS)/ensure-metrics-server-ready.sh
+
+trust-integration-tests: ## Trust HTTP+DB integration (needs Postgres 5446); SKIP_TRUST_INTEGRATION=1 to skip
+	cd $(REPO_ROOT)/services/trust-service && pnpm run test:integration

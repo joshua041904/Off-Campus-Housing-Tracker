@@ -92,6 +92,34 @@ export function createTrustHttpApp() {
     }),
   );
 
+  /** Same semantics as gRPC FlagListing — listing_id, reason; reporter from x-user-id */
+  app.post(
+    "/flag-listing",
+    requireUser,
+    async (req: AuthedRequest, res: Response) => {
+      try {
+        const listingId = String(req.body?.listing_id || "").trim();
+        const reason = String(req.body?.reason || "").trim();
+        if (!listingId || !reason) {
+          res
+            .status(400)
+            .json({ error: "listing_id and reason required" });
+          return;
+        }
+        const r = await pool.query(
+          `INSERT INTO trust.listing_flags (listing_id, reporter_id, reason) VALUES ($1::uuid, $2::uuid, $3) RETURNING id, status::text`,
+          [listingId, req.userId, reason],
+        );
+        res
+          .status(201)
+          .json({ flag_id: r.rows[0].id, status: r.rows[0].status });
+      } catch (e) {
+        console.error("[flag-listing]", e);
+        res.status(500).json({ error: "internal" });
+      }
+    },
+  );
+
   app.post(
     "/report-abuse",
     requireUser,

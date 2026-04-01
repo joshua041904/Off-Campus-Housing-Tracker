@@ -17,6 +17,9 @@ configMapGenerator:
       - booking.proto=proto/booking.proto
       - messaging.proto=proto/messaging.proto
       - messaging_events.v1.proto=proto/events/messaging/v1/messaging_events.proto
+      # Account deletion (user-lifecycle-kafka.ts); flat keys — K8s ConfigMap keys cannot contain '/'
+      - events_envelope.proto=proto/events/envelope.proto
+      - events_auth.proto=proto/events/auth.proto
       - media.proto=proto/media.proto
       - notification.proto=proto/notification.proto
       - trust.proto=proto/trust.proto

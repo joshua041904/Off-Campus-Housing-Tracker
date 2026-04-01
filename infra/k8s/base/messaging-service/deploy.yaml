@@ -9,7 +9,10 @@ metadata:
 spec:
   replicas: 1
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       app: messaging-service
@@ -99,7 +102,7 @@ spec:
                 - -connect-timeout=5s
                 - -rpc-timeout=5s
             periodSeconds: 5
-            timeoutSeconds: 10
+            timeoutSeconds: 15
             failureThreshold: 30
 
           # Kafka + gRPC: allow reconnect after TLS rotation (avoid 8/9 → 3/9 readiness flapping).
@@ -116,9 +119,10 @@ spec:
                 - -tls-server-name=localhost
                 - -connect-timeout=5s
                 - -rpc-timeout=5s
-            initialDelaySeconds: 30
-            periodSeconds: 5
-            timeoutSeconds: 10
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 15
+            successThreshold: 1
             failureThreshold: 6
 
           # Under CPU load, short gRPC probe timeouts can flap; give more slack before kubelet restarts the pod.

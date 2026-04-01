@@ -22,7 +22,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PATH="$SCRIPT_DIR/shims:/opt/homebrew/bin:/usr/local/bin:${PATH:-}"
 
 command -v curl >/dev/null 2>&1 || {
-  echo "❌ curl required for API probe (install curl or use brew)"
+  echo "ERROR: curl required for API probe (install curl or use brew)"
   exit 1
 }
 
@@ -74,13 +74,13 @@ kill_existing_tunnel() {
 # Healthy API through existing tunnel — skip unless --restart
 if [[ "$RESTART" -eq 0 ]] && api_probe; then
   pin_kubeconfig_to_tunnel
-  echo "✅ API reachable via tunnel (https://127.0.0.1:6443/version)"
+  echo "OK: API reachable via tunnel (https://127.0.0.1:6443/version)"
   exit 0
 fi
 
 # TCP open but TLS/API dead — recycle tunnel
 if nc -z 127.0.0.1 6443 2>/dev/null; then
-  echo "⚠️  127.0.0.1:6443 accepts TCP but API probe failed — recycling tunnel"
+  echo "WARN: 127.0.0.1:6443 accepts TCP but API probe failed - recycling tunnel"
   kill_existing_tunnel
 fi
 
@@ -91,7 +91,7 @@ fi
 
 # Colima not running or no SSH config
 if [[ ! -f "$SSH_CFG" ]]; then
-  echo "⚠️  Colima SSH config not found ($SSH_CFG). Start Colima first: colima start --with-kubernetes"
+  echo "WARN: Colima SSH config not found ($SSH_CFG). Start Colima first: colima start --with-kubernetes"
   exit 1
 fi
 
@@ -121,7 +121,7 @@ fi
 mkdir -p "$(dirname "$PID_FILE")"
 _ssh_err=$(mktemp 2>/dev/null || echo "/tmp/colima-ssh-$$")
 if ! ssh -F "$SSH_CFG" -o ConnectTimeout=10 -o StrictHostKeyChecking=no -L "6443:127.0.0.1:${GUEST_PORT}" lima-colima -N -f 2>"$_ssh_err"; then
-  echo "⚠️  Tunnel ssh failed (guest port ${GUEST_PORT}): $(cat "$_ssh_err" 2>/dev/null | head -3)"
+  echo "WARN: Tunnel ssh failed (guest port ${GUEST_PORT}): $(head -n3 "$_ssh_err" 2>/dev/null || true)"
   rm -f "$_ssh_err"
 fi
 sleep 1
@@ -137,13 +137,13 @@ echo "  Pinned kubeconfig to https://127.0.0.1:6443 (tunnel -> guest ${GUEST_POR
 # Real API check (TLS + HTTP) — not nc-only
 for ((i = 1; i <= API_TRIES; i++)); do
   if api_probe; then
-    echo "✅ API reachable via tunnel (https://127.0.0.1:6443/version)"
+    echo "OK: API reachable via tunnel (https://127.0.0.1:6443/version)"
     echo "   Heavy kubectl: run ./scripts/colima-api-health.sh first if you see flakes."
     exit 0
   fi
   sleep "$API_SLEEP"
 done
 
-echo "❌ API NOT reachable over tunnel after ${API_TRIES} attempts (${API_SLEEP}s apart)."
+echo "ERROR: API NOT reachable over tunnel after ${API_TRIES} attempts (${API_SLEEP}s apart)."
 echo "   Try: colima status; $0 --restart; or colima stop && colima start --with-kubernetes"
 exit 1

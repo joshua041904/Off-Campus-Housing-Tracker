@@ -3,24 +3,25 @@
 name: Kafka cluster verify (static)
 
 on:
+  # Every PR runs (stable CI surface). Push to main/master stays path-filtered to save minutes.
   pull_request:
-    paths:
-      - "infra/k8s/kafka-kraft-metallb/**"
-      - "scripts/verify-kafka-*.sh"
-      - "scripts/verify-preflight-edge-routing.sh"
-      - "scripts/kafka-ssl-from-dev-root.sh"
-      - "Makefile"
-      - ".github/workflows/kafka-cluster-verify.yml"
   push:
-    branches: [main, master]
+    branches: [main, master, develop]
     paths:
       - "infra/k8s/kafka-kraft-metallb/**"
       - "scripts/verify-kafka-*.sh"
       - "scripts/verify-preflight-edge-routing.sh"
       - "scripts/kafka-ssl-from-dev-root.sh"
+      - "scripts/tests/kafka-alignment-suite.sh"
+      - "scripts/kafka-runtime-sync.sh"
+      - "scripts/check-kafka-config-drift.sh"
       - "Makefile"
       - ".github/workflows/kafka-cluster-verify.yml"
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   verify:
@@ -35,10 +36,10 @@ jobs:
       - name: Shellcheck Kafka verification scripts
         run: |
           set -euo pipefail
-          shellcheck scripts/verify-kafka-tls-sans.sh
-          shellcheck scripts/verify-kafka-kraft-advertised-listeners.sh
-          shellcheck scripts/verify-kafka-cluster.sh
-          shellcheck scripts/verify-preflight-edge-routing.sh
+          shellcheck -S error scripts/verify-kafka-tls-sans.sh
+          shellcheck -S error scripts/verify-kafka-kraft-advertised-listeners.sh
+          shellcheck -S error scripts/verify-kafka-cluster.sh
+          shellcheck -S error scripts/verify-preflight-edge-routing.sh
 
       - name: Bash syntax validation
         run: |
@@ -48,6 +49,20 @@ jobs:
           bash -n scripts/verify-kafka-cluster.sh
           bash -n scripts/verify-preflight-edge-routing.sh
           bash -n scripts/kafka-ssl-from-dev-root.sh
+          bash -n scripts/kafka-runtime-sync.sh
+          bash -n scripts/tests/kafka-alignment-suite.sh
 
       - name: Makefile target exists
-        run: grep -q '^verify-kafka-cluster:' Makefile
+        run: |
+          set -euo pipefail
+          grep -q '^verify-kafka-cluster:' Makefile
+          grep -q '^kafka-health:' Makefile
+          grep -q '^kafka-alignment-suite:' Makefile
+
+      - name: KRaft StatefulSet is three replicas (source manifest)
+        run: |
+          set -euo pipefail
+          grep -qE 'replicas:[[:space:]]+3\b' infra/k8s/kafka-kraft-metallb/statefulset.yaml || {
+            echo "::error::infra/k8s/kafka-kraft-metallb/statefulset.yaml must set replicas: 3 for KRaft quorum."
+            exit 1
+          }

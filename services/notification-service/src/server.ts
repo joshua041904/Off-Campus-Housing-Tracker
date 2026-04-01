@@ -1,15 +1,19 @@
 import "dotenv/config";
+import { userLifecycleV1Topic } from "@common/utils";
 import { ensureKafkaBrokerReady } from "@common/utils/kafka";
 import { startGrpcServer } from "./grpc-server.js";
 import { startNotificationHttpServer } from "./http-server.js";
 import { pool } from "./db.js";
 import { notificationKafkaTopics, startNotificationConsumer } from "./kafka-consumer.js";
+import { startNotificationUserLifecycleConsumer } from "./user-lifecycle-consumer.js";
 
 const HTTP_PORT = Number(process.env.HTTP_PORT || "4015");
 const GRPC_PORT = Number(process.env.GRPC_PORT || "50065");
 
 async function main() {
-  await ensureKafkaBrokerReady("notification-service", { requiredTopics: notificationKafkaTopics() });
+  await ensureKafkaBrokerReady("notification-service", {
+    requiredTopics: [...notificationKafkaTopics(), userLifecycleV1Topic()],
+  });
   startNotificationHttpServer(HTTP_PORT);
   startGrpcServer(GRPC_PORT);
 }
@@ -35,4 +39,7 @@ setImmediate(() => {
       process.on("SIGINT", shutdown);
     }
   });
+  void startNotificationUserLifecycleConsumer(pool).catch((e) =>
+    console.error("[notification-service] user lifecycle consumer:", e),
+  );
 });

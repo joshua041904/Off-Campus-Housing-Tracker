@@ -9,11 +9,12 @@ on:
       - "scripts/protocol/**"
       - "infra/k8s/base/config/strict-envelope.json"
       - ".github/workflows/protocol-readiness.yml"
+  # Every PR runs; push to main/master stays path-filtered above.
   pull_request:
-    paths:
-      - "scripts/protocol/**"
-      - "infra/k8s/base/config/strict-envelope.json"
-      - ".github/workflows/protocol-readiness.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   validate-transport-fixture:

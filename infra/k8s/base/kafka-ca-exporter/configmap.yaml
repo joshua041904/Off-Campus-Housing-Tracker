@@ -1,0 +1,61 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-ca-exporter-script
+  namespace: off-campus-housing-tracker
+  labels:
+    app: kafka-ca-exporter
+data:
+  exporter.py: |
+    import base64
+    import os
+    import time
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes
+    from kubernetes import client, config
+    from prometheus_client import Counter, Gauge, start_http_server
+
+    NS = os.environ.get("HOUSING_NS", "off-campus-housing-tracker")
+    INTERVAL = float(os.environ.get("KAFKA_CA_EXPORTER_INTERVAL", "15"))
+
+    rotation = Counter(
+        "kafka_ca_rotation_detected_total",
+        "Kafka CA fingerprint changed vs previous poll (kafka-ssl-secret ca-cert.pem)",
+        ["namespace"],
+    )
+    ca_info = Gauge(
+        "kafka_ca_info",
+        "Kafka CA material present; fingerprint label for debugging",
+        ["fingerprint", "namespace"],
+    )
+
+    def fingerprint_colon(pem: bytes) -> str:
+        cert = x509.load_pem_x509_certificate(pem)
+        digest = cert.fingerprint(hashes.SHA256())
+        return ":".join(f"{b:02X}" for b in digest)
+
+    def main() -> None:
+        config.load_incluster_config()
+        v1 = client.CoreV1Api()
+        start_http_server(9105)
+        prev = None
+        while True:
+            try:
+                sec = v1.read_namespaced_secret("kafka-ssl-secret", NS)
+                b64 = sec.data.get("ca-cert.pem") if sec.data else None
+                if not b64:
+                    time.sleep(INTERVAL)
+                    continue
+                pem = base64.b64decode(b64)
+                fp = fingerprint_colon(pem)
+                if prev is not None and prev != fp:
+                    rotation.labels(namespace=NS).inc()
+                prev = fp
+                ca_info.labels(fingerprint=fp, namespace=NS).set(1)
+            except Exception:
+                pass
+            time.sleep(INTERVAL)
+
+    if __name__ == "__main__":
+        main()

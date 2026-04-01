@@ -1,0 +1,20 @@
+{
+  "title": "OCH — Forensic mode checklist (stub)",
+  "uid": "och-forensic-mode",
+  "schemaVersion": 39,
+  "version": 1,
+  "tags": ["och", "forensics"],
+  "timezone": "browser",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Manual / preflight artifacts",
+      "type": "text",
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 0 },
+      "options": {
+        "content": "Artifacts: bench_logs/forensics/, PREFLIGHT_RUN_DIR/restart-timeline.*, cluster-sweep.log. Scripts: cluster-log-sweep.sh, network-command-center.sh. Preflight: PREFLIGHT_FORENSIC=1."
+      }
+    }
+  ],
+  "time": { "from": "now-24h", "to": "now" }
+}

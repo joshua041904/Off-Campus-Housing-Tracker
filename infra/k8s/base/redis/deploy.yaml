@@ -5,6 +5,11 @@ metadata:
   labels: { app: redis }
 spec:
   replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector: { matchLabels: { app: redis } }
   template:
     metadata:
@@ -33,9 +38,11 @@ spec:
           readinessProbe:
             exec:
               command: ["sh","-lc","redis-cli -a \"$REDIS_PASSWORD\" ping | grep PONG"]
-            initialDelaySeconds: 3
-            periodSeconds: 3
-            timeoutSeconds: 2
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
           livenessProbe:
             exec:
               command: ["sh","-lc","redis-cli -a \"$REDIS_PASSWORD\" ping | grep PONG"]
