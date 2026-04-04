@@ -101,6 +101,17 @@ Runs `sync` + `drop_caches` via **`colima ssh`** **before** each k6 block (when 
 K6_SUITE_LOG_TOP_BEFORE=1
 ```
 
+### When `kubectl top` fails (metrics-server)
+
+Hooks in `scripts/lib/k6-suite-resource-hooks.sh` probe **once per shell**: if `kubectl top nodes` does not work, they print a **single** ℹ️ line (not a warning every block), **skip** the node CPU% gate, and use **`K6_SUITE_GATEWAY_DRAIN_FALLBACK_SLEEP_SEC`** (default **12**) instead of CPU-based gateway drain.
+
+Repair on k3s/Colima:
+
+```bash
+make metrics-server-ready
+# or: bash scripts/ensure-metrics-server-ready.sh
+```
+
 ---
 
 ## 3) Related

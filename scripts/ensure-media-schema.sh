@@ -25,4 +25,9 @@ if [[ -f "$SQL2" ]]; then
   psql -h "$PGHOST" -p "$PGPORT" -U postgres -d media -v ON_ERROR_STOP=1 -f "$SQL2"
   echo "✅ Media outbox (02) applied."
 fi
+SQL3="$REPO_ROOT/infra/db/03-media-processed-events.sql"
+if [[ -f "$SQL3" ]]; then
+  psql -h "$PGHOST" -p "$PGPORT" -U postgres -d media -v ON_ERROR_STOP=1 -f "$SQL3"
+  echo "✅ Media processed_events (03) applied."
+fi
 echo "✅ Media schema applied (port $PGPORT, database media)."

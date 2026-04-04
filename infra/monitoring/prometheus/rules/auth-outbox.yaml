@@ -1,0 +1,15 @@
+# Auth transactional outbox backlog (requires auth-service /metrics scrape).
+groups:
+  - name: auth-outbox
+    interval: 30s
+    rules:
+      - alert: AuthOutboxUnpublishedBacklog
+        expr: auth_outbox_unpublished_count > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Auth outbox has unpublished lifecycle events
+          description: >
+            Rows remain in auth.auth_outbox with published_at IS NULL for 5m — Kafka may be down,
+            publisher disabled, or worker stuck. Check auth-service logs and Kafka connectivity.

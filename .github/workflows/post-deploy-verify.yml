@@ -1,0 +1,142 @@
+# Live-cluster gate: kafka-health (if Kafka exists) + gateway smoke + k6 Job + canary checks.
+#
+# When to use
+# - Self-hosted runner on the same network as the cluster (Colima/k3s, VPN, etc.): choose "self-hosted"
+#   and ensure the runner has ~/.kube/config, kubectl, make, python3, openssl, jq, and repo TLS material
+#   under certs/ if your verify scripts need it.
+# - GitHub-hosted ubuntu-latest + API-reachable cluster: choose "kubeconfig-secret" and set a repo secret
+#   with your kubeconfig (see below).
+#
+# Secrets (kubeconfig-secret mode)
+# - POST_DEPLOY_VERIFY_KUBECONFIG_B64: base64-encoded kubeconfig (recommended)
+#     Linux: base64 -w0 < ~/.kube/config
+#     macOS: base64 < ~/.kube/config | tr -d '\n'
+# - POST_DEPLOY_VERIFY_KUBECONFIG: optional alternative — raw kubeconfig (multiline secret; avoid if special chars bite)
+#
+# Optional TLS material (when verify scripts need files under certs/, or you lack in-cluster Secret read):
+# - POST_DEPLOY_CERTS_ARCHIVE_B64: base64 of a gzip tarball rooted at repo, containing e.g.
+#     certs/kafka-ssl/*   certs/dev-root.pem
+#   Create: (cd repo && tar -czf - certs/kafka-ssl certs/dev-root.pem 2>/dev/null | base64 -w0)
+#
+# If the archive secret is unset, the job runs scripts/ci/hydrate-certs-for-ci.sh after checkout:
+#   kafka-ssl-secret → certs/kafka-ssl/*, dev-root-ca → certs/dev-root.pem (when missing).
+# verify-kafka-cluster still uses kafka-ssl-secret via kubectl for several phases if files are absent.
+#
+# This workflow does NOT apply manifests; deploy first, then dispatch this workflow.
+#
+# Git: always set "Branch / tag / SHA" to the ref you want scripts and Makefile to run from
+# (e.g. fix/ci, main). Leave empty to use the repository default branch. Optional "Repository"
+# is owner/repo when checking out a fork or another repo the token can read.
+name: Post-deploy verify
+
+on:
+  workflow_dispatch:
+    inputs:
+      git_ref:
+        description: "Branch, tag, or full commit SHA to checkout (empty = repo default branch)"
+        type: string
+        required: false
+        default: ""
+      git_repository:
+        description: "Optional owner/repo to checkout (empty = this repository)"
+        type: string
+        required: false
+        default: ""
+      execution_mode:
+        description: How the job reaches Kubernetes
+        type: choice
+        required: true
+        default: self-hosted
+        options:
+          - self-hosted
+          - kubeconfig-secret
+      housing_ns:
+        description: Target namespace (HOUSING_NS)
+        type: string
+        required: false
+        default: off-campus-housing-tracker
+      runs_on_labels_json:
+        description: 'runs-on JSON array (self-hosted only), e.g. ["self-hosted","Linux","X64"]'
+        type: string
+        required: false
+        default: '["self-hosted"]'
+
+concurrency:
+  group: post-deploy-verify-${{ github.repository }}-${{ github.event.inputs.git_ref != '' && github.event.inputs.git_ref || github.event.repository.default_branch }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  post-deploy-verify:
+    # Array for self-hosted labels; ubuntu-latest for kubeconfig-secret mode.
+    runs-on: ${{ github.event.inputs.execution_mode == 'kubeconfig-secret' && fromJSON('["ubuntu-latest"]') || fromJSON(github.event.inputs.runs_on_labels_json) }}
+    env:
+      HOUSING_NS: ${{ github.event.inputs.housing_ns }}
+      # Optional: gzip tarball (base64) of certs/ subtree — see workflow header
+      POST_DEPLOY_CERTS_ARCHIVE_B64: ${{ secrets.POST_DEPLOY_CERTS_ARCHIVE_B64 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.inputs.git_repository != '' && github.event.inputs.git_repository || github.repository }}
+          ref: ${{ github.event.inputs.git_ref != '' && github.event.inputs.git_ref || github.event.repository.default_branch }}
+          fetch-depth: 1
+
+      - name: Checkout context
+        env:
+          _REPO: ${{ github.event.inputs.git_repository != '' && github.event.inputs.git_repository || github.repository }}
+          _REF: ${{ github.event.inputs.git_ref != '' && github.event.inputs.git_ref || github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          echo "repository=${_REPO}"
+          echo "ref=${_REF}"
+          git rev-parse --short HEAD
+          git log -1 --oneline
+
+      - name: Install kubectl (kubeconfig-secret mode)
+        if: github.event.inputs.execution_mode == 'kubeconfig-secret'
+        uses: azure/setup-kubectl@v4
+        with:
+          version: "v1.29.0"
+
+      - name: Install OS deps (kubeconfig-secret mode)
+        if: github.event.inputs.execution_mode == 'kubeconfig-secret'
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            make ca-certificates curl openssl python3 python3-venv python3-pip jq
+
+      - name: Write kubeconfig from repository secret
+        if: github.event.inputs.execution_mode == 'kubeconfig-secret'
+        env:
+          KCFG_B64: ${{ secrets.POST_DEPLOY_VERIFY_KUBECONFIG_B64 }}
+          KCFG_PLAIN: ${{ secrets.POST_DEPLOY_VERIFY_KUBECONFIG }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.kube"
+          if [ -n "${KCFG_B64:-}" ]; then
+            echo "$KCFG_B64" | base64 -d > "$HOME/.kube/config"
+          elif [ -n "${KCFG_PLAIN:-}" ]; then
+            printf '%s\n' "$KCFG_PLAIN" > "$HOME/.kube/config"
+          else
+            echo "::error::Set POST_DEPLOY_VERIFY_KUBECONFIG_B64 (or POST_DEPLOY_VERIFY_KUBECONFIG) for kubeconfig-secret mode."
+            exit 1
+          fi
+          chmod 600 "$HOME/.kube/config"
+          kubectl cluster-info --request-timeout=30s
+
+      - name: Preflight kubectl (self-hosted)
+        if: github.event.inputs.execution_mode == 'self-hosted'
+        run: |
+          set -euo pipefail
+          command -v kubectl
+          command -v make
+          test -f "$HOME/.kube/config" || { echo "::error::Self-hosted runner needs ~/.kube/config"; exit 1; }
+          kubectl cluster-info --request-timeout=30s
+
+      - name: make post-deploy-verify
+        run: |
+          set -euo pipefail
+          make post-deploy-verify

@@ -24,6 +24,8 @@
 #   K6_SUITE_POST_DRAIN_SLEEP_SEC=0  — extra sleep after gateway drain succeeds (settle before kill / next script; edge smoke defaults 10)
 #   K6_SUITE_KILL_K6_AFTER_BLOCK=0   — if 1, SIGKILL any lingering `k6` process (lab only; kills all k6 on host)
 #   K6_SUITE_POST_KILL_K6_SLEEP_SEC=0 — sleep after kill step when K6_SUITE_KILL_K6_AFTER_BLOCK=1 (optional extra settle)
+#   K6_SUITE_GATEWAY_DRAIN_FALLBACK_SLEEP_SEC=12 — when kubectl top is unavailable or no api-gateway row, sleep this long instead of drain (set 0 to skip)
+#   K6_SUITE_SUPPRESS_METRICS_SPAM=1 (default) — one ℹ️ line for missing metrics API instead of repeating ⚠️ per block
 
 k6_suite_append_log() {
   local logf="${K6_SUITE_RESOURCE_LOG:-}"
@@ -32,9 +34,30 @@ k6_suite_append_log() {
   cat >>"$logf"
 }
 
+# Probe once per shell: can kubectl top nodes return rows? Sets K6_SUITE_TOP_OK=1|0
+k6_suite_ensure_top_probe() {
+  [[ -n "${K6_SUITE_TOP_PROBE_DONE:-}" ]] && return 0
+  export K6_SUITE_TOP_PROBE_DONE=1
+  if kubectl top nodes --no-headers >/dev/null 2>&1; then
+    export K6_SUITE_TOP_OK=1
+  else
+    export K6_SUITE_TOP_OK=0
+  fi
+}
+
+# Single user-visible hint when metrics API is down (avoids spam across many k6 blocks).
+k6_suite_note_metrics_unavailable() {
+  [[ "${K6_SUITE_SUPPRESS_METRICS_SPAM:-1}" != "1" ]] && return 0
+  [[ -n "${K6_SUITE_METRICS_UNAVAILABLE_NOTED:-}" ]] && return 0
+  export K6_SUITE_METRICS_UNAVAILABLE_NOTED=1
+  echo "ℹ️  k6 suite: Metrics API unavailable (kubectl top). Node CPU gate and gateway drain use fallbacks. To fix: bash scripts/ensure-metrics-server-ready.sh  (or kubectl rollout restart -n kube-system deployment/metrics-server)" >&2
+}
+
 # Warn if any node reports high CPU% or MEMORY% (kubectl top nodes).
 k6_suite_warn_hot_resources() {
   [[ "${K6_SUITE_WARN_HOT_RESOURCES:-1}" != "1" ]] && return 0
+  k6_suite_ensure_top_probe
+  [[ "${K6_SUITE_TOP_OK:-0}" != "1" ]] && return 0
   local cpu_w="${K6_SUITE_WARN_NODE_CPU:-80}"
   local mem_w="${K6_SUITE_WARN_NODE_MEM:-80}"
   local top_out
@@ -55,6 +78,8 @@ k6_suite_warn_hot_resources() {
 # Snapshot: pods using ≥ ~1000m CPU (≈1 core) — single-sample hint only.
 k6_suite_warn_heavy_pods() {
   [[ "${K6_SUITE_WARN_HEAVY_PODS:-1}" != "1" ]] && return 0
+  k6_suite_ensure_top_probe
+  [[ "${K6_SUITE_TOP_OK:-0}" != "1" ]] && return 0
   local ns="${K6_SUITE_TOP_NS:-off-campus-housing-tracker}"
   kubectl top pods -n "$ns" --no-headers 2>/dev/null | awk '$2 ~ /^[0-9]+m$/ {
     gsub(/m/,"",$2)
@@ -110,10 +135,12 @@ k6_suite_log_top() {
   k6_suite_warn_hot_resources >&2
   k6_suite_warn_heavy_pods
   # Optional: call out Postgres-shaped workloads (name contains postgres)
+  if [[ "${K6_SUITE_TOP_OK:-0}" == "1" ]]; then
   kubectl top pods -n "${K6_SUITE_TOP_NS:-off-campus-housing-tracker}" --no-headers 2>/dev/null | awk 'tolower($1) ~ /postgres/ && $2 ~ /m$/ {
     gsub(/m/,"",$2)
     if ($2+0 >= 200) print "ℹ️  k6 suite: Postgres-related pod " $1 " CPU=" $2 "m (watch for DB spike)"
   }' >&2 || true
+  fi
 }
 
 # Returns 0 if OK or check skipped; 3 if CPU over threshold (caller should fail suite).
@@ -121,9 +148,14 @@ k6_suite_check_node_cpu() {
   local label="${1:-}"
   [[ "${K6_SUITE_FAIL_ON_NODE_CPU:-1}" != "1" ]] && return 0
   local max_allowed="${K6_SUITE_NODE_CPU_MAX:-85}"
+  k6_suite_ensure_top_probe
+  if [[ "${K6_SUITE_TOP_OK:-0}" != "1" ]]; then
+    k6_suite_note_metrics_unavailable
+    return 0
+  fi
   local top_out
   top_out=$(kubectl top nodes --no-headers 2>/dev/null) || {
-    echo "⚠️  k6 suite ($label): skip node CPU check (kubectl top nodes failed — metrics-server?)" >&2
+    k6_suite_note_metrics_unavailable
     return 0
   }
   [[ -z "$top_out" ]] && return 0
@@ -154,6 +186,8 @@ k6_suite_check_node_cpu() {
 k6_suite_gateway_cpu_millicores_max() {
   local ns="${K6_SUITE_TOP_NS:-off-campus-housing-tracker}"
   local pat="${K6_SUITE_GATEWAY_DRAIN_NAME_SUBSTR:-api-gateway}"
+  k6_suite_ensure_top_probe
+  [[ "${K6_SUITE_TOP_OK:-0}" == "1" ]] || { echo ""; return 0; }
   kubectl top pods -n "$ns" --no-headers 2>/dev/null | awk -v pat="$pat" '
     BEGIN { max = -1 }
     {
@@ -197,11 +231,18 @@ k6_suite_wait_gateway_drain() {
   local max_allowed="${K6_SUITE_GATEWAY_DRAIN_MAX_MILLICORES:-150}"
   local interval="${K6_SUITE_GATEWAY_DRAIN_INTERVAL_SEC:-2}"
   local timeout="${K6_SUITE_GATEWAY_DRAIN_TIMEOUT_SEC:-120}"
+  local fb="${K6_SUITE_GATEWAY_DRAIN_FALLBACK_SLEEP_SEC:-12}"
   local waited=0
   local cur
   cur=$(k6_suite_gateway_cpu_millicores_max)
   if [[ -z "$cur" ]]; then
-    echo "⚠️  k6 suite: gateway drain skipped (no api-gateway row in kubectl top — metrics-server / pod name?)" >&2
+    k6_suite_note_metrics_unavailable
+    if [[ "$fb" =~ ^[0-9]+$ ]] && [[ "$fb" -gt 0 ]]; then
+      echo "  k6 suite: gateway drain — using fallback settle ${fb}s (no kubectl top data for api-gateway)" >&2
+      sleep "$fb"
+    else
+      echo "  k6 suite: gateway drain — skipped (set K6_SUITE_GATEWAY_DRAIN_FALLBACK_SLEEP_SEC>0 for settle without metrics)" >&2
+    fi
     return 0
   fi
   echo "  k6 suite: gateway drain — waiting for api-gateway CPU < ${max_allowed}m (now ${cur}m, timeout ${timeout}s)" >&2

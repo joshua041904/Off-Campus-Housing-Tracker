@@ -116,6 +116,17 @@ if [[ $_api_ok -eq 0 ]]; then
   exit 1
 fi
 
+# Reject pool on wrong /24 vs Colima eth0 or k3s node (SKIP_METALLB_SUBNET_GUARD=1 to override).
+# shellcheck disable=SC1091
+if [[ -f "$SCRIPT_DIR/lib/metallb-subnet-guard.sh" ]]; then
+  # shellcheck source=scripts/lib/metallb-subnet-guard.sh
+  source "$SCRIPT_DIR/lib/metallb-subnet-guard.sh"
+  if ! och_assert_metallb_pool_coherent "$METALLB_POOL"; then
+    echo "  Fix: align METALLB_POOL with VM eth0 (see: colima ssh -- ip -4 addr show eth0) or SKIP_METALLB_SUBNET_GUARD=1 for emergency only."
+    exit 1
+  fi
+fi
+
 _apply_pool() {
   sed "s|\$METALLB_POOL|$METALLB_POOL|g" "$REPO_ROOT/infra/k8s/metallb/ipaddresspool.yaml" | kubectl apply -f - --validate=false
   kubectl apply -f "$REPO_ROOT/infra/k8s/metallb/l2advertisement.yaml" --validate=false

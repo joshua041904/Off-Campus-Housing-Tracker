@@ -12,7 +12,9 @@
 #   SKIP_COMPOSE_UP=1        — only wait for already-running containers
 #   ENFORCE_DB_TUNING=1      — after Postgres up, run enforce-external-db-schemas-and-tuning.sh if present
 #   MAX_WAIT=180             — max seconds to wait for Redis/Postgres (default 180)
-#   RESTORE_BACKUP_DIR=DIR   — after Postgres healthy, restore all 8 DBs from backup dir
+#   RESTORE_BACKUP_DIR=DIR   — after Postgres healthy, restore all 8 DBs from custom dumps only
+#                              (restore-external-postgres-from-backup.sh — no infra/db SQL in this script)
+#   SKIP_AUTO_RESTORE=1      — skip restore block (use when Phase-0 already restored; make up calls infra-host again)
 #   RESTORE_BACKUP_DIR=latest — use newest backups/all-8-* or backups/all-7-*
 #   WAIT_K8S_KAFKA=1         — after compose up, wait for kafka-0..2 Ready in off-campus-housing-tracker (optional)
 #
@@ -78,13 +80,13 @@ if ! docker info >/dev/null 2>&1; then
   exit 1
 fi
 
-POSTGRES_SERVICES="postgres-auth postgres-listings postgres-bookings postgres-messaging postgres-notification postgres-trust postgres-analytics postgres-media"
+POSTGRES_SERVICES=(postgres-auth postgres-listings postgres-bookings postgres-messaging postgres-notification postgres-trust postgres-analytics postgres-media)
 
 if [[ "$SKIP_COMPOSE_UP" != "1" ]]; then
   step "Starting Redis, MinIO, Postgres (8)"
   docker compose up -d redis 2>&1 || true
   docker compose up -d minio 2>&1 || true
-  docker compose up -d $POSTGRES_SERVICES 2>&1 || true
+  docker compose up -d "${POSTGRES_SERVICES[@]}" 2>&1 || true
   info "Containers started; waiting for health (max ${MAX_WAIT}s)…"
 else
   info "SKIP_COMPOSE_UP=1: only waiting for existing containers."
@@ -136,7 +138,7 @@ while [[ $elapsed -lt $MAX_WAIT ]]; do
   elapsed=$((elapsed + 5))
 done
 if ! (nc -z 127.0.0.1 5441 2>/dev/null && nc -z 127.0.0.1 5448 2>/dev/null); then
-  warn "Not all Postgres ports became ready within ${MAX_WAIT}s. Run: docker compose up -d $POSTGRES_SERVICES"
+  warn "Not all Postgres ports became ready within ${MAX_WAIT}s. Run: docker compose up -d ${POSTGRES_SERVICES[*]}"
 fi
 
 if [[ "$ENFORCE_DB_TUNING" == "1" ]]; then
@@ -150,12 +152,14 @@ fi
 
 step "Summary — container status"
 say "=== External infra status ==="
-docker compose ps redis minio $POSTGRES_SERVICES 2>/dev/null || true
+docker compose ps redis minio "${POSTGRES_SERVICES[@]}" 2>/dev/null || true
 info "Kafka: in-cluster KRaft only — ./scripts/create-kafka-event-topics-k8s.sh"
 say "✅ bring-up-external-infra finished. See docs/RUN_PIPELINE_ORDER.md"
 
 RESTORE_BACKUP_DIR="${RESTORE_BACKUP_DIR:-}"
-if [[ -n "$RESTORE_BACKUP_DIR" ]]; then
+if [[ -n "$RESTORE_BACKUP_DIR" ]] && [[ "${SKIP_AUTO_RESTORE:-0}" == "1" ]]; then
+  info "SKIP_AUTO_RESTORE=1 — skipping dump restore here (already ran in an earlier phase)."
+elif [[ -n "$RESTORE_BACKUP_DIR" ]]; then
   echo
   echo "=== Auto-restore requested: $RESTORE_BACKUP_DIR ==="
   if [[ "$RESTORE_BACKUP_DIR" == "latest" ]]; then

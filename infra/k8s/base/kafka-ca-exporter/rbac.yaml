@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kafka-ca-exporter
+  namespace: off-campus-housing-tracker
+  labels:
+    app: kafka-ca-exporter
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kafka-ca-exporter
+  namespace: off-campus-housing-tracker
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["kafka-ssl-secret"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kafka-ca-exporter
+  namespace: off-campus-housing-tracker
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kafka-ca-exporter
+subjects:
+  - kind: ServiceAccount
+    name: kafka-ca-exporter
+    namespace: off-campus-housing-tracker

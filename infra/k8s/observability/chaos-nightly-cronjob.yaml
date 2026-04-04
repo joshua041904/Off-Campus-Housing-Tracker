@@ -1,0 +1,19 @@
+# Optional CronJob: run chaos suite inside cluster (requires image with repo + kubectl).
+# Do not apply until you build `off-campus-chaos-runner` (or mount ConfigMap + git clone).
+# ---
+# apiVersion: batch/v1
+# kind: CronJob
+# metadata:
+#   name: chaos-nightly
+#   namespace: off-campus-housing-tracker
+# spec:
+#   schedule: "0 8 * * *"
+#   jobTemplate:
+#     spec:
+#       template:
+#         spec:
+#           restartPolicy: Never
+#           containers:
+#             - name: chaos
+#               image: off-campus-chaos-runner:dev
+#               command: ["/bin/bash", "-c", "cd /repo && CHAOS_SUITE=baseline ./scripts/run-chaos-suite.sh"]

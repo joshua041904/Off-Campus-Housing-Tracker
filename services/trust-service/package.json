@@ -9,7 +9,8 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "test": "ROLLUP_DISABLE_NATIVE=true vitest run",
-    "test:watch": "ROLLUP_DISABLE_NATIVE=true vitest"
+    "test:watch": "ROLLUP_DISABLE_NATIVE=true vitest",
+    "test:integration": "ROLLUP_DISABLE_NATIVE=true vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
     "@common/utils": "workspace:*",

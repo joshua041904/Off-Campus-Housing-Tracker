@@ -14,9 +14,10 @@ metadata:
 spec:
   serviceName: kafka
   replicas: 3
-  # Parallel: all replicas must exist for KRaft controller.quorum.voters DNS (kafka-2) before any broker can boot.
-  # OrderedReady deadlocks: kafka-0 waits for kafka-2, but kafka-2 is not created until kafka-0 is Ready.
-  # Headless Service uses publishNotReadyAddresses so not-ready pods still get DNS entries.
+  # Parallel: KRaft needs kafka-0/1/2 DNS before brokers boot (wait-quorum-dns init). OrderedReady deadlocks that
+  # bootstrap (kafka-2 not created until kafka-0 Ready, but kafka-0 cannot finish without peers).
+  # JKS/truststore uniformity during TLS rotation: use KAFKA_TLS_ATOMIC_BEFORE_REFRESH=1 (scale-0 before secret refresh)
+  # or `make kafka-tls-rotate-atomic` — do not switch to OrderedReady for PKIX drift; it breaks cold start.
   podManagementPolicy: Parallel
   selector:
     matchLabels: { app: kafka }

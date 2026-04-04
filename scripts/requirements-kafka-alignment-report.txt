@@ -1,0 +1,2 @@
+# Used by make kafka-alignment-suite → scripts/generate-kafka-alignment-report.py (PNG charts).
+matplotlib>=3.8.0

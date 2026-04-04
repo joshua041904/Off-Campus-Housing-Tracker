@@ -3,6 +3,7 @@ name: kafka-dns-validate
 
 on:
   push:
+    branches: [main, master, develop]
     paths:
       - "scripts/validate-kafka-dns.sh"
       - "scripts/preflight-kafka-k8s-rollout.sh"
@@ -11,16 +12,13 @@ on:
       - "infra/ops/**"
       - "infra/policies/kafka-replica-guard.yaml"
       - "monitoring/prometheus-rules/kafka-kraft-dns.yaml"
+  # Every PR runs (same checks without guessing which paths changed).
   pull_request:
-    paths:
-      - "scripts/validate-kafka-dns.sh"
-      - "scripts/preflight-kafka-k8s-rollout.sh"
-      - "scripts/create-kafka-event-topics-k8s.sh"
-      - "infra/k8s/kafka-kraft-metallb/**"
-      - "infra/ops/**"
-      - "infra/policies/kafka-replica-guard.yaml"
-      - "monitoring/prometheus-rules/kafka-kraft-dns.yaml"
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   shell-and-kustomize:
@@ -37,5 +35,12 @@ jobs:
           bash -n scripts/create-kafka-event-topics-k8s.sh
       - name: Kustomize build kafka-kraft-metallb
         run: kubectl kustomize infra/k8s/kafka-kraft-metallb/ >/tmp/kafka-kraft.yaml && test -s /tmp/kafka-kraft.yaml
+      - name: Assert KRaft bundle is three brokers (replicas)
+        run: |
+          set -euo pipefail
+          grep -qE 'replicas:[[:space:]]+3\b' /tmp/kafka-kraft.yaml || {
+            echo "::error::Expected replicas: 3 in rendered kafka-kraft-metallb (3-broker KRaft contract)."
+            exit 1
+          }
       - name: Kustomize build infra ops
         run: kubectl kustomize infra/ops/ >/tmp/kafka-ops.yaml && test -s /tmp/kafka-ops.yaml

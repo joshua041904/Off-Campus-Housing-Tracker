@@ -73,6 +73,8 @@ spec:
                 name: grafana-dashboards
             - configMap:
                 name: grafana-dashboards-transport
+            - configMap:
+                name: grafana-dashboard-auth-outbox
 ---
 apiVersion: v1
 kind: Service

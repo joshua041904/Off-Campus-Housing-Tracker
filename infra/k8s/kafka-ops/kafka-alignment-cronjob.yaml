@@ -1,0 +1,82 @@
+# Optional: scheduled Kafka alignment validation in-cluster.
+# Apply to the housing namespace (same as Kafka brokers):
+#   docker build -f infra/docker/kafka-alignment-cron/Dockerfile -t kafka-alignment-cron:latest .
+#   kind load docker-image kafka-alignment-cron:latest   # or push to your registry
+#   kubectl apply -f infra/k8s/kafka-ops/kafka-alignment-cronjob.yaml
+#
+# Update spec.jobTemplate.spec.template.spec.containers[0].image to your registry tag if not local.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kafka-alignment-cron
+  namespace: off-campus-housing-tracker
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kafka-alignment-cron
+  namespace: off-campus-housing-tracker
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "secrets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kafka-alignment-cron
+  namespace: off-campus-housing-tracker
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kafka-alignment-cron
+subjects:
+  - kind: ServiceAccount
+    name: kafka-alignment-cron
+    namespace: off-campus-housing-tracker
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: kafka-alignment-validate
+  namespace: off-campus-housing-tracker
+  labels:
+    app.kubernetes.io/name: kafka-alignment-validate
+spec:
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  schedule: "*/30 * * * *"
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: kafka-alignment-validate
+        spec:
+          serviceAccountName: kafka-alignment-cron
+          restartPolicy: Never
+          containers:
+            - name: validate
+              image: kafka-alignment-cron:latest
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: HOUSING_NS
+                  value: off-campus-housing-tracker
+                - name: KAFKA_BROKER_REPLICAS
+                  value: "3"
+                - name: KAFKA_ALIGNMENT_SKIP_TEST1_VERIFY
+                  value: "1"
+                - name: KAFKA_ALIGNMENT_TEST_MODE
+                  value: "0"
+              volumeMounts:
+                - name: scratch
+                  mountPath: /workspace/bench_logs
+          volumes:
+            - name: scratch
+              emptyDir: {}

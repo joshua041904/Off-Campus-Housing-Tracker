@@ -6,7 +6,8 @@
 # Breakdown:
 #   1. Reads dev-root-ca from ingress-nginx (or off-campus-housing-tracker) secret.
 #   2. Creates a temporary Pod with curl image and CA mounted; runs curl with --cacert and Host: off-campus-housing.test.
-#   3. Waits for pod completion; exit 0 if curl succeeded (strict TLS OK), else exit 1.
+#   3. Waits for caddy-h3 Deployment Ready, then runs a pod that retries curl (backoff) after DNS warmup.
+#   4. Waits for pod completion; exit 0 if HTTP 200 + body contains ok, else exit 1 (with endpoint/pod/log debug).
 # Use: ./scripts/verify-caddy-strict-tls-in-cluster.sh
 
 set -euo pipefail
@@ -43,6 +44,27 @@ else
   NS_CA="$NS_ING"
 fi
 
+# Reduce HTTP 000 flakes: wait for Caddy before the one-off curl pod (rollout / EndpointSlice / DNS cache lag).
+if ! _kb get deploy -n "$NS_ING" caddy-h3 -o name >/dev/null 2>&1; then
+  fail "Deployment caddy-h3 not found in $NS_ING; deploy edge before strict TLS verify"
+fi
+_kb rollout status deploy/caddy-h3 -n "$NS_ING" --timeout=120s >/dev/null 2>&1 \
+  || fail "caddy-h3 rollout not complete within 120s"
+if ! _kb -n "$NS_ING" get pods -l app=caddy-h3 -o name 2>/dev/null | grep -q .; then
+  fail "No caddy-h3 pods in $NS_ING"
+fi
+_kb wait --for=condition=ready pod -l app=caddy-h3 -n "$NS_ING" --timeout=120s >/dev/null 2>&1 \
+  || fail "caddy-h3 pods not Ready within 120s; fix edge before strict TLS verify"
+
+dump_caddy_debug() {
+  echo "=== endpoints/$NS_ING svc caddy-h3 ===" >&2
+  _kb -n "$NS_ING" get endpoints caddy-h3 -o wide 2>/dev/null || true
+  echo "=== pods -l app=caddy-h3 ===" >&2
+  _kb -n "$NS_ING" get pods -l app=caddy-h3 -o wide 2>/dev/null || true
+  echo "=== logs -l app=caddy-h3 (tail 40) ===" >&2
+  _kb -n "$NS_ING" logs -l app=caddy-h3 --tail=40 --all-containers=true 2>/dev/null || true
+}
+
 POD_NAME="verify-caddy-strict-tls-$$"
 # Single pod: curl with CA, write HTTP code to /tmp/code. No port-forward needed (in-cluster DNS).
 _kb delete pod -n "$NS_ING" "$POD_NAME" --ignore-not-found --request-timeout=5s 2>/dev/null || true
@@ -64,9 +86,31 @@ spec:
     - /bin/sh
     - -c
     - |
-      code=\$(curl -sS -w '%{http_code}' -o /tmp/body --max-time 15 --connect-timeout 5 --http2 --cacert /ca/dev-root.pem -H "Host: $HOST" "https://caddy-h3.$NS_ING.svc.cluster.local:443/_caddy/healthz")
+      set -e
+      CADDY_HOST="caddy-h3.$NS_ING.svc.cluster.local"
+      # DNS warmup (best-effort; reduces first-request flakes after rollout)
+      command -v getent >/dev/null 2>&1 && getent hosts "\$CADDY_HOST" || true
+      command -v nslookup >/dev/null 2>&1 && nslookup "\$CADDY_HOST" || true
+      code=000
+      i=1
+      while [ "\$i" -le 10 ]; do
+        set +e
+        code=\$(curl -sS -w '%{http_code}' -o /tmp/body --max-time 15 --connect-timeout 8 --http2 --cacert /ca/dev-root.pem -H "Host: $HOST" "https://\$CADDY_HOST:443/_caddy/healthz" 2>/tmp/curlerr)
+        cr=\$?
+        set -e
+        if [ "\$cr" -ne 0 ]; then code=000; fi
+        echo "HTTP_CODE:\$code (attempt \$i)"
+        if [ "\$code" = "200" ] && grep -q ok /tmp/body 2>/dev/null; then
+          echo "HTTP_CODE:200"
+          exit 0
+        fi
+        i=\$((i + 1))
+        sleep 3
+      done
+      echo "--- curl stderr (last run) ---" >&2
+      cat /tmp/curlerr 2>/dev/null >&2 || true
       echo "HTTP_CODE:\$code"
-      exit 0
+      exit 1
     volumeMounts:
     - name: ca
       mountPath: /ca
@@ -88,7 +132,8 @@ for i in $(seq 1 30); do
 done
 
 if [[ "$phase" == "Failed" ]]; then
-  _kb -n "$NS_ING" logs "$POD_NAME" -c curl 2>/dev/null | tail -20
+  _kb -n "$NS_ING" logs "$POD_NAME" -c curl 2>/dev/null | tail -40
+  dump_caddy_debug
   _kb delete pod -n "$NS_ING" "$POD_NAME" --ignore-not-found 2>/dev/null || true
   fail "Caddy in-cluster verify failed (pod Failed). Check CA/Caddy match and Caddy in ingress-nginx."
 fi
@@ -98,7 +143,8 @@ http_code=$(_kb -n "$NS_ING" logs "$POD_NAME" -c curl 2>/dev/null | grep -o 'HTT
 _kb delete pod -n "$NS_ING" "$POD_NAME" --ignore-not-found 2>/dev/null || true
 
 if [[ "$http_code" != "200" ]]; then
-  fail "Caddy in-cluster verify returned HTTP $http_code (expected 200)"
+  dump_caddy_debug
+  fail "Caddy in-cluster verify returned HTTP $http_code (expected 200 after retries)"
 fi
 
 ok "Caddy strict TLS OK in-cluster (HTTP 200, no port-forward)"

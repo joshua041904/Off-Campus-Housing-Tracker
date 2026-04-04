@@ -6,6 +6,11 @@ metadata:
   labels: { app: nginx }
 spec:
   replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector: { matchLabels: { app: nginx } }
   template:
     metadata:
@@ -29,6 +34,13 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "250m"
+              memory: "128Mi"
           volumeMounts:
             - name: nginx-cm
               mountPath: /etc/nginx/nginx.conf

@@ -11,14 +11,29 @@ const DEFAULT_PROTO_DIRS = [
   path.resolve(__dirname, "../../proto"),
 ];
 
+/** K8s proto-files ConfigMap uses flat keys (no slashes); map nested paths for lookup. */
+function candidateProtoFileNames(fileName: string): string[] {
+  switch (fileName) {
+    case "events/envelope.proto":
+      return [fileName, "events_envelope.proto"];
+    case "events/auth.proto":
+      return [fileName, "events_auth.proto"];
+    default:
+      return [fileName];
+  }
+}
+
 export function resolveProtoPath(fileName: string): string {
   const tried: string[] = [];
+  const names = candidateProtoFileNames(fileName);
   for (const candidateRoot of DEFAULT_PROTO_DIRS) {
     if (!candidateRoot) continue;
-    const candidate = path.resolve(candidateRoot, fileName);
-    tried.push(candidate);
-    if (fs.existsSync(candidate)) {
-      return candidate;
+    for (const name of names) {
+      const candidate = path.resolve(candidateRoot, name);
+      tried.push(candidate);
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
     }
   }
   throw new Error(

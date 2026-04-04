@@ -6,6 +6,7 @@ resources:
   - namespaces.yaml
   - config
   - kafka-external
+  - kafka-ca-exporter
   - envoy-test
   - redis
   - haproxy

@@ -18,7 +18,7 @@ bash "$SCRIPT_DIR/generate-kafka-ci-tls.sh"
 [[ -f "$SECRETS_DIR/kafka.keystore.jks" ]] || { echo "missing keystore"; exit 1; }
 
 chmod +x "$REPO_ROOT/scripts/verify-kafka-broker-keystore-jks.sh" 2>/dev/null || true
-KAFKA_KEYSTORE_PATH="$SECRETS_DIR/kafka.keystore.jks" \
+env KAFKA_KEYSTORE_PATH="$SECRETS_DIR/kafka.keystore.jks" \
   KAFKA_KEYSTORE_PASSWORD_FILE="$SECRETS_DIR/kafka.keystore-password" \
   REPO_ROOT="$REPO_ROOT" \
   bash "$REPO_ROOT/scripts/verify-kafka-broker-keystore-jks.sh" || exit 1

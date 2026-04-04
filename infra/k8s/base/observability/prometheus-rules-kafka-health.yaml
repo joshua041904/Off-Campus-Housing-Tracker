@@ -1,0 +1,109 @@
+# Kafka health alerts for Prometheus (vanilla scrape). Metric names assume a JMX → Prometheus mapping
+# similar to the official jmx_exporter Kafka config; rename expr labels to match your scrape if needed.
+# If Kafka is not scraped, these rules are inert (no series → no alert).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules-kafka-health
+  namespace: observability
+  labels:
+    app: prometheus
+    och.dev/role: kafka-rules
+data:
+  kafka-health.yml: |
+    groups:
+    - name: kafka-coherence
+      interval: 30s
+      rules:
+      - alert: KafkaUnderReplicatedPartitions
+        expr: kafka_server_replicamanager_underreplicatedpartitions > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Kafka has under-replicated partitions
+          description: Broker replication lag or ISR shrink — check broker logs and network coherence (make verify-network-coherence).
+
+      - alert: KafkaActiveControllerCount
+        expr: kafka_controller_kafkacontroller_activecontrollercount != 1
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: Kafka controller count is not exactly one
+          description: >
+            Quorum / controller election issue (includes no active controller when count is 0, or split-brain when >1).
+            Verify KRaft brokers, networking, and logs.
+
+      - alert: KafkaLeaderElectionRateHigh
+        expr: rate(kafka_controller_controllerstats_leaderelectionrateandtimems_count[1m]) > 3
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: High Kafka leader election rate
+          description: Possible instability — correlate with pod restarts and network (Colima / MetalLB drift).
+
+    - name: kafka-tls
+      interval: 30s
+      rules:
+      # Emitted by kafka-ca-exporter (off-campus-housing-tracker) — scraped via housing-pods job when pod has prometheus.io/* annotations.
+      - alert: KafkaCARotated
+        expr: increase(kafka_ca_rotation_detected_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Kafka CA fingerprint changed
+          description: >
+            kafka_ca_rotation_detected_total increased — kafka-ssl-secret ca-cert.pem fingerprint changed vs prior scrape.
+            Correlate with make tls-first-time, kafka-refresh-tls-from-lb, or manual secret edits.
+
+    - name: kafka-metallb-alignment
+      interval: 30s
+      rules:
+      # Emitted by deploy/kafka-metallb-alignment-exporter (kafka-kraft-metallb bundle). Absent if exporter not applied.
+      - alert: KafkaMetallbAdvertisedLBDrift
+        expr: kafka_metallb_advertised_lb_drift == 1
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: Kafka EXTERNAL advertised IP does not match LoadBalancer Service IP
+          description: >
+            At least one broker's advertised.listeners EXTERNAL IPv4 differs from kafka-N-external.status.loadBalancer.ingress.
+            Run ./scripts/check-kafka-config-drift.sh and ./scripts/kafka-sync-metallb.sh after MetalLB IP changes.
+
+      - alert: KafkaRuntimeConfigDrift
+        expr: kafka_runtime_config_drift == 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Per-broker Kafka runtime config drift (LB vs EXTERNAL advert)
+          description: >
+            kafka_runtime_config_drift{broker} is 1 — MetalLB LB IPv4 missing, EXTERNAL advert missing, or mismatch.
+            Remediate: make kafka-sync-metallb (or ./scripts/kafka-runtime-sync.sh --remediate).
+
+      # Emitted by scripts/tests/kafka-alignment-suite.sh → textfile (NODE_EXPORTER_TEXTFILE_DIR) or bench_logs.
+      - alert: KafkaAlignmentTestFailure
+        expr: kafka_alignment_test_pass == 0
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: Kafka alignment suite reported a failing test
+          description: >
+            kafka_alignment_test_pass{test} is 0 — re-run ./scripts/tests/kafka-alignment-suite.sh or make kafka-health.
+            Publish metrics via NODE_EXPORTER_TEXTFILE_DIR or CronJob (infra/k8s/kafka-ops/kafka-alignment-cronjob.yaml).
+
+      # Fires when the metric is never present (no textfile / no scrape). Mute in dev if you do not publish suite metrics.
+      - alert: KafkaAlignmentSuiteMissing
+        expr: absent(kafka_alignment_test_pass)
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: kafka_alignment_test_pass not scraped
+          description: >
+            No time series for kafka_alignment_test_pass — run the alignment suite with NODE_EXPORTER_TEXTFILE_DIR, or deploy the kafka-alignment CronJob and scrape textfile/metrics.

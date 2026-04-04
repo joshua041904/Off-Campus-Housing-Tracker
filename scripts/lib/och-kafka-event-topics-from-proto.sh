@@ -46,6 +46,9 @@ och_kafka_event_topics_fill() {
 
   tmp_topics+=("${ENV_PREFIX}.booking.events.v1${SUF}")
   tmp_topics+=("${ENV_PREFIX}.messaging.dlq${SUF}")
+  # Account lifecycle (deletion / anonymization); envelope payloads in proto/events/auth.proto
+  tmp_topics+=("${ENV_PREFIX}.user.lifecycle.v1${SUF}")
+  tmp_topics+=("${ENV_PREFIX}.user.lifecycle.ack.v1${SUF}")
 
   local line
   while IFS= read -r line || [[ -n "$line" ]]; do

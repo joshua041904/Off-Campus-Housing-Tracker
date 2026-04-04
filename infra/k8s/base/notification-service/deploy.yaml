@@ -8,7 +8,10 @@ metadata:
 spec:
   replicas: 1
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       app: notification-service
@@ -86,7 +89,7 @@ spec:
                 - -connect-timeout=5s
                 - -rpc-timeout=5s
             periodSeconds: 5
-            timeoutSeconds: 10
+            timeoutSeconds: 15
             failureThreshold: 30
           readinessProbe:
             exec:
@@ -101,9 +104,10 @@ spec:
                 - -tls-server-name=localhost
                 - -connect-timeout=5s
                 - -rpc-timeout=5s
-            initialDelaySeconds: 30
-            periodSeconds: 5
-            timeoutSeconds: 10
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 15
+            successThreshold: 1
             failureThreshold: 6
           livenessProbe:
             exec:
@@ -124,11 +128,11 @@ spec:
             failureThreshold: 5
           resources:
             requests:
-              cpu: "100m"
-              memory: "128Mi"
+              cpu: "200m"
+              memory: "256Mi"
             limits:
               cpu: "500m"
-              memory: "384Mi"
+              memory: "512Mi"
       volumes:
         - name: service-tls
           secret:

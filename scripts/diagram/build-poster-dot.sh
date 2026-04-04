@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# One-page system poster (top → bottom): clients, edge, gateway, services, Kafka, Postgres, observability.
+# Usage: ./build-poster-dot.sh [out.dot]
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+THEME_FRAG="$REPO_ROOT/diagrams/theme.frag"
+out="${1:?out.dot}"
+
+mkdir -p "$(dirname "$out")"
+
+{
+  echo "digraph system_poster {"
+  [[ -f "$THEME_FRAG" ]] && cat "$THEME_FRAG"
+  cat <<'DOT'
+  graph [
+    rankdir=TB,
+    fontsize=12,
+    label="Off-Campus Housing — system architecture (poster)",
+    labelloc=t
+  ];
+  node [fontname="Helvetica"];
+  edge [fontname="Helvetica", fontsize=9];
+
+  /* ---- Layers (top → bottom) ---- */
+  { rank=same;
+    clients [label="Clients\n(browsers, mobile)", shape=ellipse, style=filled, fillcolor="#e3f2fd"];
+  }
+  { rank=same;
+    caddy [label="Caddy\n(TLS / HTTP3)", shape=box, style="rounded,filled", fillcolor="#cce6ff"];
+  }
+  { rank=same;
+    gateway [label="API Gateway", shape=box, style="rounded,filled", fillcolor="#99ccff"];
+  }
+  { rank=same;
+    auth [label="Auth", shape=box, style="rounded,filled", fillcolor="#ccffcc"];
+    listings [label="Listings", shape=box, style="rounded,filled", fillcolor="#ccffcc"];
+    bookings [label="Bookings", shape=box, style="rounded,filled", fillcolor="#ccffcc"];
+    messaging [label="Messaging", shape=box, style="rounded,filled", fillcolor="#ccffcc"];
+    notification [label="Notification", shape=box, style="rounded,filled", fillcolor="#ccffcc"];
+    trust [label="Trust", shape=box, style="rounded,filled", fillcolor="#ccffcc"];
+    analytics [label="Analytics", shape=box, style="rounded,filled", fillcolor="#ccffcc"];
+    media [label="Media", shape=box, style="rounded,filled", fillcolor="#ccffcc"];
+    event_layer [label="Event layer", shape=box, style="rounded,filled", fillcolor="#c8e6c9"];
+  }
+  { rank=same;
+    kafka [label="Kafka\n(KRaft)", shape=hexagon, style=filled, fillcolor="#ffcc99"];
+  }
+  { rank=same;
+    postgres [label="Postgres\n(per-service DBs)", shape=cylinder, style=filled, fillcolor="#e6ccff"];
+  }
+  { rank=same;
+    prom [label="Prometheus /\nGrafana /\nAlerts", shape=box, style="rounded,filled", fillcolor="#f0f0f0"];
+  }
+
+  clients -> caddy [label="HTTPS"];
+  caddy -> gateway [label="terminate"];
+  gateway -> auth [label="sync"];
+  gateway -> listings [label="sync"];
+  gateway -> bookings [label="sync"];
+  gateway -> messaging [label="sync"];
+  gateway -> media [label="sync"];
+
+  auth -> postgres [label="SQL"];
+  listings -> postgres [label="SQL"];
+  bookings -> postgres [label="SQL"];
+  messaging -> postgres [label="SQL"];
+  notification -> postgres [label="SQL"];
+  trust -> postgres [label="SQL"];
+  analytics -> postgres [label="SQL"];
+  media -> postgres [label="SQL"];
+
+  event_layer -> kafka [label="produce", style=dashed];
+  listings -> kafka [label="events", style=dashed];
+  bookings -> kafka [label="events", style=dashed];
+  messaging -> kafka [label="events", style=dashed];
+  kafka -> analytics [label="consume", style=dashed];
+  kafka -> notification [label="consume", style=dashed];
+  kafka -> trust [label="consume", style=dashed];
+
+  gateway -> prom [label="metrics", style=dotted, color="#666666"];
+  kafka -> prom [label="JMX / exp.", style=dotted, color="#666666"];
+  postgres -> prom [label="exporter", style=dotted, color="#666666"];
+DOT
+  echo "}"
+} >"$out"

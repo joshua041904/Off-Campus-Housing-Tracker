@@ -7,11 +7,17 @@ on:
     branches: [main, master, develop]
   pull_request:
 
+# Avoid starving other workflows: only N image builds at once (GitHub-hosted runner pool is shared).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   build-images:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
+      max-parallel: 4
       matrix:
         service:
           - api-gateway

@@ -1,8 +1,0 @@
-DEPRECATED: merged into GITHUB_PR_DESCRIPTION.txt
-
-This selector file is no longer needed.
-
-Canonical PR description (includes former PR2 + task assignment):
-  GITHUB_PR_DESCRIPTION.txt
-
-Use ONLY GITHUB_PR_DESCRIPTION.txt when pasting PR descriptions.

@@ -129,6 +129,10 @@ exports.Prisma.UserScalarFieldEnum = {
   phoneVerified: 'phoneVerified',
   mfaEnabled: 'mfaEnabled',
   settings: 'settings',
+  isDeleted: 'isDeleted',
+  deletedAt: 'deletedAt',
+  deletionState: 'deletionState',
+  displayUsername: 'displayUsername',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 };
@@ -186,6 +190,18 @@ exports.Prisma.PasskeyChallengeScalarFieldEnum = {
   createdAt: 'createdAt'
 };
 
+exports.Prisma.AuthOutboxScalarFieldEnum = {
+  id: 'id',
+  aggregateType: 'aggregateType',
+  aggregateId: 'aggregateId',
+  eventType: 'eventType',
+  topic: 'topic',
+  payload: 'payload',
+  createdAt: 'createdAt',
+  publishedAt: 'publishedAt',
+  retryCount: 'retryCount'
+};
+
 exports.Prisma.SortOrder = {
   asc: 'asc',
   desc: 'desc'
@@ -219,7 +235,8 @@ exports.Prisma.ModelName = {
   MfaSettings: 'MfaSettings',
   VerificationCode: 'VerificationCode',
   Passkey: 'Passkey',
-  PasskeyChallenge: 'PasskeyChallenge'
+  PasskeyChallenge: 'PasskeyChallenge',
+  AuthOutbox: 'AuthOutbox'
 };
 
 /**

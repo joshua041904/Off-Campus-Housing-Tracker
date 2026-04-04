@@ -21,15 +21,6 @@ fail() { echo "❌ $*" >&2; exit 1; }
 ok() { echo "✅ $*"; }
 warn() { echo "⚠️  $*"; }
 
-SUF=""
-och_topic_suffix_partitions() {
-  local raw="${OCH_KAFKA_TOPIC_SUFFIX:-}"
-  raw="${raw#"${raw%%[![:space:]]*}"}"
-  raw="${raw%"${raw##*[![:space:]]}"}"
-  while [[ "$raw" == .* ]]; do raw="${raw#.}"; done
-  if [[ -n "$raw" ]]; then printf '.%s' "$raw"; fi
-}
-SUF="$(och_topic_suffix_partitions)"
 # shellcheck source=lib/och-kafka-event-topics-from-proto.sh
 source "$SCRIPT_DIR/lib/och-kafka-event-topics-from-proto.sh"
 och_kafka_event_topics_fill || fail "Could not build topic list from proto/events"

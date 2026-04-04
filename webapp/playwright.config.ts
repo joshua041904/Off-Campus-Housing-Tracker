@@ -51,6 +51,7 @@ const suiteProjects = [
     name: "06-service-verticals",
     testMatch: [
       "**/*.full.spec.ts",
+      "messaging.functional.spec.ts",
       "gateway.routing.spec.ts",
       "edge.failure-modes.spec.ts",
       "transport.protocol.spec.ts",

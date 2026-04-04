@@ -220,6 +220,15 @@ else
   ok "kafka-ssl-secret created/updated"
 fi
 
+_ca_fp="$(openssl x509 -in "$OUT/ca-cert.pem" -noout -fingerprint -sha256 2>/dev/null | cut -d= -f2 | tr -d '\r')"
+if [[ -n "$_ca_fp" ]]; then
+  if kctl annotate secret kafka-ssl-secret -n "$NS" "och.dev/ca-fingerprint-sha256=${_ca_fp}" --overwrite --request-timeout=20s 2>/dev/null; then
+    ok "Annotated kafka-ssl-secret och.dev/ca-fingerprint-sha256"
+  else
+    warn "Could not annotate kafka-ssl-secret (kubectl/colima); verify-kafka-cluster may warn until fixed"
+  fi
+fi
+
 say "4b. Creating och-kafka-ssl-secret (same client material; Deployments mount och-kafka-ssl-secret)…"
 _och_kafka_yaml="${TMP}/och-kafka-ssl-secret.yaml"
 kubectl create secret generic och-kafka-ssl-secret -n "$NS" \

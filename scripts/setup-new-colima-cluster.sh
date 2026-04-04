@@ -1,18 +1,17 @@
 #!/usr/bin/env bash
-# One-shot: start Colima with k3s (--network-address for bridged/LB), create namespaces, install MetalLB (pool 251-260).
+# One-shot: start Colima with k3s (--network-address = bridged VM, same style as historical MetalLB L2 labs).
+# MetalLB pool: leave METALLB_POOL unset to auto-derive .240-.250 on the VM eth0 /24 (see install-metallb-colima.sh).
 # Use after colima delete (or no Colima instance).
 #
 # Usage:
 #   ./scripts/setup-new-colima-cluster.sh
-#   # Override MetalLB pool (default 192.168.5.251-192.168.5.260):
-#   METALLB_POOL=192.168.64.251-192.168.64.260 ./scripts/setup-new-colima-cluster.sh
+#   METALLB_POOL=192.168.64.240-192.168.64.250 ./scripts/setup-new-colima-cluster.sh   # only if auto-detect wrong
 #
 # Creates namespaces: ingress-nginx, envoy-test, off-campus-housing-tracker.
-# Installs MetalLB with pool 251-260 so LoadBalancer IPs are in that range.
 # Next: bring up DBs (scripts/bring-up-external-infra.sh), build and load auth-service, deploy.
 #
-# Env: CPU (default 12), MEMORY (default 16), DISK (default 256), COLIMA_K3S_VERSION,
-#      METALLB_POOL (default 192.168.5.251-192.168.5.260), SKIP_METALLB=1 to skip MetalLB install.
+# Env: CPU (default 12), MEMORY (default 16), DISK (default 256),
+#      COLIMA_K3S_VERSION (default v1.29.6+k3s1), METALLB_POOL (empty = auto), SKIP_METALLB=1 to skip MetalLB install.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,6 +21,7 @@ cd "$REPO_ROOT"
 CPU="${CPU:-12}"
 MEMORY="${MEMORY:-16}"
 DISK="${DISK:-256}"
+COLIMA_K3S_VERSION="${COLIMA_K3S_VERSION:-v1.29.6+k3s1}"
 # MetalLB pool: leave unset so install-metallb-colima.sh auto-detects VM subnet (eth0). Override if needed: METALLB_POOL=192.168.64.240-192.168.64.250
 export METALLB_POOL="${METALLB_POOL:-}"
 
@@ -40,7 +40,7 @@ step 1 "Start Colima (${CPU} CPU, ${MEMORY} GiB RAM, ${DISK} GiB disk) with k3s 
 if colima status 2>/dev/null | grep -q "Running"; then
   ok "Colima already running"
 else
-  colima start --cpu "$CPU" --memory "$MEMORY" --disk "${DISK}" --network-address --with-kubernetes ${COLIMA_K3S_VERSION:+--kubernetes-version "$COLIMA_K3S_VERSION"}
+  colima start --cpu "$CPU" --memory "$MEMORY" --disk "${DISK}" --network-address --with-kubernetes --kubernetes-version "$COLIMA_K3S_VERSION"
   ok "Colima started"
 fi
 
@@ -53,6 +53,37 @@ for i in $(seq 1 60); do
   [[ $i -eq 60 ]] && { warn "API not ready after 60 attempts"; exit 1; }
   sleep 5
 done
+
+# Derive MetalLB pool when unset: prefer k3s node InternalIP /24 (authoritative for L2), then Colima eth0.
+# eth0 alone can be 192.168.5.x while the node is 192.168.64.x on bridged Colima — same order as install-metallb-colima.sh.
+if [[ -z "${METALLB_POOL:-}" ]]; then
+  _node_raw="$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || true)"
+  _node_ip="$(printf '%s\n' "$_node_raw" | awk '{for (i = 1; i <= NF; i++) if ($i ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) { print $i; exit }}')"
+  if [[ -n "$_node_ip" ]]; then
+    _nsub="$(echo "$_node_ip" | cut -d. -f1-3)"
+    export METALLB_POOL="${_nsub}.240-${_nsub}.250"
+    ok "Derived METALLB_POOL=${METALLB_POOL} from k3s node InternalIP (${_node_ip})"
+  elif command -v colima >/dev/null 2>&1; then
+    _vm_inet="$(colima ssh -- ip -4 addr show eth0 2>/dev/null | awk '/inet / {print $2; exit}' | cut -d/ -f1 || true)"
+    if [[ -n "$_vm_inet" ]]; then
+      _vm_subnet="$(echo "$_vm_inet" | cut -d. -f1-3)"
+      export METALLB_POOL="${_vm_subnet}.240-${_vm_subnet}.250"
+      ok "Derived METALLB_POOL=${METALLB_POOL} from Colima eth0 (${_vm_inet}) (no node InternalIP yet)"
+    fi
+  fi
+fi
+
+# Hard fail if user-set or derived pool disagrees with live VM / node subnet (avoids half-migrated Colima network state).
+# shellcheck source=scripts/lib/metallb-subnet-guard.sh
+# shellcheck disable=SC1091
+if [[ -n "${METALLB_POOL:-}" ]] && [[ -f "$SCRIPT_DIR/lib/metallb-subnet-guard.sh" ]]; then
+  # shellcheck disable=SC1091
+  source "$SCRIPT_DIR/lib/metallb-subnet-guard.sh"
+  if ! och_assert_metallb_pool_coherent "$METALLB_POOL"; then
+    warn "Unset METALLB_POOL to auto-derive from node InternalIP, or set METALLB_POOL to match: kubectl get nodes -o wide"
+    exit 1
+  fi
+fi
 
 # Ensure kubeconfig uses 127.0.0.1:6443 (Colima tunnel)
 if [[ -f "$HOME/.kube/config" ]]; then
@@ -79,7 +110,11 @@ else
   step 4 "Install MetalLB (auto pool or METALLB_POOL=$METALLB_POOL)"
   if [[ -x "$SCRIPT_DIR/install-metallb-colima.sh" ]]; then
     "$SCRIPT_DIR/install-metallb-colima.sh"
-    ok "MetalLB installed (pool $METALLB_POOL)"
+    _pool_show="${METALLB_POOL:-}"
+    if [[ -z "$_pool_show" ]] && kubectl get ipaddresspools -n metallb-system --request-timeout=10s &>/dev/null; then
+      _pool_show="$(kubectl get ipaddresspools -n metallb-system -o jsonpath='{.items[0].spec.addresses[0]}' 2>/dev/null || true)"
+    fi
+    ok "MetalLB installed (pool ${_pool_show:-see metallb-system IPAddressPool})"
   else
     warn "install-metallb-colima.sh not found; run: METALLB_POOL=$METALLB_POOL ./scripts/install-metallb-colima.sh"
   fi

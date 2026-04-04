@@ -1,0 +1,59 @@
+# Ephemeral single-node k3s + MetalLB + LoadBalancer smoke test (reproducible PR validation).
+# Full stack remains: make dev-onboard on a local Colima/k3s machine.
+name: Ephemeral k3s + MetalLB
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "scripts/ci/**"
+      - "scripts/generate-canonical-dev-tls.sh"
+      - "scripts/tests/kafka-alignment-suite.sh"
+      - "scripts/kafka-runtime-sync.sh"
+      - "infra/k8s/metallb/**"
+      - "Makefile"
+      - ".github/workflows/ephemeral-cluster.yml"
+      - "scripts/ci/**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  converge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify bash (Make uses SHELL for recipes)
+        run: bash --version
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: "v1.29.0"
+
+      - name: Install k3s
+        run: |
+          set -euo pipefail
+          curl -sfL https://get.k3s.io | sudo sh -s - --write-kubeconfig-mode 644
+          mkdir -p "$HOME/.kube"
+          sudo cp /etc/rancher/k3s/k3s.yaml "$HOME/.kube/config"
+          sudo chown "$(id -u):$(id -g)" "$HOME/.kube/config"
+          kubectl get nodes -o wide
+
+      - name: Static onboard + script checks (dev-onboard-lite)
+        run: make dev-onboard-lite
+
+      - name: MetalLB + LoadBalancer smoke
+        env:
+          CI_MODE: "1"
+        run: bash scripts/ci/ephemeral-k3s-converge.sh
+
+      - name: Kustomize client dry-run (housing base + dev)
+        run: |
+          set -euo pipefail
+          kubectl apply --dry-run=client -k infra/k8s/base -o name >/dev/null
+          kubectl apply --dry-run=client -k infra/k8s/overlays/dev -o name >/dev/null
+          echo "✅ housing kustomize client dry-run OK"

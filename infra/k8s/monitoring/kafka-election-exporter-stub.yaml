@@ -1,0 +1,16 @@
+# Stub: Kafka election / KRaft log metrics exporter (sidecar pattern).
+# Production options: (1) JMX exporter on brokers, (2) Strimzi KafkaExporter,
+# (3) small Deployment tailing broker logs and incrementing Counters.
+#
+# Do not apply as-is — replace image + command with your implementation.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-election-exporter-stub
+  namespace: off-campus-housing-tracker
+  labels:
+    app.kubernetes.io/name: kafka-election-exporter-stub
+data:
+  README: |
+    Replace this stub with a real exporter or use JMX metrics from Kafka brokers.

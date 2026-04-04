@@ -1,15 +1,35 @@
 #!/usr/bin/env bash
 # kubectl shim: timeouts and colima-ssh fallback. Do NOT set server to 6443 — pipeline uses native port only
 # (6443 tunnel drops under load; see Runbook "Colima API"). Use colima-forward-6443.sh only if you need 6443 manually.
+#
+# CI / Linux: Makefile prepends this dir to PATH. `command -v kubectl` returns this script, so we must
+# scan PATH and skip this directory to find the real binary (GitHub Actions installs kubectl elsewhere).
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 KUBECTL_REQUEST_TIMEOUT="${KUBECTL_REQUEST_TIMEOUT:-15s}"
+SHIM_DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REAL_KUBECTL=""
 for d in /opt/homebrew/bin /usr/local/bin; do
   [[ -x "$d/kubectl" ]] && REAL_KUBECTL="$d/kubectl" && break
 done
-[[ -z "$REAL_KUBECTL" ]] && REAL_KUBECTL="$(command -v kubectl 2>/dev/null | grep -v scripts/shims | head -1)"
+if [[ -z "$REAL_KUBECTL" ]]; then
+  _old_ifs=$IFS
+  IFS=':'
+  for d in $PATH; do
+    [[ -z "$d" ]] && continue
+    [[ ! -x "$d/kubectl" ]] && continue
+    _dir_abs="$(cd -P "$d" 2>/dev/null && pwd)" || continue
+    [[ "$_dir_abs" == "$SHIM_DIR" ]] && continue
+    REAL_KUBECTL="$_dir_abs/kubectl"
+    break
+  done
+  IFS=$_old_ifs
+fi
+[[ -z "$REAL_KUBECTL" ]] && {
+  echo "kubectl shim: no kubectl found on PATH outside $SHIM_DIR" >&2
+  exit 127
+}
 
 _run() {
   local args=("$@")

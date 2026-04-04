@@ -1,0 +1,37 @@
+{
+  "title": "OCH — Auth transactional outbox",
+  "uid": "och-auth-outbox",
+  "schemaVersion": 39,
+  "version": 1,
+  "tags": ["och", "auth", "kafka", "outbox", "deletion"],
+  "timezone": "browser",
+  "panels": [
+    {
+      "id": 1,
+      "title": "auth_outbox_unpublished_count",
+      "description": "Rows in auth.auth_outbox with published_at IS NULL. Scrape auth-service /metrics. Alert: AuthOutboxUnpublishedBacklog (5m).",
+      "type": "timeseries",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "min": 0,
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }
+      },
+      "targets": [
+        {
+          "expr": "auth_outbox_unpublished_count",
+          "legendFormat": "unpublished",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "time": { "from": "now-6h", "to": "now" }
+}

@@ -11,16 +11,20 @@ generator client {
 }
 
 model User {
-  id            String   @id @default(dbgenerated("gen_random_uuid()"))
-  email         String   @unique @db.Citext
-  passwordHash  String?  @map("password_hash")
-  phone         String?
-  emailVerified Boolean  @default(false) @map("email_verified")
-  phoneVerified Boolean  @default(false) @map("phone_verified")
-  mfaEnabled    Boolean  @default(false) @map("mfa_enabled")
-  settings      Json?    @db.JsonB
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  id              String    @id @default(dbgenerated("gen_random_uuid()"))
+  email           String?   @unique @db.Citext
+  passwordHash    String?   @map("password_hash")
+  phone           String?
+  emailVerified   Boolean   @default(false) @map("email_verified")
+  phoneVerified   Boolean   @default(false) @map("phone_verified")
+  mfaEnabled      Boolean   @default(false) @map("mfa_enabled")
+  settings        Json?     @db.JsonB
+  isDeleted       Boolean   @default(false) @map("is_deleted")
+  deletedAt       DateTime? @map("deleted_at")
+  deletionState   String    @default("active") @map("deletion_state") @db.VarChar(32)
+  displayUsername String?   @map("display_username") @db.VarChar(128)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
   oauthProviders    OAuthProvider[]
   mfaSettings       MfaSettings?
@@ -118,5 +122,21 @@ model PasskeyChallenge {
   @@index([challenge])
   @@index([expiresAt])
   @@map("passkey_challenges")
+  @@schema("auth")
+}
+
+/// Transactional outbox: INSERT with domain write; background worker publishes to Kafka.
+model AuthOutbox {
+  id            String    @id @db.Uuid
+  aggregateType String    @map("aggregate_type")
+  aggregateId   String    @map("aggregate_id")
+  eventType     String    @map("event_type")
+  topic         String
+  payload       Bytes
+  createdAt     DateTime  @default(now()) @map("created_at")
+  publishedAt   DateTime? @map("published_at")
+  retryCount    Int       @default(0) @map("retry_count")
+
+  @@map("auth_outbox")
   @@schema("auth")
 }

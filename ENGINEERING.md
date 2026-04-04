@@ -9,6 +9,7 @@ This document provides in-depth technical documentation for the Off-Campus-Housi
 1. [System Architecture](#system-architecture)
 2. [Design Decisions](#design-decisions)
 3. [Technology Stack](#technology-stack)
+   - [Narrative justifications (short paragraphs)](#technology-stack-narrative-justifications-short-paragraphs)
 4. [Data Flow Diagrams](#data-flow-diagrams)
 5. [Service Communication Patterns](#service-communication-patterns) — includes **MEDIA_HTTP**, **proto vs proto/events**
 6. [Infrastructure as Code](#infrastructure-as-code)
@@ -117,8 +118,8 @@ This document provides in-depth technical documentation for the Off-Campus-Housi
                                   │ gRPC/HTTP
                                   │
         ┌─────────────────────────┴─────────────────────────────────────┐
-        │              Data Layer (External - Docker Compose)          │
-        │                    (Outside Kubernetes)                       │
+        │     Data Layer: Postgres+Redis (Docker Compose / host)       │
+        │     Kafka: in-cluster KRaft (3 brokers) — see diagram cell │
         ├───────────────────────────────────────────────────────────────┤
         │                                                               │
         │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
@@ -143,16 +144,10 @@ This document provides in-depth technical documentation for the Off-Campus-Housi
         │  │               │  │ - Lua: singleflight, LFU/LRU, rate limit│
         │  └──────────────┘  └──────────────┘                         │
         │                                                               │
-        │  ┌──────────────┐                                           │
-        │  │    Kafka     │                                           │
-        │  │ PLAINTEXT:9092│                                          │
-        │  │   SSL:9093   │                                           │
-        │  │ - Messaging  │                                           │
-        │  │ - Events     │                                           │
-        │  │ - Forum Posts│                                           │
-        │  │ - Group Chat │                                           │
-        │  │ - Strict TLS │                                           │
-        │  └──────────────┘                                           │
+        │  ┌──────────────────────────────────────────────────────────┐ │
+        │  │ Kafka — in-cluster KRaft, 3 brokers, TLS (not Compose)    │ │
+        │  │ See infra/k8s/kafka-kraft-metallb/; CI may use 1 broker  │ │
+        │  └──────────────────────────────────────────────────────────┘ │
         └───────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -556,7 +551,7 @@ We run **eight** suites because the platform has **multiple protocols**, **stric
 ### Data Layer
 - **PostgreSQL 16**: 8 dedicated instances for service isolation
 - **Redis 7**: JWT revocation cache, search result caching. **Cache layer (see architecture diagram)**: Redis is used by API Gateway (JWT revocation), records-service (search cache), auth-service (user lookup), listings-service (listing cache), social-service and auction-monitor (singleflight + rate limiting). **Lua scripts** in Redis provide singleflight (cache stampede prevention), LFU/LRU eviction (e.g. shopping-service), and token-bucket/sliding-window rate limiting. See README “Caching & Redis Lua Scripts” for script list and data flow.
-- **Kafka**: Event streaming, real-time messaging. **Strict TLS enabled** with SSL listener on port 9093. SSL certificates stored in `kafka-ssl-secret`.
+- **Kafka**: Event streaming and domain events. **Production-like local/cluster path:** **3 brokers**, **KRaft** (no ZooKeeper), in **Kubernetes** — see `infra/k8s/kafka-kraft-metallb/` (TLS listeners, StatefulSet `replicas: 3`). **Docker Compose** does **not** run Kafka (see `docker-compose.yml` comments); Postgres/Redis/MinIO stay on Compose. **CI / focused tests** may use a **single** Confluent+ZooKeeper TLS broker via `scripts/ci/start-kafka-tls-ci.sh` for speed while **static workflows** assert `replicas: 3` on the KRaft manifests. SSL material for in-cluster Kafka uses `kafka-ssl-secret` (and related patches) as documented in Runbook/security sections.
 
 ### Inter-Service Communication
 - **gRPC**: Protocol buffer-based RPC
@@ -593,7 +588,7 @@ This section justifies the main technology choices as for a **senior design revi
 | **gRPC** | Envoy | First-class gRPC (frame ordering, trailers, no HTTP handler interference). Same Node server works with Envoy, failed with Caddy. | Two proxies (Caddy + Envoy), two configs. Extra operational surface. |
 | **Databases** | 8 dedicated Postgres | Service isolation, independent scaling and backup, clear schema boundaries. Aligns with microservice ownership. | More connections and ops; cross-service queries need dual-DB (auction-monitor, analytics). |
 | **Cache** | Redis + Lua | Singleflight (stampede prevention), LFU/LRU (shopping), rate limiting (token bucket, sliding window). Atomic ops without thundering herd. | Lua is niche; onboarding requires reading scripts. Redis is single point of failure without Sentinel/Cluster. |
-| **Messaging** | Kafka (strict TLS) | Event pipeline (forum, DMs, group chat); Python AI consumes from Kafka. SSL on 9093 with kafka-ssl-secret. | More moving parts; SSL cert and endpoint patching (e.g. kafka-external) required. |
+| **Messaging** | Kafka (KRaft ×3 in-cluster + strict TLS) | Event pipeline; **KRaft** StatefulSet (`replicas: 3`) for quorum/realism; Compose no longer hosts Kafka. CI may use **one** TLS broker for Vitest; YAML verified in `kafka-cluster-verify` / `kafka-dns-validate`. | Quorum boot, listener advertise, and PVC/`CLUSTER_ID` discipline; operational complexity vs single broker. |
 | **Local K8s** | Colima + k3s (primary) or k3d | Colima: primary path; start with `--network-address`, API at 127.0.0.1:6443, MetalLB LB IP for HTTP/3. k3d: `REQUIRE_COLIMA=0` for CI or lighter runs. See ADR 011. | Kind/h3 not supported. Single-node limits; 2-node minimum for reissue/MetalLB (ADR 008). |
 | **IAC** | Terraform + Ansible | Terraform for declarative infra (namespaces, ConfigMaps); Ansible for deploy and config (K8s collections). Dry-run and idempotency for safe ops. | Two tools to learn; Ansible playbooks skip cert/Caddy by default to avoid clobbering local state. |
 | **Testing** | Preflight + 8 suites + k6 + pgbench | Multi-protocol (HTTP/2, HTTP/3, gRPC), strict TLS/mTLS, rotation, 8 housing DBs (5441–5448) — one “e2e” cannot cover failure modes and wire-level proof. Eight suites give clear scope; RUN_FULL_LOAD=1 adds load and DB sweep. | Many scripts and long runtimes; we accept complexity for reproducibility and debuggability. |
@@ -601,7 +596,27 @@ This section justifies the main technology choices as for a **senior design revi
 
 **Summary:** Every major choice (Caddy, Envoy, 8 Postgres housing DBs, Redis+Lua, Kafka, Colima+k3s, Terraform+Ansible, preflight+8 suites) is justified by a concrete need (QUIC, gRPC correctness, isolation, cache safety, event pipeline, cluster stability, reproducibility, test coverage). Trade-offs are documented so a reviewer can see that we did not choose “everything”; we chose a coherent set and accepted the costs.
 
-**Architecture rationale (why this setup):** The overall design aims for **control-plane stability**, **service isolation**, and **reproducible testing** on a single developer machine. (1) **Colima + k3s** (primary) with `--network-address` gives real L2/MetalLB and API at 127.0.0.1:6443; k3d supported with `REQUIRE_COLIMA=0`. (2) **Eight dedicated Postgres** (5441–5448, housing: auth, listings, bookings, messaging, notification, trust, analytics, media) in Docker Compose with deterministic restore and schema inspection (see Database Redundancy & Disaster Recovery). (3) **Redis + Lua** for atomic singleflight, LFU/LRU, and rate limiting. (4) **Data plane outside the cluster** keeps heavy I/O off the control plane. (5) **MetalLB** provides LB IP for Caddy when enabled; one-time host route for HTTP/3 to LB IP on Colima (Runbook 68). (6) **Strict TLS and one CA** (dev-root-ca, reissue in preflight). (7) **Preflight + ensure scripts** (ensure-k8s-api, ensure-pgbench-dbs-ready, ensure-ready-for-preflight) bring API, DBs, and Kafka to a known-good state. See ADR 007, ADR 011, Runbook 50–51, 79–80.
+**Architecture rationale (why this setup):** The overall design aims for **control-plane stability**, **service isolation**, and **reproducible testing** on a single developer machine. (1) **Colima + k3s** (primary) with `--network-address` gives real L2/MetalLB and API at 127.0.0.1:6443; k3d supported with `REQUIRE_COLIMA=0`. (2) **Eight dedicated Postgres** (5441–5448, housing: auth, listings, bookings, messaging, notification, trust, analytics, media) in Docker Compose with deterministic restore and schema inspection (see Database Redundancy & Disaster Recovery). (3) **Redis + Lua** for atomic singleflight, LFU/LRU, and rate limiting. (4) **Data plane outside the cluster** keeps heavy I/O off the control plane for relational stores; **Kafka** is **in-cluster** as **three KRaft brokers** (`infra/k8s/kafka-kraft-metallb/`) so event traffic matches production-shaped quorum and listeners (Compose intentionally omits Kafka). (5) **MetalLB** provides LB IP for Caddy when enabled; one-time host route for HTTP/3 to LB IP on Colima (Runbook 68). (6) **Strict TLS and one CA** (dev-root-ca, reissue in preflight). (7) **Preflight + ensure scripts** (ensure-k8s-api, ensure-pgbench-dbs-ready, ensure-ready-for-preflight) bring API, DBs, and Kafka to a known-good state. (8) **CI** may run **one** TLS Kafka broker for integration tests for runner economics while **static checks** enforce **replicas: 3** on KRaft YAML. See ADR 007, ADR 011, Runbook 50–51, 79–80.
+
+### Technology stack: narrative justifications (short paragraphs)
+
+These paragraphs mirror typical **design-document / coursework** expectations (several sentences each). The table above remains the concise matrix; this subsection is the prose counterpart.
+
+**Backend — Node.js, TypeScript, Express, gRPC.** We run services on **Node.js 20** with **TypeScript** for static typing across HTTP handlers, gRPC stubs, and shared libraries. **Express** powers the API Gateway’s HTTP surface (REST proxying, middleware, metrics). **gRPC** with **Protocol Buffers** is the primary inter-service RPC: binary-efficient on the wire, codegen’d clients/servers, and explicit `.proto` contracts that act as a published API between teams. The ecosystem is large, documentation is strong, and the same language on gateway and services avoids context-switching. Trade-off: CPU-bound hot paths are not Node’s strength; we scale out horizontally and keep heavy analytics on streaming/consumers where appropriate.
+
+**Frontend — Next.js (React).** The webapp uses **Next.js** for routing, SSR/SSG options, and a component model familiar to industry hires. React’s component hierarchy supports **separation of concerns** (presentational vs data-fetching patterns) and works well with Playwright for E2E. Trade-off: framework churn and bundle size require discipline; we keep dependencies pinned and test critical flows in CI.
+
+**Databases — PostgreSQL (eight instances).** **PostgreSQL 16** backs each domain **bounded context** on its own port (5441–5448). Relational storage fits bookings, listings, auth, and moderation models; MVCC, constraints, and mature tooling (pgbench, `psql`) support performance work and ops. Splitting databases **encapsulates** each service’s data and avoids accidental cross-domain joins. Trade-off: more connections and backup targets; we mitigate with automation (`bootstrap-all-dbs.sh`, `inspect-external-db-schemas.sh`, restore scripts).
+
+**Cache — Redis.** **Redis** holds JWT revocation lists, rate-limit windows, and cache layers with **Lua** for atomic **singleflight** and eviction policies. In-memory speed reduces load on Postgres under bursty traffic. Trade-off: Redis is a separate failure domain; production would add Sentinel/Cluster or managed cache.
+
+**Events — Apache Kafka (KRaft, three brokers in-cluster).** **Kafka** carries **domain events** with **strict TLS** and **Protocol Buffer** payloads. The **declared** topology is **KRaft** (no ZooKeeper) with **three** combined broker/controller replicas in Kubernetes (`infra/k8s/kafka-kraft-metallb/statefulset.yaml`, headless Service, MetalLB-related wiring) so **controller quorum** and **replication** behave like a real cluster; **docker-compose.yml** no longer starts Kafka on the host. **CI** (`och-ci` integration tests) often uses **one** Confluent **ZooKeeper + Kafka** pair via `scripts/ci/start-kafka-tls-ci.sh` to preserve **SSL/mTLS semantics** without tripling broker boot time on every PR; **kafka-cluster-verify** and **kafka-dns-validate** still assert **replicas: 3** and rendered listener/DNS for the KRaft stack. Trade-off: KRaft **PVC** and **CLUSTER_ID** lifecycle must be managed carefully; single-broker CI is an **orchestration** shortcut, not the architectural target.
+
+**Edge and ingress — Caddy and Envoy.** **Caddy** terminates TLS and serves **HTTP/2 and HTTP/3 (QUIC)** for browsers and REST; **Envoy** terminates **gRPC** because Caddy mishandles gRPC frames. Splitting edge duties is extra config but preserves correctness. See *Why Caddy Over Nginx/Traefik?* and *Why Envoy for gRPC?* above.
+
+**Kubernetes, Kustomize, Terraform, Ansible.** **Kubernetes** (Colima + **k3s** primary) gives service discovery, rolling updates, and parity with production. **Kustomize** layers base vs dev overlays. **Terraform** and **Ansible** support declarative infra and repeatable deploys where used. Trade-off: learning curve; README, Runbook, and preflight scripts standardize the happy path.
+
+**Testing — Vitest, Playwright, k6, shell contracts.** **Vitest** runs fast service unit/integration tests; **Playwright** proves browser flows and optional UI screenshots; **k6** (and **xk6-http3**) stress the edge under HTTP/2/3; shell scripts enforce DB/Kafka/TLS contracts. No single test replaces the matrix; together they bound risk.
 
 ## Data Flow Diagrams
 

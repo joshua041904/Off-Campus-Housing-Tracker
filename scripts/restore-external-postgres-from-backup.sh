@@ -40,6 +40,13 @@ say() { printf "\n\033[1m%s\033[0m\n" "$*"; }
 ok() { echo "✅ $*"; }
 warn() { echo "⚠️  $*"; }
 
+# Drop target DB even when services hold pools (dev-onboard / compose apps still running).
+och_terminate_db_sessions() {
+  local port="$1" db="$2"
+  psql -h "$PGHOST" -p "$port" -U "$PGUSER" -d postgres -v ON_ERROR_STOP=0 -q -t -c \
+    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$db' AND pid <> pg_backend_pid();" 2>/dev/null || true
+}
+
 say "=== Restore external Postgres from $BACKUP_DIR ==="
 
 for port in 5441 5442 5443 5444 5445 5446 5447 5448; do
@@ -48,6 +55,7 @@ for port in 5441 5442 5443 5444 5445 5446 5447 5448; do
   sqlgz="$BACKUP_DIR/${port}-${db}.sql.gz"
   if [[ -f "$dump" ]]; then
     echo "Restoring $db (port $port) from $dump ..."
+    och_terminate_db_sessions "$port" "$db"
     psql -h "$PGHOST" -p "$port" -U "$PGUSER" -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS \"$db\";"
     psql -h "$PGHOST" -p "$port" -U "$PGUSER" -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"$db\";"
     pg_restore -h "$PGHOST" -p "$port" -U "$PGUSER" -d "$db" --no-owner --no-privileges "$dump" 2>/dev/null || true
@@ -55,6 +63,7 @@ for port in 5441 5442 5443 5444 5445 5446 5447 5448; do
     ok "$db (port $port)"
   elif [[ -f "$sqlgz" ]]; then
     echo "Restoring $db (port $port) from $sqlgz ..."
+    och_terminate_db_sessions "$port" "$db"
     psql -h "$PGHOST" -p "$port" -U "$PGUSER" -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS \"$db\";"
     psql -h "$PGHOST" -p "$port" -U "$PGUSER" -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"$db\";"
     gunzip -c "$sqlgz" | psql -h "$PGHOST" -p "$port" -U "$PGUSER" -d "$db" -v ON_ERROR_STOP=1 2>/dev/null || true

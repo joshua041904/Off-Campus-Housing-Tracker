@@ -144,15 +144,19 @@ function gatewayPathOnly(req: Request): string {
   return (req.originalUrl || req.url || "").split("?")[0];
 }
 
-/** Any GET path ending in /healthz is upstream liveness — never require JWT (avoids drift vs OPEN_ROUTES). */
+/** GET liveness paths (gateway + upstream * /healthz) — never require JWT (avoids drift vs OPEN_ROUTES). */
 function isGetHealthzBypass(req: Request): boolean {
   if (req.method !== "GET") return false;
-  return /\/healthz\/?$/.test(gatewayPathOnly(req));
+  const p = gatewayPathOnly(req);
+  if (p === "/health" || p === "/api/health") return true;
+  return /\/healthz\/?$/.test(p);
 }
 
 const OPEN_ROUTES = [
   { method: "GET", pattern: /^\/healthz\/?$/ },
   { method: "GET", pattern: /^\/api\/healthz\/?$/ },
+  { method: "GET", pattern: /^\/health\/?$/ },
+  { method: "GET", pattern: /^\/api\/health\/?$/ },
   { method: "GET", pattern: /^\/readyz\/?$/ },
   { method: "GET", pattern: /^\/api\/readyz\/?$/ },
   { method: "GET", pattern: /^\/metrics\/?$/ },
@@ -280,7 +284,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 app.get("/whoami", (_req, res) => res.json({ pod: process.env.HOSTNAME || require("os").hostname() }));
 // Liveness: process is up and HTTP stack works (do not depend on auth).
-app.get(["/healthz", "/api/healthz"], (_req, res) => res.json({ ok: true }));
+app.get(["/healthz", "/api/healthz", "/health", "/api/health"], (_req, res) => res.json({ ok: true }));
 // Readiness: auth gRPC+mTLS+Health verified (kube sends traffic only when this is 200).
 app.get(["/readyz", "/api/readyz"], (_req, res) => {
   if (authUpstreamReady) return res.json({ ok: true, authUpstream: true });
@@ -352,6 +356,8 @@ const limiter = rateLimit({
       e2eBypass ||
       req.path === "/healthz" ||
       req.path === "/api/healthz" ||
+      req.path === "/health" ||
+      req.path === "/api/health" ||
       req.path === "/readyz" ||
       req.path === "/api/readyz" ||
       req.path === "/metrics" ||
