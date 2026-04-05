@@ -34,7 +34,7 @@ ENV NODE_ENV=production
 
 # grpc-health-probe for strict TLS/mTLS health checks (K8s exec probes)
 ARG GRPC_HEALTH_PROBE_VERSION=v0.4.24
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && \
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates openssl && \
   ARCH=$(dpkg --print-architecture) && \
   case "$ARCH" in amd64) BINARY_ARCH=amd64 ;; arm64) BINARY_ARCH=arm64 ;; *) BINARY_ARCH=amd64 ;; esac && \
   curl -Lf -o /usr/local/bin/grpc-health-probe \

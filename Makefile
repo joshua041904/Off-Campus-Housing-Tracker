@@ -566,11 +566,7 @@ dev-onboard-lite: ## CI-safe: bash -n scripts, kustomize kafka bundle, onboard s
 	  || { echo "kubectl kustomize failed (housing base):" >&2; kubectl kustomize "$(REPO_ROOT)/infra/k8s/base" >&2 | tail -80 >&2 || true; _kustomize_fail; }; \
 	kubectl kustomize "$(REPO_ROOT)/infra/k8s/overlays/dev" >/dev/null \
 	  || { echo "kubectl kustomize failed (housing dev overlay):" >&2; kubectl kustomize "$(REPO_ROOT)/infra/k8s/overlays/dev" >&2 | tail -80 >&2 || true; _kustomize_fail; }; \
-	echo "▶ kubectl apply --dry-run=client (schema/client validation, no cluster required)"; \
-	kubectl apply --dry-run=client -k "$(REPO_ROOT)/infra/k8s/base" -o name >/dev/null \
-	  || { echo "kubectl apply --dry-run=client failed (base)" >&2; _kustomize_fail; }; \
-	kubectl apply --dry-run=client -k "$(REPO_ROOT)/infra/k8s/overlays/dev" -o name >/dev/null \
-	  || { echo "kubectl apply --dry-run=client failed (dev overlay)" >&2; _kustomize_fail; }; \
+	echo "▶ (skip kubectl apply --dry-run=client: still hits apiserver for GVK/rest mapping; fails on GHA without cluster)"; \
 	echo "▶ static onboard wiring"; \
 	test -x "$(SCRIPTS)/dev-onboard-local.sh"; \
 	test -x "$(SCRIPTS)/apply-kafka-kraft-staged.sh"; \

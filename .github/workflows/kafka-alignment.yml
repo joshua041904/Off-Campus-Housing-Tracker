@@ -15,8 +15,18 @@ on:
       - "infra/k8s/kafka-ops/**"
       - "Makefile"
       - ".github/workflows/kafka-alignment.yml"
+      - ".github/workflows/docker-build.yml"
+      - "services/messaging-service/Dockerfile"
   push:
-    branches: [main, master, develop]
+    branches:
+      - main
+      - master
+      - develop
+      - fix/**
+      - feat/**
+      - feature/**
+      - chore/**
+      - hotfix/**
     paths:
       - "scripts/tests/kafka-alignment-suite.sh"
       - "scripts/kafka-runtime-sync.sh"
@@ -29,6 +39,9 @@ on:
       - "infra/k8s/kafka-ops/**"
       - "Makefile"
       - ".github/workflows/kafka-alignment.yml"
+      - ".github/workflows/docker-build.yml"
+      - "services/messaging-service/Dockerfile"
+      - ".github/workflows/**"
   workflow_dispatch:
     inputs:
       run_live_suite:
@@ -38,7 +51,7 @@ on:
         type: boolean
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.head_ref || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -71,20 +84,35 @@ jobs:
           grep -q '^kafka-alignment-suite:' Makefile
           grep -q '^kafka-health:' Makefile
 
+  # Always runs (green) so PR/push checks are not "Skipped"; k3s + suite only when dispatch + input.
   live:
-    if: github.event_name == 'workflow_dispatch' && inputs.run_live_suite
+    needs: [static]
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    needs: [static]
     steps:
       - uses: actions/checkout@v4
 
+      - name: Live suite gate (opt-in cluster work)
+        id: live
+        run: |
+          set -euo pipefail
+          if ${{ github.event_name == 'workflow_dispatch' && inputs.run_live_suite }}; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "Live Kafka alignment: will install k3s and run MetalLB / alignment suite steps."
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Live cluster suite not requested (use Actions → workflow_dispatch → run_live_suite)."
+            echo "Static job above still validates alignment scripts on every run."
+          fi
+
       - name: Install kubectl
+        if: steps.live.outputs.enabled == 'true'
         uses: azure/setup-kubectl@v4
         with:
-          version: "v1.29.0"
+          version: "v1.31.0"
 
       - name: Install k3s
+        if: steps.live.outputs.enabled == 'true'
         run: |
           set -euo pipefail
           curl -sfL https://get.k3s.io | sudo sh -s - --write-kubeconfig-mode 644
@@ -94,21 +122,23 @@ jobs:
           kubectl get nodes -o wide
 
       - name: MetalLB smoke (same as ephemeral-cluster)
+        if: steps.live.outputs.enabled == 'true'
         env:
           CI_MODE: "1"
         run: bash scripts/ci/ephemeral-k3s-converge.sh
 
       - name: Kafka alignment suite (fails if Kafka is deployed and misaligned)
+        if: steps.live.outputs.enabled == 'true'
         run: |
           set -euo pipefail
           if kubectl get statefulset kafka -n off-campus-housing-tracker --request-timeout=15s >/dev/null 2>&1; then
             make kafka-alignment-suite
           else
-            echo "No statefulset/kafka in off-campus-housing-tracker — live suite skipped (deploy Kafka on this cluster to exercise)."
+            echo "No statefulset/kafka in off-campus-housing-tracker — alignment suite not exercised (expected on fresh k3s)."
           fi
 
       - name: Upload alignment artifacts
-        if: always()
+        if: always() && steps.live.outputs.enabled == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: kafka-alignment-report

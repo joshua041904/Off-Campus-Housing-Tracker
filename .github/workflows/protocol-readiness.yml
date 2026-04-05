@@ -4,16 +4,25 @@ name: Protocol readiness gate
 
 on:
   push:
-    branches: [main, master]
+    branches:
+      - main
+      - master
+      - develop
+      - fix/**
+      - feat/**
+      - feature/**
+      - chore/**
+      - hotfix/**
     paths:
       - "scripts/protocol/**"
       - "infra/k8s/base/config/strict-envelope.json"
       - ".github/workflows/protocol-readiness.yml"
-  # Every PR runs; push to main/master stays path-filtered above.
+      - ".github/workflows/**"
+  # Every PR runs; push uses path filters above (plus any workflow change).
   pull_request:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.head_ref || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
