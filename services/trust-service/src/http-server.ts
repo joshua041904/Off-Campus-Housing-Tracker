@@ -3,7 +3,11 @@ import express, {
   type Request,
   type Response,
 } from "express";
-import { httpCounter, register, createHttpConcurrencyGuard } from "@common/utils";
+import {
+  httpCounter,
+  register,
+  createHttpConcurrencyGuard,
+} from "@common/utils";
 import { pool } from "./db.js";
 
 type AuthedRequest = Request & { userId?: string };
@@ -36,6 +40,19 @@ function attachTrustHttpDiagnostics(app: ReturnType<typeof express>): void {
   });
 }
 
+function sendOk(res: Response, data: unknown, status = 200): void {
+  res.status(status).json({ data });
+}
+
+function sendErr(
+  res: Response,
+  status: number,
+  message: string,
+  code?: string,
+): void {
+  res.status(status).json(code ? { error: message, code } : { error: message });
+}
+
 function requireUser(
   req: AuthedRequest,
   res: Response,
@@ -43,7 +60,7 @@ function requireUser(
 ): void {
   const userId = (req.get("x-user-id") || "").trim();
   if (!userId) {
-    res.status(401).json({ error: "missing x-user-id" });
+    sendErr(res, 401, "missing x-user-id");
     return;
   }
   req.userId = userId;
@@ -101,21 +118,17 @@ export function createTrustHttpApp() {
         const listingId = String(req.body?.listing_id || "").trim();
         const reason = String(req.body?.reason || "").trim();
         if (!listingId || !reason) {
-          res
-            .status(400)
-            .json({ error: "listing_id and reason required" });
+          sendErr(res, 400, "listing_id and reason required");
           return;
         }
         const r = await pool.query(
           `INSERT INTO trust.listing_flags (listing_id, reporter_id, reason) VALUES ($1::uuid, $2::uuid, $3) RETURNING id, status::text`,
           [listingId, req.userId, reason],
         );
-        res
-          .status(201)
-          .json({ flag_id: r.rows[0].id, status: r.rows[0].status });
+        sendOk(res, { flag_id: r.rows[0].id, status: r.rows[0].status }, 201);
       } catch (e) {
         console.error("[flag-listing]", e);
-        res.status(500).json({ error: "internal" });
+        sendErr(res, 500, "internal");
       }
     },
   );
@@ -130,9 +143,11 @@ export function createTrustHttpApp() {
         const category = String(req.body?.category || "abuse").trim();
         const details = String(req.body?.details || "").trim();
         if (!targetId || (t !== "listing" && t !== "user")) {
-          res.status(400).json({
-            error: "abuse_target_type listing|user and target_id required",
-          });
+          sendErr(
+            res,
+            400,
+            "abuse_target_type listing|user and target_id required",
+          );
           return;
         }
         if (t === "listing") {
@@ -140,21 +155,17 @@ export function createTrustHttpApp() {
             `INSERT INTO trust.listing_flags (listing_id, reporter_id, reason, description) VALUES ($1::uuid, $2::uuid, $3, $4) RETURNING id, status::text`,
             [targetId, req.userId, category, details || null],
           );
-          res
-            .status(201)
-            .json({ flag_id: r.rows[0].id, status: r.rows[0].status });
+          sendOk(res, { flag_id: r.rows[0].id, status: r.rows[0].status }, 201);
         } else {
           const r = await pool.query(
             `INSERT INTO trust.user_flags (user_id, reporter_id, reason, description) VALUES ($1::uuid, $2::uuid, $3, $4) RETURNING id, status::text`,
             [targetId, req.userId, category, details || null],
           );
-          res
-            .status(201)
-            .json({ flag_id: r.rows[0].id, status: r.rows[0].status });
+          sendOk(res, { flag_id: r.rows[0].id, status: r.rows[0].status }, 201);
         }
       } catch (e) {
         console.error("[report-abuse]", e);
-        res.status(500).json({ error: "internal" });
+        sendErr(res, 500, "internal");
       }
     },
   );
@@ -176,9 +187,7 @@ export function createTrustHttpApp() {
           rating < 1 ||
           rating > 5
         ) {
-          res
-            .status(400)
-            .json({ error: "booking_id, reviewee_id, rating 1-5 required" });
+          sendErr(res, 400, "booking_id, reviewee_id, rating 1-5 required");
           return;
         }
         const meta = `[${side}] ${comment}`.slice(0, 4000);
@@ -187,17 +196,17 @@ export function createTrustHttpApp() {
          VALUES ($1::uuid, $2::uuid, 'user'::trust.review_target_type, $3::uuid, $4, $5) RETURNING id`,
           [bookingId, req.userId, revieweeId, rating, meta || null],
         );
-        res.status(201).json({ review_id: r.rows[0].id });
+        sendOk(res, { review_id: r.rows[0].id }, 201);
       } catch (e: any) {
         if (
           String(e?.message || "").includes("unique") ||
           e?.code === "23505"
         ) {
-          res.status(409).json({ error: "duplicate review" });
+          sendErr(res, 409, "duplicate review");
           return;
         }
         console.error("[peer-review]", e);
-        res.status(500).json({ error: "internal" });
+        sendErr(res, 500, "internal");
       }
     },
   );
@@ -206,7 +215,7 @@ export function createTrustHttpApp() {
     try {
       const uid = String(req.params.userId || "").trim();
       if (!uid) {
-        res.status(400).json({ error: "user_id required" });
+        sendErr(res, 400, "user_id required");
         return;
       }
       const r = await pool.query(
@@ -214,10 +223,10 @@ export function createTrustHttpApp() {
         [uid],
       );
       const score = r.rows[0] ? Number(r.rows[0].reputation_score) || 0 : 0;
-      res.json({ user_id: uid, score });
+      sendOk(res, { user_id: uid, score });
     } catch (e) {
       console.error("[reputation]", e);
-      res.status(500).json({ error: "internal" });
+      sendErr(res, 500, "internal");
     }
   });
 
