@@ -11,7 +11,7 @@
 make images
 
 # 2. Full local stack (~20–28 min first time; see docs/DEV_ONBOARDING.md)
-RESTORE_BACKUP_DIR=latest make dev-onboard
+RESTORE_BACKUP_DIR=latest make dev-onboard   # restore newest Postgres backups; or: make dev-onboard (no restore)
 ```
 
 **Prereqs:** Colima (or k3s) + Docker, **pnpm** (see root `packageManager`), **kubectl** pointed at the cluster (`export KUBECONFIG="$HOME/.colima/default/kubeconfig"` or `make kubeconfig-colima`).
