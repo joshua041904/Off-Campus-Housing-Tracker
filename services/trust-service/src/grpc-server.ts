@@ -60,6 +60,11 @@ const trustHandlers = {
       })
       .catch((e) => {
         console.error("[FlagListing]", e);
+        if (String(e?.code) === "23505") {
+          logGrpcTiming("FlagListing", start);
+          cb({ code: grpc.status.ALREADY_EXISTS, message: "duplicate flag" });
+          return;
+        }
         logGrpcTiming("FlagListing", start);
         cb({ code: grpc.status.INTERNAL, message: "failed" });
       });
@@ -98,6 +103,11 @@ const trustHandlers = {
         })
         .catch((e) => {
           console.error("[ReportAbuse listing]", e);
+          if (String(e?.code) === "23505") {
+            logGrpcTiming("ReportAbuse", start);
+            cb({ code: grpc.status.ALREADY_EXISTS, message: "duplicate flag" });
+            return;
+          }
           logGrpcTiming("ReportAbuse", start);
           cb({ code: grpc.status.INTERNAL, message: "failed" });
         });
@@ -113,6 +123,11 @@ const trustHandlers = {
         })
         .catch((e) => {
           console.error("[ReportAbuse user]", e);
+          if (String(e?.code) === "23505") {
+            logGrpcTiming("ReportAbuse", start);
+            cb({ code: grpc.status.ALREADY_EXISTS, message: "duplicate flag" });
+            return;
+          }
           logGrpcTiming("ReportAbuse", start);
           cb({ code: grpc.status.INTERNAL, message: "failed" });
         });
