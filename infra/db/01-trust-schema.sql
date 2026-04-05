@@ -28,7 +28,7 @@ BEGIN
   END IF;
 END $$;
 
--- 1) Listing flags — one listing can be flagged multiple times
+-- 1) Listing flags — one logical flag per (listing_id, reporter_id)
 CREATE TABLE IF NOT EXISTS trust.listing_flags (
   id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   listing_id     UUID NOT NULL,
@@ -46,8 +46,10 @@ COMMENT ON TABLE trust.listing_flags IS 'Flags on listings. When resolved as con
 CREATE INDEX IF NOT EXISTS idx_listing_flags_listing ON trust.listing_flags(listing_id);
 CREATE INDEX IF NOT EXISTS idx_listing_flags_status ON trust.listing_flags(status);
 CREATE INDEX IF NOT EXISTS idx_listing_flags_reporter ON trust.listing_flags(reporter_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_listing_flags_listing_reporter_unique
+  ON trust.listing_flags(listing_id, reporter_id);
 
--- 2) User flags — abusive tenants or landlords
+-- 2) User flags — abusive tenants or landlords - one logical flag per (user_id, reporter_id)
 CREATE TABLE IF NOT EXISTS trust.user_flags (
   id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id        UUID NOT NULL,
@@ -65,6 +67,8 @@ COMMENT ON TABLE trust.user_flags IS 'Flags on users. Trust may emit user.warned
 CREATE INDEX IF NOT EXISTS idx_user_flags_user ON trust.user_flags(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_flags_status ON trust.user_flags(status);
 CREATE INDEX IF NOT EXISTS idx_user_flags_reporter ON trust.user_flags(reporter_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_user_flags_user_reporter_unique
+  ON trust.user_flags(user_id, reporter_id);
 
 -- 3) Review target: listing or user (reviewee)
 DO $$
