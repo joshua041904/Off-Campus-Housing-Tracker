@@ -22,8 +22,10 @@ else
   echo "⚠️  kubectl not in PATH"
 fi
 
-# Empty RESTORE_BACKUP_DIR = skip Phase-0 dump restore and allow infra-cluster SQL bootstrap.
-export RESTORE_BACKUP_DIR="${RESTORE_BACKUP_DIR:-latest}"
+# RESTORE_BACKUP_DIR is passed from the Makefile (empty if unset in the calling environment).
+# - Non-empty (e.g. latest): Phase 0 runs bring-up-external-infra with restore from backups/.
+# - Empty: skip Phase-0 restore; infra-cluster / SQL bootstrap path (see docs).
+# Do not default to "latest" here — Make always passes the variable, so empty must mean "no restore".
 
 # Reissue must not rollout app Deployments until Kafka TLS is rolled + verified (Phase 5).
 export RESTART_SERVICES_AFTER_TLS=0

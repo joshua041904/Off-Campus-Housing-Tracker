@@ -12,9 +12,9 @@ Bring up the platform **before** the webapp. From the **repo root**, respect thi
    ```
 2. **Full local stack** (~20–28 min first time):
    ```bash
-   RESTORE_BACKUP_DIR=latest make dev-onboard
+   RESTORE_BACKUP_DIR=latest make dev-onboard   # optional: restore from backups/
+   make dev-onboard                             # or: no Phase-0 restore (empty / SQL bootstrap path)
    ```
-   Use `RESTORE_BACKUP_DIR=latest` only if you want the newest Postgres backups restored; omit for empty DBs.
 
 You need **api-gateway** (and backing services) reachable — typically **`https://off-campus-housing.test`** via ingress or, for quick UI work, same-origin rewrites to **`http://127.0.0.1:4020`** (see below).
 
