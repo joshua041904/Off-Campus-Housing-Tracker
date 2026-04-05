@@ -13,10 +13,29 @@ on:
       - "infra/k8s/metallb/**"
       - "Makefile"
       - ".github/workflows/ephemeral-cluster.yml"
+      - ".github/workflows/**"
+  push:
+    branches:
+      - main
+      - master
+      - develop
+      - fix/**
+      - feat/**
+      - feature/**
+      - chore/**
+      - hotfix/**
+    paths:
       - "scripts/ci/**"
+      - "scripts/generate-canonical-dev-tls.sh"
+      - "scripts/tests/kafka-alignment-suite.sh"
+      - "scripts/kafka-runtime-sync.sh"
+      - "infra/k8s/metallb/**"
+      - "Makefile"
+      - ".github/workflows/ephemeral-cluster.yml"
+      - ".github/workflows/**"
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.head_ref || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -32,7 +51,7 @@ jobs:
       - name: Install kubectl
         uses: azure/setup-kubectl@v4
         with:
-          version: "v1.29.0"
+          version: "v1.31.0"
 
       - name: Install k3s
         run: |
@@ -51,9 +70,9 @@ jobs:
           CI_MODE: "1"
         run: bash scripts/ci/ephemeral-k3s-converge.sh
 
-      - name: Kustomize client dry-run (housing base + dev)
+      - name: Kustomize build (base + dev; no apply dry-run on GHA)
         run: |
           set -euo pipefail
-          kubectl apply --dry-run=client -k infra/k8s/base -o name >/dev/null
-          kubectl apply --dry-run=client -k infra/k8s/overlays/dev -o name >/dev/null
-          echo "✅ housing kustomize client dry-run OK"
+          kubectl kustomize infra/k8s/base >/dev/null
+          kubectl kustomize infra/k8s/overlays/dev >/dev/null
+          echo "✅ housing kubectl kustomize OK (dev-onboard-lite already builds these; apply dry-run needs apiserver)"

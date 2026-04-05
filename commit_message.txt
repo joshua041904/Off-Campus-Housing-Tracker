@@ -1,19 +1,27 @@
-fix(ci): Kafka alignment, CI gates, chaos/resilience, auth outbox
+dev(onboard): default post-edge kafka-health; document images → onboard contract
 
-- Kafka ↔ MetalLB: drift checks (check-kafka-config-drift, kafka-runtime-sync, kafka-sync-metallb),
-  alignment test suite, golden-snapshot; preflight 6a2c9 on by default (skip:
-  PREFLIGHT_SKIP_KAFKA_ALIGNMENT_SUITE=1); metallb alignment exporter; kafka-ops CronJob + Dockerfile;
-  Prometheus rules (runtime drift, alignment tests, suite missing).
-- Make: kafka-health, kafka-alignment-suite, chaos-suite-kafka, golden-snapshot.
-- CI: kafka-alignment + ephemeral/kafka-cluster-verify path filters; nightly chaos; diagrams workflow
-  (generated repo-root diagrams/, docs/assets, architecture submission/book/design/lld, scripts/architecture
-  not part of this commit).
-- Auth: transactional outbox (publisher, metrics, tests, inspect/replay); Grafana/Prometheus outbox assets;
-  user-lifecycle consumers across services.
-- Infra: k8s :dev deploy pins, observability, proto/config, prisma migrations, bench_logs cleanup.
-- CI hardening: dev-onboard-lite proto-on-disk + kustomize + kubectl apply --dry-run=client; PlantUML no .puml → exit 0;
-  diagrams/uml/placeholder.puml; post-deploy-verify workflow (self-hosted or kubeconfig secret); hydrate-certs-for-ci
-  (POST_DEPLOY_CERTS_ARCHIVE_B64 or pull kafka-ssl-secret / dev-root-ca); smoke/k6/canary scripts + Makefile targets;
-  api-gateway GET /health; alignment suite post-destructive verify; matplotlib venv + golden CHAOS destructive alignment.
+Summary
+-------
+- Local `make dev-onboard` now ends with Phase 10: `make kafka-health` by default
+  (full verify-kafka-cluster, kafka-runtime-sync --check-only, safe alignment suite
+  and CSV/PNG under bench_logs/kafka-alignment-report/).
+- Opt out only when needed: SKIP_KAFKA_HEALTH_ON_ONBOARD=1 (default is to run Phase 10;
+  unset or 0 runs kafka-health).
+- Makefile dev-onboard help text and dev-onboard-lite static grep updated so CI
+  catches dropped wiring.
+
+Two-process contract (docs)
+---------------------------
+- make images — builds all default housing :dev images (see
+  scripts/lib/och-housing-docker-services-default.sh) via build-housing-images-k3s.sh
+  and loads into Colima when Colima is up; does not apply k8s or run Kafka gates.
+- make dev-onboard — full bring-up: TLS/certs, KRaft, preflight, kafka-tls-guard,
+  alias/quorum gates, deploy-dev, edge hosts + routing, then post-edge kafka-health
+  unless explicitly skipped.
+
+Docs
+----
+- docs/DEV_ONBOARDING.md — section 0) two-step contract; Phase 10 wording.
+- docs/ONBOARDING_READINESS_AUDIT.md — Phase 10 row + summary note.
 
 Made with Tom.

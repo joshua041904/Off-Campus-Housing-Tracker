@@ -2,16 +2,41 @@
 
 This doc answers **developer experience** questions after moving Kafka off Docker Compose to **three-broker KRaft in Kubernetes**, and documents the **one-command** path.
 
-## One command: full stack
+## Backend: use this order
+
+### 0) Two-step contract (build, then bring-up + gates)
+
+1. **`make images`** — Builds **every default housing service image** at **`:dev`** (`auth-service`, `listings-service`, `booking-service`, `messaging-service`, `trust-service`, `analytics-service`, `media-service`, `notification-service`, `api-gateway`, `transport-watchdog`; see `scripts/lib/och-housing-docker-services-default.sh`) via **`scripts/build-housing-images-k3s.sh`**, and **loads them into Colima** when Colima is running. Subset builds: `SERVICES="api-gateway" make images`. This step does **not** apply Kubernetes manifests or run Kafka verification.
+
+2. **`make dev-onboard`** — Brings the **full local stack** up in order: cluster/MetalLB, **TLS / dev-root / service TLS / Kafka JKS**, host Postgres/Redis/MinIO, **KRaft apply**, DNS/topics preflight, **`kafka-tls-guard`** (includes full **`verify-kafka-cluster`**), **service-tls alias + quorum gates**, app **`deploy-dev`**, edge **`/etc/hosts`** + routing checks, then **by default** **`make kafka-health`** (full **`verify-kafka-cluster`** again, **`kafka-runtime-sync.sh --check-only`**, and the **safe** alignment suite with reports under **`bench_logs/kafka-alignment-report/`**). **Phase 10 is not skipped unless you set `SKIP_KAFKA_HEALTH_ON_ONBOARD=1`.**
+
+Together, that is the supported path for “all images built” plus “all routine safety checks,” without running the optional **destructive** seven-test alignment or chaos suites (those stay manual; see step list below).
+
+### 1) Clean build — images once
+
+**`make dev-onboard` does not build container images for you.** It assumes **:dev** images already exist in the Docker daemon that Colima/k3s uses.
+
+From the repo root, build (or rebuild after Dockerfile changes) and load into the cluster:
+
+```bash
+make images
+```
+
+(`make images` → `scripts/build-housing-images-k3s.sh`. Heavier refresh: `make images-all`.)
+
+### 2) Full local stack (~20–28 min first time)
 
 From the repo root (Colima recommended). **MetalLB pool:** leave **`METALLB_POOL` unset** in `make cluster` / `make up` — **`scripts/install-metallb-colima.sh`** and **`setup-new-colima-cluster.sh`** pick **`.240`–`.250`** on the Colima VM / node subnet automatically. Override only if you must.
 
 ```bash
-# Optional: restore all eight Postgres DBs from the newest backup snapshot
-export RESTORE_BACKUP_DIR=latest
+# Restore all eight Postgres DBs from the newest snapshot under backups/ (optional)
+RESTORE_BACKUP_DIR=latest make dev-onboard
 
+# Empty databases / SQL bootstrap path (no backup restore in Phase 0):
 make dev-onboard
 ```
+
+**`RESTORE_BACKUP_DIR`:** only set **`=latest`** when you want a dump restore. If you omit it, **`make dev-onboard`** passes an empty value and Phase 0 restore is skipped (matches `scripts/dev-onboard-local.sh`).
 
 **What `make dev-onboard` runs (high level):**
 
@@ -24,12 +49,16 @@ make dev-onboard
    - Then **metallb-fix**, **`hosts-sanity` / `ensure-edge-hosts`** (default **`HOSTS_AUTO=1`**: discovers Caddy/ingress **LoadBalancer IP** via **kubectl** and appends **`/etc/hosts`** with **sudo** when missing — no IP yet before **deploy-dev** is OK), **preflight-gate**, etc.
 2. **`make kafka-onboarding-reset`** — Deletes **kafka-0/1/2-external** LoadBalancers and headless **kafka** Service (and related EndpointSlices) so the next apply gets **fresh MetalLB** assignments and clean DNS (no-op on first run if resources are absent).
 3. **`make apply-kafka-kraft`** — **`kubectl apply -k infra/k8s/kafka-kraft-metallb/`** and **wait for StatefulSet rollout** (requires **`kafka-ssl-secret`** from **`make up`**).
-4. **`make onboarding-kafka-preflight`** — **cleanup** ops Job pods, **verify-kafka-dns**, **preflight-kafka-k8s**, **verify-kafka-bootstrap**.
-5. **`make verify-kafka-cluster`** — Full ritual including **meta.properties** **cluster.id** / **node.id**, TLS SANs, **advertised.listeners**, quorum, broker API (fails before **`deploy-dev`** if Kafka is unhealthy).
-6. **`SKIP_STRICT_ENVELOPE=1`** **`deploy-dev`** — kustomize **overlays/dev**, Caddy rollout, workloads.
-7. **`make wait-for-caddy-ip`** — Polls until **caddy-h3** has an **EXTERNAL-IP** (~120s max) so **`ensure-edge-hosts`** does not race MetalLB.
-8. **`make ensure-edge-hosts`** with **`EDGE_HOSTS_STRICT=1`** — Rewrites **`/etc/hosts`** for **off-campus-housing.test** (replaces **stale** lines if the LB IP changed; **sudo**).
-9. **`make onboarding-edge`** — **verify-preflight-edge-routing** (ingress parity, DNS → LB, HTTPS — not **ping**).
+4. **`make onboarding-kafka-preflight`** — **cleanup** ops Job pods, **verify-kafka-dns**, **preflight-kafka-k8s** (ensures event topics), **verify-kafka-bootstrap**.
+5. **`make kafka-tls-guard`** — TLS/JKS checks and **full `verify-kafka-cluster`** ritual (meta / SANs / listeners / quorum / broker API) — fails before app deploy if Kafka is unhealthy.
+6. **Secrets + alias + quorum** — **`ensure-housing-cluster-secrets`**, **`service-tls-alias-guard`**, **`kafka-quorum-stable`**, deferred TLS rollouts.
+7. **`SKIP_STRICT_ENVELOPE=1`** **`deploy-dev`** — kustomize **overlays/dev**, Caddy rollout, workloads.
+8. **`make wait-for-caddy-ip`** — Polls until **caddy-h3** has an **EXTERNAL-IP** (~120s max) so **`ensure-edge-hosts`** does not race MetalLB.
+9. **`make ensure-edge-hosts`** with **`EDGE_HOSTS_STRICT=1`** — Rewrites **`/etc/hosts`** for **off-campus-housing.test** (replaces **stale** lines if the LB IP changed; **sudo**).
+10. **`make onboarding-edge`** — **verify-preflight-edge-routing** (ingress parity, DNS → LB, HTTPS — not **ping**).
+11. **`make kafka-health`** — Runs again after edge is up: **full `verify-kafka-cluster`** (advertised.listeners vs MetalLB, CA fingerprint / broker chain, quorum, leadership churn, broker API, etc.), **`kafka-runtime-sync.sh --check-only`**, then the **safe** alignment suite (tests 2–4 and 6–7 skipped; baseline + TLS drift detection), writing **CSV/PNG** under **`bench_logs/kafka-alignment-report/`**. Skip with **`SKIP_KAFKA_HEALTH_ON_ONBOARD=1 make dev-onboard`** if you need a faster finish and accept less post-edge verification.
+
+**Optional destructive certification** (mutating; long-running, tens of minutes): **`KAFKA_ALIGNMENT_TEST_MODE=1 make kafka-alignment-suite`** for the full seven-test alignment matrix, or **`make kafka-health-chaos-cert`** / **`GOLDEN_SNAPSHOT_CHAOS=1 make golden-snapshot`** when you intend chaos (may require **`CHAOS_CONFIRM=1`**). These are **not** part of default **`make dev-onboard`**.
 
 **`/etc/hosts`:** Handled automatically (**`HOSTS_AUTO=1`**); stale IPs are **replaced**, not duplicated. **`HOSTS_AUTO=0`** for hints only; **`EXTERNAL_IP=`** to pin. **`OCH_EDGE_HOSTNAME`** overrides the hostname.
 
@@ -52,7 +81,8 @@ make dev-onboard
 9. **App deploy** — **`deploy-dev`**.  
 10. **Edge IP** — **`wait-for-caddy-ip`**.  
 11. **`/etc/hosts`** — **`ensure-edge-hosts`** (STRICT: resolver must match Caddy LB).  
-12. **Edge gates** — **`verify-preflight-edge-routing`** (HTTPS / QUIC paths, not ping).
+12. **Edge gates** — **`verify-preflight-edge-routing`** (HTTPS / QUIC paths, not ping).  
+13. **Post-edge Kafka health** — **`kafka-health`** (full cluster verify + runtime-sync check + safe alignment reports).
 
 **EKS:** **`make dev-onboard-eks`** runs verify-only (no MetalLB pool, hosts, or Kafka reset). Use ACM / cert-manager and real DNS.
 
@@ -108,6 +138,7 @@ make onboarding-edge
 
 | Target | Purpose |
 |--------|---------|
+| `make images` | Build **:dev** service images and load into Colima/k3s (**run before** first `dev-onboard`; onboard does not build images). |
 | `make dev-onboard` | Full onboarding (see above). |
 | `make apply-kafka-kraft` | Apply KRaft manifests + wait for StatefulSet. |
 | `make onboarding-kafka-preflight` | Cleanup ops pods, DNS verify, topic preflight, bootstrap verify. |
@@ -116,14 +147,30 @@ make onboarding-edge
 | `make wait-for-caddy-ip` | Wait for **caddy-h3** MetalLB IP. |
 | `make ensure-edge-hosts` | **`/etc/hosts`** for edge hostname → LB IP (strict: **`EDGE_HOSTS_STRICT=1`**). |
 | `make onboarding-edge` | Edge routing / HTTPS verify (curl — not ICMP). |
+| `make kafka-health` | Full **`verify-kafka-cluster`** + **`kafka-runtime-sync --check-only`** + safe **`kafka-alignment-suite`** (reports under **`bench_logs/kafka-alignment-report/`**). Runs at end of **`make dev-onboard`** unless **`SKIP_KAFKA_HEALTH_ON_ONBOARD=1`**. |
+| `make kafka-health-chaos-cert` | **`kafka-health`** then destructive alignment + chaos (needs confirm); not part of default onboard. |
 | `make up` | Cluster + TLS + host infra + bootstrap **without** KRaft apply and **without** `deploy-dev`. |
 | `make cleanup-kafka-ops-pods` | Remove finished kafka-quorum / DNS remediator Job pods. |
+
+---
+
+## Frontend (Next.js webapp)
+
+From the **repo root** after the backend stack is up (gateway reachable; see **`webapp/README.md`**):
+
+```bash
+pnpm install   # once per clone / lockfile change
+pnpm --filter webapp dev     # daily work; hot reload at http://localhost:3000
+```
+
+When you need a **production** check (not every edit): `pnpm --filter webapp build` then `pnpm --filter webapp start`.
 
 ---
 
 ## Related docs
 
 - `README.md` — build/run overview  
+- `webapp/README.md` — webapp env, E2E, k6  
 - `docs/MAKE_DEMO.md` — Colima, MetalLB pool, k3d  
 - `docs/ENGINEERING_DELIVERABLE_REPORT.md` §2.4.8 — MetalLB justification  
 - `docker-compose.yml` — Postgres / Redis / MinIO only (comments: Kafka in-cluster)

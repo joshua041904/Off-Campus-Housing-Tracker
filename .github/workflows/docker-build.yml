@@ -4,12 +4,21 @@ name: och-docker-build
 
 on:
   push:
-    branches: [main, master, develop]
+    branches:
+      - main
+      - master
+      - develop
+      - fix/**
+      - feat/**
+      - feature/**
+      - chore/**
+      - hotfix/**
   pull_request:
+  workflow_dispatch:
 
 # Avoid starving other workflows: only N image builds at once (GitHub-hosted runner pool is shared).
 concurrency:
-  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.head_ref || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -42,5 +51,6 @@ jobs:
           file: ${{ matrix.service == 'webapp' && 'webapp/Dockerfile' || format('services/{0}/Dockerfile', matrix.service) }}
           push: false
           tags: och-${{ matrix.service }}:ci
+          # Read GHA cache only; omit cache-to — exporting to results-receiver.actions.githubusercontent.com
+          # often hits DeadlineExceeded i/o timeouts and fails the whole job after a successful build.
           cache-from: type=gha
-          cache-to: type=gha,mode=max

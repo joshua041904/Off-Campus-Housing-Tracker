@@ -12,6 +12,27 @@ on:
       - "diagrams/uml/**"
       - "diagrams/c4/**"
       - "Makefile"
+  push:
+    branches:
+      - main
+      - master
+      - develop
+      - fix/**
+      - feat/**
+      - feature/**
+      - chore/**
+      - hotfix/**
+    paths:
+      - "scripts/diagram/**"
+      - "scripts/diagram/data/**"
+      - "diagrams/theme.frag"
+      - "diagrams/uml/**"
+      - "diagrams/c4/**"
+      - "Makefile"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   diagrams:

@@ -6,6 +6,7 @@
 #        Phase 5 kafka-tls-guard + 5a ensure-housing-cluster-secrets + 5a1 service-tls-alias-guard.
 #   Kafka: Phase 5a2 kafka-quorum-stable (no QuorumController "leader is (none)" in window).
 #   Edge: Phase 5b deferred rollouts; Phase 7b edge-readiness-gate (MetalLB + Caddy + gateway /healthz + /readyz).
+#   Post-edge: Phase 10 make kafka-health (verify-kafka-cluster + runtime-sync check + safe alignment reports); SKIP_KAFKA_HEALTH_ON_ONBOARD=1 skips.
 # Destructive full reset (Kafka wipe + reissue chain): make dev-onboard-hardened-reset (not this script).
 set -euo pipefail
 
@@ -22,8 +23,10 @@ else
   echo "⚠️  kubectl not in PATH"
 fi
 
-# Empty RESTORE_BACKUP_DIR = skip Phase-0 dump restore and allow infra-cluster SQL bootstrap.
-export RESTORE_BACKUP_DIR="${RESTORE_BACKUP_DIR:-latest}"
+# RESTORE_BACKUP_DIR is passed from the Makefile (empty if unset in the calling environment).
+# - Non-empty (e.g. latest): Phase 0 runs bring-up-external-infra with restore from backups/.
+# - Empty: skip Phase-0 restore; infra-cluster / SQL bootstrap path (see docs).
+# Do not default to "latest" here — Make always passes the variable, so empty must mean "no restore".
 
 # Reissue must not rollout app Deployments until Kafka TLS is rolled + verified (Phase 5).
 export RESTART_SERVICES_AFTER_TLS=0
@@ -122,6 +125,17 @@ make ensure-edge-hosts
 
 echo "▶ Phase 9: Edge routing + HTTPS"
 make onboarding-edge
+
+# Post-edge Kafka cert: full verify-kafka-cluster + kafka-runtime-sync --check-only + safe alignment suite
+# (CSV/PNG under bench_logs/kafka-alignment-report/). Destructive 7-test suite: KAFKA_ALIGNMENT_TEST_MODE=1 make kafka-alignment-suite
+# or make kafka-health-chaos-cert — not run here by default.
+# Default: run kafka-health. Only SKIP_KAFKA_HEALTH_ON_ONBOARD=1 opts out (faster, less post-edge verification).
+if [[ "${SKIP_KAFKA_HEALTH_ON_ONBOARD:-0}" == "1" ]]; then
+  echo "▶ Phase 10: skipped (SKIP_KAFKA_HEALTH_ON_ONBOARD=1 — default is to run make kafka-health)"
+else
+  echo "▶ Phase 10: Kafka health + runtime-sync check + safe alignment suite (make kafka-health; default)"
+  make kafka-health
+fi
 
 _DEV_ONBOARD_T1="$(date +%s)"
 _DEV_ONBOARD_SEC=$((_DEV_ONBOARD_T1 - _DEV_ONBOARD_T0))

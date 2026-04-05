@@ -2,10 +2,33 @@
 
 Demo UI for **JWT auth** (via `api-gateway` → auth-service), **search history**, and **watchlist** (booking-service HTTP routes proxied under `/api/booking/*`).
 
-## Local development
+## Prerequisites (backend)
 
-1. Start **Postgres bookings** + **api-gateway**, **auth-service**, **booking-service** (e.g. k3s/Colima stack or port-forward gateway to `127.0.0.1:4020`).
-2. From repo root:
+Bring up the platform **before** the webapp. From the **repo root**, respect this order (details: **`docs/DEV_ONBOARDING.md`**):
+
+1. **Images once** — `make dev-onboard` does **not** build images for you:
+   ```bash
+   make images
+   ```
+2. **Full local stack** (~20–28 min first time):
+   ```bash
+   RESTORE_BACKUP_DIR=latest make dev-onboard   # optional: restore from backups/
+   make dev-onboard                             # or: no Phase-0 restore (empty / SQL bootstrap path)
+   ```
+
+You need **api-gateway** (and backing services) reachable — typically **`https://off-campus-housing.test`** via ingress or, for quick UI work, same-origin rewrites to **`http://127.0.0.1:4020`** (see below).
+
+## Frontend — from repo root
+
+Install workspace deps once (from repo root):
+
+```bash
+pnpm install
+```
+
+### Day-to-day (when you change frontend code)
+
+Use the **dev** server — it hot-reloads; you do **not** need `build` / `start` on every save:
 
 ```bash
 pnpm --filter webapp dev
@@ -13,17 +36,28 @@ pnpm --filter webapp dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-### API base URL
+### Production-like run (when to use `build` + `start`)
 
-- **Default (recommended for local):** leave `NEXT_PUBLIC_API_BASE` unset. The app calls same-origin `/api/...`; `next.config.mjs` **rewrites** those to `API_GATEWAY_INTERNAL` (default `http://127.0.0.1:4020`), avoiding CORS during dev.
-- **Edge / TLS:** set `NEXT_PUBLIC_API_BASE=https://off-campus-housing.test` and ensure your browser trusts the cert (or use curl with `-k` only for debugging).
-
-## Build
+Run these when you want to verify the **production** bundle (same as `next build` + `next start`), for example after **dependency upgrades**, **`next.config`** changes, or before you trust a release — not required on every small UI edit:
 
 ```bash
 pnpm --filter webapp build
 pnpm --filter webapp start
 ```
+
+(`build` then `start` in that order; both from repo root.)
+
+## Local development (details)
+
+1. Backend stack running (see **Prerequisites**).
+2. **`pnpm --filter webapp dev`** from repo root for normal work.
+
+Open [http://localhost:3000](http://localhost:3000).
+
+### API base URL
+
+- **Default (recommended for local):** leave `NEXT_PUBLIC_API_BASE` unset. The app calls same-origin `/api/...`; `next.config.mjs` **rewrites** those to `API_GATEWAY_INTERNAL` (default `http://127.0.0.1:4020`), avoiding CORS during dev.
+- **Edge / TLS:** set `NEXT_PUBLIC_API_BASE=https://off-campus-housing.test` and ensure your browser trusts the cert (or use curl with `-k` only for debugging).
 
 ## E2E (Playwright)
 

@@ -2,17 +2,27 @@
 # final aggregate gate fails the workflow if anomaly or any required job failed (nothing silently skipped).
 name: och-ci
 
-# pull_request: all PRs. push: default branch only — avoids duplicate runs on PR branches (push + PR
-# both firing → same concurrency group → cancel-in-progress kills the other run → mass Cancelled tests).
+# pull_request: all PRs. push: default + feature branches — pushes to fix/** etc. run CI without opening
+# a PR (push-only workflows were previously silent). Same concurrency group per branch still dedupes
+# overlapping push/PR syncs to one in-flight run.
 on:
   push:
-    branches: [main, master, develop]
+    branches:
+      - main
+      - master
+      - develop
+      - fix/**
+      - feat/**
+      - feature/**
+      - chore/**
+      - hotfix/**
   pull_request:
 
-# Same branch name for pull_request (head) and push → one group cancels duplicate fires (PR sync used to
-# run both events with different keys and double every matrix job).
+# Include event_name so push and pull_request are separate groups: otherwise both use the same branch key
+# and cancel-in-progress kills the sibling run (integration tests cancelled, aggregate shows failed, PR
+# checks look missing or duplicated inconsistently).
 concurrency:
-  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.head_ref || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 env:
