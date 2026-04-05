@@ -14,7 +14,7 @@ const skip =
   process.env.SKIP_TRUST_INTEGRATION === "true";
 
 describe.skipIf(skip)("trust HTTP integration", () => {
-  let server: Server;
+  let server!: Server;
   let baseUrl: string;
   const reporter = randomUUID();
   const listingId = randomUUID();
@@ -43,9 +43,11 @@ describe.skipIf(skip)("trust HTTP integration", () => {
   });
 
   afterAll(async () => {
-    await new Promise<void>((resolve, reject) => {
-      server.close((e) => (e ? reject(e) : resolve()));
-    });
+    if (server) {
+      await new Promise<void>((resolve, reject) => {
+        server.close((e) => (e ? reject(e) : resolve()));
+      });
+    }
     await pool.end();
   });
 
@@ -71,15 +73,17 @@ describe.skipIf(skip)("trust HTTP integration", () => {
       }),
     });
     expect(res.status).toBe(201);
-    const j = (await res.json()) as { flag_id: string; status: string };
-    expect(j.flag_id).toMatch(
+    const j = (await res.json()) as {
+      data: { flag_id: string; status: string };
+    };
+    expect(j.data.flag_id).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
     );
-    expect(j.status).toBe("pending");
+    expect(j.data.status).toBe("pending");
 
     const q = await pool.query(
       `SELECT listing_id::text, reporter_id::text, reason FROM trust.listing_flags WHERE id = $1::uuid`,
-      [j.flag_id],
+      [j.data.flag_id],
     );
     expect(q.rows[0].listing_id).toBe(listingId);
     expect(q.rows[0].reporter_id).toBe(reporter);
@@ -117,10 +121,12 @@ describe.skipIf(skip)("trust HTTP integration", () => {
       }),
     });
     expect(res.status).toBe(201);
-    const j = (await res.json()) as { flag_id: string };
+    const j = (await res.json()) as {
+      data: { flag_id: string; status?: string };
+    };
     const q = await pool.query(
       `SELECT user_id::text, reporter_id::text FROM trust.user_flags WHERE id = $1::uuid`,
-      [j.flag_id],
+      [j.data.flag_id],
     );
     expect(q.rows[0].user_id).toBe(targetUser);
     expect(q.rows[0].reporter_id).toBe(reporter);
@@ -143,10 +149,14 @@ describe.skipIf(skip)("trust HTTP integration", () => {
     });
     expect(res.status).toBe(201);
 
-    const rep = await fetch(`${baseUrl}/reputation/${encodeURIComponent(revieweeId)}`);
+    const rep = await fetch(
+      `${baseUrl}/reputation/${encodeURIComponent(revieweeId)}`,
+    );
     expect(rep.status).toBe(200);
-    const body = (await rep.json()) as { user_id: string; score: number };
-    expect(body.user_id).toBe(revieweeId);
-    expect(typeof body.score).toBe("number");
+    const body = (await rep.json()) as {
+      data: { user_id: string; score: number };
+    };
+    expect(body.data.user_id).toBe(revieweeId);
+    expect(typeof body.data.score).toBe("number");
   });
 });

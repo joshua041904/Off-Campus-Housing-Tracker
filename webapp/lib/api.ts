@@ -14,12 +14,18 @@ async function parseJson(res: Response): Promise<unknown> {
 
 export async function apiFetch(
   path: string,
-  init: RequestInit & { token?: string | null } = {}
+  init: RequestInit & { token?: string | null } = {},
 ): Promise<Response> {
   const base = getApiBase();
-  const url = path.startsWith("http") ? path : `${base}${path.startsWith("/") ? "" : "/"}${path}`;
+  const url = path.startsWith("http")
+    ? path
+    : `${base}${path.startsWith("/") ? "" : "/"}${path}`;
   const headers = new Headers(init.headers);
-  if (!headers.has("Content-Type") && init.body && typeof init.body === "string") {
+  if (
+    !headers.has("Content-Type") &&
+    init.body &&
+    typeof init.body === "string"
+  ) {
     headers.set("Content-Type", "application/json");
   }
   const { token, ...rest } = init;
@@ -32,7 +38,11 @@ export async function registerUser(email: string, password: string) {
     method: "POST",
     body: JSON.stringify({ email, password }),
   });
-  const data = (await parseJson(res)) as { token?: string; user?: unknown; error?: string };
+  const data = (await parseJson(res)) as {
+    token?: string;
+    user?: unknown;
+    error?: string;
+  };
   if (!res.ok) throw new Error(data?.error || `register failed: ${res.status}`);
   return data;
 }
@@ -48,7 +58,10 @@ export async function loginUser(email: string, password: string) {
     error?: string;
   };
   if (!res.ok) throw new Error(data?.error || `login failed: ${res.status}`);
-  if (data.requiresMFA) throw new Error("MFA required — use a test account without MFA for the webapp demo.");
+  if (data.requiresMFA)
+    throw new Error(
+      "MFA required — use a test account without MFA for the webapp demo.",
+    );
   return data;
 }
 
@@ -61,7 +74,7 @@ export async function postSearchHistory(
     maxDistanceKm?: number;
     latitude?: number;
     longitude?: number;
-  }
+  },
 ) {
   const res = await apiFetch("/api/booking/search-history", {
     method: "POST",
@@ -69,28 +82,42 @@ export async function postSearchHistory(
     body: JSON.stringify(body),
   });
   const data = await parseJson(res);
-  if (!res.ok) throw new Error((data as ApiError)?.error || `search-history ${res.status}`);
+  if (!res.ok)
+    throw new Error(
+      (data as ApiError)?.error || `search-history ${res.status}`,
+    );
   return data;
 }
 
 export async function listSearchHistory(token: string, limit = 25) {
-  const res = await apiFetch(`/api/booking/search-history/list?limit=${limit}`, {
-    method: "GET",
-    token,
-  });
+  const res = await apiFetch(
+    `/api/booking/search-history/list?limit=${limit}`,
+    {
+      method: "GET",
+      token,
+    },
+  );
   const data = (await parseJson(res)) as { items?: unknown[] };
-  if (!res.ok) throw new Error((data as ApiError)?.error || `list search-history ${res.status}`);
+  if (!res.ok)
+    throw new Error(
+      (data as ApiError)?.error || `list search-history ${res.status}`,
+    );
   return data.items ?? [];
 }
 
-export async function watchlistAdd(token: string, listingId: string, source?: string) {
+export async function watchlistAdd(
+  token: string,
+  listingId: string,
+  source?: string,
+) {
   const res = await apiFetch("/api/booking/watchlist/add", {
     method: "POST",
     token,
     body: JSON.stringify({ listingId, source: source ?? "webapp" }),
   });
   const data = await parseJson(res);
-  if (!res.ok) throw new Error((data as ApiError)?.error || `watchlist add ${res.status}`);
+  if (!res.ok)
+    throw new Error((data as ApiError)?.error || `watchlist add ${res.status}`);
   return data;
 }
 
@@ -100,14 +127,20 @@ export type WatchlistRemoveResult = {
   message?: string;
 };
 
-export async function watchlistRemove(token: string, listingId: string): Promise<WatchlistRemoveResult> {
+export async function watchlistRemove(
+  token: string,
+  listingId: string,
+): Promise<WatchlistRemoveResult> {
   const res = await apiFetch("/api/booking/watchlist/remove", {
     method: "POST",
     token,
     body: JSON.stringify({ listingId }),
   });
   const data = await parseJson(res);
-  if (!res.ok) throw new Error((data as ApiError)?.error || `watchlist remove ${res.status}`);
+  if (!res.ok)
+    throw new Error(
+      (data as ApiError)?.error || `watchlist remove ${res.status}`,
+    );
   return data as WatchlistRemoveResult;
 }
 
@@ -117,7 +150,10 @@ export async function watchlistList(token: string) {
     token,
   });
   const data = (await parseJson(res)) as { items?: unknown[] };
-  if (!res.ok) throw new Error((data as ApiError)?.error || `watchlist list ${res.status}`);
+  if (!res.ok)
+    throw new Error(
+      (data as ApiError)?.error || `watchlist list ${res.status}`,
+    );
   return data.items ?? [];
 }
 
@@ -155,8 +191,10 @@ export async function searchListings(params: {
 }) {
   const sp = new URLSearchParams();
   if (params.q) sp.set("q", params.q);
-  if (params.min_price != null && !Number.isNaN(params.min_price)) sp.set("min_price", String(params.min_price));
-  if (params.max_price != null && !Number.isNaN(params.max_price)) sp.set("max_price", String(params.max_price));
+  if (params.min_price != null && !Number.isNaN(params.min_price))
+    sp.set("min_price", String(params.min_price));
+  if (params.max_price != null && !Number.isNaN(params.max_price))
+    sp.set("max_price", String(params.max_price));
   if (params.smoke_free) sp.set("smoke_free", "1");
   if (params.pet_friendly) sp.set("pet_friendly", "1");
   if (params.furnished) sp.set("furnished", "1");
@@ -167,13 +205,18 @@ export async function searchListings(params: {
   if (params.sort?.trim()) sp.set("sort", params.sort.trim());
   const q = sp.toString();
   const res = await apiFetch(`/api/listings/search${q ? `?${q}` : ""}`);
-  const data = (await parseJson(res)) as { items?: ListingJson[]; error?: string };
+  const data = (await parseJson(res)) as {
+    items?: ListingJson[];
+    error?: string;
+  };
   if (!res.ok) throw new Error(data?.error || `listings search ${res.status}`);
   return data.items ?? [];
 }
 
 export async function getListing(id: string) {
-  const res = await apiFetch(`/api/listings/listings/${encodeURIComponent(id)}`);
+  const res = await apiFetch(
+    `/api/listings/listings/${encodeURIComponent(id)}`,
+  );
   const data = (await parseJson(res)) as ListingJson & ApiError;
   if (!res.ok) throw new Error(data?.error || `get listing ${res.status}`);
   return data as ListingJson;
@@ -193,7 +236,7 @@ export async function createListing(
     furnished?: boolean;
     latitude?: number | null;
     longitude?: number | null;
-  }
+  },
 ) {
   const res = await apiFetch("/api/listings/create", {
     method: "POST",
@@ -212,16 +255,19 @@ export async function reportAbuse(
     target_id: string;
     category?: string;
     details?: string;
-  }
+  },
 ) {
   const res = await apiFetch("/api/trust/report-abuse", {
     method: "POST",
     token,
     body: JSON.stringify(body),
   });
-  const data = (await parseJson(res)) as { flag_id?: string; status?: string; error?: string };
+  const data = (await parseJson(res)) as {
+    data?: { flag_id?: string; status?: string };
+    error?: string;
+  };
   if (!res.ok) throw new Error(data?.error || `report abuse ${res.status}`);
-  return data;
+  return data.data ?? null;
 }
 
 export async function submitPeerReview(
@@ -232,23 +278,34 @@ export async function submitPeerReview(
     side?: string;
     rating: number;
     comment?: string;
-  }
+  },
 ) {
   const res = await apiFetch("/api/trust/peer-review", {
     method: "POST",
     token,
     body: JSON.stringify(body),
   });
-  const data = (await parseJson(res)) as { review_id?: string; error?: string };
+  const data = (await parseJson(res)) as {
+    data?: { review_id?: string };
+    error?: string;
+  };
   if (!res.ok) throw new Error(data?.error || `peer review ${res.status}`);
-  return data;
+  return data.data ?? null;
 }
 
 export async function getReputation(userId: string) {
-  const res = await apiFetch(`/api/trust/reputation/${encodeURIComponent(userId)}`);
-  const data = (await parseJson(res)) as { user_id?: string; score?: number; error?: string };
+  const res = await apiFetch(
+    `/api/trust/reputation/${encodeURIComponent(userId)}`,
+  );
+  const data = (await parseJson(res)) as {
+    data?: { user_id?: string; score?: number };
+    error?: string;
+  };
   if (!res.ok) throw new Error(data?.error || `reputation ${res.status}`);
-  return { user_id: data.user_id ?? userId, score: data.score ?? 0 };
+  return {
+    user_id: data.data?.user_id ?? userId,
+    score: data.data?.score ?? 0,
+  };
 }
 
 export type DailyMetricsJson = {
@@ -262,24 +319,30 @@ export type DailyMetricsJson = {
 };
 
 export async function getDailyMetrics(date: string) {
-  const res = await apiFetch(`/api/analytics/daily-metrics?date=${encodeURIComponent(date)}`);
+  const res = await apiFetch(
+    `/api/analytics/daily-metrics?date=${encodeURIComponent(date)}`,
+  );
   const data = (await parseJson(res)) as DailyMetricsJson & ApiError;
   if (!res.ok) throw new Error(data?.error || `daily metrics ${res.status}`);
   return data;
 }
 
 export async function getWatchlistInsights(token: string, userId: string) {
-  const res = await apiFetch(`/api/analytics/insights/watchlist/${encodeURIComponent(userId)}`, {
-    method: "GET",
-    token,
-  });
+  const res = await apiFetch(
+    `/api/analytics/insights/watchlist/${encodeURIComponent(userId)}`,
+    {
+      method: "GET",
+      token,
+    },
+  );
   const data = (await parseJson(res)) as {
     watchlist_adds_30d?: number;
     watchlist_removes_30d?: number;
     notes?: string;
     error?: string;
   };
-  if (!res.ok) throw new Error(data?.error || `watchlist insights ${res.status}`);
+  if (!res.ok)
+    throw new Error(data?.error || `watchlist insights ${res.status}`);
   return data;
 }
 
@@ -295,10 +358,13 @@ export type SearchSummaryItem = {
 
 /** Past searches from analytics (read-only booking DB on cluster when POSTGRES_URL_BOOKINGS is set). Requires JWT + matching user. */
 export async function getSearchSummaryInsights(token: string, userId: string) {
-  const res = await apiFetch(`/api/analytics/insights/search-summary/${encodeURIComponent(userId)}`, {
-    method: "GET",
-    token,
-  });
+  const res = await apiFetch(
+    `/api/analytics/insights/search-summary/${encodeURIComponent(userId)}`,
+    {
+      method: "GET",
+      token,
+    },
+  );
   const data = (await parseJson(res)) as {
     user_id?: string;
     items?: SearchSummaryItem[];
@@ -312,14 +378,23 @@ export async function getSearchSummaryInsights(token: string, userId: string) {
 
 export async function analyzeListingFeel(
   token: string | null,
-  body: { title: string; description?: string; price_cents: number; audience?: "landlord" | "renter" }
+  body: {
+    title: string;
+    description?: string;
+    price_cents: number;
+    audience?: "landlord" | "renter";
+  },
 ) {
   const res = await apiFetch("/api/analytics/insights/listing-feel", {
     method: "POST",
     token: token ?? undefined,
     body: JSON.stringify(body),
   });
-  const data = (await parseJson(res)) as { analysis_text?: string; model_used?: string; error?: string };
+  const data = (await parseJson(res)) as {
+    analysis_text?: string;
+    model_used?: string;
+    error?: string;
+  };
   if (!res.ok) throw new Error(data?.error || `listing feel ${res.status}`);
   return data;
 }
