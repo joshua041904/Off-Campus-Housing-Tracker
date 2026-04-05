@@ -1,19 +1,127 @@
-fix(ci): Kafka alignment, CI gates, chaos/resilience, auth outbox
+fix(ci): Docker build reliability, branch triggers, and workflow path filters
 
-- Kafka ↔ MetalLB: drift checks (check-kafka-config-drift, kafka-runtime-sync, kafka-sync-metallb),
-  alignment test suite, golden-snapshot; preflight 6a2c9 on by default (skip:
-  PREFLIGHT_SKIP_KAFKA_ALIGNMENT_SUITE=1); metallb alignment exporter; kafka-ops CronJob + Dockerfile;
-  Prometheus rules (runtime drift, alignment tests, suite missing).
-- Make: kafka-health, kafka-alignment-suite, chaos-suite-kafka, golden-snapshot.
-- CI: kafka-alignment + ephemeral/kafka-cluster-verify path filters; nightly chaos; diagrams workflow
-  (generated repo-root diagrams/, docs/assets, architecture submission/book/design/lld, scripts/architecture
-  not part of this commit).
-- Auth: transactional outbox (publisher, metrics, tests, inspect/replay); Grafana/Prometheus outbox assets;
-  user-lifecycle consumers across services.
-- Infra: k8s :dev deploy pins, observability, proto/config, prisma migrations, bench_logs cleanup.
-- CI hardening: dev-onboard-lite proto-on-disk + kustomize + kubectl apply --dry-run=client; PlantUML no .puml → exit 0;
-  diagrams/uml/placeholder.puml; post-deploy-verify workflow (self-hosted or kubeconfig secret); hydrate-certs-for-ci
-  (POST_DEPLOY_CERTS_ARCHIVE_B64 or pull kafka-ssl-secret / dev-root-ca); smoke/k6/canary scripts + Makefile targets;
-  api-gateway GET /health; alignment suite post-destructive verify; matplotlib venv + golden CHAOS destructive alignment.
+-------------------------------------------------------------------------------
+HIGH-LEVEL OVERVIEW (for teammates — not CI experts)
+-------------------------------------------------------------------------------
+
+We tightened GitHub Actions so that:
+
+  • Docker image builds stop failing for a silly reason: the build often
+    succeeded, but uploading the build cache back to GitHub timed out. CI
+    treated that as a failure, so the whole pipeline looked red even when
+    the code was fine.
+
+  • Pushes to normal feature branches (e.g. fix/..., feat/...) actually run
+    the main CI and Docker workflows. Before, many workflows only listened
+    for pushes to main — so if you pushed a branch without opening a PR yet,
+    nothing ran and it looked like "CI is broken" or "nothing happened."
+
+  • Pull requests that only change files under .github/workflows/ still
+    run the gates that care about infra (dev-onboard-lite, ephemeral cluster,
+    Kafka alignment checks, etc.). Those jobs used to skip because their
+    path filters did not include workflow files.
+
+  • The messaging-service image installs OpenSSL in the runtime layer so
+    Prisma/client tooling that expects libssl is aligned with what we run
+    in production-style containers (warning was non-fatal in CI but good
+    to fix for real deploys).
+
+  • When you open or update a PR, GitHub may run both a "push" and a
+    "pull_request" workflow for the same branch. That can look like duplicate
+    check names in the UI; we keep them from cancelling each other so neither
+    run dies halfway through (which used to look like random failures or
+    "missing" jobs).
+
+  • CI installs a recent kubectl (1.31+) for kustomize so dev overlays with
+    multi-doc patches build the same as on your laptop (older kubectl made
+    make dev-onboard-lite fail in GitHub only).
+
+You do not need to memorize buildx or cache backends — the point is: CI
+should reflect real breakage, not flaky GitHub infrastructure.
+
+-------------------------------------------------------------------------------
+WHY THIS MATTERS FOR THE SYSTEM AS A WHOLE
+-------------------------------------------------------------------------------
+
+OCH is many services (HTTP + gRPC + Kafka + Postgres/Redis) with shared
+contracts (proto, TLS, Kafka topics). CI is the contract enforcement layer:
+
+  • If docker builds fail spuriously, downstream jobs (Kafka alignment,
+    integration tests that assume images or scripts passed, etc.) never run
+    or are skipped — hard to tell signal from noise.
+
+  • If feature-branch pushes do not trigger CI, regressions slip until a PR
+    is opened or merged; reviewers lose early feedback.
+
+  • Workflow-only changes must still run kustomize / script / Kafka static
+    checks when those files are touched, or we merge YAML mistakes that only
+    show up on main.
+
+So these changes are "infra hygiene" that keeps the safety net honest for
+everyone shipping services, not a refactor of application logic.
+
+-------------------------------------------------------------------------------
+WHAT CHANGED (technical summary — recent CI/CD hardening)
+-------------------------------------------------------------------------------
+
+Docker / GitHub Actions (buildx)
+  - och-docker-build: removed cache-to type=gha (keep cache-from) to avoid
+    DeadlineExceeded / i/o timeout posting to results-receiver.actions.
+    githubusercontent.com after a successful build.
+  - och-docker-build: workflow_dispatch for manual reruns from the Actions tab.
+  - messaging-service Dockerfile: install openssl in the runtime stage
+    (alongside existing curl/ca-certificates for grpc-health-probe).
+
+Branch triggers (push)
+  - Expanded push branches to include fix/**, feat/**, feature/**,
+    chore/**, hotfix/** (in addition to main, master, develop) for:
+    och-ci, och-docker-build, Kafka alignment, protocol-validation,
+    protocol-readiness, kafka-dns-validate, kafka-cluster-verify.
+
+Path filters
+  - Added .github/workflows/** where workflow-only PRs/pushes were skipped:
+    dev-onboard-lite, ephemeral-cluster, kafka-alignment, kafka-dns-validate
+    (push), kafka-cluster-verify (push), protocol-validation/readiness (push).
+  - Kafka alignment also runs when docker-build.yml or
+    services/messaging-service/Dockerfile changes (already in place).
+
+Concurrency (why PR checks looked "empty" or cancelled)
+  - Groups now include github.event_name (push vs pull_request). Before, both
+    events shared the same branch-only key, so cancel-in-progress killed the
+    sibling run mid-job — integration tests cancelled, aggregate gate red, and
+    the PR could show only one event's checks or a short list while jobs were
+    still queued behind integration-tests.
+  - dev-onboard-lite, Ephemeral k3s + MetalLB, Diagrams: added push with the
+    same path filters as pull_request (plus feature-branch list) so those
+    gates run on push when paths match, not only on PRs.
+
+Kustomize / kubectl in CI
+  - GitHub workflows that run kubectl kustomize (dev-onboard-lite, ephemeral,
+    kafka-dns-validate, post-deploy-verify, Kafka alignment live) use kubectl
+    v1.31.0+. v1.29’s bundled kustomize rejects multi-document strategic-merge
+    patches such as infra/k8s/overlays/dev/patches/e2e-high-cap-mode-env.yaml.
+  - dev-onboard-lite no longer runs kubectl apply --dry-run=client -k: even
+    “client” dry-run asks the apiserver for GVK/rest mapping; GHA runners have
+    no cluster, so it fails against localhost:8080. kubectl kustomize already
+    proves the overlay builds.
+
+Kafka alignment “live” job
+  - The live job always runs after static (no job-level if). k3s / MetalLB /
+    alignment suite steps run only for workflow_dispatch with run_live_suite;
+    otherwise the gate step exits 0 with a short message so checks are not
+    listed as Skipped.
+
+-------------------------------------------------------------------------------
+BROADER CONTEXT (earlier large fix/ci work on main — reference)
+-------------------------------------------------------------------------------
+
+The repo also includes deeper CI/Kafka/auth work (separate merges), including:
+Kafka ↔ MetalLB alignment tooling and preflight, Make targets (kafka-health,
+kafka-alignment-suite, chaos/golden paths), auth transactional outbox and
+user-lifecycle consumers across services, k8s dev pins and observability,
+post-deploy verify and cert hydration scripts, etc. That is the functional
+stack; the items above are specifically about CI reliability and triggers.
+
+-------------------------------------------------------------------------------
 
 Made with Tom.

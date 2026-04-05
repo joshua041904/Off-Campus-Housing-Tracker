@@ -3,7 +3,15 @@ name: kafka-dns-validate
 
 on:
   push:
-    branches: [main, master, develop]
+    branches:
+      - main
+      - master
+      - develop
+      - fix/**
+      - feat/**
+      - feature/**
+      - chore/**
+      - hotfix/**
     paths:
       - "scripts/validate-kafka-dns.sh"
       - "scripts/preflight-kafka-k8s-rollout.sh"
@@ -12,12 +20,13 @@ on:
       - "infra/ops/**"
       - "infra/policies/kafka-replica-guard.yaml"
       - "monitoring/prometheus-rules/kafka-kraft-dns.yaml"
+      - ".github/workflows/**"
   # Every PR runs (same checks without guessing which paths changed).
   pull_request:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.head_ref || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -27,7 +36,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: azure/setup-kubectl@v4
         with:
-          version: "v1.30.2"
+          version: "v1.31.0"
       - name: Bash syntax (Kafka helper scripts)
         run: |
           bash -n scripts/validate-kafka-dns.sh

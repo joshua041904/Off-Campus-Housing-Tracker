@@ -98,7 +98,7 @@ jobs:
         if: github.event.inputs.execution_mode == 'kubeconfig-secret'
         uses: azure/setup-kubectl@v4
         with:
-          version: "v1.29.0"
+          version: "v1.31.0"
 
       - name: Install OS deps (kubeconfig-secret mode)
         if: github.event.inputs.execution_mode == 'kubeconfig-secret'

@@ -4,7 +4,15 @@ name: Protocol validation (static + fixtures)
 
 on:
   push:
-    branches: [main, master]
+    branches:
+      - main
+      - master
+      - develop
+      - fix/**
+      - feat/**
+      - feature/**
+      - chore/**
+      - hotfix/**
     paths:
       - "scripts/protocol/**"
       - "scripts/transport/**"
@@ -28,12 +36,13 @@ on:
       - "webapp/playwright.global-setup.ts"
       - "webapp/package.json"
       - ".github/workflows/protocol-validation.yml"
-  # All PRs run this workflow (predictable check count). Push to main/master stays path-filtered above.
+      - ".github/workflows/**"
+  # All PRs run this workflow (predictable check count). Push uses path filters above (plus any workflow change).
   pull_request:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.head_ref || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:

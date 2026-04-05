@@ -6,7 +6,15 @@ on:
   # Every PR runs (stable CI surface). Push to main/master stays path-filtered to save minutes.
   pull_request:
   push:
-    branches: [main, master, develop]
+    branches:
+      - main
+      - master
+      - develop
+      - fix/**
+      - feat/**
+      - feature/**
+      - chore/**
+      - hotfix/**
     paths:
       - "infra/k8s/kafka-kraft-metallb/**"
       - "scripts/verify-kafka-*.sh"
@@ -17,10 +25,11 @@ on:
       - "scripts/check-kafka-config-drift.sh"
       - "Makefile"
       - ".github/workflows/kafka-cluster-verify.yml"
+      - ".github/workflows/**"
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.head_ref || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:

@@ -2,7 +2,21 @@
 
 This doc answers **developer experience** questions after moving Kafka off Docker Compose to **three-broker KRaft in Kubernetes**, and documents the **one-command** path.
 
-## One command: full stack
+## Backend: use this order
+
+### 1) Clean build — images once
+
+**`make dev-onboard` does not build container images for you.** It assumes **:dev** images already exist in the Docker daemon that Colima/k3s uses.
+
+From the repo root, build (or rebuild after Dockerfile changes) and load into the cluster:
+
+```bash
+make images
+```
+
+(`make images` → `scripts/build-housing-images-k3s.sh`. Heavier refresh: `make images-all`.)
+
+### 2) Full local stack (~20–28 min first time)
 
 From the repo root (Colima recommended). **MetalLB pool:** leave **`METALLB_POOL` unset** in `make cluster` / `make up` — **`scripts/install-metallb-colima.sh`** and **`setup-new-colima-cluster.sh`** pick **`.240`–`.250`** on the Colima VM / node subnet automatically. Override only if you must.
 
@@ -12,6 +26,8 @@ export RESTORE_BACKUP_DIR=latest
 
 make dev-onboard
 ```
+
+Omit **`RESTORE_BACKUP_DIR`** if you want empty databases instead of restoring from **`backups/`**.
 
 **What `make dev-onboard` runs (high level):**
 
@@ -108,6 +124,7 @@ make onboarding-edge
 
 | Target | Purpose |
 |--------|---------|
+| `make images` | Build **:dev** service images and load into Colima/k3s (**run before** first `dev-onboard`; onboard does not build images). |
 | `make dev-onboard` | Full onboarding (see above). |
 | `make apply-kafka-kraft` | Apply KRaft manifests + wait for StatefulSet. |
 | `make onboarding-kafka-preflight` | Cleanup ops pods, DNS verify, topic preflight, bootstrap verify. |
@@ -121,9 +138,23 @@ make onboarding-edge
 
 ---
 
+## Frontend (Next.js webapp)
+
+From the **repo root** after the backend stack is up (gateway reachable; see **`webapp/README.md`**):
+
+```bash
+pnpm install   # once per clone / lockfile change
+pnpm --filter webapp dev     # daily work; hot reload at http://localhost:3000
+```
+
+When you need a **production** check (not every edit): `pnpm --filter webapp build` then `pnpm --filter webapp start`.
+
+---
+
 ## Related docs
 
 - `README.md` — build/run overview  
+- `webapp/README.md` — webapp env, E2E, k6  
 - `docs/MAKE_DEMO.md` — Colima, MetalLB pool, k3d  
 - `docs/ENGINEERING_DELIVERABLE_REPORT.md` §2.4.8 — MetalLB justification  
 - `docker-compose.yml` — Postgres / Redis / MinIO only (comments: Kafka in-cluster)
