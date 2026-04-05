@@ -525,7 +525,7 @@ onboarding-edge: ## verify-preflight-edge-routing (MetalLB + hosts + TLS)
 	$(MAKE) verify-preflight-edge-routing
 
 # ROLE: DEV — deterministic local onboard (EKS: dev-onboard-eks). Wrapper: scripts/dev-onboard-local.sh (set -euo pipefail).
-dev-onboard: ## LOCAL: phased onboard + TLS/Kafka gates (alias-guard, quorum-stable, edge-readiness); EKS: verify-only
+dev-onboard: ## LOCAL: phased onboard + TLS/Kafka gates + kafka-health post-edge (SKIP_KAFKA_HEALTH_ON_ONBOARD=1 to skip); EKS: verify-only
 	@chmod +x $(SCRIPTS)/detect-k8s-environment.sh $(SCRIPTS)/dev-onboard-local.sh
 	@_och_env=$$(bash $(SCRIPTS)/detect-k8s-environment.sh 2>/dev/null || echo LOCAL); \
 	if [ "$$_och_env" = "EKS" ]; then \
@@ -579,6 +579,7 @@ dev-onboard-lite: ## CI-safe: bash -n scripts, kustomize kafka bundle, onboard s
 	grep -q 'kafka-quorum-stable' "$(SCRIPTS)/dev-onboard-local.sh"; \
 	grep -q 'service-tls-alias-guard' "$(SCRIPTS)/dev-onboard-local.sh"; \
 	grep -q 'edge-readiness-gate' "$(SCRIPTS)/dev-onboard-local.sh"; \
+	grep -q 'kafka-health' "$(SCRIPTS)/dev-onboard-local.sh"; \
 	echo "▶ bash -n scripts/ci (smoke / verify helpers)"; \
 	bash -n "$(SCRIPTS)/ci/smoke-api-gateway.sh"; \
 	bash -n "$(SCRIPTS)/ci/canary-pod-stability.sh"; \
