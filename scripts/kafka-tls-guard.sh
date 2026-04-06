@@ -8,6 +8,8 @@
 #   KAFKA_BROKER_REPLICAS — default 3
 #   KAFKA_TLS_GUARD_SKIP_VERIFY — set 1 to skip make verify-kafka-cluster at end
 #   KAFKA_TLS_GUARD_SKIP_LOG_SCAN — set 1 to skip recent SSL handshake failure grep
+#   KAFKA_TLS_GUARD_POST_ROLLOUT_ONLY=1 — after full rollout: steps 1–5 (mount/JKS parity) + 7 (PKIX log tail);
+#     skip 5b–6 (service-tls / och-kafka / annotation) and step 8 (verify-cluster)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -158,6 +160,10 @@ if [[ "$(echo -n "$_ks_lines" | _nuniq_lines)" -ne 1 ]]; then
 fi
 ok "Keystore JKS uniform"
 
+if [[ "${KAFKA_TLS_GUARD_POST_ROLLOUT_ONLY:-0}" == "1" ]]; then
+  say "POST_ROLLOUT_ONLY=1 — skipping service-tls / och-kafka / annotation gates (use full kafka-tls-guard for those)"
+else
+
 say "5b) service-tls ca.crt vs kafka-ssl-secret CA (single dev-root parity)"
 if kubectl get secret service-tls -n "$NS" --request-timeout=15s >/dev/null 2>&1; then
   _st_fp="$(
@@ -225,6 +231,8 @@ if [[ -n "$_ann" && "$_ann" != "$BROKER_FP" ]]; then
   exit 1
 fi
 [[ -n "$_ann" ]] && ok "Secret CA annotation consistent"
+
+fi # end !POST_ROLLOUT_ONLY
 
 if [[ "${KAFKA_TLS_GUARD_SKIP_LOG_SCAN:-0}" != "1" ]]; then
   say "7) Recent broker logs — SSL handshake / PKIX"

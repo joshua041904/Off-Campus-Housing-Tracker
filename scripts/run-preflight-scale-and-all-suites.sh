@@ -76,8 +76,15 @@ IFS=$'\n\t'
 #   - PREFLIGHT_SKIP_EDGE_ROUTING_GATES=1 — skip 6b1–6b2 (Ingress /api+/auth→api-gateway:4020 order, DNS→caddy-h3 or ingress-nginx-controller LB). Fixes silent k6 0-byte runs from edge drift.
 #   - PREFLIGHT_SKIP_EDGE_INGRESS_PARITY_GATE=1 / PREFLIGHT_SKIP_EDGE_DNS_LB_GATE=1 — granular edge skips (see scripts/verify-preflight-edge-routing.sh).
 #   - PREFLIGHT_KAFKA_TLS_PREFLIGHT_JOB=1 — after 6a2c, run infra/k8s/kafka-certs/kafka-tls-preflight-job.yaml (in-cluster mTLS to headless :9093). Default 0 (opt-in: slower, needs brokers + och-kafka-ssl-secret).
+#   - PREFLIGHT_SKIP_KAFKA_ALIGNMENT_SUITE=1 — skip 6a2c9 scripts/tests/kafka-alignment-suite.sh.
+#   - PREFLIGHT_KAFKA_ALIGNMENT_SUITE_SAFE_ONLY=1 — alignment suite runs safe tests only (KAFKA_ALIGNMENT_TEST_MODE=0). Default: full mutating suite (simulated drift, auto_remediate, MetalLB churn, broker restart, full rollout; KAFKA_ALIGNMENT_TEST_MODE=1).
+#   - PREFLIGHT_KAFKA_ALIGNMENT_SUITE_DESTRUCTIVE=1 — no longer required (default is full suite); kept as a no-op alias for older invocations.
 #   - Step 7 (Vitest, k6, Playwright) runs only after step 6b (Kafka strict path + wait-for-all-services-ready); 7a8 Playwright is never overlapped with topic creation.
 #   RUN_SUITES=0 skip test suites.
+#   PREFLIGHT_RUN_REPO_VITEST_STACK — after 7a0b (event-layer), run `pnpm -C services/common run build` then `pnpm run test:vitest-stack`
+#     (test:integration:all with Kafka assert → test:system → unit batch). Same 3-broker TLS invariants as local `make test-vitest-stack`.
+#     Implies system contracts; skips duplicate PREFLIGHT_RUN_SYSTEM_CONTRACTS test:system. Default 1. Disable: PREFLIGHT_RUN_REPO_VITEST_STACK=0.
+#   PREFLIGHT_RUN_SYSTEM_CONTRACTS=1 — after 7a0b, run repo-root `pnpm run test:system` only when Vitest stack is off (PREFLIGHT_RUN_REPO_VITEST_STACK=0). Default 0 (opt-in).
 #   PREFLIGHT_APP_SCOPE=full|core — which Deployments to scale and wait for (default full).
 #     core = auth-service api-gateway messaging-service media-service (finishes without listings/booking/trust/analytics).
 #     Override exact list: PREFLIGHT_APP_DEPLOYS="auth-service api-gateway messaging-service"
@@ -111,6 +118,12 @@ IFS=$'\n\t'
 #     ensure-listings-schema.sh against host postgres-listings (PGHOST/PGPORT) and run-all-explain.sh when DBs are reachable.
 #   PREFLIGHT_PHASE_D_TAIL_LAB — default **full** (Phase D + cross-service isolation). Set 0|off to skip; 1 = Phase D without forcing cross-iso (unless PREFLIGHT_PHASE_D_CROSS_ISO=1).
 #   PREFLIGHT_PHASE_D_SKIP_SCHEMA / PREFLIGHT_PHASE_D_SKIP_EXPLAIN / PREFLIGHT_PHASE_D_PG_SNAPSHOT — see scripts/perf/run-preflight-phase-d-tail-lab.sh
+#   PREFLIGHT_LISTINGS_K6_GATEWAY_LAB=1 (default) — after k6 edge grid, run 7a7-listings: (1) print HAProxy/nginx/Caddy repo audit + gateway ulimit,
+#     (2) instrumented k6 listings ramping-VUs, (3) instrumented ramping-arrival-rate, (4) k6-listings-limit-finder.js. Sets PREFLIGHT_PHASE_D_SKIP_LISTINGS_K6=1 so Phase D does not duplicate (2).
+#   PREFLIGHT_LISTINGS_LAB_VUS — max VUs for parts 2–3 (default: PREFLIGHT_PHASE_D_LISTINGS_VUS or 20).
+#   PREFLIGHT_LISTINGS_LAB_SKIP_LIMIT_FINDER=1 — skip part 4 (long CAR envelope).
+#   PREFLIGHT_LISTINGS_LAB_DURATION — passed to k6-listings-concurrency for parts 2–3 (default 40s or existing DURATION).
+#   PREFLIGHT_SERVICE_ENVELOPE — inside Phase D (run-preflight-phase-d-tail-lab.sh), vertical envelope k6 matrix + CSV/PNG report (default 1). Set 0 to skip.
 #   CAPTURE_STOP_TIMEOUT=30 (default when running suites) — bounds packet capture stop phase so it never blocks; set higher for full pcap copy/analyze.
 #   PREFLIGHT_TELEMETRY=1 (default) capture control-plane telemetry during run (apiserver metrics every 8s) and post-run snapshot; set 0 to disable. TELEMETRY_PERF=1 / TELEMETRY_HTOP=1 for optional perf/htop. run-preflight-with-telemetry.sh is a thin wrapper that sets PREFLIGHT_MAIN_LOG and RUN_FULL_LOAD=0.
 #   Forensics (SRE): PREFLIGHT_POD_SNAPSHOT=1 — pods-before.json at start, pods-after.json + restart-causes-after.txt + restart-timeline.csv/.png on EXIT.
@@ -261,7 +274,7 @@ IFS=$'\n\t'
 #   k6 shared module: scripts/load/k6-strict-edge-tls.js — imported by all edge k6 scripts (BASE_URL, TLS CA, tags).
 #   k6 in default preflight grid: run-housing-k6-edge-smoke.sh → gateway/auth/listings/booking/trust/analytics/
 #     messaging/media/event-layer + optional analytics-listing-feel + JWT booking/search (see script triples).
-#   k6 NOT in default preflight (run ad hoc or enable limit-finder env): k6-messaging-limit-finder.js (envelope),
+#   k6 NOT in default preflight except 7a7-listings (listings limit-finder) + optional: k6-messaging-limit-finder.js (PREFLIGHT_K6_MESSAGING_LIMIT_FINDER=1),
 #     k6-limit-test-comprehensive.js + k6-find-max-rps-http3.js (run-k6-phases / perf), k6-messaging-e2e.js,
 #     k6-messaging-flow.js, k6-reads.js phases, service-specific ramps (k6-*-ramp.js), k6-notification-health.js, etc.
 #   scripts/perf/: watch-cluster-contention.sh, run-k6-cross-service-isolation.sh, run-perf-full-report.sh,
@@ -334,7 +347,9 @@ IFS=$'\n\t'
 #         (Legacy 8-suite run-all-test-suites.sh is NOT invoked here — use ./scripts/run-all-test-suites.sh manually for auth/rotation-only matrix.)
 #         ROTATION_UDP_STATS=1 (Colima) captures UDP stats. Step 8 runs when RUN_PGBENCH=1.
 #         7a0c–7a0d: CI transport gates (QUIC hostname grep + Python transport_validator). 7a3–7a7: run-housing-k6-edge-smoke.sh (curl /api/healthz + /auth/healthz before k6 unless SKIP_K6_EDGE_CURL_GATE=1).
-#         Optional 7a2e: PREFLIGHT_FULL_EDGE_TRANSPORT_VALIDATION=1 → full-edge-transport-validation.sh. 7a7a: Phase D tail lab.
+#         Optional 7a2e: PREFLIGHT_FULL_EDGE_TRANSPORT_VALIDATION=1 → full-edge-transport-validation.sh.
+#         7a7-listings: PREFLIGHT_LISTINGS_K6_GATEWAY_LAB=1 (default) — audit + VU + arrival + listings limit-finder; Phase D skips duplicate listings k6.
+#         7a7a: Phase D tail lab (analytics, dual contention, EXPLAIN, …).
 #         Optional 7a7b: PREFLIGHT_K6_MESSAGING_LIMIT_FINDER=1. 7a8: Playwright. 7a9: run-k6-phases.sh when RUN_K6=1 (PREFLIGHT_RUN_K6_PHASES=1).
 #   7b    Transport-layer study experiments (UDP drops, QUIC cwnd, BBR, NodePort, Caddy native, in-cluster k6). TRANSPORT_STUDY=1.
 #   7c    In-cluster k6 (Pod → Caddy ClusterIP; no host/VM). RUN_K6=1 and RUN_K6_IN_CLUSTER=1 (default). K6_IN_CLUSTER_DURATION=30s. Set RUN_K6_IN_CLUSTER=0 to skip.
@@ -571,7 +586,9 @@ echo "Preflight run directory (artifacts): $PREFLIGHT_RUN_DIR"
 info "PREFLIGHT_RUN_DIR=$PREFLIGHT_RUN_DIR (preflight-full.log, telemetry, k6 snapshots, phase-d, suite logs, pgbench)"
 info "PREFLIGHT_APP_SCOPE=${PREFLIGHT_APP_SCOPE:-full} — scale/wait targets: $PREFLIGHT_APP_DEPLOYS"
 info "RUN_MESSAGING_LOAD=${RUN_MESSAGING_LOAD:-1} (k6 messaging/media health after suites, if k6 installed)"
+info "PREFLIGHT_LISTINGS_K6_GATEWAY_LAB=${PREFLIGHT_LISTINGS_K6_GATEWAY_LAB:-1} (7a7-listings: audit + VU + arrival + limit-finder; 0=skip)"
 info "PREFLIGHT_PHASE_D_TAIL_LAB=${PREFLIGHT_PHASE_D_TAIL_LAB:-full} (default full = Phase D + cross-service isolation; 0 = skip)"
+info "PREFLIGHT_SERVICE_ENVELOPE=${PREFLIGHT_SERVICE_ENVELOPE:-1} (default on; 0 = skip Phase D service envelope lab)"
 PREFLIGHT_PERF_ARTIFACTS="${PREFLIGHT_PERF_ARTIFACTS:-1}"
 info "PREFLIGHT_PERF_ARTIFACTS=${PREFLIGHT_PERF_ARTIFACTS} (matrix + protocol-comparison.csv + canonical bundle under PREFLIGHT_RUN_DIR; 0=skip)"
 info "PREFLIGHT_PERF_MATRIX_STRICT=${PREFLIGHT_PERF_MATRIX_STRICT:-0} PREFLIGHT_PERF_EXTRACT_PROTOCOL_CSV=${PREFLIGHT_PERF_EXTRACT_PROTOCOL_CSV:-1} PREFLIGHT_OPEN_PROTOCOL_CSV=${PREFLIGHT_OPEN_PROTOCOL_CSV:-1}"
@@ -2821,22 +2838,22 @@ elif [[ "${PREFLIGHT_SKIP_KAFKA_KRAFT_HEALTH_GATES:-0}" == "1" ]]; then
   warn "PREFLIGHT_SKIP_KAFKA_KRAFT_HEALTH_GATES=1 — skipping verify-kafka-cluster.sh (entire Kafka cluster ritual)"
 fi
 
-# 6a2c9. Kafka alignment suite — ON by default for KRaft (safe tests: runtime re-check + TLS verifier); skip with PREFLIGHT_SKIP_KAFKA_ALIGNMENT_SUITE=1.
-# Skipped automatically when entire KRaft health ritual is skipped. Destructive suite: PREFLIGHT_KAFKA_ALIGNMENT_SUITE_DESTRUCTIVE=1.
+# 6a2c9. Kafka alignment suite — ON by default for KRaft with KAFKA_ALIGNMENT_TEST_MODE=1 (full mutating tests). Skip entirely: PREFLIGHT_SKIP_KAFKA_ALIGNMENT_SUITE=1. Safe-only slice: PREFLIGHT_KAFKA_ALIGNMENT_SUITE_SAFE_ONLY=1.
+# Skipped automatically when entire KRaft health ritual is skipped.
 if [[ "${PREFLIGHT_KAFKA_SUBSTRATE:-kraft}" == "kraft" ]] && [[ "${PREFLIGHT_SKIP_KAFKA_ALIGNMENT_SUITE:-0}" != "1" ]]; then
   if [[ "${PREFLIGHT_SKIP_KAFKA_KRAFT_HEALTH_GATES:-0}" == "1" ]]; then
     warn "PREFLIGHT_SKIP_KAFKA_KRAFT_HEALTH_GATES=1 — skipping 6a2c9 Kafka alignment suite (no KRaft ritual)"
   else
-    say "6a2c9. Kafka alignment test suite (strict default; skip: PREFLIGHT_SKIP_KAFKA_ALIGNMENT_SUITE=1)…"
+    say "6a2c9. Kafka alignment test suite (default KAFKA_ALIGNMENT_TEST_MODE=1; safe-only: PREFLIGHT_KAFKA_ALIGNMENT_SUITE_SAFE_ONLY=1; skip: PREFLIGHT_SKIP_KAFKA_ALIGNMENT_SUITE=1)…"
     chmod +x "$SCRIPT_DIR/tests/kafka-alignment-suite.sh" 2>/dev/null || true
     if [[ ! -f "$SCRIPT_DIR/tests/kafka-alignment-suite.sh" ]]; then
       fail "6a2c9 scripts/tests/kafka-alignment-suite.sh missing"
     fi
-    if [[ "${PREFLIGHT_KAFKA_ALIGNMENT_SUITE_DESTRUCTIVE:-0}" == "1" ]]; then
-      _ka_suite_mode=1
-      warn "PREFLIGHT_KAFKA_ALIGNMENT_SUITE_DESTRUCTIVE=1 — suite will mutate Kafka (Services, pods, rollout, advertised.listeners)"
-    else
+    if [[ "${PREFLIGHT_KAFKA_ALIGNMENT_SUITE_SAFE_ONLY:-0}" == "1" ]]; then
       _ka_suite_mode=0
+      warn "PREFLIGHT_KAFKA_ALIGNMENT_SUITE_SAFE_ONLY=1 — alignment suite: safe tests only (no simulated drift / broker churn / rollout resilience)"
+    else
+      _ka_suite_mode=1
     fi
     HOUSING_NS="$_sk_ns" KAFKA_BROKER_REPLICAS="$_sk_rep" KAFKA_ALIGNMENT_SKIP_TEST1_VERIFY=1 \
       KAFKA_ALIGNMENT_TEST_MODE="$_ka_suite_mode" \
@@ -3153,6 +3170,109 @@ _preflight_ci_transport_alignment_gates() {
   ok "7a0d Python transport validation OK (matches och-ci transport-validation)"
 }
 
+# Step 7a7-listings: listings k6 + edge TCP/socket audit (4 parts). See header PREFLIGHT_LISTINGS_K6_GATEWAY_LAB.
+_preflight_listings_k6_gateway_lab_enabled() {
+  [[ "${PREFLIGHT_LISTINGS_K6_GATEWAY_LAB:-1}" == "1" ]] || return 1
+  [[ "${RUN_MESSAGING_LOAD:-1}" != "0" ]] || return 1
+  [[ "${RUN_K6_SERVICE_GRID:-1}" != "0" ]] || return 1
+  command -v k6 >/dev/null 2>&1 || return 1
+  local _ca="${SSL_CERT_FILE:-$REPO_ROOT/certs/dev-root.pem}"
+  [[ -f "$_ca" && -s "$_ca" ]] || return 1
+  return 0
+}
+
+_preflight_listings_k6_gateway_lab() {
+  _preflight_listings_k6_gateway_lab_enabled || return 0
+  export PREFLIGHT_PHASE_D_SKIP_LISTINGS_K6=1
+
+  local _lab="$PREFLIGHT_RUN_DIR/listings-k6-gateway-lab"
+  mkdir -p "$_lab"
+  export HOUSING_NS="${HOUSING_NS:-off-campus-housing-tracker}"
+  export REPO_ROOT="$REPO_ROOT"
+  # shellcheck source=load/k6-edge-load-diagnostics.sh
+  source "$SCRIPT_DIR/load/k6-edge-load-diagnostics.sh"
+
+  local _ca="${SSL_CERT_FILE:-$REPO_ROOT/certs/dev-root.pem}"
+  export SSL_CERT_FILE="$_ca" K6_TLS_CA_CERT="$_ca" K6_CA_ABSOLUTE="$_ca"
+  export BASE_URL="${BASE_URL:-https://off-campus-housing.test}"
+  local _vus="${PREFLIGHT_LISTINGS_LAB_VUS:-${PREFLIGHT_PHASE_D_LISTINGS_VUS:-20}}"
+  export DURATION="${PREFLIGHT_LISTINGS_LAB_DURATION:-${DURATION:-40s}}"
+
+  say "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  say "7a7-listings. Listings + edge socket/TCP lab (4 parts) — Colima connection refused debugging"
+  say "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "Part 1/4 — Static audit (from git manifests, no cluster required)"
+  echo "  • HAProxy: maxconn on global / defaults / frontend / server lines (path: infra/k8s/base/haproxy/configmap.yaml)"
+  echo "  • nginx: worker_connections (path: infra/k8s/base/nginx/nginx.conf)"
+  echo "  • Caddy: edge note — TLS terminates at Caddy → api-gateway; burst load can hit VM accept queue / fd limits"
+  echo "  • Writes: $_lab/part1-repo-audit.txt"
+  k6_diag_repo_snippets "$_lab/part1-repo-audit.txt"
+  cat "$_lab/part1-repo-audit.txt"
+  echo ""
+  echo "Part 1/4 (live) — api-gateway pod: ulimit -n + somaxconn (kubectl exec; needs cluster + deploy/api-gateway)"
+  k6_diag_gateway_ulimit_only "$_lab" "part1-ulimit"
+  if [[ -f "$_lab/edge-ulimit-part1-ulimit.txt" ]]; then
+    cat "$_lab/edge-ulimit-part1-ulimit.txt"
+  fi
+  echo ""
+
+  chmod +x "$SCRIPT_DIR/load/run-k6-listings-concurrency-instrumented.sh" "$SCRIPT_DIR/load/k6-edge-load-diagnostics.sh" 2>/dev/null || true
+
+  echo "Part 2/4 — k6 listings concurrency (ramping-VUs + /healthz + filtered /search; strict thresholds)"
+  echo "  • Script: scripts/load/k6-listings-concurrency.js — executor ramping-vus (historical Phase D shape)"
+  echo "  • On failure: api-gateway + caddy-h3 + haproxy logs + ulimit → \$K6_DIAG_OUT"
+  echo "  • VUS=$_vus DURATION=${DURATION:-40s} (pass DURATION/VUS via env if needed)"
+  unset K6_LISTINGS_SCENARIO 2>/dev/null || true
+  export K6_DIAG_OUT="$_lab/part2-vu-instrumented"
+  if declare -F k6_suite_before_k6_block >/dev/null 2>&1; then
+    k6_suite_before_k6_block "preflight-listings-lab-part2-vu" 2>/dev/null || true
+  fi
+  _p2=0
+  VUS="$_vus" "$SCRIPT_DIR/load/run-k6-listings-concurrency-instrumented.sh" || _p2=$?
+  if declare -F k6_suite_after_k6_block >/dev/null 2>&1; then
+    k6_suite_after_k6_block "preflight-after-listings-lab-part2" 0 || true
+  fi
+  [[ "$_p2" -ne 0 ]] && warn "7a7-listings part 2 (VU) exited $_p2 — see $K6_DIAG_OUT"
+  echo ""
+
+  echo "Part 3/4 — k6 listings concurrency (ramping-arrival-rate; smoother RPS than raw VU spike)"
+  echo "  • Same script with K6_LISTINGS_SCENARIO=arrival (shared module k6-strict-edge-tls.js)"
+  echo "  • Mitigates TCP connection refused from accept-queue / Colima burst vs part 2"
+  export K6_LISTINGS_SCENARIO=arrival
+  export K6_DIAG_OUT="$_lab/part3-arrival-instrumented"
+  if declare -F k6_suite_before_k6_block >/dev/null 2>&1; then
+    k6_suite_before_k6_block "preflight-listings-lab-part3-arrival" 2>/dev/null || true
+  fi
+  _p3=0
+  VUS="$_vus" "$SCRIPT_DIR/load/run-k6-listings-concurrency-instrumented.sh" || _p3=$?
+  if declare -F k6_suite_after_k6_block >/dev/null 2>&1; then
+    k6_suite_after_k6_block "preflight-after-listings-lab-part3" 0 || true
+  fi
+  unset K6_LISTINGS_SCENARIO
+  [[ "$_p3" -ne 0 ]] && warn "7a7-listings part 3 (arrival) exited $_p3 — see $_lab/part3-arrival-instrumented"
+  echo ""
+
+  if [[ "${PREFLIGHT_LISTINGS_LAB_SKIP_LIMIT_FINDER:-0}" == "1" ]]; then
+    info "Part 4/4 skipped (PREFLIGHT_LISTINGS_LAB_SKIP_LIMIT_FINDER=1) — scripts/load/k6-listings-limit-finder.js"
+  else
+    echo "Part 4/4 — k6 listings limit-finder (ramping-arrival-rate envelope; healthz + search until p99/error thresholds)"
+    echo "  • Script: scripts/load/k6-listings-limit-finder.js (pair with k6-messaging-limit-finder.js)"
+    if declare -F k6_suite_before_k6_block >/dev/null 2>&1; then
+      k6_suite_before_k6_block "preflight-listings-lab-part4-limit" 2>/dev/null || true
+    fi
+    _p4=0
+    k6 run "$REPO_ROOT/scripts/load/k6-listings-limit-finder.js" || _p4=$?
+    if declare -F k6_suite_after_k6_block >/dev/null 2>&1; then
+      k6_suite_after_k6_block "preflight-after-listings-lab-part4" 0 || true
+    fi
+    [[ "$_p4" -ne 0 ]] && warn "7a7-listings part 4 (limit-finder) exited $_p4 (non-fatal)"
+  fi
+
+  ok "7a7-listings done — artifacts under $_lab (Phase D will skip duplicate listings k6: PREFLIGHT_PHASE_D_SKIP_LISTINGS_K6=1)"
+  echo ""
+}
+
 # Edge k6 grid defaults (match run-housing-k6-edge-smoke.sh); override via env before preflight.
 _preflight_export_k6_orchestration_defaults() {
   export K6_ORCHESTRATION_VU_SCENARIO="${K6_ORCHESTRATION_VU_SCENARIO:-1}"
@@ -3213,6 +3333,15 @@ _run_all_suites() {
   # One-line toolchain log: catches PATH/Node/pnpm drift vs interactive shell (Rollup native ABI issues).
   info "Vitest toolchain: node=$(command -v node 2>/dev/null || echo '?') $(node -v 2>/dev/null || echo '?') | pnpm=$(command -v pnpm 2>/dev/null || echo '?') $(pnpm -v 2>/dev/null || echo '?') | ROLLUP_DISABLE_NATIVE=1 for event-layer"
   ( cd "$REPO_ROOT/services/event-layer-verification" && ROLLUP_DISABLE_NATIVE=true pnpm test ) || return 1
+  if [[ "${PREFLIGHT_RUN_REPO_VITEST_STACK:-1}" == "1" ]] || [[ "${PREFLIGHT_RUN_REPO_VITEST_STACK:-1}" == "true" ]]; then
+    say "7a0c. Repo Vitest stack (integration:all → system → units; Kafka policy in integration:all; docs/vitest-per-service-requirements.md)…"
+    info "Requires: all integration DBs + MetalLB Kafka TLS + analytics DB for system; services/common build for Kafka assert. Skip: PREFLIGHT_RUN_REPO_VITEST_STACK=0"
+    ( cd "$REPO_ROOT" && pnpm -C services/common run build && ROLLUP_DISABLE_NATIVE=true pnpm run test:vitest-stack ) || return 1
+  elif [[ "${PREFLIGHT_RUN_SYSTEM_CONTRACTS:-0}" == "1" ]]; then
+    say "7a0c. Repo root system contract Vitest (listing → analytics; docs/system-test-rules.md)…"
+    info "Requires: Kafka externals + TLS material + analytics DB (POSTGRES_URL_ANALYTICS / port-forward). Disable: PREFLIGHT_RUN_SYSTEM_CONTRACTS=0"
+    ( cd "$REPO_ROOT" && OCH_INTEGRATION_KAFKA_FROM_K8S_LB=1 ROLLUP_DISABLE_NATIVE=true pnpm run test:system ) || return 1
+  fi
   say "7a. Running service Vitest suites (messaging-service + media-service tests/)..."
   pnpm -C "$REPO_ROOT/services/messaging-service" test || return 1
   pnpm -C "$REPO_ROOT/services/media-service" test || return 1
@@ -3270,6 +3399,10 @@ _run_all_suites() {
     fi
   elif [[ "${RUN_MESSAGING_LOAD:-1}" != "0" ]] && [[ "${RUN_K6_SERVICE_GRID:-1}" != "0" ]]; then
     info "7a3 k6 skipped: k6 not on PATH (install: brew install k6; or RUN_MESSAGING_LOAD=0 / RUN_K6_SERVICE_GRID=0)"
+  fi
+  unset PREFLIGHT_PHASE_D_SKIP_LISTINGS_K6 2>/dev/null || true
+  if _preflight_listings_k6_gateway_lab_enabled; then
+    _preflight_listings_k6_gateway_lab || warn "7a7-listings lab returned non-zero (continuing)"
   fi
   # Phase D (Issues 9 & 10): tail latency + dual-service k6 + EXPLAIN (+ optional cross-service isolation when TAIL_LAB=full).
   if _preflight_phase_d_tail_lab_enabled; then

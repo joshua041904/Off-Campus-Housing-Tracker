@@ -10,7 +10,9 @@ const topicSuffix =
 // globalSetup runs in the same Vitest process; test.env alone does not set process.env for listing-kafka.
 process.env.OCH_KAFKA_TOPIC_SUFFIX = topicSuffix;
 
-const tlsDir = resolveKafkaTlsMaterialDir();
+const plaintextCi =
+  process.env.KAFKA_SSL_ENABLED === "false" || process.env.CI_KAFKA_PLAINTEXT === "1";
+const tlsDir = plaintextCi ? null : resolveKafkaTlsMaterialDir();
 const kafkaTlsEnv =
   tlsDir != null
     ? {
@@ -20,7 +22,13 @@ const kafkaTlsEnv =
         KAFKA_CLIENT_CERT: process.env.KAFKA_CLIENT_CERT ?? join(tlsDir, "client.crt"),
         KAFKA_CLIENT_KEY: process.env.KAFKA_CLIENT_KEY ?? join(tlsDir, "client.key"),
       }
-    : {};
+    : plaintextCi
+      ? {
+          KAFKA_SSL_ENABLED: "false",
+          CI_KAFKA_PLAINTEXT: process.env.CI_KAFKA_PLAINTEXT ?? "1",
+          KAFKA_BROKER: process.env.KAFKA_BROKER ?? "127.0.0.1:9092",
+        }
+      : {};
 
 export default defineConfig({
   test: {

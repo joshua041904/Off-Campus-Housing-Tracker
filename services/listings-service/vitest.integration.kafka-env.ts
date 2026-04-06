@@ -15,6 +15,9 @@ export function resolveKafkaTlsMaterialDir(): string | null {
 
 /** Apply process.env for KafkaJS mTLS when PEM material exists (CI or local kafka-ssl-from-dev-root). */
 export function applyIntegrationKafkaTlsEnv(): void {
+  if (process.env.KAFKA_SSL_ENABLED === "false" || process.env.CI_KAFKA_PLAINTEXT === "1") {
+    return;
+  }
   const d = resolveKafkaTlsMaterialDir();
   if (!d) return;
   process.env.KAFKA_SSL_ENABLED ??= "true";

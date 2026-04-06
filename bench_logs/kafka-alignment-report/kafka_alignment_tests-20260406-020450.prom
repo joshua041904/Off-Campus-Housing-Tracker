@@ -1,0 +1,9 @@
+# HELP kafka_alignment_test_pass 1 if Kafka alignment suite test passed or was skipped (innocuous); 0 if failed
+# TYPE kafka_alignment_test_pass gauge
+kafka_alignment_test_pass{test="baseline_healthy"} 1
+kafka_alignment_test_pass{test="tls_drift_detection"} 1
+kafka_alignment_test_pass{test="simulated_advert_drift_detect"} 1
+kafka_alignment_test_pass{test="auto_remediate"} 1
+kafka_alignment_test_pass{test="metallb_external_svc_churn"} 1
+kafka_alignment_test_pass{test="broker_pod_restart_resilience"} 1
+kafka_alignment_test_pass{test="full_cluster_rollout_resilience"} 1

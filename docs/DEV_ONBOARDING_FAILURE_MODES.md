@@ -13,6 +13,7 @@ When **`make dev-onboard`** (or **`make setup`**) exits non-zero, use this table
 | **`wait-for-caddy-ip`** | **`caddy-h3`** not LoadBalancer or MetalLB stuck | **`kubectl -n ingress-nginx get svc caddy-h3`**; finish **`deploy-dev`** or fix pool |
 | **`ensure-edge-hosts` (STRICT)** | Sudo denied, or resolver ≠ Caddy IP | Approve sudo; check **`dscacheutil` / DNS** overrides; set **`EXTERNAL_IP=`** if needed |
 | **`verify-preflight-edge-routing`** | Ingress paths, app not Ready, bad TLS | **`kubectl get pods -n off-campus-housing-tracker`**; **`SKIP_STRICT_ENVELOPE=1 make deploy-dev`** |
+| **Phase 10 — PKIX / `SSL handshake failed` / one broker `CrashLoopBackOff`** | Mixed **`kafka.truststore.jks`** after partial broker restart | **`make kafka-heal-inter-broker-tls`** or see **`Runbook.md`** § Kafka KRaft inter-broker TLS |
 | **`dev-onboard-lite` (CI)** | Script syntax, invalid kustomize, Makefile order drift | Fix PR; run **`make dev-onboard-lite`** locally |
 | **`certify-production`** | Same as individual targets (transport lab / envelope need artifacts) | Run after perf lab data exists; see target chain in Makefile |
 

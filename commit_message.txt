@@ -1,37 +1,33 @@
-fix(auth): align transactional outbox checks, SQL index name, and canonical all-8 backup
+fix(ci,auth,kafka,vitest): auth outbox + backup; och-ci; Kafka TLS gates; integration/system Vitest + preflight stack
 
-Summary
--------
-- Auth DB carries two complementary outbox surfaces: Prisma migration table
-  auth.auth_outbox (publisher + account-deletion flow) and infra/db
-  auth.outbox_events (proto-style transactional outbox). Inspect and bootstrap
-  checks now treat both as first-class so schema reports and verify-bootstrap
-  match real OCH restores instead of failing on naming alone.
+Auth
+- Dual transactional outbox (auth_outbox + outbox_events): SQL, verify-bootstrap /
+  inspect-external-db-schemas, index fixes; backup bundle aligned with all-8 restore.
+- rebuild-housing-colima logging (ok/warn) where applicable.
 
-Scripts and SQL
----------------
-- scripts/verify-bootstrap.sh — pass auth if auth.outbox_events OR auth.auth_outbox
-  exists; clear failure message pointing at 01-auth-outbox.sql / prisma migrate.
-- scripts/inspect-external-db-schemas.sh — expect_5441 includes both
-  auth.outbox_events and auth.auth_outbox (updated comments).
-- infra/db/01-auth-outbox.sql — partial index renamed to
-  idx_auth_outbox_events_unpublished so it does not collide with
-  idx_auth_outbox_unpublished on auth.auth_outbox (same schema).
-- scripts/rebuild-housing-colima.sh — restore ok()/warn() output (was corrupted).
+CI (och-ci)
+- Integration job keeps plaintext Kafka service containers for packages that need a broker;
+  bounded waits and parallel batches unchanged where documented.
+- transport-validation: if: always() after integration-tests so cancelled integration does
+  not leave a misleading skip in the aggregate gate.
+- on.push branch filters restored (fix/, feat/, etc.); concurrency keyed by event_name so
+  push and pull_request runs do not cancel each other. See docs/CI_CHECK_RUNS.md.
 
-Backups
--------
-- Remove backups/all-8-20260405-205155 (broken/minimal auth snapshot from the
-  prior merge-era bundle).
-- Add backups/all-8-20260405-224508 — full eight-DB pg_dump bundle taken from a DB
-  state that includes both auth outbox tables and current trust/listings/etc.
-- Validated: PGPASSWORD=postgres ./scripts/inspect-external-db-schemas.sh reports
-  exits 0 against live 5441–5448 (same shape as this bundle; report timestamp
-  e.g. reports/schema-report-20260405-225013.md).
+Kafka / local cluster
+- Inter-broker TLS heal hooks, sync-metallb pre-heal, dev-onboard alignment defaults;
+  Runbook / zero-trust checklist updates as in branch.
+- Vitest cluster policy: ≥3 TLS seeds, PEM on disk, RF metadata check, assert script before
+  listings/booking integration; scripts/assert-kafka-integration-cluster.mjs + services/common
+  kafka-vitest-cluster helper.
 
-Restore hint: RESTORE_BACKUP_DIR=backups/all-8-20260405-224508 ./scripts/bring-up-external-infra.sh
-(or restore-external-postgres-from-backup.sh with that path). After restore from
-an older dump, run psql … -f infra/db/01-auth-outbox.sql on auth if
-outbox_events is missing.
+Vitest orchestration
+- test:integration:all, test:system, test:vitest-stack, test:smoke (full stack); make
+  test-vitest-stack builds @common then runs test:vitest-stack.
+- Preflight step 7a0c: PREFLIGHT_RUN_REPO_VITEST_STACK defaults to 1 — after event-layer,
+  pnpm -C services/common build && pnpm run test:vitest-stack. Set
+  PREFLIGHT_RUN_REPO_VITEST_STACK=0 to skip. PREFLIGHT_RUN_SYSTEM_CONTRACTS only applies when
+  the stack step is off.
+
+Docs: vitest-per-service-requirements.md, integration-test-tiers.md, system-test-rules.md.
 
 Made with Tom.

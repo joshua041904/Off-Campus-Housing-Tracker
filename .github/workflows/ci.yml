@@ -2,9 +2,10 @@
 # final aggregate gate fails the workflow if anomaly or any required job failed (nothing silently skipped).
 name: och-ci
 
-# pull_request: all PRs. push: default + feature branches — pushes to fix/** etc. run CI without opening
-# a PR (push-only workflows were previously silent). Same concurrency group per branch still dedupes
-# overlapping push/PR syncs to one in-flight run.
+# pull_request: all PRs. push: default + feature branches — same commit on an open PR triggers BOTH, so you
+# see ~2× och-ci rows (pull_request) vs (push) in the checks UI. That is intentional for teams that want
+# push and PR signals separately. Concurrency includes github.event_name so those two runs do not cancel
+# each other; repeated pushes of the same event type still cancel in-progress for that type.
 on:
   push:
     branches:
@@ -18,9 +19,6 @@ on:
       - hotfix/**
   pull_request:
 
-# Include event_name so push and pull_request are separate groups: otherwise both use the same branch key
-# and cancel-in-progress kills the sibling run (integration tests cancelled, aggregate shows failed, PR
-# checks look missing or duplicated inconsistently).
 concurrency:
   group: ${{ github.workflow }}-${{ github.repository }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
@@ -103,18 +101,18 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm -C services/${{ matrix.service }} build
 
-  # One ZooKeeper + one TLS Kafka (scripts/ci/start-kafka-tls-ci.sh), shared Postgres/Redis — avoids N parallel
-  # broker bootstraps (runner time + queue pressure). Per-service topic suffix still isolates Kafka namespaces.
+  # PLAINTEXT Kafka + Zookeeper as GitHub Actions services (no OpenJDK, no JKS, no docker-run TLS broker).
+  # TLS/KRaft realism stays in kafka-alignment / preflight workflows. Per-service OCH_KAFKA_TOPIC_SUFFIX isolates topics.
   integration-tests:
     name: Integration tests (all services, single broker)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: build
     env:
-      KAFKA_SSL_ENABLED: "true"
-      KAFKA_BROKER: 127.0.0.1:29094
-      KAFKA_CA_CERT: ${{ github.workspace }}/certs/kafka-ssl-ci/ca-cert.pem
-      KAFKA_CLIENT_CERT: ${{ github.workspace }}/certs/kafka-ssl-ci/client.crt
-      KAFKA_CLIENT_KEY: ${{ github.workspace }}/certs/kafka-ssl-ci/client.key
+      KAFKA_SSL_ENABLED: "false"
+      CI_KAFKA_PLAINTEXT: "1"
+      KAFKA_BROKER: 127.0.0.1:9092
+      OCH_KAFKA_STARTUP_BARRIER_MS: "45000"
     # Match docker-compose: one Postgres per domain DB on 5441–5448 + Redis on 6380 (Vitest defaults).
     services:
       postgres-auth:
@@ -231,18 +229,48 @@ jobs:
           --health-timeout 5s
           --health-retries 12
           --health-start-period 5s
+      zookeeper:
+        image: confluentinc/cp-zookeeper:7.5.0
+        ports:
+          - 2181:2181
+        env:
+          ZOOKEEPER_CLIENT_PORT: "2181"
+          ZOOKEEPER_TICK_TIME: "2000"
+        options: >-
+          --health-cmd "bash -c 'exec 3<>/dev/tcp/127.0.0.1/2181'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 24
+          --health-start-period 15s
+      kafka-ci:
+        image: confluentinc/cp-kafka:7.5.0
+        ports:
+          - 9092:9092
+        env:
+          KAFKA_BROKER_ID: "1"
+          KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+          KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+          KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+          KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+          KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+          KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+          KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+          KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+          KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+        options: >-
+          --health-cmd "bash -c 'kafka-broker-api-versions --bootstrap-server 127.0.0.1:9092 >/dev/null'"
+          --health-interval 5s
+          --health-timeout 15s
+          --health-retries 40
+          --health-start-period 40s
 
     steps:
       - uses: actions/checkout@v4
-      # Single Docker TLS broker (Zookeeper+Kafka) for Vitest — not in-cluster KRaft. Three-broker KRaft
-      # manifests are validated in kafka-dns-validate (kustomize + replicas:3 assert) + kafka-cluster-verify (scripts).
-      - name: Ephemeral Kafka TLS (mTLS) + start Confluent broker (once)
+      - name: Wait for Kafka PLAINTEXT (bounded, no extra packages)
         run: |
           set -euo pipefail
-          sudo apt-get update -y
-          sudo apt-get install -y openjdk-17-jdk-headless
-          chmod +x scripts/ci/generate-kafka-ci-tls.sh scripts/ci/start-kafka-tls-ci.sh
-          bash scripts/ci/start-kafka-tls-ci.sh
+          timeout 120 bash -c 'until bash -c "exec 3<>/dev/tcp/127.0.0.1/9092" 2>/dev/null; do echo "waiting for 127.0.0.1:9092..."; sleep 2; done'
+          echo "Kafka TCP up on 127.0.0.1:9092"
       - uses: pnpm/action-setup@v4
         with:
           version: 9.11.0
@@ -257,28 +285,50 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y postgresql-client
           PGPASSWORD=postgres bash scripts/bootstrap-all-dbs.sh
-      - name: Run service tests sequentially (shared broker)
+      - name: Run service unit tests (parallel batches, shared broker)
         run: |
           set -euo pipefail
           RID="${{ github.run_id }}"
-          for svc in api-gateway auth-service listings-service booking-service messaging-service trust-service analytics-service media-service notification-service; do
-            echo "::group::Test $svc"
-            export OCH_KAFKA_TOPIC_SUFFIX="${RID}-${svc}"
-            pnpm -C "services/${svc}" test --if-present
-            if [ "$svc" = listings-service ]; then
-              export POSTGRES_URL_LISTINGS="postgresql://postgres:postgres@127.0.0.1:5442/listings"
-              export ANALYTICS_SYNC_MODE="0"
-              export KAFKA_CONNECT_TIMEOUT_MS="15000"
-              export OCH_GRPC_INSECURE_TEST_BIND="1"
-              pnpm -C services/listings-service run test:integration
-            fi
-            echo "::endgroup::"
+          SERVICES=(api-gateway auth-service listings-service booking-service messaging-service trust-service analytics-service media-service notification-service)
+          BATCH=4
+          for ((i = 0; i < ${#SERVICES[@]}; i += BATCH)); do
+            pids=()
+            for ((j = i; j < i + BATCH && j < ${#SERVICES[@]}; j++)); do
+              svc="${SERVICES[j]}"
+              (
+                set -euo pipefail
+                export OCH_KAFKA_TOPIC_SUFFIX="${RID}-${svc}"
+                echo "::group::pnpm test $svc"
+                pnpm -C "services/${svc}" test --if-present
+                echo "::endgroup::"
+              ) &
+              pids+=($!)
+            done
+            for pid in "${pids[@]}"; do wait "$pid"; done
           done
+      - name: Listings integration (Kafka + Postgres)
+        run: |
+          set -euo pipefail
+          RID="${{ github.run_id }}"
+          export OCH_KAFKA_TOPIC_SUFFIX="${RID}-listings-integration"
+          export POSTGRES_URL_LISTINGS="postgresql://postgres:postgres@127.0.0.1:5442/listings"
+          export ANALYTICS_SYNC_MODE="0"
+          export KAFKA_CONNECT_TIMEOUT_MS="15000"
+          export OCH_GRPC_INSECURE_TEST_BIND="1"
+          export KAFKA_SSL_ENABLED="false"
+          export CI_KAFKA_PLAINTEXT="1"
+          export KAFKA_BROKER="127.0.0.1:9092"
+          pnpm -C services/listings-service run test:integration
 
   transport-validation:
     name: Transport validation (Python tooling)
     runs-on: ubuntu-latest
     needs: integration-tests
+    # Run whenever integration-tests finishes (success, failure, or cancelled). If we skip when
+    # integration-tests is cancelled, this job is "skipped" and och-ci-gate fails on transport-validation
+    # in ~seconds even though the real issue is cancelled/superseded integration (concurrency timeout).
+    # Plaintext Kafka job config is unchanged; gate still requires integration-tests == success.
+    if: ${{ always() }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
