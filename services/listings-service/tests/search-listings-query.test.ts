@@ -14,6 +14,10 @@ describe("parseAmenitySlugs", () => {
   it("allows hyphen underscore alnum", () => {
     expect(parseAmenitySlugs("dishwasher,in-unit")).toEqual(["dishwasher", "in-unit"]);
   });
+
+  it("deduplicates duplicate amenities to keep filtering consistent", () => {
+    expect(parseAmenitySlugs("parking, parking, PARKING,garage")).toEqual(["parking", "garage"]);
+  });
 });
 
 describe("buildListingsSearchQuery", () => {
@@ -25,6 +29,11 @@ describe("buildListingsSearchQuery", () => {
     expect(sql).toContain("LIMIT 50");
   });
 
+  it("uses deterministic tie-breaker for created_desc", () => {
+    const { sql } = buildListingsSearchQuery({ sort: "created_desc" });
+    expect(sql).toContain("ORDER BY created_at DESC, id ASC");
+  });
+
   it("falls back unknown sort to created_desc", () => {
     const { sql } = buildListingsSearchQuery({ sort: "not_a_real_sort" });
     expect(sql).toContain("ORDER BY created_at DESC");
@@ -32,7 +41,14 @@ describe("buildListingsSearchQuery", () => {
 
   it("uses listed_desc when valid", () => {
     const { sql } = buildListingsSearchQuery({ sort: "listed_desc" });
-    expect(sql).toContain("listed_at DESC");
+    expect(sql).toContain("ORDER BY listed_at DESC NULLS LAST, created_at DESC, id ASC");
+  });
+
+  it("uses deterministic tie-breaker for price sorts", () => {
+    const lowToHigh = buildListingsSearchQuery({ sort: "price_asc" }).sql;
+    const highToLow = buildListingsSearchQuery({ sort: "price_desc" }).sql;
+    expect(lowToHigh).toContain("ORDER BY price_cents ASC NULLS LAST, created_at DESC, id ASC");
+    expect(highToLow).toContain("ORDER BY price_cents DESC NULLS LAST, created_at DESC, id ASC");
   });
 
   it("adds ILIKE for q and escapes percent/underscore", () => {
@@ -60,6 +76,11 @@ describe("buildListingsSearchQuery", () => {
     const { sql, params } = buildListingsSearchQuery({ amenitySlugs: ["garage", "parking"] });
     expect(sql).toContain("amenities::jsonb @>");
     expect(params.filter((p) => typeof p === "string" && p.includes("garage")).length).toBeGreaterThan(0);
+  });
+
+  it("does not add duplicate amenity predicates for repeated slugs", () => {
+    const { sql } = buildListingsSearchQuery({ amenitySlugs: ["parking", "parking", "garage"] });
+    expect((sql.match(/amenities::jsonb @>/g) ?? []).length).toBe(2);
   });
 
   it("adds newWithin day window", () => {

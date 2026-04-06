@@ -3,10 +3,14 @@
 const SEARCH_SORTS = new Set(["created_desc", "listed_desc", "price_asc", "price_desc"]);
 
 export function parseAmenitySlugs(raw: string): string[] {
-  return raw
-    .split(/[,]+/)
-    .map((s) => s.trim().toLowerCase())
-    .filter((s) => /^[a-z0-9_-]+$/i.test(s));
+  return [
+    ...new Set(
+      raw
+        .split(/[,]+/)
+        .map((s) => s.trim().toLowerCase())
+        .filter((s) => /^[a-z0-9_-]+$/i.test(s)),
+    ),
+  ];
 }
 
 export type ListingsSearchFilters = {
@@ -28,7 +32,7 @@ export function buildListingsSearchQuery(filters: ListingsSearchFilters): { sql:
   const smoke = Boolean(filters.smoke);
   const pets = Boolean(filters.pets);
   const furnished = Boolean(filters.furnished);
-  const amenitySlugs = filters.amenitySlugs ?? [];
+  const amenitySlugs = [...new Set(filters.amenitySlugs ?? [])];
   const newWithin = filters.newWithin ?? null;
   const sortRaw = (filters.sort ?? "created_desc").trim();
   const sort = SEARCH_SORTS.has(sortRaw) ? sortRaw : "created_desc";
@@ -65,10 +69,10 @@ export function buildListingsSearchQuery(filters: ListingsSearchFilters): { sql:
     i++;
   }
 
-  let orderBy = "created_at DESC";
-  if (sort === "listed_desc") orderBy = "listed_at DESC NULLS LAST, created_at DESC";
-  else if (sort === "price_asc") orderBy = "price_cents ASC NULLS LAST, created_at DESC";
-  else if (sort === "price_desc") orderBy = "price_cents DESC NULLS LAST, created_at DESC";
+  let orderBy = "created_at DESC, id ASC";
+  if (sort === "listed_desc") orderBy = "listed_at DESC NULLS LAST, created_at DESC, id ASC";
+  else if (sort === "price_asc") orderBy = "price_cents ASC NULLS LAST, created_at DESC, id ASC";
+  else if (sort === "price_desc") orderBy = "price_cents DESC NULLS LAST, created_at DESC, id ASC";
 
   const sql = `
         SELECT id, user_id, title, description, price_cents, amenities, smoke_free, pet_friendly, furnished,
