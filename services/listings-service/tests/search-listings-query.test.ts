@@ -23,6 +23,10 @@ describe("parseAmenitySlugs", () => {
       "in-unit",
     ]);
   });
+
+  it("deduplicates duplicate amenities to keep filtering consistent", () => {
+    expect(parseAmenitySlugs("parking, parking, PARKING,garage")).toEqual(["parking", "garage"]);
+  });
 });
 
 describe("buildListingsSearchQuery", () => {
@@ -32,6 +36,11 @@ describe("buildListingsSearchQuery", () => {
     expect(params.length).toBe(0);
     expect(sql).toContain("status::text = 'active'");
     expect(sql).toContain("LIMIT 50");
+  });
+
+  it("uses deterministic tie-breaker for created_desc", () => {
+    const { sql } = buildListingsSearchQuery({ sort: "created_desc" });
+    expect(sql).toContain("ORDER BY created_at DESC, id ASC");
   });
 
   it("falls back unknown sort to created_desc", () => {
@@ -44,6 +53,14 @@ describe("buildListingsSearchQuery", () => {
     expect(sql).toContain(
       "ORDER BY listed_at DESC NULLS LAST, created_at DESC, id ASC",
     );
+    expect(sql).toContain("ORDER BY listed_at DESC NULLS LAST, created_at DESC, id ASC");
+  });
+
+  it("uses deterministic tie-breaker for price sorts", () => {
+    const lowToHigh = buildListingsSearchQuery({ sort: "price_asc" }).sql;
+    const highToLow = buildListingsSearchQuery({ sort: "price_desc" }).sql;
+    expect(lowToHigh).toContain("ORDER BY price_cents ASC NULLS LAST, created_at DESC, id ASC");
+    expect(highToLow).toContain("ORDER BY price_cents DESC NULLS LAST, created_at DESC, id ASC");
   });
 
   it("adds ILIKE for q and escapes percent/underscore", () => {
@@ -83,6 +100,11 @@ describe("buildListingsSearchQuery", () => {
       params.filter((p) => typeof p === "string" && p.includes("garage"))
         .length,
     ).toBeGreaterThan(0);
+  });
+
+  it("does not add duplicate amenity predicates for repeated slugs", () => {
+    const { sql } = buildListingsSearchQuery({ amenitySlugs: ["parking", "parking", "garage"] });
+    expect((sql.match(/amenities::jsonb @>/g) ?? []).length).toBe(2);
   });
 
   it("adds newWithin day window", () => {

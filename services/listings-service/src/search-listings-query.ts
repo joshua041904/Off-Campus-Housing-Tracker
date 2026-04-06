@@ -8,10 +8,14 @@ const SEARCH_SORTS = new Set([
 ]);
 
 export function parseAmenitySlugs(raw: string): string[] {
-  return raw
-    .split(/[,]+/)
-    .map((s) => s.trim().toLowerCase())
-    .filter((s) => /^[a-z0-9_-]+$/i.test(s));
+  return [
+    ...new Set(
+      raw
+        .split(/[,]+/)
+        .map((s) => s.trim().toLowerCase())
+        .filter((s) => /^[a-z0-9_-]+$/i.test(s)),
+    ),
+  ];
 }
 
 export type ListingsSearchFilters = {
@@ -36,7 +40,7 @@ export function buildListingsSearchQuery(filters: ListingsSearchFilters): {
   const smoke = Boolean(filters.smoke);
   const pets = Boolean(filters.pets);
   const furnished = Boolean(filters.furnished);
-  const amenitySlugs = filters.amenitySlugs ?? [];
+  const amenitySlugs = [...new Set(filters.amenitySlugs ?? [])];
   const newWithin = filters.newWithin ?? null;
   const sortRaw = (filters.sort ?? "created_desc").trim();
   const sort = SEARCH_SORTS.has(sortRaw) ? sortRaw : "created_desc";

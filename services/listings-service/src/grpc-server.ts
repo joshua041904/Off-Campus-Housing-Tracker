@@ -58,6 +58,18 @@ function rowToResponse(row: Record<string, unknown>) {
   };
 }
 
+function dedupeListingsById(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+  const seen = new Set<string>();
+  const out: Record<string, unknown>[] = [];
+  for (const row of rows) {
+    const id = String(row.id ?? "");
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(row);
+  }
+  return out;
+}
+
 const listingsService = {
   CreateListing(
     call: grpc.ServerUnaryCall<any, any>,
@@ -276,7 +288,8 @@ const listingsService = {
       .query(sql, params)
       .then((res) => {
         logGrpcTiming("SearchListings", start);
-        callback(null, { listings: res.rows.map((r) => rowToResponse(r)) });
+        const uniqueRows = dedupeListingsById(res.rows as Record<string, unknown>[]);
+        callback(null, { listings: uniqueRows.map((r) => rowToResponse(r)) });
       })
       .catch((e) => {
         console.error("[SearchListings]", e);
