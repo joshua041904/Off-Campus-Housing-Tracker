@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { buildListingsSearchQuery, parseAmenitySlugs } from "../src/search-listings-query.js";
+import {
+  buildListingsSearchQuery,
+  parseAmenitySlugs,
+} from "../src/search-listings-query.js";
 
 describe("parseAmenitySlugs", () => {
   it("splits CSV and lowercases", () => {
-    expect(parseAmenitySlugs("Parking, in_unit_laundry")).toEqual(["parking", "in_unit_laundry"]);
+    expect(parseAmenitySlugs("Parking, in_unit_laundry")).toEqual([
+      "parking",
+      "in_unit_laundry",
+    ]);
   });
 
   it("drops empty segments and invalid tokens", () => {
@@ -12,14 +18,17 @@ describe("parseAmenitySlugs", () => {
   });
 
   it("allows hyphen underscore alnum", () => {
-    expect(parseAmenitySlugs("dishwasher,in-unit")).toEqual(["dishwasher", "in-unit"]);
+    expect(parseAmenitySlugs("dishwasher,in-unit")).toEqual([
+      "dishwasher",
+      "in-unit",
+    ]);
   });
 });
 
 describe("buildListingsSearchQuery", () => {
   it("defaults sort to created_desc", () => {
     const { sql, params } = buildListingsSearchQuery({});
-    expect(sql).toContain("ORDER BY created_at DESC");
+    expect(sql).toContain("ORDER BY created_at DESC, id ASC");
     expect(params.length).toBe(0);
     expect(sql).toContain("status::text = 'active'");
     expect(sql).toContain("LIMIT 50");
@@ -27,12 +36,14 @@ describe("buildListingsSearchQuery", () => {
 
   it("falls back unknown sort to created_desc", () => {
     const { sql } = buildListingsSearchQuery({ sort: "not_a_real_sort" });
-    expect(sql).toContain("ORDER BY created_at DESC");
+    expect(sql).toContain("ORDER BY created_at DESC, id ASC");
   });
 
-  it("uses listed_desc when valid", () => {
+  it("uses deterministic ordering for listed_desc", () => {
     const { sql } = buildListingsSearchQuery({ sort: "listed_desc" });
-    expect(sql).toContain("listed_at DESC");
+    expect(sql).toContain(
+      "ORDER BY listed_at DESC NULLS LAST, created_at DESC, id ASC",
+    );
   });
 
   it("adds ILIKE for q and escapes percent/underscore", () => {
@@ -42,7 +53,10 @@ describe("buildListingsSearchQuery", () => {
   });
 
   it("adds price bounds", () => {
-    const { sql, params } = buildListingsSearchQuery({ minP: 100, maxP: 500_00 });
+    const { sql, params } = buildListingsSearchQuery({
+      minP: 100,
+      maxP: 500_00,
+    });
     expect(sql).toContain("price_cents >=");
     expect(sql).toContain("price_cents <=");
     expect(params).toContain(100);
@@ -50,21 +64,44 @@ describe("buildListingsSearchQuery", () => {
   });
 
   it("adds boolean filters without extra params", () => {
-    const { sql } = buildListingsSearchQuery({ smoke: true, pets: true, furnished: true });
+    const { sql } = buildListingsSearchQuery({
+      smoke: true,
+      pets: true,
+      furnished: true,
+    });
     expect(sql).toContain("smoke_free = true");
     expect(sql).toContain("pet_friendly = true");
     expect(sql).toContain("furnished IS TRUE");
   });
 
   it("adds amenity jsonb predicates", () => {
-    const { sql, params } = buildListingsSearchQuery({ amenitySlugs: ["garage", "parking"] });
+    const { sql, params } = buildListingsSearchQuery({
+      amenitySlugs: ["garage", "parking"],
+    });
     expect(sql).toContain("amenities::jsonb @>");
-    expect(params.filter((p) => typeof p === "string" && p.includes("garage")).length).toBeGreaterThan(0);
+    expect(
+      params.filter((p) => typeof p === "string" && p.includes("garage"))
+        .length,
+    ).toBeGreaterThan(0);
   });
 
   it("adds newWithin day window", () => {
     const { sql, params } = buildListingsSearchQuery({ newWithin: 7 });
     expect(sql).toContain("INTERVAL '1 day'");
     expect(params).toContain(7);
+  });
+
+  it("uses deterministic ordering for price_asc", () => {
+    const { sql } = buildListingsSearchQuery({ sort: "price_asc" });
+    expect(sql).toContain(
+      "ORDER BY price_cents ASC NULLS LAST, created_at DESC, id ASC",
+    );
+  });
+
+  it("uses deterministic ordering for price_desc", () => {
+    const { sql } = buildListingsSearchQuery({ sort: "price_desc" });
+    expect(sql).toContain(
+      "ORDER BY price_cents DESC NULLS LAST, created_at DESC, id ASC",
+    );
   });
 });
