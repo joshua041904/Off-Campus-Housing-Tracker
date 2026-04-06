@@ -159,4 +159,111 @@ describe.skipIf(skip)("trust HTTP integration", () => {
     expect(body.data.user_id).toBe(revieweeId);
     expect(typeof body.data.score).toBe("number");
   });
+
+  it("POST /flag-listing returns 409 on duplicate reporter/listing", async () => {
+    const listingId = randomUUID();
+    const reporter = randomUUID();
+
+    const first = await fetch(`${baseUrl}/flag-listing`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-user-id": reporter,
+      },
+      body: JSON.stringify({
+        listing_id: listingId,
+        reason: "duplicate listing flag test",
+      }),
+    });
+    expect(first.status).toBe(201);
+
+    const second = await fetch(`${baseUrl}/flag-listing`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-user-id": reporter,
+      },
+      body: JSON.stringify({
+        listing_id: listingId,
+        reason: "duplicate listing flag test",
+      }),
+    });
+    expect(second.status).toBe(409);
+    const body = (await second.json()) as { error: string };
+    expect(body.error).toBe("duplicate flag");
+  });
+
+  it("POST /report-abuse listing returns 409 on duplicate reporter/target", async () => {
+    const targetId = randomUUID();
+    const reporter = randomUUID();
+
+    const first = await fetch(`${baseUrl}/report-abuse`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-user-id": reporter,
+      },
+      body: JSON.stringify({
+        abuse_target_type: "listing",
+        target_id: targetId,
+        category: "spam",
+        details: "duplicate listing abuse test",
+      }),
+    });
+    expect(first.status).toBe(201);
+
+    const second = await fetch(`${baseUrl}/report-abuse`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-user-id": reporter,
+      },
+      body: JSON.stringify({
+        abuse_target_type: "listing",
+        target_id: targetId,
+        category: "spam",
+        details: "duplicate listing abuse test",
+      }),
+    });
+    expect(second.status).toBe(409);
+    const body = (await second.json()) as { error: string };
+    expect(body.error).toBe("duplicate flag");
+  });
+
+  it("POST /report-abuse user returns 409 on duplicate reporter/target", async () => {
+    const userId = randomUUID();
+    const reporter = randomUUID();
+
+    const first = await fetch(`${baseUrl}/report-abuse`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-user-id": reporter,
+      },
+      body: JSON.stringify({
+        abuse_target_type: "user",
+        target_id: userId,
+        category: "harassment",
+        details: "duplicate user abuse test",
+      }),
+    });
+    expect(first.status).toBe(201);
+
+    const second = await fetch(`${baseUrl}/report-abuse`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-user-id": reporter,
+      },
+      body: JSON.stringify({
+        abuse_target_type: "user",
+        target_id: userId,
+        category: "harassment",
+        details: "duplicate user abuse test",
+      }),
+    });
+    expect(second.status).toBe(409);
+    const body = (await second.json()) as { error: string };
+    expect(body.error).toBe("duplicate flag");
+  });
 });

@@ -126,7 +126,11 @@ export function createTrustHttpApp() {
           [listingId, req.userId, reason],
         );
         sendOk(res, { flag_id: r.rows[0].id, status: r.rows[0].status }, 201);
-      } catch (e) {
+      } catch (e: any) {
+        if (e?.code === "23505") {
+          sendErr(res, 409, "duplicate flag");
+          return;
+        }
         console.error("[flag-listing]", e);
         sendErr(res, 500, "internal");
       }
@@ -163,7 +167,11 @@ export function createTrustHttpApp() {
           );
           sendOk(res, { flag_id: r.rows[0].id, status: r.rows[0].status }, 201);
         }
-      } catch (e) {
+      } catch (e: any) {
+        if (e?.code === "23505") {
+          sendErr(res, 409, "duplicate flag");
+          return;
+        }
         console.error("[report-abuse]", e);
         sendErr(res, 500, "internal");
       }
