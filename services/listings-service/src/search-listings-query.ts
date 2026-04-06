@@ -1,6 +1,11 @@
 /** Shared SQL builder for HTTP GET search and gRPC SearchListings (keep filters in sync). */
 
-const SEARCH_SORTS = new Set(["created_desc", "listed_desc", "price_asc", "price_desc"]);
+const SEARCH_SORTS = new Set([
+  "created_desc",
+  "listed_desc",
+  "price_asc",
+  "price_desc",
+]);
 
 export function parseAmenitySlugs(raw: string): string[] {
   return raw
@@ -21,7 +26,10 @@ export type ListingsSearchFilters = {
   sort?: string;
 };
 
-export function buildListingsSearchQuery(filters: ListingsSearchFilters): { sql: string; params: unknown[] } {
+export function buildListingsSearchQuery(filters: ListingsSearchFilters): {
+  sql: string;
+  params: unknown[];
+} {
   const q = (filters.q ?? "").trim();
   const minP = filters.minP ?? null;
   const maxP = filters.maxP ?? null;
@@ -65,10 +73,14 @@ export function buildListingsSearchQuery(filters: ListingsSearchFilters): { sql:
     i++;
   }
 
-  let orderBy = "created_at DESC";
-  if (sort === "listed_desc") orderBy = "listed_at DESC NULLS LAST, created_at DESC";
-  else if (sort === "price_asc") orderBy = "price_cents ASC NULLS LAST, created_at DESC";
-  else if (sort === "price_desc") orderBy = "price_cents DESC NULLS LAST, created_at DESC";
+  // Add id as a final tie-breaker so repeated searches return a stable order.
+  let orderBy = "created_at DESC, id ASC";
+  if (sort === "listed_desc")
+    orderBy = "listed_at DESC NULLS LAST, created_at DESC, id ASC";
+  else if (sort === "price_asc")
+    orderBy = "price_cents ASC NULLS LAST, created_at DESC, id ASC";
+  else if (sort === "price_desc")
+    orderBy = "price_cents DESC NULLS LAST, created_at DESC, id ASC";
 
   const sql = `
         SELECT id, user_id, title, description, price_cents, amenities, smoke_free, pet_friendly, furnished,
