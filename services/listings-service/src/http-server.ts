@@ -123,6 +123,18 @@ function rowToJson(row: Record<string, unknown>) {
   };
 }
 
+function dedupeListingsById(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+  const seen = new Set<string>();
+  const out: Record<string, unknown>[] = [];
+  for (const row of rows) {
+    const id = String(row.id ?? "");
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(row);
+  }
+  return out;
+}
+
 
 export function createListingsHttpApp() {
   const app = express();
@@ -210,7 +222,8 @@ export function createListingsHttpApp() {
           );
         }
       }
-      res.json({ items: result.rows.map((r) => rowToJson(r)) });
+      const uniqueRows = dedupeListingsById(result.rows as Record<string, unknown>[]);
+      res.json({ items: uniqueRows.map((r) => rowToJson(r)) });
     } catch (e) {
       console.error("[listings HTTP search]", e);
       res.status(500).json({ error: "search failed" });
