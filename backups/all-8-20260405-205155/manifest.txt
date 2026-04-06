@@ -1,0 +1,13 @@
+Backup all 8 DBs (5441–5448) — 20260405-205155
+Host: 127.0.0.1
+Started: 2026-04-05T20:51:55-04:00
+
+ok 5441-auth /Users/Joshua/Desktop/cs520/housing-project/Off-Campus-Housing-Tracker/backups/all-8-20260405-205155/5441-auth.dump /Users/Joshua/Desktop/cs520/housing-project/Off-Campus-Housing-Tracker/backups/all-8-20260405-205155/5441-auth.sql.gz
+ok 5442-listings /Users/Joshua/Desktop/cs520/housing-project/Off-Campus-Housing-Tracker/backups/all-8-20260405-205155/5442-listings.dump /Users/Joshua/Desktop/cs520/housing-project/Off-Campus-Housing-Tracker/backups/all-8-20260405-205155/5442-listings.sql.gz
+ok 5443-bookings /Users/Joshua/Desktop/cs520/housing-project/Off-Campus-Housing-Tracker/backups/all-8-20260405-205155/5443-bookings.dump /Users/Joshua/Desktop/cs520/housing-project/Off-Campus-Housing-Tracker/backups/all-8-20260405-205155/5443-bookings.sql.gz
+ok 5444-messaging /Users/Joshua/Desktop/cs520/housing-project/Off-Campus-Housing-Tracker/backups/all-8-20260405-205155/5444-messaging.dump /Users/Joshua/Desktop/cs520/housing-project/Off-Campus-Housing-Tracker/backups/all-8-20260405-205155/5444-messaging.sql.gz
+ok 5445-notification /Users/Joshua/Desktop/cs520/housing-project/Off-Campus-Housing-Tracker/backups/all-8-20260405-205155/5445-notification.dump /Users/Joshua/Desktop/cs520/housing-project/Off-Campus-Housing-Tracker/backups/all-8-20260405-205155/5445-notification.sql.gz
+ok 5446-trust /Users/Joshua/Desktop/cs520/housing-project/Off-Campus-Housing-Tracker/backups/all-8-20260405-205155/5446-trust.dump /Users/Joshua/Desktop/cs520/housing-project/Off-Campus-Housing-Tracker/backups/all-8-20260405-205155/5446-trust.sql.gz
+ok 5447-analytics /Users/Joshua/Desktop/cs520/housing-project/Off-Campus-Housing-Tracker/backups/all-8-20260405-205155/5447-analytics.dump /Users/Joshua/Desktop/cs520/housing-project/Off-Campus-Housing-Tracker/backups/all-8-20260405-205155/5447-analytics.sql.gz
+ok 5448-media /Users/Joshua/Desktop/cs520/housing-project/Off-Campus-Housing-Tracker/backups/all-8-20260405-205155/5448-media.dump /Users/Joshua/Desktop/cs520/housing-project/Off-Campus-Housing-Tracker/backups/all-8-20260405-205155/5448-media.sql.gz
+Finished: 2026-04-05T20:52:42-04:00
