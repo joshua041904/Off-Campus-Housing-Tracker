@@ -1,0 +1,20 @@
+@startuml uml_sequence_message_sent_flow
+title Sequence — Message sent
+skinparam defaultFontName Helvetica
+
+actor User
+participant "Webapp" as W
+participant "API Gateway" as GW
+participant "messaging-service" as MS
+database "Postgres" as PG
+participant "Kafka" as K
+participant "analytics-service" as AN
+
+User -> W : Send message
+W -> GW : POST /api/messaging/...
+GW -> MS : forward
+MS -> PG : persist Message
+MS -> K : message.sent / domain event
+K -> AN : consumer updates projections
+
+@enduml

@@ -1,0 +1,29 @@
+@startuml c4_component_notification
+title C4 Level 3 — notification-service (components)
+skinparam defaultFontName Helvetica
+
+rectangle "notification-service" {
+  [HTTP / worker\nhandlers] as http
+  [gRPC NotificationService\n(grpc-server.ts)] as grpc
+  [Notification\norchestration] as dom
+  [Persistence] as repo
+  [Kafka consumer\n+ outbox publish] as kc
+}
+
+database "Postgres" as pg
+queue "Kafka" as k
+
+http --> dom
+grpc --> dom
+dom --> repo
+kc --> dom
+repo --> pg
+kc --> k
+
+note bottom of grpc
+  proto/notification.proto
+  GetUserPreferences only;
+  delivery via Kafka
+end note
+
+@enduml

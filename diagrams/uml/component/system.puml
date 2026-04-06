@@ -1,0 +1,58 @@
+@startuml uml_component_system
+title Component diagram — platform (HTTP + gRPC + Kafka + Postgres)
+skinparam defaultFontName Helvetica
+
+package "Edge" #CCDDFF {
+  [Caddy] as caddy
+}
+
+package "Gateway" #99CCFF {
+  [API Gateway\nHTTP + gRPC clients] as gw
+}
+
+package "Services (each: server.ts + grpc-server.ts + Prisma)" #CCFFCC {
+  [Auth] as a
+  [Listings] as l
+  [Bookings] as b
+  [Messaging] as m
+  [Notification] as n
+  [Trust] as t
+  [Analytics] as an
+  [Media] as me
+}
+
+package "Data" #E6CCFF {
+  [Kafka] as k
+  database "Postgres\n×N (per service)" as pg
+}
+
+caddy --> gw : HTTPS
+gw --> a : HTTP / gRPC\n(proto contracts)
+gw --> l
+gw --> b
+gw --> m
+gw --> me
+
+b --> k
+l --> k
+m --> k
+k --> n
+k --> t
+k --> an
+
+a --> pg
+l --> pg
+b --> pg
+m --> pg
+n --> pg
+t --> pg
+an --> pg
+me --> pg
+
+note bottom of gw
+  Browser sees REST via gateway; gateway
+  and services share the same proto
+  RPC names where gRPC is enabled.
+end note
+
+@enduml

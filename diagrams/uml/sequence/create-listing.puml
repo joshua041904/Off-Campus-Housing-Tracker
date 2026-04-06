@@ -1,0 +1,20 @@
+@startuml uml_sequence_create_listing
+title Sequence — Create listing
+skinparam defaultFontName Helvetica
+
+actor Landlord
+participant "Webapp" as W
+participant "API Gateway" as GW
+participant "listings-service" as LS
+database "Postgres\nlistings" as PG
+participant "Kafka" as K
+
+Landlord -> W : Create listing
+W -> GW : POST /api/listings/...
+GW -> LS : authorized request
+LS -> PG : persist listing
+LS -> K : domain event (if configured)
+LS --> GW : 201
+GW --> W
+
+@enduml

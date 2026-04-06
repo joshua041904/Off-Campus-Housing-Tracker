@@ -1,0 +1,20 @@
+{
+    "database": "media",
+    "table_stats": [
+        {
+            "name": "media_files",
+            "schema": "media",
+            "idx_scan": 0,
+            "seq_scan": 28,
+            "n_live_tup": 67
+        },
+        {
+            "name": "outbox_events",
+            "schema": "media",
+            "idx_scan": 0,
+            "seq_scan": 4,
+            "n_live_tup": 67
+        }
+    ],
+    "generated_at": "2026-04-03T20:12:23.57487+00:00"
+}

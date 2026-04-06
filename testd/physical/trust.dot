@@ -1,0 +1,20 @@
+digraph physical {
+  graph [rankdir=LR, fontsize=11, label="Physical: trust (trust)", labelloc=t];
+  node [shape=record, fontname="Helvetica Neue"];
+  edge [fontname="Helvetica Neue", fontsize=8];
+
+  subgraph cluster_trust {
+    style=filled;
+    color=lightgrey;
+    label="Schema: trust";
+    "trust_listing_flags" [label="{listing_flags|id : uuid\llisting_id : uuid\lreporter_id : uuid\lreason : text\ldescription : text\lstatus : trust.flag_status\lreviewed_by : uuid\lreviewed_at : timestamp with time zone\lcreated_at : timestamp with time zone\lupdated_at : timestamp with time zone}"];
+    "trust_outbox_events" [label="{outbox_events|id : uuid\laggregate_id : text\ltype : text\lversion : integer\lpayload : bytea\lcreated_at : timestamp with time zone\lpublished : boolean}"];
+    "trust_processed_events" [label="{processed_events|event_id : uuid\lprocessed_at : timestamp with time zone}"];
+    "trust_reputation" [label="{reputation|user_id : uuid\lcompleted_bookings : integer\lpositive_reviews : integer\lnegative_reviews : integer\lflags_count : integer\lreputation_score : numeric(4,2)\lupdated_at : timestamp with time zone}"];
+    "trust_reviews" [label="{reviews|id : uuid\lbooking_id : uuid\lreviewer_id : uuid\ltarget_type : trust.review_target_type\ltarget_id : uuid\lrating : integer\lcomment : text\lcreated_at : timestamp with time zone}"];
+    "trust_user_flags" [label="{user_flags|id : uuid\luser_id : uuid\lreporter_id : uuid\lreason : text\ldescription : text\lstatus : trust.flag_status\lreviewed_by : uuid\lreviewed_at : timestamp with time zone\lcreated_at : timestamp with time zone\lupdated_at : timestamp with time zone}"];
+    "trust_user_spam_score" [label="{user_spam_score|user_id : uuid\lscore : integer\lupdated_at : timestamp with time zone}"];
+    "trust_user_suspensions" [label="{user_suspensions|id : uuid\luser_id : uuid\lreason : text\lsuspended_at : timestamp with time zone\lexpires_at : timestamp with time zone\lsuspended_by : uuid\lcreated_at : timestamp with time zone}"];
+  }
+
+}

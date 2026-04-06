@@ -1,0 +1,46 @@
+@startuml uml_class_auth
+title LLD — auth-service (HTTP + gRPC — proto/auth.proto)
+skinparam defaultFontName Helvetica
+
+package "HTTP / gRPC transport" {
+  class "Express routes\n(server.ts)" as Http <<Node>>
+  class "AuthService\n(grpc-server.ts)" as Grpc <<Node>> {
+    Authenticate()
+    Register()
+    ValidateToken()
+    RefreshToken()
+    HealthCheck()
+  }
+}
+
+package "Domain (Prisma auth schema)" {
+  class User <<entity>> {
+    +id
+    +email
+    +passwordHash
+    +mfaEnabled
+  }
+  class OAuthProvider <<entity>>
+  class MfaSettings <<entity>>
+  class Passkey <<entity>>
+  class VerificationCode <<entity>>
+}
+
+package "Infrastructure" {
+  class "PrismaClient" as Prisma <<ORM>>
+}
+
+Http --> Prisma
+Grpc --> Prisma
+Prisma ..> User
+User *-- "0..*" OAuthProvider
+User *-- "0..1" MfaSettings
+User *-- "0..*" Passkey
+
+note right of Grpc
+  **Contract:** `proto/auth.proto`
+  — identity source of truth for
+  **x-user-id** resolution upstream.
+end note
+
+@enduml

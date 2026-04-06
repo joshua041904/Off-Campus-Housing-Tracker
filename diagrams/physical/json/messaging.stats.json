@@ -1,0 +1,132 @@
+{
+    "database": "messaging",
+    "table_stats": [
+        {
+            "name": "comment_attachments",
+            "schema": "forum",
+            "idx_scan": 0,
+            "seq_scan": 10,
+            "n_live_tup": 100
+        },
+        {
+            "name": "comment_votes",
+            "schema": "forum",
+            "idx_scan": 9,
+            "seq_scan": 16,
+            "n_live_tup": 102
+        },
+        {
+            "name": "comments",
+            "schema": "forum",
+            "idx_scan": 0,
+            "seq_scan": 65,
+            "n_live_tup": 202
+        },
+        {
+            "name": "post_attachments",
+            "schema": "forum",
+            "idx_scan": 0,
+            "seq_scan": 13,
+            "n_live_tup": 100
+        },
+        {
+            "name": "post_votes",
+            "schema": "forum",
+            "idx_scan": 9,
+            "seq_scan": 16,
+            "n_live_tup": 96
+        },
+        {
+            "name": "posts",
+            "schema": "forum",
+            "idx_scan": 72,
+            "seq_scan": 28,
+            "n_live_tup": 309
+        },
+        {
+            "name": "group_bans",
+            "schema": "messages",
+            "idx_scan": 3,
+            "seq_scan": 23,
+            "n_live_tup": 0
+        },
+        {
+            "name": "group_members",
+            "schema": "messages",
+            "idx_scan": 30,
+            "seq_scan": 102,
+            "n_live_tup": 164
+        },
+        {
+            "name": "groups",
+            "schema": "messages",
+            "idx_scan": 26,
+            "seq_scan": 60,
+            "n_live_tup": 164
+        },
+        {
+            "name": "message_attachments",
+            "schema": "messages",
+            "idx_scan": 0,
+            "seq_scan": 7,
+            "n_live_tup": 100
+        },
+        {
+            "name": "message_reads",
+            "schema": "messages",
+            "idx_scan": 3,
+            "seq_scan": 10,
+            "n_live_tup": 64
+        },
+        {
+            "name": "messages",
+            "schema": "messages",
+            "idx_scan": 172,
+            "seq_scan": 27,
+            "n_live_tup": 595
+        },
+        {
+            "name": "user_archived_threads",
+            "schema": "messages",
+            "idx_scan": 3,
+            "seq_scan": 9,
+            "n_live_tup": 64
+        },
+        {
+            "name": "user_deleted_threads",
+            "schema": "messages",
+            "idx_scan": 3,
+            "seq_scan": 16,
+            "n_live_tup": 64
+        },
+        {
+            "name": "conversation_participants",
+            "schema": "messaging",
+            "idx_scan": 0,
+            "seq_scan": 9,
+            "n_live_tup": 0
+        },
+        {
+            "name": "conversations",
+            "schema": "messaging",
+            "idx_scan": 6,
+            "seq_scan": 12,
+            "n_live_tup": 101
+        },
+        {
+            "name": "messages",
+            "schema": "messaging",
+            "idx_scan": 0,
+            "seq_scan": 12,
+            "n_live_tup": 101
+        },
+        {
+            "name": "outbox_events",
+            "schema": "messaging",
+            "idx_scan": 0,
+            "seq_scan": 10,
+            "n_live_tup": 101
+        }
+    ],
+    "generated_at": "2026-04-03T20:12:12.73985+00:00"
+}

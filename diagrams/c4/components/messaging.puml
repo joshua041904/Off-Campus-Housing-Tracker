@@ -1,0 +1,28 @@
+@startuml c4_component_messaging
+title C4 Level 3 — messaging-service (components)
+skinparam defaultFontName Helvetica
+
+rectangle "messaging-service" {
+  [HTTP handlers\n(server.ts)] as http
+  [gRPC MessagingService\n(grpc-server.ts)] as grpc
+  [Messages / posts\n/ groups domain] as dom
+  [Prisma ORM] as prisma
+  [Event emitters] as evt
+}
+
+database "Postgres\nmessaging DB" as pg
+queue "Kafka" as k
+
+http --> dom
+grpc --> dom
+dom --> prisma
+dom --> evt
+prisma --> pg
+evt --> k
+
+note bottom of grpc
+  proto/messaging.proto
+  forum + DMs (large RPC surface)
+end note
+
+@enduml

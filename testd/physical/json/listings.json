@@ -1,0 +1,320 @@
+{
+    "tables": [
+        {
+            "name": "listing_media",
+            "schema": "listings",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "listing_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "media_type",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "url_or_path",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "sort_order",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE INDEX idx_listing_media_listing_id ON listings.listing_media USING btree (listing_id)",
+                    "name": "idx_listing_media_listing_id"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX listing_media_pkey ON listings.listing_media USING btree (id)",
+                    "name": "listing_media_pkey"
+                }
+            ]
+        },
+        {
+            "name": "listings",
+            "schema": "listings",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "user_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "username_display",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "title",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "listed_at",
+                    "type": "date",
+                    "nullable": false
+                },
+                {
+                    "name": "price_cents",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "lease_length_months",
+                    "type": "integer",
+                    "nullable": true
+                },
+                {
+                    "name": "size_sqft",
+                    "type": "integer",
+                    "nullable": true
+                },
+                {
+                    "name": "description",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "amenities",
+                    "type": "jsonb",
+                    "nullable": true
+                },
+                {
+                    "name": "smoke_free",
+                    "type": "boolean",
+                    "nullable": false
+                },
+                {
+                    "name": "pet_friendly",
+                    "type": "boolean",
+                    "nullable": false
+                },
+                {
+                    "name": "furnished",
+                    "type": "boolean",
+                    "nullable": true
+                },
+                {
+                    "name": "effective_from",
+                    "type": "date",
+                    "nullable": false
+                },
+                {
+                    "name": "effective_until",
+                    "type": "date",
+                    "nullable": true
+                },
+                {
+                    "name": "status",
+                    "type": "listings.listing_status",
+                    "nullable": false
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "updated_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "deleted_at",
+                    "type": "timestamp with time zone",
+                    "nullable": true
+                },
+                {
+                    "name": "latitude",
+                    "type": "double precision",
+                    "nullable": true
+                },
+                {
+                    "name": "longitude",
+                    "type": "double precision",
+                    "nullable": true
+                },
+                {
+                    "name": "version",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "search_norm",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "listing_code",
+                    "type": "text",
+                    "nullable": true
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE INDEX idx_listings_active_created_desc ON listings.listings USING btree (created_at DESC) WHERE ((status = 'active'::listings.listing_status) AND (deleted_at IS NULL))",
+                    "name": "idx_listings_active_created_desc"
+                },
+                {
+                    "def": "CREATE INDEX idx_listings_active_effective ON listings.listings USING btree (effective_from, effective_until, price_cents) WHERE ((status = 'active'::listings.listing_status) AND (deleted_at IS NULL))",
+                    "name": "idx_listings_active_effective"
+                },
+                {
+                    "def": "CREATE INDEX idx_listings_amenities_gin ON listings.listings USING gin (amenities)",
+                    "name": "idx_listings_amenities_gin"
+                },
+                {
+                    "def": "CREATE INDEX idx_listings_effective_dates ON listings.listings USING btree (effective_from, effective_until)",
+                    "name": "idx_listings_effective_dates"
+                },
+                {
+                    "def": "CREATE INDEX idx_listings_lat_lon ON listings.listings USING btree (latitude, longitude) WHERE ((status = 'active'::listings.listing_status) AND (deleted_at IS NULL))",
+                    "name": "idx_listings_lat_lon"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX idx_listings_listing_code ON listings.listings USING btree (listing_code) WHERE (listing_code IS NOT NULL)",
+                    "name": "idx_listings_listing_code"
+                },
+                {
+                    "def": "CREATE INDEX idx_listings_listing_code_hash ON listings.listings USING hash (listing_code) WHERE (listing_code IS NOT NULL)",
+                    "name": "idx_listings_listing_code_hash"
+                },
+                {
+                    "def": "CREATE INDEX idx_listings_price_effective ON listings.listings USING btree (price_cents, effective_from)",
+                    "name": "idx_listings_price_effective"
+                },
+                {
+                    "def": "CREATE INDEX idx_listings_search_norm_gin ON listings.listings USING gin (search_norm gin_trgm_ops)",
+                    "name": "idx_listings_search_norm_gin"
+                },
+                {
+                    "def": "CREATE INDEX idx_listings_smoke_pet ON listings.listings USING btree (smoke_free, pet_friendly) WHERE ((status = 'active'::listings.listing_status) AND (deleted_at IS NULL))",
+                    "name": "idx_listings_smoke_pet"
+                },
+                {
+                    "def": "CREATE INDEX idx_listings_status_effective_until ON listings.listings USING btree (status, effective_until) WHERE ((status = 'active'::listings.listing_status) AND (deleted_at IS NULL))",
+                    "name": "idx_listings_status_effective_until"
+                },
+                {
+                    "def": "CREATE INDEX idx_listings_user_created ON listings.listings USING btree (user_id, created_at DESC)",
+                    "name": "idx_listings_user_created"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX listings_pkey ON listings.listings USING btree (id)",
+                    "name": "listings_pkey"
+                }
+            ]
+        },
+        {
+            "name": "outbox_events",
+            "schema": "listings",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "aggregate_id",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "type",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "version",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "payload",
+                    "type": "bytea",
+                    "nullable": false
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "published",
+                    "type": "boolean",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE INDEX idx_listings_outbox_unpublished ON listings.outbox_events USING btree (published, created_at) WHERE (published = false)",
+                    "name": "idx_listings_outbox_unpublished"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX outbox_events_pkey ON listings.outbox_events USING btree (id)",
+                    "name": "outbox_events_pkey"
+                }
+            ]
+        },
+        {
+            "name": "processed_events",
+            "schema": "listings",
+            "columns": [
+                {
+                    "name": "event_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "processed_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX processed_events_pkey ON listings.processed_events USING btree (event_id)",
+                    "name": "processed_events_pkey"
+                }
+            ]
+        }
+    ],
+    "database": "listings",
+    "foreign_keys": [
+        {
+            "name": "listing_media_listing_id_fkey",
+            "to_cols": [
+                "id"
+            ],
+            "to_table": "listings",
+            "from_cols": [
+                "listing_id"
+            ],
+            "to_schema": "listings",
+            "from_table": "listing_media",
+            "from_schema": "listings"
+        }
+    ],
+    "generated_at": "2026-04-03T00:13:05.68046+00:00"
+}

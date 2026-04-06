@@ -1,0 +1,28 @@
+@startuml c4_component_booking
+title C4 Level 3 — booking-service (components)
+skinparam defaultFontName Helvetica
+
+rectangle "booking-service" {
+  [HTTP routes\n(server.ts)] as http
+  [gRPC service\n(grpc-server.ts)] as grpc
+  [Prisma client\n(booking schema)] as prisma
+  [Event publisher\n(publishBookingEvent)] as pub
+}
+
+database "Postgres\nbookings DB" as pg
+queue "Kafka" as kafka
+
+http --> prisma
+grpc --> prisma
+http --> pub
+grpc --> pub
+prisma --> pg
+pub --> kafka
+
+note bottom of pub
+  Outbox-style reliability:
+  domain write + event emit path;
+  see infra/db booking outbox SQL.
+end note
+
+@enduml

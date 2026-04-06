@@ -1,0 +1,26 @@
+digraph physical {
+  graph [rankdir=LR, fontsize=11, label="Physical: auth (auth)", labelloc=t];
+  node [shape=record, fontname="Helvetica Neue"];
+  edge [fontname="Helvetica Neue", fontsize=8];
+
+  subgraph cluster_auth {
+    style=filled;
+    color=lightgrey;
+    label="Schema: auth";
+    "auth_mfa_settings" [label="{mfa_settings|id : uuid\luser_id : uuid\ltotp_secret : text\lbackup_codes : text[]\lenabled : boolean\lcreated_at : timestamp with time zone\lupdated_at : timestamp with time zone}"];
+    "auth_oauth_providers" [label="{oauth_providers|id : uuid\luser_id : uuid\lprovider : text\lprovider_user_id : text\lemail : text\lprofile_data : jsonb\lcreated_at : timestamp with time zone\lupdated_at : timestamp with time zone}"];
+    "auth_passkey_challenges" [label="{passkey_challenges|id : uuid\luser_id : uuid\lchallenge : text\ltype : text\lexpires_at : timestamp with time zone\lcreated_at : timestamp with time zone}"];
+    "auth_passkeys" [label="{passkeys|id : uuid\luser_id : uuid\lcredential_id : text\lpublic_key : text\lcounter : bigint\ldevice_name : text\ldevice_type : text\llast_used_at : timestamp with time zone\lcreated_at : timestamp with time zone}"];
+    "auth_sessions" [label="{sessions|id : uuid\luser_id : uuid\lexpires_at : timestamp with time zone\lcreated_at : timestamp with time zone}"];
+    "auth_user_addresses" [label="{user_addresses|id : uuid\luser_id : uuid\llabel : character varying(64)\lcountry_code : character(2)\lregion : character varying(128)\lpostal_code : character varying(32)\laddress_line1 : character varying(256)\laddress_line2 : character varying(256)\lcity : character varying(128)\lis_default : boolean\lcreated_at : timestamp with time zone\lupdated_at : timestamp with time zone}"];
+    "auth_users" [label="{users|id : uuid\lemail : citext\lpassword_hash : text\lsettings : jsonb\lcreated_at : timestamp with time zone\lphone : text\lemail_verified : boolean\lphone_verified : boolean\lmfa_enabled : boolean\lupdated_at : timestamp with time zone\ldefault_address_id : uuid}"];
+    "auth_verification_codes" [label="{verification_codes|id : uuid\luser_id : uuid\ltype : text\ltarget : text\lcode : text\lexpires_at : timestamp with time zone\lused : boolean\lcreated_at : timestamp with time zone}"];
+  }
+
+  "auth_mfa_settings" -> "auth_users" [label="mfa_settings_user_id_fkey"];
+  "auth_oauth_providers" -> "auth_users" [label="oauth_providers_user_id_fkey"];
+  "auth_passkey_challenges" -> "auth_users" [label="passkey_challenges_user_id_fkey"];
+  "auth_passkeys" -> "auth_users" [label="passkeys_user_id_fkey"];
+  "auth_sessions" -> "auth_users" [label="sessions_user_id_fkey"];
+  "auth_verification_codes" -> "auth_users" [label="verification_codes_user_id_fkey"];
+}

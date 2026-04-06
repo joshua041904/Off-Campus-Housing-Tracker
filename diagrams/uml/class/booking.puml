@@ -1,0 +1,78 @@
+@startuml uml_class_booking
+title LLD — booking-service (proto/booking.proto + Prisma + server.ts)
+skinparam defaultFontName Helvetica
+
+package "HTTP / transport" {
+  class "Express routes\n(server.ts)" as HttpApp <<Node>> {
+    POST /create
+    POST /confirm
+    POST /cancel
+    GET /:bookingId
+  }
+  class "BookingService\n(grpc-server.ts)" as GrpcSvc <<Node>> {
+    CreateBooking()
+    ConfirmBooking()
+    CancelBooking()
+    GetBooking()
+  }
+}
+
+package "Application" {
+  class "publishBookingEvent()" as Publisher <<function>> {
+    +emit(payload)
+  }
+}
+
+package "Domain (Prisma models)" {
+  class Booking <<entity>> {
+    +id: UUID
+    +listingId: UUID
+    +tenantId: UUID
+    +landlordId: UUID
+    +status: BookingStatus
+    +startDate: Date
+    +endDate: Date
+    +priceCentsSnapshot: int
+  }
+  enum BookingStatus {
+    created
+    pending_confirmation
+    confirmed
+    rejected
+    cancelled
+    expired
+    completed
+  }
+  class SearchHistory <<entity>>
+  class WatchlistItem <<entity>>
+}
+
+package "Infrastructure" {
+  class "PrismaClient\n(booking schema)" as Prisma <<ORM>> {
+    +booking
+    +searchHistory
+    +watchlistItem
+  }
+}
+
+HttpApp --> Prisma : persist
+GrpcSvc --> Prisma
+HttpApp --> Publisher : after write
+GrpcSvc --> Publisher
+Booking --> BookingStatus
+Prisma ..> Booking : maps
+Prisma ..> SearchHistory
+Prisma ..> WatchlistItem
+
+note bottom of Publisher
+  Kafka domain events (BookingCreatedV1, …);
+  transactional outbox in DB per infra SQL.
+end note
+
+note right of GrpcSvc
+  Contract: proto/booking.proto
+  HTTP and gRPC handlers share
+  Prisma + publisher.
+end note
+
+@enduml

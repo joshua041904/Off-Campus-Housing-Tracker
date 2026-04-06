@@ -1,0 +1,37 @@
+@startuml uml_class_trust
+title LLD — trust-service (HTTP + gRPC — proto/trust.proto)
+skinparam defaultFontName Helvetica
+
+package "HTTP / gRPC transport" {
+  class "Express routes\n(server.ts)" as Http <<Node>>
+  class "TrustService\n(grpc-server.ts)" as Grpc <<Node>> {
+    FlagListing()
+    ReportAbuse()
+    SubmitReview()
+    SubmitPeerReview()
+    GetReputation()
+  }
+}
+
+package "Application" {
+  class "Trust domain\n(reviews / flags / abuse)" as D <<service>>
+}
+
+package "Infrastructure" {
+  class "Postgres (Prisma)" as R <<repository>>
+  class "Kafka consumer\n(processed_events)" as C
+}
+
+Http --> D
+Grpc --> D
+D --> R
+C --> D
+
+note bottom of Grpc
+  **Contract:** `proto/trust.proto`
+  — moderation and reputation; consumers
+  use **processed_events** idempotency
+  pattern (see infra SQL).
+end note
+
+@enduml

@@ -1,0 +1,21 @@
+digraph domain {
+  graph [rankdir=LR, fontsize=11, label="Off-Campus Housing - domain model (cross-service, logical)", labelloc=t];
+  node [shape=box, style=rounded, fontname="Helvetica Neue"];
+  edge [fontname="Helvetica Neue", fontsize=9];
+  "User" -> "Listing" [label="creates (user_id)"];
+  "Listing" -> "Booking" [label="booked as (listing_id)"];
+  "User" -> "Booking" [label="tenant (tenant_id)"];
+  "User" -> "Booking" [label="landlord (landlord_id)"];
+  "Booking" -> "Review" [label="may yield reputation change"];
+  "Listing" -> "AbuseReport" [label="flag target"];
+  "User" -> "AbuseReport" [label="reporter"];
+  "Booking" -> "Notification" [label="events → notify"];
+  "Listing" -> "AnalyticsProjection" [label="listing events"];
+  "Listing" -> "Conversation" [label="optional listing_id scope"];
+  "Conversation" -> "Message" [label="contains"];
+  "User" -> "Message" [label="sender"];
+  "Listing" -> "Media" [label="attachments metadata"];
+  "Listing" -> "Trust" [style=dashed, color="#555555", label="Kafka: flagged / moderation"];
+  "Message" -> "Analytics" [style=dashed, color="#555555", label="Kafka: message.sent"];
+  "Booking" -> "Notification" [style=dashed, color="#555555", label="Kafka: outbox"];
+}

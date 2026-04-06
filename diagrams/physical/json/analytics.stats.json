@@ -1,0 +1,90 @@
+{
+    "database": "analytics",
+    "table_stats": [
+        {
+            "name": "daily_metrics",
+            "schema": "analytics",
+            "idx_scan": 12,
+            "seq_scan": 31507,
+            "n_live_tup": 3
+        },
+        {
+            "name": "events",
+            "schema": "analytics",
+            "idx_scan": 0,
+            "seq_scan": 9,
+            "n_live_tup": 0
+        },
+        {
+            "name": "listing_feel_cache",
+            "schema": "analytics",
+            "idx_scan": 0,
+            "seq_scan": 785,
+            "n_live_tup": 0
+        },
+        {
+            "name": "processed_events",
+            "schema": "analytics",
+            "idx_scan": 12,
+            "seq_scan": 3,
+            "n_live_tup": 26
+        },
+        {
+            "name": "projection_state",
+            "schema": "analytics",
+            "idx_scan": 0,
+            "seq_scan": 3,
+            "n_live_tup": 0
+        },
+        {
+            "name": "projection_versions",
+            "schema": "analytics",
+            "idx_scan": 0,
+            "seq_scan": 3,
+            "n_live_tup": 0
+        },
+        {
+            "name": "recommendation_experiments",
+            "schema": "analytics",
+            "idx_scan": 0,
+            "seq_scan": 4,
+            "n_live_tup": 0
+        },
+        {
+            "name": "recommendation_models",
+            "schema": "analytics",
+            "idx_scan": 0,
+            "seq_scan": 4,
+            "n_live_tup": 0
+        },
+        {
+            "name": "recommendation_weights",
+            "schema": "analytics",
+            "idx_scan": 0,
+            "seq_scan": 4,
+            "n_live_tup": 0
+        },
+        {
+            "name": "user_activity",
+            "schema": "analytics",
+            "idx_scan": 0,
+            "seq_scan": 3,
+            "n_live_tup": 0
+        },
+        {
+            "name": "user_listing_engagement",
+            "schema": "analytics",
+            "idx_scan": 0,
+            "seq_scan": 4,
+            "n_live_tup": 0
+        },
+        {
+            "name": "user_watchlist_daily",
+            "schema": "analytics",
+            "idx_scan": 0,
+            "seq_scan": 3,
+            "n_live_tup": 0
+        }
+    ],
+    "generated_at": "2026-04-03T20:12:21.033521+00:00"
+}

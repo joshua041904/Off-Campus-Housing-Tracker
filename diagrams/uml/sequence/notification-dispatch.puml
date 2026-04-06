@@ -1,0 +1,15 @@
+@startuml uml_sequence_notification_dispatch
+title Sequence — Notification dispatch
+skinparam defaultFontName Helvetica
+
+participant "Kafka" as K
+participant "notification-service" as NS
+database "Postgres" as PG
+participant "Email / SMS\nprovider" as Ext
+
+K -> NS : delivery / booking event
+NS -> PG : load prefs + idempotency key
+NS -> Ext : send
+NS -> PG : record outcome + optional\noutbox for downstream events
+
+@enduml

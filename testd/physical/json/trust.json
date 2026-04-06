@@ -1,0 +1,422 @@
+{
+    "tables": [
+        {
+            "name": "listing_flags",
+            "schema": "trust",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "listing_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "reporter_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "reason",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "description",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "status",
+                    "type": "trust.flag_status",
+                    "nullable": false
+                },
+                {
+                    "name": "reviewed_by",
+                    "type": "uuid",
+                    "nullable": true
+                },
+                {
+                    "name": "reviewed_at",
+                    "type": "timestamp with time zone",
+                    "nullable": true
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "updated_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE INDEX idx_listing_flags_listing ON trust.listing_flags USING btree (listing_id)",
+                    "name": "idx_listing_flags_listing"
+                },
+                {
+                    "def": "CREATE INDEX idx_listing_flags_reporter ON trust.listing_flags USING btree (reporter_id, created_at DESC)",
+                    "name": "idx_listing_flags_reporter"
+                },
+                {
+                    "def": "CREATE INDEX idx_listing_flags_status ON trust.listing_flags USING btree (status)",
+                    "name": "idx_listing_flags_status"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX listing_flags_pkey ON trust.listing_flags USING btree (id)",
+                    "name": "listing_flags_pkey"
+                }
+            ]
+        },
+        {
+            "name": "outbox_events",
+            "schema": "trust",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "aggregate_id",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "type",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "version",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "payload",
+                    "type": "bytea",
+                    "nullable": false
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "published",
+                    "type": "boolean",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE INDEX idx_trust_outbox_unpublished ON trust.outbox_events USING btree (published, created_at) WHERE (published = false)",
+                    "name": "idx_trust_outbox_unpublished"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX outbox_events_pkey ON trust.outbox_events USING btree (id)",
+                    "name": "outbox_events_pkey"
+                }
+            ]
+        },
+        {
+            "name": "processed_events",
+            "schema": "trust",
+            "columns": [
+                {
+                    "name": "event_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "processed_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX processed_events_pkey ON trust.processed_events USING btree (event_id)",
+                    "name": "processed_events_pkey"
+                }
+            ]
+        },
+        {
+            "name": "reputation",
+            "schema": "trust",
+            "columns": [
+                {
+                    "name": "user_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "completed_bookings",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "positive_reviews",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "negative_reviews",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "flags_count",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "reputation_score",
+                    "type": "numeric(4,2)",
+                    "nullable": false
+                },
+                {
+                    "name": "updated_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX reputation_pkey ON trust.reputation USING btree (user_id)",
+                    "name": "reputation_pkey"
+                }
+            ]
+        },
+        {
+            "name": "reviews",
+            "schema": "trust",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "booking_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "reviewer_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "target_type",
+                    "type": "trust.review_target_type",
+                    "nullable": false
+                },
+                {
+                    "name": "target_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "rating",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "comment",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE INDEX idx_reviews_booking ON trust.reviews USING btree (booking_id)",
+                    "name": "idx_reviews_booking"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX idx_reviews_booking_reviewer_target ON trust.reviews USING btree (booking_id, reviewer_id, target_type, target_id)",
+                    "name": "idx_reviews_booking_reviewer_target"
+                },
+                {
+                    "def": "CREATE INDEX idx_reviews_target ON trust.reviews USING btree (target_type, target_id)",
+                    "name": "idx_reviews_target"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX reviews_pkey ON trust.reviews USING btree (id)",
+                    "name": "reviews_pkey"
+                }
+            ]
+        },
+        {
+            "name": "user_flags",
+            "schema": "trust",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "user_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "reporter_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "reason",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "description",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "status",
+                    "type": "trust.flag_status",
+                    "nullable": false
+                },
+                {
+                    "name": "reviewed_by",
+                    "type": "uuid",
+                    "nullable": true
+                },
+                {
+                    "name": "reviewed_at",
+                    "type": "timestamp with time zone",
+                    "nullable": true
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "updated_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE INDEX idx_user_flags_reporter ON trust.user_flags USING btree (reporter_id, created_at DESC)",
+                    "name": "idx_user_flags_reporter"
+                },
+                {
+                    "def": "CREATE INDEX idx_user_flags_status ON trust.user_flags USING btree (status)",
+                    "name": "idx_user_flags_status"
+                },
+                {
+                    "def": "CREATE INDEX idx_user_flags_user ON trust.user_flags USING btree (user_id)",
+                    "name": "idx_user_flags_user"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX user_flags_pkey ON trust.user_flags USING btree (id)",
+                    "name": "user_flags_pkey"
+                }
+            ]
+        },
+        {
+            "name": "user_spam_score",
+            "schema": "trust",
+            "columns": [
+                {
+                    "name": "user_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "score",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "updated_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX user_spam_score_pkey ON trust.user_spam_score USING btree (user_id)",
+                    "name": "user_spam_score_pkey"
+                }
+            ]
+        },
+        {
+            "name": "user_suspensions",
+            "schema": "trust",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "user_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "reason",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "suspended_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "expires_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "suspended_by",
+                    "type": "uuid",
+                    "nullable": true
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE INDEX idx_user_suspensions_expires ON trust.user_suspensions USING btree (expires_at)",
+                    "name": "idx_user_suspensions_expires"
+                },
+                {
+                    "def": "CREATE INDEX idx_user_suspensions_user ON trust.user_suspensions USING btree (user_id)",
+                    "name": "idx_user_suspensions_user"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX user_suspensions_pkey ON trust.user_suspensions USING btree (id)",
+                    "name": "user_suspensions_pkey"
+                }
+            ]
+        }
+    ],
+    "database": "trust",
+    "foreign_keys": [
+    ],
+    "generated_at": "2026-04-03T00:13:08.890729+00:00"
+}

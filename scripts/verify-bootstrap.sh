@@ -39,11 +39,17 @@ check_db_reachable() {
   psql -h "$HOST" -p "$1" -U "$PGUSER" -d "$2" -c "SELECT 1;" &>/dev/null
 }
 
+# Auth transactional outbox: Prisma migration uses auth.auth_outbox; infra/db/01-auth-outbox.sql adds auth.outbox_events (proto-style publisher). Either or both may exist after restore; at least one is required.
+check_auth_outbox_present() {
+  check_table "$VERIFY_AUTH_PORT" auth auth outbox_events && return 0
+  check_table "$VERIFY_AUTH_PORT" auth auth auth_outbox && return 0
+  return 1
+}
+
 echo "Verifying bootstrap (host=$HOST)..."
 
-# Auth: outbox_events
 check_db_reachable "$VERIFY_AUTH_PORT" auth || fail "auth DB unreachable"
-check_table "$VERIFY_AUTH_PORT" auth auth outbox_events || fail "auth.outbox_events missing"
+check_auth_outbox_present || fail "auth transactional outbox missing (need auth.outbox_events and/or auth.auth_outbox — run: psql ... -f infra/db/01-auth-outbox.sql and/or prisma migrate)"
 ok "auth"
 
 # Listings: outbox, processed_events

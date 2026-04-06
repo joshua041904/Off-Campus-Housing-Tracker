@@ -1,0 +1,23 @@
+@startuml c4_context
+title C4 Level 1 — System context (Off-Campus Housing Tracker)
+skinparam defaultFontName Helvetica
+skinparam shadowing false
+
+actor "Student / Landlord" as user
+rectangle "Off-Campus Housing\nPlatform" as sys #LightSkyBlue
+
+cloud "Email / SMS\nproviders" as notify_ext
+cloud "Maps / embed APIs\n(optional)" as maps_ext
+cloud "Object storage\n(MinIO / S3)" as storage_ext
+
+user --> sys : HTTPS (webapp + API)
+sys --> notify_ext : Notifications
+sys --> maps_ext : Map previews
+sys --> storage_ext : Media objects
+
+note right of sys
+  Event-driven microservices,
+  per-service Postgres, Kafka KRaft.
+end note
+
+@enduml

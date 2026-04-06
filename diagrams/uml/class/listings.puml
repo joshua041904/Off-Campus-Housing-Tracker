@@ -1,0 +1,42 @@
+@startuml uml_class_listings
+title LLD — listings-service (HTTP + gRPC — proto/listings.proto)
+skinparam defaultFontName Helvetica
+
+package "HTTP / gRPC transport" {
+  class "Express handlers\n(server.ts)" as Http <<Node>>
+  class "ListingsService\n(grpc-server.ts)" as Grpc <<Node>> {
+    CreateListing()
+    GetListing()
+    SearchListings()
+  }
+}
+
+package "Domain" {
+  class Listing <<aggregate root>> {
+    +id
+    +ownerUserId
+    +status
+    +price / media refs
+  }
+  class ListingSearch <<query>>
+}
+
+package "Infrastructure" {
+  class "Postgres via Prisma\n(listings schema)" as Repo <<repository>>
+  class "Kafka producer\n(listing events)" as Events
+}
+
+Http --> Repo
+Grpc --> Repo
+Http --> Events
+Grpc --> Events
+Repo ..> Listing
+Listing --> ListingSearch : filters
+
+note bottom of Grpc
+  **Contract:** `proto/listings.proto`
+  — DB is source of truth; RPC mirrors
+  public read/write operations.
+end note
+
+@enduml

@@ -1,0 +1,507 @@
+{
+    "tables": [
+        {
+            "name": "daily_metrics",
+            "schema": "analytics",
+            "columns": [
+                {
+                    "name": "date",
+                    "type": "date",
+                    "nullable": false
+                },
+                {
+                    "name": "new_users",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "new_listings",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "new_bookings",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "completed_bookings",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "messages_sent",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "listings_flagged",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "updated_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX daily_metrics_pkey ON analytics.daily_metrics USING btree (date)",
+                    "name": "daily_metrics_pkey"
+                }
+            ]
+        },
+        {
+            "name": "events",
+            "schema": "analytics",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "event_type",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "event_version",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "payload",
+                    "type": "jsonb",
+                    "nullable": false
+                },
+                {
+                    "name": "source_service",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "event_id",
+                    "type": "uuid",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX events_pkey ON analytics.events USING btree (id)",
+                    "name": "events_pkey"
+                },
+                {
+                    "def": "CREATE INDEX idx_analytics_events_created ON analytics.events USING btree (created_at)",
+                    "name": "idx_analytics_events_created"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX idx_analytics_events_event_id ON analytics.events USING btree (event_id)",
+                    "name": "idx_analytics_events_event_id"
+                },
+                {
+                    "def": "CREATE INDEX idx_analytics_events_type ON analytics.events USING btree (event_type)",
+                    "name": "idx_analytics_events_type"
+                }
+            ]
+        },
+        {
+            "name": "listing_feel_cache",
+            "schema": "analytics",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "content_hash",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "audience",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "model",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "analysis_text",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX idx_listing_feel_cache_hash_audience ON analytics.listing_feel_cache USING btree (content_hash, audience)",
+                    "name": "idx_listing_feel_cache_hash_audience"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX listing_feel_cache_pkey ON analytics.listing_feel_cache USING btree (id)",
+                    "name": "listing_feel_cache_pkey"
+                }
+            ]
+        },
+        {
+            "name": "processed_events",
+            "schema": "analytics",
+            "columns": [
+                {
+                    "name": "event_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "processed_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX processed_events_pkey ON analytics.processed_events USING btree (event_id)",
+                    "name": "processed_events_pkey"
+                }
+            ]
+        },
+        {
+            "name": "projection_state",
+            "schema": "analytics",
+            "columns": [
+                {
+                    "name": "projection_name",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "last_processed_event_id",
+                    "type": "uuid",
+                    "nullable": true
+                },
+                {
+                    "name": "updated_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX projection_state_pkey ON analytics.projection_state USING btree (projection_name)",
+                    "name": "projection_state_pkey"
+                }
+            ]
+        },
+        {
+            "name": "projection_versions",
+            "schema": "analytics",
+            "columns": [
+                {
+                    "name": "name",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "version",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "updated_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX projection_versions_pkey ON analytics.projection_versions USING btree (name)",
+                    "name": "projection_versions_pkey"
+                }
+            ]
+        },
+        {
+            "name": "recommendation_experiments",
+            "schema": "analytics",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "name",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "model_id",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "traffic_percentage",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "is_active",
+                    "type": "boolean",
+                    "nullable": false
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX recommendation_experiments_pkey ON analytics.recommendation_experiments USING btree (id)",
+                    "name": "recommendation_experiments_pkey"
+                }
+            ]
+        },
+        {
+            "name": "recommendation_models",
+            "schema": "analytics",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "name",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "version",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "is_active",
+                    "type": "boolean",
+                    "nullable": false
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX idx_rec_models_name_version ON analytics.recommendation_models USING btree (name, version)",
+                    "name": "idx_rec_models_name_version"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX recommendation_models_pkey ON analytics.recommendation_models USING btree (id)",
+                    "name": "recommendation_models_pkey"
+                }
+            ]
+        },
+        {
+            "name": "recommendation_weights",
+            "schema": "analytics",
+            "columns": [
+                {
+                    "name": "model_id",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "distance",
+                    "type": "numeric",
+                    "nullable": false
+                },
+                {
+                    "name": "price",
+                    "type": "numeric",
+                    "nullable": false
+                },
+                {
+                    "name": "popularity",
+                    "type": "numeric",
+                    "nullable": false
+                },
+                {
+                    "name": "trust",
+                    "type": "numeric",
+                    "nullable": false
+                },
+                {
+                    "name": "recency",
+                    "type": "numeric",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX recommendation_weights_pkey ON analytics.recommendation_weights USING btree (model_id)",
+                    "name": "recommendation_weights_pkey"
+                }
+            ]
+        },
+        {
+            "name": "user_activity",
+            "schema": "analytics",
+            "columns": [
+                {
+                    "name": "user_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "listings_created",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "bookings_made",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "messages_sent",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "updated_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX user_activity_pkey ON analytics.user_activity USING btree (user_id)",
+                    "name": "user_activity_pkey"
+                }
+            ]
+        },
+        {
+            "name": "user_listing_engagement",
+            "schema": "analytics",
+            "columns": [
+                {
+                    "name": "user_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "listing_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "messages_sent",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "bookings",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "last_interaction_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE INDEX idx_user_listing_engagement_listing ON analytics.user_listing_engagement USING btree (listing_id)",
+                    "name": "idx_user_listing_engagement_listing"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX user_listing_engagement_pkey ON analytics.user_listing_engagement USING btree (user_id, listing_id)",
+                    "name": "user_listing_engagement_pkey"
+                }
+            ]
+        },
+        {
+            "name": "user_watchlist_daily",
+            "schema": "analytics",
+            "columns": [
+                {
+                    "name": "user_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "day",
+                    "type": "date",
+                    "nullable": false
+                },
+                {
+                    "name": "adds",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "removes",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "updated_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX user_watchlist_daily_pkey ON analytics.user_watchlist_daily USING btree (user_id, day)",
+                    "name": "user_watchlist_daily_pkey"
+                }
+            ]
+        }
+    ],
+    "database": "analytics",
+    "foreign_keys": [
+        {
+            "name": "recommendation_experiments_model_id_fkey",
+            "to_cols": [
+                "id"
+            ],
+            "to_table": "recommendation_models",
+            "from_cols": [
+                "model_id"
+            ],
+            "to_schema": "analytics",
+            "from_table": "recommendation_experiments",
+            "from_schema": "analytics"
+        },
+        {
+            "name": "recommendation_weights_model_id_fkey",
+            "to_cols": [
+                "id"
+            ],
+            "to_table": "recommendation_models",
+            "from_cols": [
+                "model_id"
+            ],
+            "to_schema": "analytics",
+            "from_table": "recommendation_weights",
+            "from_schema": "analytics"
+        }
+    ],
+    "generated_at": "2026-04-03T00:13:09.696141+00:00"
+}

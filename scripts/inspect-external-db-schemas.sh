@@ -36,8 +36,8 @@ else
 fi
 
 # Expected tables per DB (schema.table) from infra/db SQL and runtime schema.
-# auth: runtime schema in this repo does not require auth.outbox_events
-expect_5441="auth.users auth.sessions auth.mfa_settings auth.oauth_providers auth.passkeys auth.passkey_challenges auth.verification_codes auth.user_addresses"
+# auth: core users + MFA + transactional outbox — auth.auth_outbox (Prisma) and auth.outbox_events (infra/db/01-auth-outbox.sql, proto-style outbox). Both should exist after bootstrap + migration; inspect requires both so dumps match OCH contract.
+expect_5441="auth.users auth.sessions auth.mfa_settings auth.oauth_providers auth.passkeys auth.passkey_challenges auth.verification_codes auth.user_addresses auth.outbox_events auth.auth_outbox"
 # listings: 00-create-listings-database.sql, 01-listings-schema-and-tuning.sql, 03-listings-outbox.sql, 04-listings-processed-events.sql
 expect_5442="listings.listings listings.outbox_events listings.processed_events"
 # bookings: 01-booking-schema.sql, 02-booking-state-machine.sql, 03-booking-outbox.sql

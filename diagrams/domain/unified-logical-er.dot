@@ -1,0 +1,105 @@
+digraph unified_logical_er {
+  // Shared visual system — include inside digraph { } after the opening line.
+  graph [fontname="Helvetica", fontsize=11];
+  node [fontname="Helvetica"];
+  edge [fontname="Helvetica", fontsize=9];
+  graph [rankdir=LR, fontsize=10, label="Unified logical ER — system data model (not one physical database)\nSolid = same-service or documented logical reference | Dashed = async/event | Dotted = projection/event → read model", labelloc=t];
+  node [fontname="Helvetica"];
+  edge [fontname="Helvetica", fontsize=8];
+
+  subgraph cluster_auth {
+    label="Auth";
+    style=filled;
+    fillcolor="#cce5ff";
+    color="#666666";
+    users [label="users", shape=record, style=filled, fillcolor="#ffffff", color="#333333"];
+    sessions [label="sessions", shape=record, style=filled, fillcolor="#ffffff", color="#333333"];
+    passkeys [label="passkeys", shape=record, style=filled, fillcolor="#ffffff", color="#333333"];
+    mfa_settings [label="mfa_settings", shape=record, style=filled, fillcolor="#ffffff", color="#333333"];
+  }
+
+  subgraph cluster_listings {
+    label="Listings";
+    style=filled;
+    fillcolor="#ccffcc";
+    color="#666666";
+    listings [label="listings", shape=record, style=filled, fillcolor="#ffffff", color="#333333"];
+    listing_media_ref [label="listing_media", shape=record, style=filled, fillcolor="#ffffff", color="#333333"];
+    listings_outbox [label="outbox_events", shape=record, style=filled, fillcolor="#ffffff", color="#333333"];
+  }
+
+  subgraph cluster_bookings {
+    label="Bookings";
+    style=filled;
+    fillcolor="#ffddaa";
+    color="#666666";
+    bookings [label="bookings", shape=record, style=filled, fillcolor="#ffffff", color="#333333"];
+    booking_outbox [label="outbox_events", shape=record, style=filled, fillcolor="#ffffff", color="#333333"];
+  }
+
+  subgraph cluster_messaging {
+    label="Messaging";
+    style=filled;
+    fillcolor="#e6ccff";
+    color="#666666";
+    conversations [label="conversations", shape=record, style=filled, fillcolor="#ffffff", color="#333333"];
+    messages [label="messages", shape=record, style=filled, fillcolor="#ffffff", color="#333333"];
+    messaging_outbox [label="outbox_events", shape=record, style=filled, fillcolor="#ffffff", color="#333333"];
+  }
+
+  subgraph cluster_trust {
+    label="Trust";
+    style=filled;
+    fillcolor="#ffcccc";
+    color="#666666";
+    reviews [label="reviews", shape=record, style=filled, fillcolor="#ffffff", color="#333333"];
+    abuse_reports [label="abuse_reports", shape=record, style=filled, fillcolor="#ffffff", color="#333333"];
+    trust_outbox [label="outbox_events", shape=record, style=filled, fillcolor="#ffffff", color="#333333"];
+    trust_processed [label="processed_events", shape=record, style=filled, fillcolor="#ffffff", color="#333333"];
+  }
+
+  subgraph cluster_notification {
+    label="Notification";
+    style=filled;
+    fillcolor="#fff9c4";
+    color="#666666";
+    notifications [label="notifications", shape=record, style=filled, fillcolor="#ffffff", color="#333333"];
+    notification_outbox [label="outbox_events", shape=record, style=filled, fillcolor="#ffffff", color="#333333"];
+  }
+
+  subgraph cluster_analytics {
+    label="Analytics";
+    style=filled;
+    fillcolor="#e8e8e8";
+    color="#666666";
+    analytics_events [label="events / facts", shape=record, style=filled, fillcolor="#ffffff", color="#333333"];
+    analytics_projections [label="daily_metrics / projections", shape=record, style=filled, fillcolor="#ffffff", color="#333333"];
+  }
+
+  subgraph cluster_media {
+    label="Media";
+    style=filled;
+    fillcolor="#b2dfdb";
+    color="#666666";
+    media_objects [label="media assets", shape=record, style=filled, fillcolor="#ffffff", color="#333333"];
+  }
+
+  users -> listings [style=solid, label="owner / user_id (logical)"];
+  listings -> bookings [style=solid, label="listing_id (logical)"];
+  users -> bookings [style=solid, label="tenant_id (logical)"];
+  users -> bookings [style=solid, label="landlord_id (logical)"];
+  bookings -> reviews [style=solid, label="booking_id (logical)"];
+  listings -> listing_media_ref [style=solid, label="listing_id"];
+  listings -> conversations [style=solid, label="listing scope (optional)"];
+  conversations -> messages [style=solid, label="thread"];
+  users -> messages [style=solid, label="sender (logical)"];
+  listings -> abuse_reports [style=solid, label="flag target (logical)"];
+  users -> abuse_reports [style=solid, label="reporter (logical)"];
+  listings -> media_objects [style=solid, label="attachment ref (logical)"];
+  booking_outbox -> notifications [style=dashed, label="BookingConfirmed / domain events"];
+  listings_outbox -> trust_processed [style=dashed, label="listing.flagged etc."];
+  messaging_outbox -> analytics_projections [style=dashed, label="message.sent"];
+  booking_outbox -> analytics_projections [style=dotted, label="booking lifecycle"];
+  listings_outbox -> analytics_projections [style=dotted, label="listing events"];
+  analytics_events -> analytics_projections [style=solid, label="rollup / ETL"];
+}

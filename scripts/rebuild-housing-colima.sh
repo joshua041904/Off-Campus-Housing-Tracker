@@ -35,8 +35,8 @@ WAIT_ROLLOUT="${WAIT_ROLLOUT:-1}"
 ROLLOUT_TIMEOUT="${ROLLOUT_TIMEOUT:-180s}"
 
 say() { printf "\n\033[1m%s\033[0m\n" "$*"; }
-ok() { echo "? $*"; }
-warn() { echo "??  $*"; }
+ok() { echo "✅ $*"; }
+warn() { echo "⚠️  $*"; }
 
 extract_maps_key() {
   local f="$REPO_ROOT/webapp/.env.local"
