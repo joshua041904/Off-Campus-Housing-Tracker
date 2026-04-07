@@ -75,12 +75,19 @@ describe("validateCreateListingInput", () => {
   });
 
   it("requires positive integer price_cents", () => {
-    expect(validateCreateListingInput({ ...base, price_cents: 0 }).ok).toBe(false);
-    expect(validateCreateListingInput({ ...base, price_cents: 1.5 }).ok).toBe(false);
+    expect(validateCreateListingInput({ ...base, price_cents: 0 }).ok).toBe(
+      false,
+    );
+    expect(validateCreateListingInput({ ...base, price_cents: 1.5 }).ok).toBe(
+      false,
+    );
   });
 
   it("validates effective_from date", () => {
-    const r = validateCreateListingInput({ ...base, effective_from: "2026-13-40" });
+    const r = validateCreateListingInput({
+      ...base,
+      effective_from: "2026-13-40",
+    });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.message).toMatch(/effective_from/i);
   });
@@ -102,6 +109,40 @@ describe("validateCreateListingInput", () => {
     );
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.value.user_id).toBe("");
+  });
+
+  it("fails when title is missing", () => {
+    const result = validateCreateListingInput({
+      user_id: VALID_USER,
+      price_cents: 100,
+      effective_from: "2030-01-01",
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toMatch(/title/i);
+  });
+
+  it("fails when price is missing", () => {
+    const result = validateCreateListingInput({
+      user_id: VALID_USER,
+      title: "Test",
+      effective_from: "2030-01-01",
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toMatch(/price_cents/i);
+  });
+
+  it("fails for negative price", () => {
+    const result = validateCreateListingInput({
+      user_id: VALID_USER,
+      title: "Test",
+      price_cents: -10,
+      effective_from: "2030-01-01",
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toMatch(/price_cents/i);
   });
 });
 
