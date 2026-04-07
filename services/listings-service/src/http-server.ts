@@ -319,7 +319,8 @@ export function createListingsHttpApp() {
     requireUser,
     async (req: AuthedRequest, res: Response) => {
       try {
-        const body = req.body as Record<string, unknown>;
+        const body = req.body && typeof req.body === "object" ? req.body : {};
+        // validate first, outside risky logic
         const validation = validateCreateListingInput(
           {
             ...body,
@@ -332,7 +333,7 @@ export function createListingsHttpApp() {
           res.status(400).json({ error: validation.message });
           return;
         }
-
+        // THEN do DB / side effects inside try
         const input = validation.value;
         const latRaw = body.latitude;
         const lngRaw = body.longitude;
