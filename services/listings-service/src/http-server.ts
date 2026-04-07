@@ -1,10 +1,21 @@
 import { randomUUID } from "node:crypto";
-import express, { type NextFunction, type Request, type Response } from "express";
-import { httpCounter, register, createHttpConcurrencyGuard } from "@common/utils";
+import express, {
+  type NextFunction,
+  type Request,
+  type Response,
+} from "express";
+import {
+  httpCounter,
+  register,
+  createHttpConcurrencyGuard,
+} from "@common/utils";
 import { pool } from "./db.js";
 import { publishListingEventForCreateResponse } from "./listing-kafka.js";
 import { syncListingCreatedToAnalytics } from "./analytics-sync.js";
-import { buildListingsSearchQuery, parseAmenitySlugs } from "./search-listings-query.js";
+import {
+  buildListingsSearchQuery,
+  parseAmenitySlugs,
+} from "./search-listings-query.js";
 
 import {
   validateCreateListingInput,
@@ -83,7 +94,9 @@ const LISTING_ID_UUID_RX =
 
 function truthyQuery(v: unknown): boolean {
   if (Array.isArray(v)) return v.some((x) => truthyQuery(x));
-  const s = String(v ?? "").trim().toLowerCase();
+  const s = String(v ?? "")
+    .trim()
+    .toLowerCase();
   return s === "1" || s === "true" || s === "yes";
 }
 
@@ -117,13 +130,21 @@ function rowToJson(row: Record<string, unknown>) {
     furnished: row.furnished,
     status: row.status,
     created_at: row.created_at,
-    latitude: row.latitude != null && Number.isFinite(Number(row.latitude)) ? Number(row.latitude) : null,
-    longitude: row.longitude != null && Number.isFinite(Number(row.longitude)) ? Number(row.longitude) : null,
+    latitude:
+      row.latitude != null && Number.isFinite(Number(row.latitude))
+        ? Number(row.latitude)
+        : null,
+    longitude:
+      row.longitude != null && Number.isFinite(Number(row.longitude))
+        ? Number(row.longitude)
+        : null,
     listed_at: formatListedAt(row),
   };
 }
 
-function dedupeListingsById(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+function dedupeListingsById(
+  rows: Record<string, unknown>[],
+): Record<string, unknown>[] {
   const seen = new Set<string>();
   const out: Record<string, unknown>[] = [];
   for (const row of rows) {
@@ -134,7 +155,6 @@ function dedupeListingsById(rows: Record<string, unknown>[]): Record<string, unk
   }
   return out;
 }
-
 
 export function createListingsHttpApp() {
   const app = express();
@@ -182,18 +202,46 @@ export function createListingsHttpApp() {
   const searchListingsPublic = async (req: Request, res: Response) => {
     try {
       const searchT0 = Date.now();
-      const minP = req.query.min_price != null ? Number(req.query.min_price) : null;
-      const maxP = req.query.max_price != null ? Number(req.query.max_price) : null;
-      const newWithinRaw = req.query.new_within_days != null ? Number(req.query.new_within_days) : null;
+      const minP =
+        req.query.min_price != null ? Number(req.query.min_price) : null;
+      const maxP =
+        req.query.max_price != null ? Number(req.query.max_price) : null;
+      const newWithinRaw =
+        req.query.new_within_days != null
+          ? Number(req.query.new_within_days)
+          : null;
       const newWithin =
-        newWithinRaw != null && Number.isFinite(newWithinRaw) && newWithinRaw > 0 && newWithinRaw <= 365
+        newWithinRaw != null &&
+        Number.isFinite(newWithinRaw) &&
+        newWithinRaw > 0 &&
+        newWithinRaw <= 365
           ? Math.floor(newWithinRaw)
           : null;
-      const amenityRaw = [String(req.query.amenity || ""), String(req.query.amenities || "")]
+      // Parse pagination params; invalid values fall back to builder defaults.
+      const limitRaw = req.query.limit != null ? Number(req.query.limit) : null;
+      const offsetRaw =
+        req.query.offset != null ? Number(req.query.offset) : null;
+
+      const limit =
+        limitRaw != null && Number.isFinite(limitRaw) && limitRaw > 0
+          ? Math.floor(limitRaw)
+          : null;
+
+      const offset =
+        offsetRaw != null && Number.isFinite(offsetRaw) && offsetRaw >= 0
+          ? Math.floor(offsetRaw)
+          : null;
+      const amenityRaw = [
+        String(req.query.amenity || ""),
+        String(req.query.amenities || ""),
+      ]
         .filter(Boolean)
         .join(",");
       const amenitySlugs = [
-        ...new Set([...parseAmenitySlugs(amenityRaw), ...amenitySlugsFromBooleanQuery(req.query)]),
+        ...new Set([
+          ...parseAmenitySlugs(amenityRaw),
+          ...amenitySlugsFromBooleanQuery(req.query),
+        ]),
       ];
       const qStr = String(req.query.q || "").trim();
       const { sql, params } = buildListingsSearchQuery({
@@ -201,11 +249,17 @@ export function createListingsHttpApp() {
         minP: minP != null && !Number.isNaN(minP) ? minP : null,
         maxP: maxP != null && !Number.isNaN(maxP) ? maxP : null,
         smoke: req.query.smoke_free === "1" || req.query.smoke_free === "true",
-        pets: req.query.pet_friendly === "1" || req.query.pet_friendly === "true",
-        furnished: req.query.furnished === "1" || req.query.furnished === "true" || req.query.furnished === "yes",
+        pets:
+          req.query.pet_friendly === "1" || req.query.pet_friendly === "true",
+        furnished:
+          req.query.furnished === "1" ||
+          req.query.furnished === "true" ||
+          req.query.furnished === "yes",
         amenitySlugs,
         newWithin,
         sort: String(req.query.sort || "created_desc").trim(),
+        limit,
+        offset,
       });
       const result = await pool.query(sql, params);
       const dbMs = Date.now() - searchT0;
@@ -222,7 +276,9 @@ export function createListingsHttpApp() {
           );
         }
       }
-      const uniqueRows = dedupeListingsById(result.rows as Record<string, unknown>[]);
+      const uniqueRows = dedupeListingsById(
+        result.rows as Record<string, unknown>[],
+      );
       res.json({ items: uniqueRows.map((r) => rowToJson(r)) });
     } catch (e) {
       console.error("[listings HTTP search]", e);
@@ -281,9 +337,13 @@ export function createListingsHttpApp() {
         const latRaw = body.latitude;
         const lngRaw = body.longitude;
         const lat =
-          latRaw != null && latRaw !== "" && Number.isFinite(Number(latRaw)) ? Number(latRaw) : null;
+          latRaw != null && latRaw !== "" && Number.isFinite(Number(latRaw))
+            ? Number(latRaw)
+            : null;
         const lng =
-          lngRaw != null && lngRaw !== "" && Number.isFinite(Number(lngRaw)) ? Number(lngRaw) : null;
+          lngRaw != null && lngRaw !== "" && Number.isFinite(Number(lngRaw))
+            ? Number(lngRaw)
+            : null;
 
         const r = await pool.query(
           `INSERT INTO listings.listings (
@@ -316,7 +376,8 @@ $11, $12
         const row = r.rows[0];
 
         const eventId = randomUUID();
-        const listedDay = formatListedAt(row) || new Date().toISOString().slice(0, 10);
+        const listedDay =
+          formatListedAt(row) || new Date().toISOString().slice(0, 10);
 
         try {
           await syncListingCreatedToAnalytics({

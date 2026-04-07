@@ -9,7 +9,10 @@ import {
 import { publishListingEventForCreateResponse } from "./listing-kafka.js";
 import { syncListingCreatedToAnalytics } from "./analytics-sync.js";
 import { pool } from "./db.js";
-import { buildListingsSearchQuery, parseAmenitySlugs } from "./search-listings-query.js";
+import {
+  buildListingsSearchQuery,
+  parseAmenitySlugs,
+} from "./search-listings-query.js";
 
 import { validateCreateListingInput, validateListingId } from "./validation.js";
 
@@ -58,7 +61,9 @@ function rowToResponse(row: Record<string, unknown>) {
   };
 }
 
-function dedupeListingsById(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+function dedupeListingsById(
+  rows: Record<string, unknown>[],
+): Record<string, unknown>[] {
   const seen = new Set<string>();
   const out: Record<string, unknown>[] = [];
   for (const row of rows) {
@@ -89,10 +94,14 @@ const listingsService = {
     }
 
     const input = validation.value;
-     const lat =
-      req.latitude != null && Number.isFinite(Number(req.latitude)) ? Number(req.latitude) : null;
-     const lng =
-      req.longitude != null && Number.isFinite(Number(req.longitude)) ? Number(req.longitude) : null;
+    const lat =
+      req.latitude != null && Number.isFinite(Number(req.latitude))
+        ? Number(req.latitude)
+        : null;
+    const lng =
+      req.longitude != null && Number.isFinite(Number(req.longitude))
+        ? Number(req.longitude)
+        : null;
 
     const query = `
     INSERT INTO listings.listings (
@@ -163,14 +172,22 @@ const listingsService = {
         const row = result.rows[0];
         const listedDay =
           row.listed_at != null
-            ? new Date(row.listed_at as string | Date).toISOString().slice(0, 10)
+            ? new Date(row.listed_at as string | Date)
+                .toISOString()
+                .slice(0, 10)
             : new Date().toISOString().slice(0, 10);
         const eventId = randomUUID();
         try {
-          await syncListingCreatedToAnalytics({ eventId, listedAtDay: listedDay });
+          await syncListingCreatedToAnalytics({
+            eventId,
+            listedAtDay: listedDay,
+          });
         } catch (e) {
           console.error("[CreateListing] analytics sync", e);
-          callback({ code: grpc.status.INTERNAL, message: "analytics projection sync failed" });
+          callback({
+            code: grpc.status.INTERNAL,
+            message: "analytics projection sync failed",
+          });
           return;
         }
         try {
@@ -188,7 +205,10 @@ const listingsService = {
           );
         } catch (e) {
           console.error("[CreateListing] kafka", e);
-          callback({ code: grpc.status.INTERNAL, message: "listing event publish failed" });
+          callback({
+            code: grpc.status.INTERNAL,
+            message: "listing event publish failed",
+          });
           return;
         }
         logGrpcTiming("CreateListing", start);
@@ -266,11 +286,33 @@ const listingsService = {
     const smoke = Boolean(req.smoke_free);
     const pets = Boolean(req.pet_friendly);
     const furnished = Boolean(req.furnished);
-    const amenitySlugs = parseAmenitySlugs(String(req.amenities_contains || ""));
-    const nwdRaw = req.new_within_days != null && req.new_within_days !== "" ? Number(req.new_within_days) : null;
+    const amenitySlugs = parseAmenitySlugs(
+      String(req.amenities_contains || ""),
+    );
+    const nwdRaw =
+      req.new_within_days != null && req.new_within_days !== ""
+        ? Number(req.new_within_days)
+        : null;
     const newWithin =
-      nwdRaw != null && Number.isFinite(nwdRaw) && nwdRaw > 0 && nwdRaw <= 365 ? Math.floor(nwdRaw) : null;
+      nwdRaw != null && Number.isFinite(nwdRaw) && nwdRaw > 0 && nwdRaw <= 365
+        ? Math.floor(nwdRaw)
+        : null;
     const sort = String(req.sort || "created_desc").trim();
+
+    const limitRaw =
+      req.limit != null && req.limit !== "" ? Number(req.limit) : null;
+    const offsetRaw =
+      req.offset != null && req.offset !== "" ? Number(req.offset) : null;
+
+    const limit =
+      limitRaw != null && Number.isFinite(limitRaw) && limitRaw > 0
+        ? Math.floor(limitRaw)
+        : null;
+
+    const offset =
+      offsetRaw != null && Number.isFinite(offsetRaw) && offsetRaw >= 0
+        ? Math.floor(offsetRaw)
+        : null;
 
     const { sql, params } = buildListingsSearchQuery({
       q,
@@ -282,13 +324,17 @@ const listingsService = {
       amenitySlugs,
       newWithin,
       sort,
+      limit,
+      offset,
     });
 
     pool
       .query(sql, params)
       .then((res) => {
         logGrpcTiming("SearchListings", start);
-        const uniqueRows = dedupeListingsById(res.rows as Record<string, unknown>[]);
+        const uniqueRows = dedupeListingsById(
+          res.rows as Record<string, unknown>[],
+        );
         callback(null, { listings: uniqueRows.map((r) => rowToResponse(r)) });
       })
       .catch((e) => {

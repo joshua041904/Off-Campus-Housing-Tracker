@@ -25,7 +25,10 @@ describe("parseAmenitySlugs", () => {
   });
 
   it("deduplicates duplicate amenities to keep filtering consistent", () => {
-    expect(parseAmenitySlugs("parking, parking, PARKING,garage")).toEqual(["parking", "garage"]);
+    expect(parseAmenitySlugs("parking, parking, PARKING,garage")).toEqual([
+      "parking",
+      "garage",
+    ]);
   });
 });
 
@@ -36,6 +39,7 @@ describe("buildListingsSearchQuery", () => {
     expect(params.length).toBe(0);
     expect(sql).toContain("status::text = 'active'");
     expect(sql).toContain("LIMIT 50");
+    expect(sql).toContain("OFFSET 0");
   });
 
   it("uses deterministic tie-breaker for created_desc", () => {
@@ -53,14 +57,17 @@ describe("buildListingsSearchQuery", () => {
     expect(sql).toContain(
       "ORDER BY listed_at DESC NULLS LAST, created_at DESC, id ASC",
     );
-    expect(sql).toContain("ORDER BY listed_at DESC NULLS LAST, created_at DESC, id ASC");
   });
 
   it("uses deterministic tie-breaker for price sorts", () => {
     const lowToHigh = buildListingsSearchQuery({ sort: "price_asc" }).sql;
     const highToLow = buildListingsSearchQuery({ sort: "price_desc" }).sql;
-    expect(lowToHigh).toContain("ORDER BY price_cents ASC NULLS LAST, created_at DESC, id ASC");
-    expect(highToLow).toContain("ORDER BY price_cents DESC NULLS LAST, created_at DESC, id ASC");
+    expect(lowToHigh).toContain(
+      "ORDER BY price_cents ASC NULLS LAST, created_at DESC, id ASC",
+    );
+    expect(highToLow).toContain(
+      "ORDER BY price_cents DESC NULLS LAST, created_at DESC, id ASC",
+    );
   });
 
   it("adds ILIKE for q and escapes percent/underscore", () => {
@@ -103,7 +110,9 @@ describe("buildListingsSearchQuery", () => {
   });
 
   it("does not add duplicate amenity predicates for repeated slugs", () => {
-    const { sql } = buildListingsSearchQuery({ amenitySlugs: ["parking", "parking", "garage"] });
+    const { sql } = buildListingsSearchQuery({
+      amenitySlugs: ["parking", "parking", "garage"],
+    });
     expect((sql.match(/amenities::jsonb @>/g) ?? []).length).toBe(2);
   });
 
@@ -125,5 +134,32 @@ describe("buildListingsSearchQuery", () => {
     expect(sql).toContain(
       "ORDER BY price_cents DESC NULLS LAST, created_at DESC, id ASC",
     );
+  });
+
+  it("applies custom limit and offset", () => {
+    const { sql } = buildListingsSearchQuery({ limit: 10, offset: 20 });
+    expect(sql).toContain("LIMIT 10");
+    expect(sql).toContain("OFFSET 20");
+  });
+
+  it("clamps limit to max", () => {
+    const { sql } = buildListingsSearchQuery({ limit: 9999 });
+    expect(sql).toContain("LIMIT 100");
+  });
+
+  it("defaults offset to 0 when omitted", () => {
+    const { sql } = buildListingsSearchQuery({ limit: 10 });
+    expect(sql).toContain("LIMIT 10");
+    expect(sql).toContain("OFFSET 0");
+  });
+
+  it("falls back to default limit when invalid", () => {
+    const { sql } = buildListingsSearchQuery({ limit: 0 });
+    expect(sql).toContain("LIMIT 50");
+  });
+
+  it("falls back to default offset when invalid", () => {
+    const { sql } = buildListingsSearchQuery({ offset: -1 });
+    expect(sql).toContain("OFFSET 0");
   });
 });

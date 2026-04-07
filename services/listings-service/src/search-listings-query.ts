@@ -28,6 +28,8 @@ export type ListingsSearchFilters = {
   amenitySlugs?: string[];
   newWithin?: number | null;
   sort?: string;
+  limit?: number | null;
+  offset?: number | null;
 };
 
 export function buildListingsSearchQuery(filters: ListingsSearchFilters): {
@@ -44,6 +46,23 @@ export function buildListingsSearchQuery(filters: ListingsSearchFilters): {
   const newWithin = filters.newWithin ?? null;
   const sortRaw = (filters.sort ?? "created_desc").trim();
   const sort = SEARCH_SORTS.has(sortRaw) ? sortRaw : "created_desc";
+
+  // Pagination parsing with defaults and guards against invalid input (negative, non-integer, non-finite, etc).
+  const MAX_LIMIT = 100;
+  const limitRaw = filters.limit ?? 50;
+  const offsetRaw = filters.offset ?? 0;
+
+  const limit =
+    typeof limitRaw === "number" && Number.isFinite(limitRaw) && limitRaw > 0
+      ? Math.min(Math.floor(limitRaw), MAX_LIMIT)
+      : 50;
+
+  const offset =
+    typeof offsetRaw === "number" &&
+    Number.isFinite(offsetRaw) &&
+    offsetRaw >= 0
+      ? Math.floor(offsetRaw)
+      : 0;
 
   const params: unknown[] = [];
   let i = 1;
@@ -92,7 +111,8 @@ export function buildListingsSearchQuery(filters: ListingsSearchFilters): {
         FROM listings.listings
         WHERE ${where.join(" AND ")}
         ORDER BY ${orderBy}
-        LIMIT 50
+        LIMIT ${limit}
+        OFFSET ${offset}
       `;
   return { sql, params };
 }
