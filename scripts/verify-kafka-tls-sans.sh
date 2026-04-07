@@ -1,18 +1,23 @@
 #!/usr/bin/env bash
 # Fail if the broker leaf PEM is missing required Subject Alternative Names for KRaft headless bootstrap.
 # Prefers kafka-ssl-secret key kafka-broker.pem (written by kafka-ssl-from-dev-root.sh); else local file.
+# DNS + MetalLB IP expectations are defined in scripts/lib/kafka-broker-sans.sh (keep in sync with generation).
 #
 # Usage:
 #   ./scripts/verify-kafka-tls-sans.sh [namespace] [replicas]
 #   KAFKA_TLS_PEM=/path/to/broker.pem ./scripts/verify-kafka-tls-sans.sh
 # Env:
-#   KAFKA_VERIFY_METALLB_IP_SANS=1 (default) — require broker PEM IP SANs to match kafka-N-external LoadBalancer IPs (set 0 to skip).
+#   KAFKA_VERIFY_METALLB_IP_SANS=1 (default) — require broker PEM IP SANs for each kafka-N-external LoadBalancer IP (set 0 to skip).
+#   STRICT_SAN_MODE=1 (default) — missing SAN → exit 1. STRICT_SAN_MODE=0 — warn only (e.g. dev without MetalLB).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 NS="${1:-${HOUSING_NS:-off-campus-housing-tracker}}"
 REPLICAS="${2:-${KAFKA_BROKER_REPLICAS:-3}}"
+
+# shellcheck source=lib/kafka-broker-sans.sh
+source "$SCRIPT_DIR/lib/kafka-broker-sans.sh"
 
 say() { printf "\n\033[1m%s\033[0m\n" "$*"; }
 ok() { echo "✅ $*"; }
@@ -52,7 +57,17 @@ resolve_pem() {
   return 1
 }
 
-say "Kafka broker TLS SAN verification (namespace=$NS replicas=$REPLICAS)"
+san_violation() {
+  local msg="$1"
+  if [[ "${STRICT_SAN_MODE:-1}" == "1" ]]; then
+    bad "$msg"
+    missing=1
+  else
+    warn "$msg (STRICT_SAN_MODE=0 — non-fatal)"
+  fi
+}
+
+say "Kafka broker TLS SAN verification (namespace=$NS replicas=$REPLICAS STRICT_SAN_MODE=${STRICT_SAN_MODE:-1})"
 
 if ! PEM="$(resolve_pem)"; then
   bad "No broker PEM found."
@@ -68,54 +83,41 @@ fi
 
 TEXT="$(openssl x509 -in "$PEM" -noout -text 2>/dev/null)"
 missing=0
-for ((i = 0; i < REPLICAS; i++)); do
-  for name in \
-    "kafka-${i}.kafka.${NS}.svc.cluster.local" \
-    "kafka-${i}-external.${NS}.svc.cluster.local"; do
-    if ! echo "$TEXT" | grep -q "DNS:${name}"; then
-      bad "SAN missing: DNS:${name}"
-      missing=1
-    fi
-  done
-  for short in "kafka-${i}" "kafka-${i}.kafka" "kafka-${i}.kafka.${NS}.svc"; do
-    if ! echo "$TEXT" | grep -q "DNS:${short}"; then
-      bad "SAN missing: DNS:${short}"
-      missing=1
-    fi
-  done
-done
 
-# Avoid false positives (e.g. DNS:kafka matching DNS:kafka-0).
-if ! echo "$TEXT" | grep -qE 'DNS:kafka(,|$| )'; then
-  bad "SAN missing: DNS:kafka (exact)"
-  missing=1
-fi
-if ! echo "$TEXT" | grep -qE 'DNS:localhost(,|$| )'; then
-  bad "SAN missing: DNS:localhost (exact)"
-  missing=1
-fi
-if ! echo "$TEXT" | grep -q "DNS:kafka-external.${NS}.svc.cluster.local"; then
-  bad "SAN missing: DNS:kafka-external.${NS}.svc.cluster.local"
-  missing=1
-fi
+while IFS='|' read -r kind name || [[ -n "$kind" ]]; do
+  [[ -z "$kind" ]] && continue
+  if [[ "$kind" == "simple" ]]; then
+    if ! echo "$TEXT" | grep -q "DNS:${name}"; then
+      san_violation "SAN missing: DNS:${name}"
+    fi
+  elif [[ "$kind" == "exact" ]]; then
+    if [[ "$name" == "kafka" ]]; then
+      if ! echo "$TEXT" | grep -qE 'DNS:kafka(,|$| )'; then
+        san_violation "SAN missing: DNS:kafka (exact)"
+      fi
+    elif [[ "$name" == "localhost" ]]; then
+      if ! echo "$TEXT" | grep -qE 'DNS:localhost(,|$| )'; then
+        san_violation "SAN missing: DNS:localhost (exact)"
+      fi
+    fi
+  fi
+done < <(och_kafka_emit_san_verify_dns_specs "$NS" "$REPLICAS")
 
 # MetalLB EXTERNAL listener uses raw IPv4; broker JKS must include each kafka-N-external LB IP as IP SAN.
 if [[ "${KAFKA_VERIFY_METALLB_IP_SANS:-1}" == "1" ]] && command -v kubectl >/dev/null 2>&1; then
-  for ((i = 0; i < REPLICAS; i++)); do
-    _lb_ip="$(kubectl get svc "kafka-${i}-external" -n "$NS" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
-    [[ -n "$_lb_ip" ]] || continue
+  while IFS= read -r _lb_ip || [[ -n "$_lb_ip" ]]; do
+    [[ -z "$_lb_ip" ]] && continue
     if [[ ! "$_lb_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
       continue
     fi
     if ! echo "$TEXT" | grep -qE "IP Address:[[:space:]]*${_lb_ip}([^0-9]|$)"; then
-      bad "SAN missing MetalLB IP for kafka-${i}-external: ${_lb_ip} (needed for EXTERNAL://${_lb_ip}:9094 mTLS)"
+      san_violation "SAN missing MetalLB IP for external listener: ${_lb_ip} (needed for EXTERNAL://${_lb_ip}:9094 mTLS)"
       echo "  Fix: KAFKA_SSL_EXTRA_IP_SANS=<comma-separated LB IPs> ./scripts/kafka-ssl-from-dev-root.sh"
       echo "  Then: kubectl rollout restart statefulset/kafka -n $NS"
-      missing=1
     else
-      ok "SAN includes IP ${_lb_ip} (kafka-${i}-external)"
+      ok "SAN includes IP ${_lb_ip} (kafka-*-external)"
     fi
-  done
+  done < <(och_kafka_metallb_external_lb_ips_lines "$NS" "$REPLICAS")
 fi
 
 if [[ "$missing" -ne 0 ]]; then

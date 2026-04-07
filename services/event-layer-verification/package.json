@@ -9,6 +9,7 @@
     "test:watch": "ROLLUP_DISABLE_NATIVE=true vitest"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "2.1.9",
     "typescript": "^5.5.4",
     "vitest": "^2.1.0"
   }

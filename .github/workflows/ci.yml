@@ -306,19 +306,8 @@ jobs:
             done
             for pid in "${pids[@]}"; do wait "$pid"; done
           done
-      - name: Listings integration (Kafka + Postgres)
-        run: |
-          set -euo pipefail
-          RID="${{ github.run_id }}"
-          export OCH_KAFKA_TOPIC_SUFFIX="${RID}-listings-integration"
-          export POSTGRES_URL_LISTINGS="postgresql://postgres:postgres@127.0.0.1:5442/listings"
-          export ANALYTICS_SYNC_MODE="0"
-          export KAFKA_CONNECT_TIMEOUT_MS="15000"
-          export OCH_GRPC_INSECURE_TEST_BIND="1"
-          export KAFKA_SSL_ENABLED="false"
-          export CI_KAFKA_PLAINTEXT="1"
-          export KAFKA_BROKER="127.0.0.1:9092"
-          pnpm -C services/listings-service run test:integration
+      # Listings + booking Kafka-backed HTTP integration: cluster-only (3 TLS seeds, MetalLB :9094 or explicit KAFKA_BROKER).
+      # Run locally: pnpm -C services/listings-service run test:integration | pnpm -C services/booking-service run test:integration (kubectl + certs/kafka-ssl).
 
   transport-validation:
     name: Transport validation (Python tooling)
@@ -327,7 +316,7 @@ jobs:
     # Run whenever integration-tests finishes (success, failure, or cancelled). If we skip when
     # integration-tests is cancelled, this job is "skipped" and och-ci-gate fails on transport-validation
     # in ~seconds even though the real issue is cancelled/superseded integration (concurrency timeout).
-    # Plaintext Kafka job config is unchanged; gate still requires integration-tests == success.
+    # integration-tests runs service unit batches against kafka-ci + Postgres; Kafka HTTP integration suites are local/cluster-only (see job comment).
     if: ${{ always() }}
     steps:
       - uses: actions/checkout@v4

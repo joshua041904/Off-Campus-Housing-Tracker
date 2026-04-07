@@ -4,5 +4,17 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/**/*.test.ts"],
+    exclude: ["tests/**/*.integration.test.ts"],
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "html"],
+      reportsDirectory: "./coverage",
+      exclude: [
+        "**/generated/**",
+        "**/*.d.ts",
+        "**/node_modules/**",
+        "**/dist/**",
+      ],
+    },
   },
 });

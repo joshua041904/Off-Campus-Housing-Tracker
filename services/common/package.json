@@ -25,6 +25,10 @@
       "types": "./dist/kafka.d.ts",
       "default": "./dist/kafka.js"
     },
+    "./kafka-vitest-cluster": {
+      "types": "./dist/kafka-vitest-cluster.d.ts",
+      "default": "./dist/kafka-vitest-cluster.js"
+    },
     "./redis": {
       "types": "./dist/redis.d.ts",
       "default": "./dist/redis.js"
@@ -67,6 +71,9 @@
       "./kafka": [
         "./dist/kafka.d.ts"
       ],
+      "./kafka-vitest-cluster": [
+        "./dist/kafka-vitest-cluster.d.ts"
+      ],
       "./redis": [
         "./dist/redis.d.ts"
       ],
@@ -94,6 +101,7 @@
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
+    "@vitest/coverage-v8": "2.1.9",
     "typescript": "^5.5.4",
     "vitest": "^2.1.0"
   },

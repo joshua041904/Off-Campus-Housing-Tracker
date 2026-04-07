@@ -160,7 +160,10 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-emerald-50/50 text-slate-900">
+    <div
+      className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-emerald-50/50 text-slate-900"
+      data-testid="dashboard-root"
+    >
       <Nav email={email} />
       <main className="mx-auto max-w-5xl px-4 py-10">
         <h1 className="font-serif text-3xl text-slate-900">Housing search</h1>

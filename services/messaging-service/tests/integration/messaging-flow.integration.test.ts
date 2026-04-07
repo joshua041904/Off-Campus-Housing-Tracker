@@ -1,6 +1,8 @@
 /**
- * Integration tests: messaging DB + outbox, rate limit (Redis), spam (Trust DB).
- * Requires: Postgres (messaging, trust), Redis. CI provides single host/port for all DBs.
+ * Integration tests: messaging DB + **transactional outbox** (DB-only; no Kafka client here),
+ * rate limit (Redis), spam (Trust DB).
+ * Outbox contract: same transaction as domain write → row with `published = false` until the publisher drains to Kafka (see docs/OUTBOX_PUBLISHER_IMPLEMENTATION.md). Service matrix: docs/outbox-coverage-by-service.md.
+ * Requires: Postgres (messaging, trust), Redis.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { Pool } from 'pg'
@@ -68,6 +70,19 @@ describe('Messaging flow (integration)', () => {
 
     const r = await messagingPool.query(`SELECT COUNT(*)::int AS c FROM messaging.outbox_events`)
     expect(r.rows[0].c).toBeGreaterThanOrEqual(1)
+
+    const out = await messagingPool.query<{
+      aggregate_id: string;
+      type: string;
+      published: boolean;
+    }>(
+      `SELECT aggregate_id, type, published FROM messaging.outbox_events WHERE aggregate_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      [convId],
+    )
+    expect(out.rows[0]).toBeDefined()
+    expect(out.rows[0].type).toBe("MessageSentV1")
+    expect(out.rows[0].aggregate_id).toBe(convId)
+    expect(out.rows[0].published).toBe(false)
   })
 
   it('C) rate limit: 35 increments in same minute expect 31st to throw (429)', async () => {

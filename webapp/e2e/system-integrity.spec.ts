@@ -91,9 +91,9 @@ test.describe("system integrity (multi-service vertical)", () => {
 
     const repBefore = await request.get(`/api/trust/reputation/${userId}`);
     expect(repBefore.ok()).toBeTruthy();
-    const repJson = (await repBefore.json()) as { score?: number };
-    expect(typeof repJson.score).toBe("number");
-    const previousScore = Number(repJson.score) || 0;
+    const repJson = (await repBefore.json()) as { data?: { score?: number } };
+    expect(typeof repJson.data?.score).toBe("number");
+    const previousScore = Number(repJson.data?.score) || 0;
 
     const flag = await request.post("/api/trust/report-abuse", {
       headers: { ...h, "Content-Type": "application/json" },
@@ -108,10 +108,10 @@ test.describe("system integrity (multi-service vertical)", () => {
 
     const repAfter = await request.get(`/api/trust/reputation/${userId}`);
     expect(repAfter.ok()).toBeTruthy();
-    const repAfterJson = (await repAfter.json()) as { score?: number };
-    expect(typeof repAfterJson.score).toBe("number");
+    const repAfterJson = (await repAfter.json()) as { data?: { score?: number } };
+    expect(typeof repAfterJson.data?.score).toBe("number");
     expect(
-      Number(repAfterJson.score) || 0,
+      Number(repAfterJson.data?.score) || 0,
       "trust reputation score must not regress after report-abuse",
     ).toBeGreaterThanOrEqual(previousScore);
 

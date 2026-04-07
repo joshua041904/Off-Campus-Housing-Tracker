@@ -1,6 +1,6 @@
 /**
  * gRPC + Postgres (real {@link proto/listings.proto} surface).
- * Insecure gRPC bind + Kafka broker + topic suffix come from {@link vitest.integration.config.ts}.
+ * Insecure gRPC bind + cluster Kafka + topic suffix come from {@link vitest.integration.config.mts}.
  */
 import { createServer } from "node:net";
 import * as grpc from "@grpc/grpc-js";

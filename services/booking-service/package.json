@@ -2,12 +2,15 @@
   "name": "booking-service",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "main": "dist/server.js",
   "scripts": {
     "build": "prisma generate && tsc -p tsconfig.json",
     "dev": "tsx watch src/server.ts",
     "start": "node dist/server.js",
     "test": "ROLLUP_DISABLE_NATIVE=true vitest run",
+    "test:integration": "OCH_INTEGRATION_KAFKA_FROM_K8S_LB=1 ROLLUP_DISABLE_NATIVE=true vitest run --config vitest.integration.config.mts",
+    "test:all": "pnpm run test && pnpm run test:integration",
     "test:watch": "ROLLUP_DISABLE_NATIVE=true vitest",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev"
@@ -24,7 +27,11 @@
     "@types/express": "^4.17.21",
     "@types/node": "^20.11.0",
     "@types/uuid": "^10.0.0",
+    "@vitest/coverage-v8": "2.1.9",
+    "kafkajs": "^2.2.4",
+    "pg": "^8.11.0",
     "prisma": "6.17.1",
+    "supertest": "^7.2.2",
     "tsx": "^4.16.2",
     "typescript": "^5.5.4",
     "vitest": "^2.1.0"

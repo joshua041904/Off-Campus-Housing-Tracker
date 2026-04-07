@@ -45,7 +45,7 @@ SKIP_VERIFY_CURL_HTTP3 ?= 0
 	deploy-dev rollouts preflight-metallb test-e2e-integrated packet-capture-standalone certify-production \
 	cluster-forensic-sweep forensic-log-sweep network-command-center deploy-monitoring-help tls-secrets-expiry-textfile \
 	chaos-suite governed-chaos failure-budget resilience-menu generate-chaos-report-md \
-	metrics-server-ready trust-integration-tests
+	metrics-server-ready trust-integration-tests test-vitest-stack
 
 # Default orchestration knobs for team "one-command" workflow.
 UP_REQUIRE_COLIMA ?= 1
@@ -1094,3 +1094,6 @@ metrics-server-ready: ## Restart kube-system/metrics-server and wait until kubec
 
 trust-integration-tests: ## Trust HTTP+DB integration (needs Postgres 5446); SKIP_TRUST_INTEGRATION=1 to skip
 	cd $(REPO_ROOT)/services/trust-service && pnpm run test:integration
+
+test-vitest-stack: ## integration:all (Kafka assert) → system contracts → unit batch; same as pnpm run test:vitest-stack
+	cd $(REPO_ROOT) && pnpm -C services/common run build && ROLLUP_DISABLE_NATIVE=true pnpm run test:vitest-stack

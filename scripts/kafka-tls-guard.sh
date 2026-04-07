@@ -2,6 +2,7 @@
 # Kafka TLS drift enforcer: secret ↔ mounted CA, identical JKS across brokers, service-tls↔broker CA parity,
 # och-kafka secret, logs, verify-kafka-cluster.
 # Canonical TLS is always dev-root + kafka-ssl-from-dev-root.sh (never a second CA in-cluster).
+# Broker SAN contract (DNS + MetalLB IPs): scripts/lib/kafka-broker-sans.sh — consumed by that script and verify-kafka-tls-sans.sh.
 #
 # Env:
 #   HOUSING_NS — default off-campus-housing-tracker

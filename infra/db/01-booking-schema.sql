@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS booking.bookings (
   currency_code        TEXT NOT NULL DEFAULT 'USD',
 
   cancellation_reason  TEXT,
+  tenant_notes         TEXT,
 
   created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -50,6 +51,8 @@ CREATE TABLE IF NOT EXISTS booking.bookings (
 
   version              INTEGER NOT NULL DEFAULT 1
 );
+
+ALTER TABLE booking.bookings ADD COLUMN IF NOT EXISTS tenant_notes TEXT;
 
 COMMENT ON TABLE booking.bookings IS 'Tenant requests on listings. tenant_id/landlord_id = auth users; listing_id = reference to listings DB (no FK).';
 COMMENT ON COLUMN booking.bookings.price_cents_snapshot IS 'Price at time of booking; immutable. Never join to listing for price at payment.';

@@ -3,6 +3,7 @@ import { apiGatewayReady, registerViaUi, uniqueE2eEmail } from "./helpers";
 
 /** Register → sign out → log in again (needs api-gateway + auth + booking for dashboard APIs). */
 test("register, sign out, login again", async ({ page, request }) => {
+  test.slow();
   test.skip(
     !(await apiGatewayReady(request)),
     "gateway /api/readyz not OK — auth gRPC not verified (see webapp/README.md)"

@@ -10,8 +10,8 @@
     "test:watch": "ROLLUP_DISABLE_NATIVE=true vitest"
   },
   "dependencies": {
-    "@grpc/grpc-js": "^1.9.0",
     "@common/utils": "workspace:*",
+    "@grpc/grpc-js": "^1.9.0",
     "compression": "^1.7.4",
     "cors": "^2.8.5",
     "express": "^4.19.2",
@@ -22,6 +22,7 @@
     "redis": "^4.7.1"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "2.1.9",
     "tsx": "^4.16.2",
     "typescript": "^5.5.4",
     "vitest": "^2.1.0"
