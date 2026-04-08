@@ -1,5 +1,9 @@
 /* cspell:ignore healthz */
-import express, { type Request, type Response, type NextFunction } from "express";
+import express, {
+  type Request,
+  type Response,
+  type NextFunction,
+} from "express";
 import {
   register,
   httpCounter,
@@ -8,7 +12,11 @@ import {
   USER_ACCOUNT_DELETED_V1,
   userLifecycleV1Topic,
 } from "@common/utils";
-import { signJwt, verifyJwt, type JwtPayload as TokenPayload } from "@common/utils/auth";
+import {
+  signJwt,
+  verifyJwt,
+  type JwtPayload as TokenPayload,
+} from "@common/utils/auth";
 import { randomUUID } from "node:crypto";
 import { createClient } from "redis";
 import { setupOAuthRoutes } from "./routes/oauth.js";
@@ -16,8 +24,17 @@ import { setupVerificationRoutes } from "./routes/verification.js";
 import passkeyRouter from "./routes/passkey.js";
 import { getMockSmsProvider } from "./lib/sms-providers.js";
 import { prisma } from "./lib/prisma.js"; // Use shared PrismaClient instance
-import { hashPassword, comparePassword, getQueueStatus } from "./lib/bcrypt-queue.js"; // Use queued bcrypt operations
-import { getUserFromCache, cacheUser, invalidateUserCache, checkEmailExistsInCache } from "./lib/redis-cache.js"; // Redis caching with Lua scripts
+import {
+  hashPassword,
+  comparePassword,
+  getQueueStatus,
+} from "./lib/bcrypt-queue.js"; // Use queued bcrypt operations
+import {
+  getUserFromCache,
+  cacheUser,
+  invalidateUserCache,
+  checkEmailExistsInCache,
+} from "./lib/redis-cache.js"; // Redis caching with Lua scripts
 
 const app = express();
 // Prisma is now imported from shared module to avoid connection pool exhaustion
@@ -25,21 +42,75 @@ const app = express();
 /** Extend the shared JwtPayload with fields we also put/read */
 type WithJti = TokenPayload & { jti?: string; exp?: number };
 
+type AuthErrorCode =
+  | "INVALID_CREDENTIALS"
+  | "MISSING_TOKEN"
+  | "EXPIRED_TOKEN"
+  | "INVALID_TOKEN"
+  | "TOKEN_REVOKED"
+  | "USER_NOT_FOUND"
+  | "ACCOUNT_DELETED"
+  | "VALIDATION_ERROR"
+  | "EMAIL_ALREADY_EXISTS"
+  | "FORBIDDEN"
+  | "INTERNAL_ERROR";
+
+function authError(code: AuthErrorCode, message: string) {
+  return { code, message };
+}
+
+function sendAuthError(
+  res: Response,
+  status: number,
+  code: AuthErrorCode,
+  message: string,
+  extra?: Record<string, unknown>,
+) {
+  return res.status(status).json({
+    ...authError(code, message),
+    ...(extra ?? {}),
+  });
+}
+
+function classifyJwtError(err: unknown): {
+  code: AuthErrorCode;
+  message: string;
+} {
+  const name = err instanceof Error ? err.name : "";
+  const message = err instanceof Error ? err.message : String(err);
+
+  if (name === "TokenExpiredError") {
+    return { code: "EXPIRED_TOKEN", message: "Token has expired" };
+  }
+
+  return {
+    code: "INVALID_TOKEN",
+    message: message?.toLowerCase().includes("jwt")
+      ? "Token is invalid"
+      : "Token is invalid",
+  };
+}
+
 // --- Redis (revocation list) ---
 // Support both REDIS_URL (with password) and REDIS_PASSWORD env var. Empty = no auth (externalized Redis).
 let REDIS_URL = process.env.REDIS_URL || "redis://redis:6379/0";
 const rawRedisPassword = process.env.REDIS_PASSWORD;
-const REDIS_PASSWORD = rawRedisPassword && String(rawRedisPassword).trim() ? rawRedisPassword : undefined;
+const REDIS_PASSWORD =
+  rawRedisPassword && String(rawRedisPassword).trim()
+    ? rawRedisPassword
+    : undefined;
 // If REDIS_PASSWORD is set and URL doesn't have password, add it
-if (REDIS_PASSWORD && !REDIS_URL.includes('@') && !REDIS_URL.includes('://:')) {
+if (REDIS_PASSWORD && !REDIS_URL.includes("@") && !REDIS_URL.includes("://:")) {
   // Insert password after redis://
-  REDIS_URL = REDIS_URL.replace('redis://', `redis://:${REDIS_PASSWORD}@`);
+  REDIS_URL = REDIS_URL.replace("redis://", `redis://:${REDIS_PASSWORD}@`);
 }
 const redis = createClient({
   url: REDIS_URL,
   socket: { connectTimeout: 10_000 }, // Colima/host.docker.internal may need a moment on first packet
 });
-redis.on("error", (e: unknown) => console.error("auth-service redis error:", e));
+redis.on("error", (e: unknown) =>
+  console.error("auth-service redis error:", e),
+);
 (async () => {
   try {
     await redis.connect();
@@ -54,7 +125,12 @@ app.use(express.json({ limit: "1mb" }));
 // metrics
 app.use((req: Request, res: Response, next: NextFunction) => {
   res.on("finish", () =>
-    httpCounter.inc({ service: "auth", route: req.path, method: req.method, code: res.statusCode })
+    httpCounter.inc({
+      service: "auth",
+      route: req.path,
+      method: req.method,
+      code: res.statusCode,
+    }),
   );
   next();
 });
@@ -67,28 +143,31 @@ app.get("/metrics", async (_req: Request, res: Response) => {
 app.get("/healthz", async (_req: Request, res: Response) => {
   let dbOk = false;
   let redisOk = false;
-  
+
   // Check database (non-blocking, with timeout)
   try {
     // Use Promise.race to add a timeout to the database query
     const dbCheck = prisma.$queryRaw`SELECT 1`;
-    const timeout = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error("DB check timeout")), 500)
+    const timeout = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("DB check timeout")), 500),
     );
     await Promise.race([dbCheck, timeout]);
     dbOk = true;
   } catch (e: any) {
     // Silently fail - don't log timeout errors to reduce noise
     if (!e?.message?.includes("timeout")) {
-      console.warn("auth-service healthz db check failed:", e?.message || "db error");
+      console.warn(
+        "auth-service healthz db check failed:",
+        e?.message || "db error",
+      );
     }
   }
-  
+
   // Check Redis (non-blocking, with timeout)
   try {
     const redisCheck = redis.ping();
-    const timeout = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error("Redis check timeout")), 500)
+    const timeout = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("Redis check timeout")), 500),
     );
     await Promise.race([redisCheck, timeout]);
     redisOk = true;
@@ -98,7 +177,7 @@ app.get("/healthz", async (_req: Request, res: Response) => {
       console.warn("auth-service healthz redis ping failed:", redisErr);
     }
   }
-  
+
   // Include bcrypt queue status and cache stats in health check
   const { getCacheStats } = await import("./lib/redis-cache.js");
   // @ts-ignore - TypeScript incorrectly infers nested type from bcryptjs
@@ -111,19 +190,19 @@ app.get("/healthz", async (_req: Request, res: Response) => {
     rounds: queueStatusData.rounds,
   } as any;
   const cacheStats = await getCacheStats();
-  
+
   // Return 200 immediately - allows service to start and gRPC to be available
   // The service can still handle requests, they'll just fail if DB is down
-  res.status(200).json({ 
-    ok: true, 
-    db: dbOk ? 'connected' : 'disconnected',
-    redis: redisOk ? 'connected' : 'disconnected',
-      bcrypt: {
-        activeOperations: queueStatus.activeOperations,
-        queueLength: queueStatus.queueLength,
-        maxConcurrent: queueStatus.maxConcurrent,
-        rounds: queueStatus.rounds,
-      },
+  res.status(200).json({
+    ok: true,
+    db: dbOk ? "connected" : "disconnected",
+    redis: redisOk ? "connected" : "disconnected",
+    bcrypt: {
+      activeOperations: queueStatus.activeOperations,
+      queueLength: queueStatus.queueLength,
+      maxConcurrent: queueStatus.maxConcurrent,
+      rounds: queueStatus.rounds,
+    },
     cache: cacheStats,
   });
 });
@@ -143,16 +222,30 @@ app.post("/register", async (req: Request, res: Response) => {
       password?: string;
       sendVerification?: boolean;
     };
-    if (!email || !password) return res.status(400).json({ error: "email/password required" });
+    if (!email || !password) {
+      return sendAuthError(
+        res,
+        400,
+        "VALIDATION_ERROR",
+        "Email and password are required",
+      );
+    }
 
     // Check cache first for email existence (fast path)
     const emailExists = await checkEmailExistsInCache(email);
     if (emailExists) {
-      return res.status(409).json({ error: "email already exists" });
+      return sendAuthError(
+        res,
+        409,
+        "EMAIL_ALREADY_EXISTS",
+        "Email already exists",
+      );
     }
 
     // Use raw SQL query to access auth.users table directly
-    const existing = await prisma.$queryRaw<Array<{ id: string; email: string }>>`
+    const existing = await prisma.$queryRaw<
+      Array<{ id: string; email: string }>
+    >`
       SELECT id, email FROM auth.users
       WHERE email = ${email} AND COALESCE(is_deleted, false) = false
     `.then((r: Array<any>) => r[0] || null);
@@ -161,13 +254,18 @@ app.post("/register", async (req: Request, res: Response) => {
       await cacheUser({
         id: existing.id,
         email: existing.email,
-        passwordHash: '', // Don't cache password hash for existing check
+        passwordHash: "", // Don't cache password hash for existing check
         mfaEnabled: false,
         emailVerified: false,
         phoneVerified: false,
         createdAt: new Date(),
       });
-      return res.status(409).json({ error: "email already exists" });
+      return sendAuthError(
+        res,
+        409,
+        "EMAIL_ALREADY_EXISTS",
+        "Email already exists",
+      );
     }
 
     // Use queued bcrypt to prevent CPU contention
@@ -175,9 +273,13 @@ app.post("/register", async (req: Request, res: Response) => {
     const hash = await hashPassword(password);
     const hashDuration = Date.now() - hashStart;
     if (hashDuration > 5000) {
-      console.warn(`[auth] Slow bcrypt.hash: ${hashDuration}ms (queue may be backed up)`);
+      console.warn(
+        `[auth] Slow bcrypt.hash: ${hashDuration}ms (queue may be backed up)`,
+      );
     }
-    const user = await prisma.$queryRaw<Array<{ id: string; email: string; created_at: Date }>>`
+    const user = await prisma.$queryRaw<
+      Array<{ id: string; email: string; created_at: Date }>
+    >`
       INSERT INTO auth.users (email, password_hash, email_verified, created_at)
       VALUES (${email}, ${hash}, ${sendVerification ? false : true}, NOW())
       RETURNING id, email, created_at
@@ -197,7 +299,8 @@ app.post("/register", async (req: Request, res: Response) => {
     // Send verification email if requested
     if (sendVerification) {
       try {
-        const { sendEmailVerificationCode } = await import("./lib/verification.js");
+        const { sendEmailVerificationCode } =
+          await import("./lib/verification.js");
         await sendEmailVerificationCode(prisma, user.id, email);
       } catch (e) {
         console.warn("Failed to send verification email:", e);
@@ -215,14 +318,24 @@ app.post("/register", async (req: Request, res: Response) => {
     });
   } catch (e: any) {
     console.error("register error:", e);
-    res.status(500).json({ error: "internal" });
+    return sendAuthError(res, 500, "INTERNAL_ERROR", "Internal server error");
   }
 });
 
 app.post("/login", async (req: Request, res: Response) => {
   try {
-    const { email, password } = (req.body ?? {}) as { email?: string; password?: string };
-    if (!email || !password) return res.status(400).json({ error: "email/password required" });
+    const { email, password } = (req.body ?? {}) as {
+      email?: string;
+      password?: string;
+    };
+    if (!email || !password) {
+      return sendAuthError(
+        res,
+        400,
+        "VALIDATION_ERROR",
+        "Email and password are required",
+      );
+    }
 
     console.log(`[LOGIN] Login attempt for email: ${email}`);
 
@@ -230,29 +343,33 @@ app.post("/login", async (req: Request, res: Response) => {
     const cacheStart = Date.now();
     let user = await getUserFromCache(email);
     const cacheDuration = Date.now() - cacheStart;
-    
+
     if (user) {
       console.log(`[LOGIN] User found in cache (hit) took ${cacheDuration}ms`);
     } else {
-      console.log(`[LOGIN] Cache miss, fetching from database (took ${cacheDuration}ms)`);
+      console.log(
+        `[LOGIN] Cache miss, fetching from database (took ${cacheDuration}ms)`,
+      );
       // Cache miss - fetch from database
-      const dbUser = await prisma.$queryRaw<Array<{
-        id: string;
-        email: string;
-        passwordHash: string;
-        mfaEnabled: boolean;
-        emailVerified: boolean;
-        phoneVerified: boolean;
-        createdAt: Date;
-        isDeleted: boolean;
-      }>>`
+      const dbUser = await prisma.$queryRaw<
+        Array<{
+          id: string;
+          email: string;
+          passwordHash: string;
+          mfaEnabled: boolean;
+          emailVerified: boolean;
+          phoneVerified: boolean;
+          createdAt: Date;
+          isDeleted: boolean;
+        }>
+      >`
         SELECT id, email, password_hash as "passwordHash", mfa_enabled as "mfaEnabled",
                email_verified as "emailVerified", phone_verified as "phoneVerified", created_at as "createdAt",
                COALESCE(is_deleted, false) as "isDeleted"
         FROM auth.users
         WHERE email = ${email} AND COALESCE(is_deleted, false) = false
       `.then((r: Array<any>) => r[0] || null);
-      
+
       if (dbUser) {
         // Cache the user for future lookups
         await cacheUser({
@@ -267,11 +384,16 @@ app.post("/login", async (req: Request, res: Response) => {
         user = dbUser;
       }
     }
-    
+
     if (!user) console.log(`[LOGIN] User not found for email: ${email}`);
     if (!user || !user.passwordHash) {
       // User doesn't exist or has no password - return 401 (not 500)
-      return res.status(401).json({ error: "invalid credentials" });
+      return sendAuthError(
+        res,
+        401,
+        "INVALID_CREDENTIALS",
+        "Invalid email or password",
+      );
     }
 
     // Use queued bcrypt compare (faster than hash). Catch throws (e.g. corrupt hash) so we return 401, not 500.
@@ -279,9 +401,20 @@ app.post("/login", async (req: Request, res: Response) => {
     try {
       ok = await comparePassword(password, user.passwordHash);
     } catch (_) {
-      return res.status(401).json({ error: "invalid credentials" });
+      return sendAuthError(
+        res,
+        401,
+        "INVALID_CREDENTIALS",
+        "Invalid email or password",
+      );
     }
-    if (!ok) return res.status(401).json({ error: "invalid credentials" });
+    if (!ok)
+      return sendAuthError(
+        res,
+        401,
+        "INVALID_CREDENTIALS",
+        "Invalid email or password",
+      );
 
     // MFA/passkeys disabled for this setup — issue token after password check
     const jti = randomUUID();
@@ -293,10 +426,21 @@ app.post("/login", async (req: Request, res: Response) => {
     // Return 401 for credential/not-found errors so we never leak 500 for auth failures (e.g. deleted user, DB blip)
     const msg = (e?.message ?? String(e)).toLowerCase();
     const code = e?.code ?? "";
-    if (code === "P2025" || msg.includes("not found") || msg.includes("record not found") || msg.includes("invalid") || msg.includes("credential")) {
-      return res.status(401).json({ error: "invalid credentials" });
+    if (
+      code === "P2025" ||
+      msg.includes("not found") ||
+      msg.includes("record not found") ||
+      msg.includes("invalid") ||
+      msg.includes("credential")
+    ) {
+      return sendAuthError(
+        res,
+        401,
+        "INVALID_CREDENTIALS",
+        "Invalid email or password",
+      );
     }
-    res.status(500).json({ error: "internal" });
+    return sendAuthError(res, 500, "INTERNAL_ERROR", "Internal server error");
   }
 });
 
@@ -315,16 +459,22 @@ app.post("/logout", async (req: Request, res: Response) => {
     const payload = verifyJwt(raw) as WithJti;
     if (payload.jti) {
       const now = Math.floor(Date.now() / 1000);
-      const exp = typeof payload.exp === "number" ? payload.exp : now + 24 * 60 * 60; // fallback 24h
+      const exp =
+        typeof payload.exp === "number" ? payload.exp : now + 24 * 60 * 60; // fallback 24h
       const ttl = Math.max(1, exp - now);
       try {
         await redis.set(`revoked:${payload.jti}`, "1", { EX: ttl });
         console.log("auth-service: revoked jti", payload.jti, "ttl", ttl, "s");
         return res.status(200).json({ ok: true, revoked: true });
       } catch (redisErr) {
-        console.error("auth-service: failed to revoke token in Redis:", redisErr);
+        console.error(
+          "auth-service: failed to revoke token in Redis:",
+          redisErr,
+        );
         // Still return 200 but indicate revocation failed
-        return res.status(200).json({ ok: true, revoked: false, error: "Redis unavailable" });
+        return res
+          .status(200)
+          .json({ ok: true, revoked: false, error: "Redis unavailable" });
       }
     }
     return res.status(200).json({ ok: true, revoked: false });
@@ -343,15 +493,25 @@ app.post("/logout", async (req: Request, res: Response) => {
 app.post("/validate", async (req: Request, res: Response) => {
   const auth = req.headers.authorization?.split(" ")[1];
   if (!auth) {
-    return res.status(401).json({ error: "missing token", valid: false });
+    return sendAuthError(
+      res,
+      401,
+      "MISSING_TOKEN",
+      "Authorization token is required",
+      {
+        valid: false,
+      },
+    );
   }
-  
+
   try {
     const payload = verifyJwt(auth) as WithJti;
     const userId = payload.sub;
-    
+
     if (!userId) {
-      return res.status(401).json({ error: "invalid token", valid: false });
+      return sendAuthError(res, 401, "INVALID_TOKEN", "Token is invalid", {
+        valid: false,
+      });
     }
 
     // Check if token is revoked
@@ -359,22 +519,54 @@ app.post("/validate", async (req: Request, res: Response) => {
     if (jti) {
       const revoked = await redis.get(`revoked:${jti}`);
       if (revoked) {
-        return res.status(401).json({ error: "token revoked", valid: false });
+        return sendAuthError(
+          res,
+          401,
+          "TOKEN_REVOKED",
+          "Token has been revoked",
+          { valid: false },
+        );
       }
     }
 
     // Verify user exists
-    const user = await prisma.$queryRaw<Array<{ id: string; email: string | null; created_at: Date; is_deleted: boolean }>>`
+    const user = await prisma.$queryRaw<
+      Array<{
+        id: string;
+        email: string | null;
+        created_at: Date;
+        is_deleted: boolean;
+      }>
+    >`
       SELECT id, email, created_at, COALESCE(is_deleted, false) as is_deleted
       FROM auth.users
       WHERE id = ${userId}::uuid
-    `.then((r: Array<{ id: string; email: string | null; created_at: Date; is_deleted: boolean }>) => r[0] || null);
-    
+    `.then(
+      (
+        r: Array<{
+          id: string;
+          email: string | null;
+          created_at: Date;
+          is_deleted: boolean;
+        }>,
+      ) => r[0] || null,
+    );
+
     if (!user) {
-      return res.status(401).json({ error: "user not found", valid: false });
+      return sendAuthError(res, 401, "USER_NOT_FOUND", "User not found", {
+        valid: false,
+      });
     }
     if (user.is_deleted) {
-      return res.status(401).json({ error: "account deleted", valid: false });
+      return sendAuthError(
+        res,
+        401,
+        "ACCOUNT_DELETED",
+        "Account has been deleted",
+        {
+          valid: false,
+        },
+      );
     }
 
     return res.status(200).json({
@@ -387,7 +579,10 @@ app.post("/validate", async (req: Request, res: Response) => {
     });
   } catch (err) {
     console.error("auth-service: validate token error:", err);
-    return res.status(401).json({ error: "invalid token", valid: false });
+    const jwtErr = classifyJwtError(err);
+    return sendAuthError(res, 401, jwtErr.code, jwtErr.message, {
+      valid: false,
+    });
   }
 });
 
@@ -395,15 +590,20 @@ app.post("/validate", async (req: Request, res: Response) => {
 app.post("/refresh", async (req: Request, res: Response) => {
   const auth = req.headers.authorization?.split(" ")[1];
   if (!auth) {
-    return res.status(401).json({ error: "missing token" });
+    return sendAuthError(
+      res,
+      401,
+      "MISSING_TOKEN",
+      "Authorization token is required",
+    );
   }
-  
+
   try {
     const payload = verifyJwt(auth) as WithJti;
     const userId = payload.sub;
-    
+
     if (!userId) {
-      return res.status(401).json({ error: "invalid token" });
+      return sendAuthError(res, 401, "INVALID_TOKEN", "Token is invalid");
     }
 
     // Check if token is revoked
@@ -411,33 +611,53 @@ app.post("/refresh", async (req: Request, res: Response) => {
     if (jti) {
       const revoked = await redis.get(`revoked:${jti}`);
       if (revoked) {
-        return res.status(401).json({ error: "token revoked" });
+        return sendAuthError(
+          res,
+          401,
+          "TOKEN_REVOKED",
+          "Token has been revoked",
+        );
       }
     }
 
     // Verify user exists
-    const user = await prisma.$queryRaw<Array<{ id: string; email: string | null; is_deleted: boolean }>>`
+    const user = await prisma.$queryRaw<
+      Array<{ id: string; email: string | null; is_deleted: boolean }>
+    >`
       SELECT id, email, COALESCE(is_deleted, false) as is_deleted
       FROM auth.users
       WHERE id = ${userId}::uuid
-    `.then((r: Array<{ id: string; email: string | null; is_deleted: boolean }>) => r[0] || null);
-    
+    `.then(
+      (r: Array<{ id: string; email: string | null; is_deleted: boolean }>) =>
+        r[0] || null,
+    );
+
     if (!user) {
-      return res.status(401).json({ error: "user not found" });
+      return sendAuthError(res, 401, "USER_NOT_FOUND", "User not found");
     }
     if (user.is_deleted) {
-      return res.status(401).json({ error: "account deleted" });
+      return sendAuthError(
+        res,
+        401,
+        "ACCOUNT_DELETED",
+        "Account has been deleted",
+      );
     }
 
     // Generate new token
     const newJti = randomUUID();
-    const newPayload: WithJti = { sub: user.id, email: user.email ?? "", jti: newJti };
+    const newPayload: WithJti = {
+      sub: user.id,
+      email: user.email ?? "",
+      jti: newJti,
+    };
     const newToken = signJwt(newPayload);
 
     return res.status(200).json({ token: newToken });
   } catch (err) {
     console.error("auth-service: refresh token error:", err);
-    return res.status(401).json({ error: "invalid token" });
+    const jwtErr = classifyJwtError(err);
+    return sendAuthError(res, 401, jwtErr.code, jwtErr.message);
   }
 });
 
@@ -447,14 +667,20 @@ app.post("/refresh", async (req: Request, res: Response) => {
  */
 app.delete("/account", async (req: Request, res: Response) => {
   const auth = req.headers.authorization?.split(" ")[1];
-  if (!auth) return res.status(401).json({ error: "missing token" });
+  if (!auth)
+    return sendAuthError(
+      res,
+      401,
+      "MISSING_TOKEN",
+      "Authorization token is required",
+    );
 
   try {
     const payload = verifyJwt(auth) as WithJti;
     const userId = payload.sub;
 
     if (!userId) {
-      return res.status(401).json({ error: "invalid token" });
+      return sendAuthError(res, 401, "INVALID_TOKEN", "Token is invalid");
     }
 
     const row = await prisma.$queryRaw<
@@ -465,11 +691,13 @@ app.delete("/account", async (req: Request, res: Response) => {
     `.then((r) => r[0] || null);
 
     if (!row) {
-      return res.status(404).json({ error: "user not found" });
+      return sendAuthError(res, 404, "USER_NOT_FOUND", "User not found");
     }
 
     if (row.is_deleted) {
-      return res.status(202).json({ status: "already_deleted", user_id: userId });
+      return res
+        .status(202)
+        .json({ status: "already_deleted", user_id: userId });
     }
 
     const jti = payload.jti;
@@ -477,7 +705,12 @@ app.delete("/account", async (req: Request, res: Response) => {
       try {
         const revoked = await redis.get(`revoked:${jti}`);
         if (revoked) {
-          return res.status(401).json({ error: "token revoked" });
+          return sendAuthError(
+            res,
+            401,
+            "TOKEN_REVOKED",
+            "Token has been revoked",
+          );
         }
       } catch {
         /* continue */
@@ -555,10 +788,12 @@ app.delete("/account", async (req: Request, res: Response) => {
     });
 
     if (outcome.kind === "notfound") {
-      return res.status(404).json({ error: "user not found" });
+      return sendAuthError(res, 404, "USER_NOT_FOUND", "User not found");
     }
     if (outcome.kind === "already_deleted") {
-      return res.status(202).json({ status: "already_deleted", user_id: userId });
+      return res
+        .status(202)
+        .json({ status: "already_deleted", user_id: userId });
     }
 
     if (outcome.emailWas) {
@@ -568,7 +803,8 @@ app.delete("/account", async (req: Request, res: Response) => {
     try {
       if (payload.jti) {
         const now = Math.floor(Date.now() / 1000);
-        const exp = typeof payload.exp === "number" ? payload.exp : now + 24 * 60 * 60;
+        const exp =
+          typeof payload.exp === "number" ? payload.exp : now + 24 * 60 * 60;
         const ttl = Math.max(1, exp - now);
         await redis.set(`revoked:${payload.jti}`, "1", { EX: ttl });
       }
@@ -577,48 +813,68 @@ app.delete("/account", async (req: Request, res: Response) => {
       console.warn("auth-service: redis revoke after delete:", redisErr);
     }
 
-    console.log(`[auth-service] Account anonymized for user ${userId} (outbox ${outcome.eventId})`);
+    console.log(
+      `[auth-service] Account anonymized for user ${userId} (outbox ${outcome.eventId})`,
+    );
     return res
       .status(202)
       .json({ status: "accepted", user_id: userId, event_id: outcome.eventId });
   } catch (err: unknown) {
     console.error("auth-service: delete account error:", err);
-    return res.status(500).json({ error: "internal error" });
+
+    const jwtErr = classifyJwtError(err);
+    if (jwtErr.code === "EXPIRED_TOKEN" || jwtErr.code === "INVALID_TOKEN") {
+      return sendAuthError(res, 401, jwtErr.code, jwtErr.message);
+    }
+
+    return sendAuthError(res, 500, "INTERNAL_ERROR", "Internal server error");
   }
 });
 
 app.get("/me", (req: Request, res: Response) => {
   const auth = req.headers.authorization?.split(" ")[1];
-  if (!auth) return res.status(401).json({ error: "missing token" });
+  if (!auth) {
+    return sendAuthError(
+      res,
+      401,
+      "MISSING_TOKEN",
+      "Authorization token is required",
+    );
+  }
   try {
     const payload = verifyJwt(auth);
     // Fetch additional user info
-    prisma.$queryRaw<Array<{
-      email_verified: boolean;
-      phone_verified: boolean;
-      mfa_enabled: boolean;
-      is_deleted: boolean;
-      display_username: string | null;
-    }>>`
+    prisma.$queryRaw<
+      Array<{
+        email_verified: boolean;
+        phone_verified: boolean;
+        mfa_enabled: boolean;
+        is_deleted: boolean;
+        display_username: string | null;
+      }>
+    >`
       SELECT email_verified, phone_verified, mfa_enabled,
              COALESCE(is_deleted, false) as is_deleted,
              display_username
       FROM auth.users
       WHERE id = ${payload.sub}::uuid
-    `.then((r: any[]) => {
-      res.json({
-        ...payload,
-        emailVerified: r[0]?.email_verified || false,
-        phoneVerified: r[0]?.phone_verified || false,
-        mfaEnabled: r[0]?.mfa_enabled || false,
-        is_deleted: r[0]?.is_deleted || false,
-        display_username: r[0]?.display_username ?? null,
+    `
+      .then((r: any[]) => {
+        res.json({
+          ...payload,
+          emailVerified: r[0]?.email_verified || false,
+          phoneVerified: r[0]?.phone_verified || false,
+          mfaEnabled: r[0]?.mfa_enabled || false,
+          is_deleted: r[0]?.is_deleted || false,
+          display_username: r[0]?.display_username ?? null,
+        });
+      })
+      .catch(() => {
+        res.json(payload);
       });
-    }).catch(() => {
-      res.json(payload);
-    });
-  } catch {
-    res.status(401).json({ error: "invalid token" });
+  } catch (err) {
+    const jwtErr = classifyJwtError(err);
+    return sendAuthError(res, 401, jwtErr.code, jwtErr.message);
   }
 });
 
@@ -644,7 +900,7 @@ app.get("/privacy", (_req: Request, res: Response) => {
 </head>
 <body>
   <h1>Privacy Policy</h1>
-  <p class="last-updated"><strong>Last updated:</strong> ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+  <p class="last-updated"><strong>Last updated:</strong> ${new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}</p>
 
   <h2>1. Information We Collect</h2>
   <p>When you sign in with Google OAuth, we collect the following information:</p>
@@ -731,7 +987,7 @@ app.get("/terms", (_req: Request, res: Response) => {
 </head>
 <body>
   <h1>Terms of Service</h1>
-  <p class="last-updated"><strong>Last updated:</strong> ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+  <p class="last-updated"><strong>Last updated:</strong> ${new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}</p>
 
   <h2>1. Acceptance of Terms</h2>
   <p>By accessing and using Off-Campus-Housing-Tracker ("the Service"), you accept and agree to be bound by the terms and provision of this agreement. If you do not agree to abide by the above, please do not use this service.</p>
@@ -781,24 +1037,30 @@ app.use("/verify", setupVerificationRoutes(prisma));
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   const msg = err instanceof Error ? err.message : String(err);
   console.error("auth service error:", msg);
-  if (!res.headersSent) res.status(500).json({ error: "internal" });
+  if (!res.headersSent) {
+    return sendAuthError(res, 500, "INTERNAL_ERROR", "Internal server error");
+  }
 });
 
 // Start HTTP server
 const httpPort = process.env.AUTH_PORT || 4001;
 app.listen(httpPort, () => {
   console.log(`auth HTTP server up on port ${httpPort}`);
-  void import("./lib/auth-outbox-publisher.js").then(({ startAuthOutboxPublisher }) => {
-    startAuthOutboxPublisher(prisma);
-  });
+  void import("./lib/auth-outbox-publisher.js").then(
+    ({ startAuthOutboxPublisher }) => {
+      startAuthOutboxPublisher(prisma);
+    },
+  );
 });
 
 // Start gRPC server
 if (process.env.ENABLE_GRPC !== "false") {
-  import('./grpc-server.js').then(({ startGrpcServer }) => {
-    const grpcPort = parseInt(process.env.GRPC_PORT || "50051", 10);
-    startGrpcServer(grpcPort);
-  }).catch((e) => {
-    console.error("Failed to start gRPC server:", e);
-  });
+  import("./grpc-server.js")
+    .then(({ startGrpcServer }) => {
+      const grpcPort = parseInt(process.env.GRPC_PORT || "50051", 10);
+      startGrpcServer(grpcPort);
+    })
+    .catch((e) => {
+      console.error("Failed to start gRPC server:", e);
+    });
 }
