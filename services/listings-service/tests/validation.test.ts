@@ -28,6 +28,13 @@ describe("validateListingId", () => {
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.value).toBe(id);
   });
+
+  it("accepts a valid uppercase UUID", () => {
+    const id = "AAAAAAAA-BBBB-4CCC-BAAA-EEEEEEEEEEEE";
+    const r = validateListingId(id);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value).toBe(id);
+  });
 });
 
 describe("validateUserId", () => {
