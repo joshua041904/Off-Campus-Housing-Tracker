@@ -20,6 +20,8 @@ data:
         format json
         level INFO
       }
+      # Edge terminates TLS; under k6 burst, OS accept queue / ephemeral ports (Colima) can surface as
+      # dial tcp: connection refused — tune VM ulimit -n and somaxconn; gateway/Haproxy maxconn raised in manifests.
       servers {
         protocols h1 h2 h3
         timeouts {

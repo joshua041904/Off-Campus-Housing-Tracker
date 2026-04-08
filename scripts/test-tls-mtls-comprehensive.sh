@@ -407,18 +407,19 @@ if [[ -n "$PROTO_DIR" ]] && command -v grpcurl >/dev/null 2>&1; then
 
   # Cleanup: delete test user(s) so next run doesn't get 409
   _delete_account() {
-    local tok="$1"
+    local tok="$1" code
     if [[ -n "$CA_CERT" ]] && [[ -f "$CA_CERT" ]]; then
-      curl --cacert "$CA_CERT" -sS -o /dev/null -w "%{http_code}" --http2 --max-time 10 \
+      code="$(curl --cacert "$CA_CERT" -sS -o /dev/null -w "%{http_code}" --http2 --max-time 10 \
         --resolve "$HOST:${PORT}:${CURL_RESOLVE_IP}" \
         -H "Host: $HOST" -H "Authorization: Bearer $tok" \
-        -X DELETE "https://$HOST:${PORT}/api/auth/account" 2>/dev/null | grep -q "204"
+        -X DELETE "https://$HOST:${PORT}/api/auth/account" 2>/dev/null || echo "000")"
     else
-      curl -k -sS -o /dev/null -w "%{http_code}" --http2 --max-time 10 \
+      code="$(curl -k -sS -o /dev/null -w "%{http_code}" --http2 --max-time 10 \
         --resolve "$HOST:${PORT}:${CURL_RESOLVE_IP}" \
         -H "Host: $HOST" -H "Authorization: Bearer $tok" \
-        -X DELETE "https://$HOST:${PORT}/api/auth/account" 2>/dev/null | grep -q "204"
+        -X DELETE "https://$HOST:${PORT}/api/auth/account" 2>/dev/null || echo "000")"
     fi
+    [[ "$code" == "202" || "$code" == "204" ]]
   }
   if [[ -n "${TLS_TEST4_TOKEN:-}" ]]; then
     _delete_account "$TLS_TEST4_TOKEN" && info "  Test 4 cleanup: deleted test user" || true

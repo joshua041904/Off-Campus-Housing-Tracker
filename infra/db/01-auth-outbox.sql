@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS auth.outbox_events (
   published     BOOLEAN NOT NULL DEFAULT false
 );
 
-CREATE INDEX IF NOT EXISTS idx_auth_outbox_unpublished
+-- Name must differ from Prisma migration index on auth.auth_outbox (idx_auth_outbox_unpublished).
+CREATE INDEX IF NOT EXISTS idx_auth_outbox_events_unpublished
   ON auth.outbox_events(published, created_at)
   WHERE published = false;
 

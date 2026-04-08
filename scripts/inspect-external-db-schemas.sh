@@ -36,12 +36,13 @@ else
 fi
 
 # Expected tables per DB (schema.table) from infra/db SQL and runtime schema.
-# auth: runtime schema in this repo does not require auth.outbox_events
-expect_5441="auth.users auth.sessions auth.mfa_settings auth.oauth_providers auth.passkeys auth.passkey_challenges auth.verification_codes auth.user_addresses"
+# auth: core users + MFA + transactional outbox — auth.auth_outbox (Prisma) and auth.outbox_events (infra/db/01-auth-outbox.sql, proto-style outbox). Both should exist after bootstrap + migration; inspect requires both so dumps match OCH contract.
+expect_5441="auth.users auth.sessions auth.mfa_settings auth.oauth_providers auth.passkeys auth.passkey_challenges auth.verification_codes auth.user_addresses auth.outbox_events auth.auth_outbox"
 # listings: 00-create-listings-database.sql, 01-listings-schema-and-tuning.sql, 03-listings-outbox.sql, 04-listings-processed-events.sql
 expect_5442="listings.listings listings.outbox_events listings.processed_events"
-# bookings: 01-booking-schema.sql, 02-booking-state-machine.sql, 03-booking-outbox.sql
-expect_5443="booking.bookings booking.outbox_events"
+# bookings: 01-booking-schema.sql (+ tenant_notes on bookings), 02-booking-state-machine, 03-booking-outbox;
+# Prisma/runtime: booking.search_history, booking.watchlist_items, booking.processed_events (user lifecycle idempotency).
+expect_5443="booking.bookings booking.outbox_events booking.search_history booking.watchlist_items booking.processed_events"
 # messaging: 01-messaging-schema.sql, 02-messaging-outbox.sql, ...
 expect_5444="messaging.conversations messaging.messages messaging.outbox_events"
 # notification: 01-notification-schema.sql, 02-notification-idempotency.sql, 03-notification-outbox.sql
@@ -182,6 +183,26 @@ while IFS= read -r line; do
     any_schema_mismatch=1
     all_match=1
   fi
+
+  # booking.bookings: tenant_notes (tenant-editable notes; Prisma migration 20260406120000_booking_tenant_notes)
+  if [[ "$port" == "5443" ]] && [[ "$list_ok" -eq 1 ]]; then
+    echo "### Column check: \`booking.bookings.tenant_notes\`" >> "$REPORT_FILE"
+    echo "" >> "$REPORT_FILE"
+    if PGPASSWORD="$PGPASSWORD" psql -h "$PGHOST" -p "$port" -U "$PGUSER" -d "$dbname" -X -t -A -P pager=off -v ON_ERROR_STOP=1 -c "
+      SELECT CASE WHEN EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'booking' AND table_name = 'bookings' AND column_name = 'tenant_notes'
+      ) THEN 'present' ELSE 'missing' END;
+    " 2>/dev/null | grep -qx present; then
+      echo "✅ \`tenant_notes\` present on \`booking.bookings\`." >> "$REPORT_FILE"
+    else
+      echo "❌ \`tenant_notes\` missing on \`booking.bookings\` (apply Prisma migration or \`infra/db/01-booking-schema.sql\` ALTER)." >> "$REPORT_FILE"
+      any_schema_mismatch=1
+      all_match=1
+    fi
+    echo "" >> "$REPORT_FILE"
+  fi
+
   echo "" >> "$REPORT_FILE"
 done <<< "$DB_LIST"
 

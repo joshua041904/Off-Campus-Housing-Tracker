@@ -1,0 +1,35 @@
+@startuml uml_class_media
+title LLD — media-service (HTTP + gRPC — proto/media.proto)
+skinparam defaultFontName Helvetica
+
+package "HTTP / gRPC transport" {
+  class "Signed-URL HTTP API\n(server.ts)" as Http <<Node>>
+  class "MediaService\n(grpc-server.ts)" as Grpc <<Node>> {
+    CreateUploadUrl()
+    CompleteUpload()
+    GetDownloadUrl()
+  }
+}
+
+package "Application" {
+  class "Media metadata\n+ policy" as D <<service>>
+}
+
+package "Infrastructure" {
+  class "Metadata DB\n(Prisma)" as R <<repository>>
+  class "Object store\n(S3 / MinIO)" as O
+}
+
+Http --> D
+Grpc --> D
+D --> R
+D --> O
+
+note bottom of Grpc
+  **Contract:** `proto/media.proto`
+  — **no** file bytes on gRPC; client
+  uploads directly to object storage
+  using returned signed URLs.
+end note
+
+@enduml

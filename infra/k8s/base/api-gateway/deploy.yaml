@@ -38,6 +38,8 @@ spec:
           env:
             - name: NODE_ENV
               value: "development"
+            - name: NODE_OPTIONS
+              value: "--max-http-header-size=32768"
             - name: GATEWAY_PORT
               value: "4020"
             - name: NODE_TLS_REJECT_UNAUTHORIZED
@@ -61,10 +63,10 @@ spec:
             # Optional: GRPC_SERVER_NAME for non-cluster gRPC targets. In-cluster *.svc.cluster.local uses the target host automatically (see services/common grpc-clients.ts).
           resources:
             requests:
-              cpu: "200m"
+              cpu: "250m"
               memory: "256Mi"
             limits:
-              cpu: "500m"
+              cpu: "1000m"
               memory: "512Mi"
           volumeMounts:
             - name: service-tls

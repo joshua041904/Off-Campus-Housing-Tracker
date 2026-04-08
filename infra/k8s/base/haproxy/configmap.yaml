@@ -18,7 +18,8 @@ data:
       log global
       option httplog
       option http-keep-alive
-      maxconn 2000
+      # Raised for burst k6 / many parallel clients (was 2000; fe_api bind was 1000 — both could force RST under load).
+      maxconn 8192
       timeout connect 5s
       timeout client  60s
       timeout server  60s
@@ -31,7 +32,7 @@ data:
       hold valid 10s
 
     frontend fe_api
-      bind *:8081 maxconn 1000
+      bind *:8081 maxconn 8192
       http-request set-header X-Forwarded-Proto https if { ssl_fc }
       http-request set-header X-Forwarded-Proto http  if !{ ssl_fc }
       http-request set-header X-Forwarded-Host   %[req.hdr(Host)]
@@ -46,7 +47,7 @@ data:
       # Only send traffic to ready pods; inter/fall/rise reduce 503 during rotation when backends restart.
       default-server inter 3s fall 2 rise 3
       # init-addr none + resolvers k8s: resolve at runtime via CoreDNS so health checks see api-gateway
-      server api api-gateway.off-campus-housing-tracker.svc.cluster.local:4020 check maxconn 600 init-addr none resolvers k8s
+      server api api-gateway.off-campus-housing-tracker.svc.cluster.local:4020 check maxconn 4000 init-addr none resolvers k8s
 
     listen stats
       bind *:8404

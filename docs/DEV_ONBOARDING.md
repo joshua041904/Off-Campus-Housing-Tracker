@@ -8,9 +8,9 @@ This doc answers **developer experience** questions after moving Kafka off Docke
 
 1. **`make images`** — Builds **every default housing service image** at **`:dev`** (`auth-service`, `listings-service`, `booking-service`, `messaging-service`, `trust-service`, `analytics-service`, `media-service`, `notification-service`, `api-gateway`, `transport-watchdog`; see `scripts/lib/och-housing-docker-services-default.sh`) via **`scripts/build-housing-images-k3s.sh`**, and **loads them into Colima** when Colima is running. Subset builds: `SERVICES="api-gateway" make images`. This step does **not** apply Kubernetes manifests or run Kafka verification.
 
-2. **`make dev-onboard`** — Brings the **full local stack** up in order: cluster/MetalLB, **TLS / dev-root / service TLS / Kafka JKS**, host Postgres/Redis/MinIO, **KRaft apply**, DNS/topics preflight, **`kafka-tls-guard`** (includes full **`verify-kafka-cluster`**), **service-tls alias + quorum gates**, app **`deploy-dev`**, edge **`/etc/hosts`** + routing checks, then **by default** **`make kafka-health`** (full **`verify-kafka-cluster`** again, **`kafka-runtime-sync.sh --check-only`**, and the **safe** alignment suite with reports under **`bench_logs/kafka-alignment-report/`**). **Phase 10 is not skipped unless you set `SKIP_KAFKA_HEALTH_ON_ONBOARD=1`.**
+2. **`make dev-onboard`** — Brings the **full local stack** up in order: cluster/MetalLB, **TLS / dev-root / service TLS / Kafka JKS**, host Postgres/Redis/MinIO, **KRaft apply**, DNS/topics preflight, **`kafka-tls-guard`** (includes full **`verify-kafka-cluster`**), **service-tls alias + quorum gates**, app **`deploy-dev`**, edge **`/etc/hosts`** + routing checks, then **by default Phase 10** **`KAFKA_ALIGNMENT_TEST_MODE=1 make kafka-alignment-suite`** (full seven-test alignment matrix; Makefile runs **`kafka-auto-heal-inter-broker-tls`** first to clear PKIX / mixed-truststore states). Use **`DEV_ONBOARD_KAFKA_ALIGNMENT_SAFE_ONLY=1 make dev-onboard`** for the lighter post-edge **`make kafka-health`** slice only. **Skip Phase 10** with **`SKIP_KAFKA_HEALTH_ON_ONBOARD=1`**.
 
-Together, that is the supported path for “all images built” plus “all routine safety checks,” without running the optional **destructive** seven-test alignment or chaos suites (those stay manual; see step list below).
+Together, that is the supported path for “all images built” plus **full Kafka alignment certification** on local onboard (chaos suites remain separate; see below).
 
 ### 1) Clean build — images once
 
@@ -56,9 +56,9 @@ make dev-onboard
 8. **`make wait-for-caddy-ip`** — Polls until **caddy-h3** has an **EXTERNAL-IP** (~120s max) so **`ensure-edge-hosts`** does not race MetalLB.
 9. **`make ensure-edge-hosts`** with **`EDGE_HOSTS_STRICT=1`** — Rewrites **`/etc/hosts`** for **off-campus-housing.test** (replaces **stale** lines if the LB IP changed; **sudo**).
 10. **`make onboarding-edge`** — **verify-preflight-edge-routing** (ingress parity, DNS → LB, HTTPS — not **ping**).
-11. **`make kafka-health`** — Runs again after edge is up: **full `verify-kafka-cluster`** (advertised.listeners vs MetalLB, CA fingerprint / broker chain, quorum, leadership churn, broker API, etc.), **`kafka-runtime-sync.sh --check-only`**, then the **safe** alignment suite (tests 2–4 and 6–7 skipped; baseline + TLS drift detection), writing **CSV/PNG** under **`bench_logs/kafka-alignment-report/`**. Skip with **`SKIP_KAFKA_HEALTH_ON_ONBOARD=1 make dev-onboard`** if you need a faster finish and accept less post-edge verification.
+11. **Phase 10 (default):** **`KAFKA_ALIGNMENT_TEST_MODE=1 make kafka-alignment-suite`** — full alignment suite (mutating tests; long-running). **`make kafka-health`** is the **safe** slice (verify + runtime-sync + baseline/TLS-only alignment); select it with **`DEV_ONBOARD_KAFKA_ALIGNMENT_SAFE_ONLY=1 make dev-onboard`**. Skip entirely with **`SKIP_KAFKA_HEALTH_ON_ONBOARD=1`**. Reports under **`bench_logs/kafka-alignment-report/`**.
 
-**Optional destructive certification** (mutating; long-running, tens of minutes): **`KAFKA_ALIGNMENT_TEST_MODE=1 make kafka-alignment-suite`** for the full seven-test alignment matrix, or **`make kafka-health-chaos-cert`** / **`GOLDEN_SNAPSHOT_CHAOS=1 make golden-snapshot`** when you intend chaos (may require **`CHAOS_CONFIRM=1`**). These are **not** part of default **`make dev-onboard`**.
+**Chaos / golden extras** (not Phase 10): **`make kafka-health-chaos-cert`** or **`GOLDEN_SNAPSHOT_CHAOS=1 make golden-snapshot`** when you intend chaos (may require **`CHAOS_CONFIRM=1`**).
 
 **`/etc/hosts`:** Handled automatically (**`HOSTS_AUTO=1`**); stale IPs are **replaced**, not duplicated. **`HOSTS_AUTO=0`** for hints only; **`EXTERNAL_IP=`** to pin. **`OCH_EDGE_HOSTNAME`** overrides the hostname.
 
@@ -82,7 +82,7 @@ make dev-onboard
 10. **Edge IP** — **`wait-for-caddy-ip`**.  
 11. **`/etc/hosts`** — **`ensure-edge-hosts`** (STRICT: resolver must match Caddy LB).  
 12. **Edge gates** — **`verify-preflight-edge-routing`** (HTTPS / QUIC paths, not ping).  
-13. **Post-edge Kafka health** — **`kafka-health`** (full cluster verify + runtime-sync check + safe alignment reports).
+13. **Post-edge Kafka** — Default: full alignment suite (**`KAFKA_ALIGNMENT_TEST_MODE=1 make kafka-alignment-suite`**). Optional safe slice: **`DEV_ONBOARD_KAFKA_ALIGNMENT_SAFE_ONLY=1`** → **`kafka-health`**.
 
 **EKS:** **`make dev-onboard-eks`** runs verify-only (no MetalLB pool, hosts, or Kafka reset). Use ACM / cert-manager and real DNS.
 
@@ -147,8 +147,10 @@ make onboarding-edge
 | `make wait-for-caddy-ip` | Wait for **caddy-h3** MetalLB IP. |
 | `make ensure-edge-hosts` | **`/etc/hosts`** for edge hostname → LB IP (strict: **`EDGE_HOSTS_STRICT=1`**). |
 | `make onboarding-edge` | Edge routing / HTTPS verify (curl — not ICMP). |
-| `make kafka-health` | Full **`verify-kafka-cluster`** + **`kafka-runtime-sync --check-only`** + safe **`kafka-alignment-suite`** (reports under **`bench_logs/kafka-alignment-report/`**). Runs at end of **`make dev-onboard`** unless **`SKIP_KAFKA_HEALTH_ON_ONBOARD=1`**. |
-| `make kafka-health-chaos-cert` | **`kafka-health`** then destructive alignment + chaos (needs confirm); not part of default onboard. |
+| `make kafka-health` | Full **`verify-kafka-cluster`** + **`kafka-runtime-sync --check-only`** + safe **`kafka-alignment-suite`** (reports under **`bench_logs/kafka-alignment-report/`**). End of **`make dev-onboard`** when **`DEV_ONBOARD_KAFKA_ALIGNMENT_SAFE_ONLY=1`**. |
+| `make kafka-alignment-suite` | Alignment tests; **`KAFKA_ALIGNMENT_TEST_MODE=1`** for full matrix. Default Phase 10 of **`make dev-onboard`**. Preceded by **`kafka-auto-heal-inter-broker-tls`** via Makefile. |
+| `make kafka-heal-inter-broker-tls` | Recreate **`kafka-0..N-1`** if PKIX / JKS drift or **CrashLoopBackOff** (see **`Runbook.md`**). |
+| `make kafka-health-chaos-cert` | **`kafka-health`** then full alignment + chaos (needs confirm); not default onboard. |
 | `make up` | Cluster + TLS + host infra + bootstrap **without** KRaft apply and **without** `deploy-dev`. |
 | `make cleanup-kafka-ops-pods` | Remove finished kafka-quorum / DNS remediator Job pods. |
 

@@ -19,6 +19,12 @@
     "dev": "pnpm -r --parallel dev",
     "test": "ROLLUP_DISABLE_NATIVE=true pnpm --filter @common/utils --filter auth-service --filter api-gateway --filter booking-service --filter listings-service --filter analytics-service --filter trust-service --filter notification-service --filter cron-jobs --filter media-service --filter messaging-service --filter event-layer-verification run test",
     "test:integration": "ROLLUP_DISABLE_NATIVE=true pnpm --filter messaging-service --filter media-service run test:integration",
+    "test:integration:all": "pnpm -C services/analytics-service run test:integration && pnpm -C services/messaging-service run test:integration && pnpm -C services/media-service run test:integration && pnpm -C services/trust-service run test:integration && node scripts/assert-kafka-integration-cluster.mjs && pnpm -C services/listings-service run test:integration && pnpm -C services/booking-service run test:integration",
+    "test:system": "OCH_INTEGRATION_KAFKA_FROM_K8S_LB=1 ROLLUP_DISABLE_NATIVE=true vitest run --config vitest.system.config.mts",
+    "test:vitest-stack": "pnpm run test:integration:all && pnpm run test:system && ROLLUP_DISABLE_NATIVE=true pnpm run test",
+    "test:coverage:all": "ROLLUP_DISABLE_NATIVE=true pnpm -r --filter \"./services/*\" --filter \"!transport-watchdog\" exec vitest run --coverage",
+    "test:coverage:open": "bash scripts/open-service-coverage-html.sh",
+    "test:smoke": "ROLLUP_DISABLE_NATIVE=true pnpm run test && pnpm run test:integration:all && pnpm run test:system",
     "test:account-deletion-e2e": "vitest run --config vitest.account-deletion.config.ts",
     "lint": "pnpm -r lint || true",
     "format": "pnpm -r format || true",
@@ -79,6 +85,7 @@
     "k6:listings:malformed": "bash -c 'SSL_CERT_FILE=\"${SSL_CERT_FILE:-$PWD/certs/dev-root.pem}\" k6 run scripts/load/k6-listings-malformed.js'"
   },
   "devDependencies": {
+    "@common/utils": "workspace:*",
     "@types/bcryptjs": "^2.4.6",
     "@types/compression": "^1.7.5",
     "@types/cors": "^2.8.17",
@@ -86,6 +93,8 @@
     "@types/node": "^20.19.19",
     "@types/node-cron": "^3.0.11",
     "@types/pg": "^8.10.2",
+    "@vitest/coverage-v8": "2.1.9",
+    "kafkajs": "^2.2.4",
     "otplib": "^12.0.1",
     "vitest": "^2.1.9"
   },

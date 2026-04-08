@@ -1,0 +1,28 @@
+@startuml c4_component_analytics
+title C4 Level 3 — analytics-service (components)
+skinparam defaultFontName Helvetica
+
+rectangle "analytics-service" {
+  [HTTP / ingest API\n(server.ts)] as http
+  [gRPC AnalyticsService +\nRecommendationAdmin\n(grpc-server.ts)] as grpc
+  [Projection & rollup\nlogic] as proj
+  [Persistence\n(events / metrics)] as repo
+  [Kafka consumer] as cons
+}
+
+database "Postgres\nanalytics DB" as pg
+queue "Kafka" as k
+
+cons --> proj
+http --> proj
+grpc --> proj
+proj --> repo
+repo --> pg
+cons --> k
+
+note bottom of grpc
+  proto/analytics.proto
+  queries + internal admin RPCs
+end note
+
+@enduml

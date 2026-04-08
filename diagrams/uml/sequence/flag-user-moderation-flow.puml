@@ -1,0 +1,20 @@
+@startuml uml_sequence_flag_user_moderation_flow
+title Sequence — Flag listing / moderation (trust + listings consume)
+skinparam defaultFontName Helvetica
+
+actor Reporter
+participant "API Gateway" as GW
+participant "trust-service" as TS
+database "Postgres\ntrust" as TPG
+participant "Kafka" as K
+participant "listings-service" as LS
+database "Postgres\nlistings" as LPG
+
+Reporter -> GW : submit abuse report / flag
+GW -> TS : create flag / report
+TS -> TPG : persist
+TS -> K : trust / moderation event
+K -> LS : consumer (processed_events\nidempotent)
+LS -> LPG : update listing state / visibility
+
+@enduml

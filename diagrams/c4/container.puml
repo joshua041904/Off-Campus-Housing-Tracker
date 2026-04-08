@@ -1,0 +1,66 @@
+@startuml c4_container
+title C4 Level 2 — Containers
+skinparam defaultFontName Helvetica
+skinparam componentStyle rectangle
+
+rectangle "Edge" #E3F2FD {
+  [Caddy\nHTTP/3 TLS] as caddy
+  [Ingress / Envoy\ngRPC] as ingress
+}
+
+rectangle "Clients" #E8F5E9 {
+  [Webapp\nNext.js / nginx] as web
+}
+
+rectangle "Application" #FFF8E1 {
+  [api-gateway\nNode / Express] as gw
+  [auth-service] as auth
+  [booking-service] as book
+  [listings-service] as list
+  [messaging-service] as msg
+  [notification-service] as notif
+  [trust-service] as trust
+  [analytics-service] as analytics
+  [media-service] as media
+  [event-layer\nverification / jobs] as ev
+}
+
+rectangle "Data plane" #F3E5F5 {
+  database "Postgres\n(per service DB)" as pg
+  queue "Kafka\n(KRaft)" as kafka
+  database "Redis\n(cache / sessions)" as redis
+}
+
+rectangle "Observability" #ECEFF1 {
+  [Prometheus /\nGrafana / alerts] as prom
+}
+
+web --> caddy : HTTPS
+caddy --> gw : /api/*
+gw --> auth : HTTP / gRPC
+gw --> book
+gw --> list
+gw --> msg
+gw --> media
+
+book --> pg : SQL
+auth --> pg
+list --> pg
+msg --> pg
+notif --> pg
+trust --> pg
+analytics --> pg
+media --> pg
+
+book --> kafka
+list --> kafka
+msg --> kafka
+ev --> kafka
+kafka --> notif
+kafka --> trust
+kafka --> analytics
+
+gw --> prom : metrics
+kafka --> prom
+
+@enduml

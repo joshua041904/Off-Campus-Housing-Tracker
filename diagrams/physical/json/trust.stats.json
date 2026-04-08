@@ -1,0 +1,62 @@
+{
+    "database": "trust",
+    "table_stats": [
+        {
+            "name": "listing_flags",
+            "schema": "trust",
+            "idx_scan": 0,
+            "seq_scan": 11,
+            "n_live_tup": 7
+        },
+        {
+            "name": "outbox_events",
+            "schema": "trust",
+            "idx_scan": 0,
+            "seq_scan": 4,
+            "n_live_tup": 0
+        },
+        {
+            "name": "processed_events",
+            "schema": "trust",
+            "idx_scan": 0,
+            "seq_scan": 3,
+            "n_live_tup": 0
+        },
+        {
+            "name": "reputation",
+            "schema": "trust",
+            "idx_scan": 0,
+            "seq_scan": 14917,
+            "n_live_tup": 0
+        },
+        {
+            "name": "reviews",
+            "schema": "trust",
+            "idx_scan": 0,
+            "seq_scan": 6,
+            "n_live_tup": 0
+        },
+        {
+            "name": "user_flags",
+            "schema": "trust",
+            "idx_scan": 0,
+            "seq_scan": 6,
+            "n_live_tup": 0
+        },
+        {
+            "name": "user_spam_score",
+            "schema": "trust",
+            "idx_scan": 6,
+            "seq_scan": 15,
+            "n_live_tup": 0
+        },
+        {
+            "name": "user_suspensions",
+            "schema": "trust",
+            "idx_scan": 0,
+            "seq_scan": 5,
+            "n_live_tup": 0
+        }
+    ],
+    "generated_at": "2026-04-03T20:12:18.681564+00:00"
+}

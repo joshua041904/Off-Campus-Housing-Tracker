@@ -1,0 +1,16 @@
+digraph physical {
+  graph [rankdir=LR, fontsize=11, label="Physical: bookings (bookings)", labelloc=t];
+  node [shape=record, fontname="Helvetica Neue"];
+  edge [fontname="Helvetica Neue", fontsize=8];
+
+  subgraph cluster_booking {
+    style=filled;
+    color=lightgrey;
+    label="Schema: booking";
+    "booking_bookings" [label="{bookings|id : uuid\llisting_id : uuid\ltenant_id : uuid\llandlord_id : uuid\lstart_date : date\lend_date : date\lstatus : booking.booking_status\lprice_cents_snapshot : integer\lcurrency_code : text\lcancellation_reason : text\lcreated_at : timestamp with time zone\lupdated_at : timestamp with time zone\lconfirmed_at : timestamp with time zone\lcancelled_at : timestamp with time zone\lcompleted_at : timestamp with time zone\lversion : integer}"];
+    "booking_outbox_events" [label="{outbox_events|id : uuid\laggregate_id : text\ltype : text\lversion : integer\lpayload : bytea\lcreated_at : timestamp with time zone\lpublished : boolean}"];
+    "booking_search_history" [label="{search_history|id : uuid\luser_id : uuid\lquery : character varying(256)\lmin_price_cents : integer\lmax_price_cents : integer\lmax_distance_km : integer\llatitude : double precision\llongitude : double precision\lfilters : jsonb\lcreated_at : timestamp with time zone}"];
+    "booking_watchlist_items" [label="{watchlist_items|id : uuid\luser_id : uuid\llisting_id : uuid\lsource : character varying(40)\ladded_at : timestamp with time zone\lremoved_at : timestamp with time zone\lis_active : boolean}"];
+  }
+
+}

@@ -1,0 +1,61 @@
+digraph physical {
+  // Shared visual system — include inside digraph { } after the opening line.
+  graph [fontname="Helvetica", fontsize=11];
+  node [fontname="Helvetica"];
+  edge [fontname="Helvetica", fontsize=9];
+  graph [rankdir=LR, fontsize=11, label="Physical: messaging (messaging)", labelloc=t];
+  node [shape=record, fontname="Helvetica"];
+  edge [fontname="Helvetica", fontsize=8];
+
+  subgraph cluster_forum {
+    style=filled;
+    color=lightgrey;
+    label="Schema: forum";
+    "forum_comment_attachments" [label="{comment_attachments|id : uuid\lcomment_id : uuid\lfile_url : text\lfile_path : text\lthumbnail_url : text\lfile_name : character varying(512)\lfile_size : bigint\lmime_type : character varying(128)\lfile_type : character varying(32)\lwidth : integer\lheight : integer\lduration : integer\ldisplay_order : integer\lcreated_at : timestamp with time zone}", style=filled, fillcolor="#f1f8e9"];
+    "forum_comment_votes" [label="{comment_votes|id : uuid\lcomment_id : uuid\luser_id : uuid\lvote_type : character varying(8)\lcreated_at : timestamp with time zone}", style=filled, fillcolor="#f1f8e9"];
+    "forum_comments" [label="{comments|id : uuid\lpost_id : uuid\luser_id : uuid\lparent_id : uuid\lcontent : text\lupvotes : integer\ldownvotes : integer\lcreated_at : timestamp with time zone\lupdated_at : timestamp with time zone}", style=filled, fillcolor="#ffcdd2"];
+    "forum_post_attachments" [label="{post_attachments|id : uuid\lpost_id : uuid\lfile_url : text\lfile_path : text\lthumbnail_url : text\lfile_name : character varying(512)\lfile_size : bigint\lmime_type : character varying(128)\lfile_type : character varying(32)\lwidth : integer\lheight : integer\lduration : integer\ldisplay_order : integer\lcreated_at : timestamp with time zone}", style=filled, fillcolor="#f1f8e9"];
+    "forum_post_votes" [label="{post_votes|id : uuid\lpost_id : uuid\luser_id : uuid\lvote_type : character varying(8)\lcreated_at : timestamp with time zone}", style=filled, fillcolor="#f1f8e9"];
+    "forum_posts" [label="{posts|id : uuid\luser_id : uuid\ltitle : character varying(512)\lcontent : text\lflair : character varying(64)\lupload_type : character varying(32)\lupvotes : integer\ldownvotes : integer\lcomment_count : integer\lis_pinned : boolean\lis_locked : boolean\lcreated_at : timestamp with time zone\lupdated_at : timestamp with time zone}", style=filled, fillcolor="#e1f5fe"];
+  }
+
+  subgraph cluster_messages {
+    style=filled;
+    color=lightgrey;
+    label="Schema: messages";
+    "messages_group_bans" [label="{group_bans|id : uuid\lgroup_id : uuid\luser_id : uuid\lbanned_by : uuid\lreason : text\lexpires_at : timestamp with time zone\lcreated_at : timestamp with time zone}", style=filled, fillcolor="#f1f8e9"];
+    "messages_group_members" [label="{group_members|id : uuid\lgroup_id : uuid\luser_id : uuid\lrole : character varying(16)\ljoined_at : timestamp with time zone\lleft_at : timestamp with time zone}", style=filled, fillcolor="#f1f8e9"];
+    "messages_groups" [label="{groups|id : uuid\lname : character varying(256)\ldescription : text\lcreated_by : uuid\lcreated_at : timestamp with time zone\lupdated_at : timestamp with time zone\larchived : boolean}", style=filled, fillcolor="#f1f8e9"];
+    "messages_message_attachments" [label="{message_attachments|id : uuid\lmessage_id : uuid\lfile_url : text\lfile_path : text\lthumbnail_url : text\lfile_name : character varying(512)\lfile_size : bigint\lmime_type : character varying(128)\lfile_type : character varying(32)\lwidth : integer\lheight : integer\lduration : integer\ldisplay_order : integer\lcreated_at : timestamp with time zone}", style=filled, fillcolor="#f1f8e9"];
+    "messages_message_reads" [label="{message_reads|id : uuid\lmessage_id : uuid\luser_id : uuid\lread_at : timestamp with time zone\lread_by_sender : boolean}", style=filled, fillcolor="#f1f8e9"];
+    "messages_messages" [label="{messages|id : uuid\lsender_id : uuid\lrecipient_id : uuid\lgroup_id : uuid\lparent_message_id : uuid\lthread_id : uuid\lmessage_type : character varying(32)\lsubject : character varying(512)\lcontent : text\lis_read : boolean\lsender_display_name : character varying(128)\lcreated_at : timestamp with time zone\lupdated_at : timestamp with time zone\lrecalled_at : timestamp with time zone\larchived : boolean}", style=filled, fillcolor="#e1f5fe"];
+    "messages_user_archived_threads" [label="{user_archived_threads|id : uuid\luser_id : uuid\lthread_id : uuid\larchived_at : timestamp with time zone}", style=filled, fillcolor="#f1f8e9"];
+    "messages_user_deleted_threads" [label="{user_deleted_threads|id : uuid\luser_id : uuid\lthread_id : uuid\ldeleted_at : timestamp with time zone}", style=filled, fillcolor="#f1f8e9"];
+  }
+
+  subgraph cluster_messaging {
+    style=filled;
+    color=lightgrey;
+    label="Schema: messaging";
+    "messaging_conversation_participants" [label="{conversation_participants|conversation_id : uuid\luser_id : uuid\ljoined_at : timestamp with time zone\larchived : boolean\ldeleted : boolean\llast_read_at : timestamp with time zone}", style=filled, fillcolor="#e8f5e9"];
+    "messaging_conversations" [label="{conversations|id : uuid\llisting_id : uuid\lcreated_at : timestamp with time zone\lupdated_at : timestamp with time zone\lconversation_key : text}", style=filled, fillcolor="#f1f8e9"];
+    "messaging_messages" [label="{messages|id : uuid\lconversation_id : uuid\lsender_id : uuid\lbody : text\lmessage_type : text\lcreated_at : timestamp with time zone\ledited_at : timestamp with time zone\ldeleted_at : timestamp with time zone\lversion : integer\lmedia_id : text}", style=filled, fillcolor="#f1f8e9"];
+    "messaging_outbox_events" [label="{outbox_events|id : uuid\laggregate_id : text\ltype : text\lversion : integer\lpayload : bytea\lcreated_at : timestamp with time zone\lpublished : boolean}", style=filled, fillcolor="#f1f8e9"];
+  }
+
+  "forum_comment_attachments" -> "forum_comments" [label="comment_attachments_comment_id_fkey"];
+  "forum_comment_votes" -> "forum_comments" [label="comment_votes_comment_id_fkey"];
+  "forum_comments" -> "forum_comments" [label="comments_parent_id_fkey"];
+  "forum_comments" -> "forum_posts" [label="comments_post_id_fkey"];
+  "forum_post_attachments" -> "forum_posts" [label="post_attachments_post_id_fkey"];
+  "forum_post_votes" -> "forum_posts" [label="post_votes_post_id_fkey"];
+  "messages_group_bans" -> "messages_groups" [label="group_bans_group_id_fkey"];
+  "messages_group_members" -> "messages_groups" [label="group_members_group_id_fkey"];
+  "messages_message_attachments" -> "messages_messages" [label="message_attachments_message_id_fkey"];
+  "messages_message_reads" -> "messages_messages" [label="message_reads_message_id_fkey"];
+  "messages_messages" -> "messages_groups" [label="messages_group_id_fkey"];
+  "messages_messages" -> "messages_messages" [label="messages_parent_message_id_fkey"];
+  "messages_messages" -> "messages_messages" [label="messages_thread_id_fkey"];
+  "messaging_conversation_participants" -> "messaging_conversations" [label="conversation_participants_conversation_id_fkey"];
+  "messaging_messages" -> "messaging_conversations" [label="messages_conversation_id_fkey"];
+}

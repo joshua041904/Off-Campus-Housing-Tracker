@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
-# Wait until kafka-0/1/2-external each have status.loadBalancer.ingress[0].ip (MetalLB / cloud LB).
-# Env: HOUSING_NS, KAFKA_LB_WAIT_MAX_ATTEMPTS (default 90), KAFKA_LB_WAIT_SLEEP (default 2)
+# Wait until kafka-0..N-1-external each have status.loadBalancer.ingress[0].ip (MetalLB / cloud LB).
+# Env: HOUSING_NS, KAFKA_BROKER_REPLICAS, KAFKA_LB_WAIT_MAX_ATTEMPTS (default 90), KAFKA_LB_WAIT_SLEEP (default 2)
 set -euo pipefail
 
 NS="${HOUSING_NS:-off-campus-housing-tracker}"
+REP="${KAFKA_BROKER_REPLICAS:-3}"
 MAX="${KAFKA_LB_WAIT_MAX_ATTEMPTS:-90}"
 SLEEP="${KAFKA_LB_WAIT_SLEEP:-2}"
 
-echo "Waiting for kafka-0/1/2-external LoadBalancer IPs in $NS (max ${MAX} attempts × ${SLEEP}s)..."
-for i in 0 1 2; do
+echo "Waiting for kafka-0..$((REP - 1))-external LoadBalancer IPs in $NS (max ${MAX} attempts × ${SLEEP}s)..."
+for ((i = 0; i < REP; i++)); do
   svc="kafka-${i}-external"
   found=""
   for ((a = 1; a <= MAX; a++)); do

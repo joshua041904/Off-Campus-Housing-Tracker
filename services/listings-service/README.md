@@ -62,27 +62,22 @@ pnpm --filter listings-service test
 
 Covers `validation.ts`, `search-listings-query.ts`, and HTTP app construction (`createListingsHttpApp` with mocked Kafka/analytics). Vitest excludes `*.integration.test.ts`.
 
-### 3b. HTTP + Postgres integration (real DB)
+### 3b. HTTP + gRPC + Postgres + **cluster Kafka** integration
 
-Use the same Postgres as docker-compose (**5442**, DB `listings`) after `scripts/bootstrap-all-dbs.sh` (or the SQL files under **infra/db** for listings).
-
-```bash
-# From repo root — runs in a separate Vitest process so DB URL is set before modules load
-POSTGRES_URL_LISTINGS=postgresql://postgres:postgres@127.0.0.1:5442/listings \
-  pnpm --filter listings-service run test:integration
-```
-
-Or:
+Integration Vitest uses **`vitest.integration.config.mts`**: **no plaintext Kafka**. You need **≥3 TLS broker seeds** (MetalLB `kafka-*-external` :9094 via **`OCH_INTEGRATION_KAFKA_FROM_K8S_LB=1`**, or explicit **`KAFKA_BROKER`**) and client PEMs under **`certs/kafka-ssl/`** or **`certs/kafka-ssl-ci/`**. **globalSetup** creates **`${ENV_PREFIX}.listing.events`** (+ `OCH_KAFKA_TOPIC_SUFFIX`) if missing.
 
 ```bash
-pnpm --filter listings-service run test:all
+# From repo root (script sets OCH_INTEGRATION_KAFKA_FROM_K8S_LB=1); needs kubectl → Colima/k3s + externals
+pnpm --filter listings-service run test:integration
 ```
 
-These hit **POST /create**, **GET /listings/:id**, **GET /search** against `createListingsHttpApp()` and verify a row in `listings.listings`. If nothing is listening on 5442 or the schema is missing, the suite is **skipped** (exit 0).
+Or **`test:all`** (unit + integration).
 
-**gRPC** is not exercised here: the gRPC server uses **strict mTLS only** (no plaintext test hook). Use **grpcurl** with service certs against a running pod for RPC contract checks.
+These suites hit real **Kafka** (listing events topic), **Postgres 5442**, HTTP and/or gRPC paths. If the DB is down, suites may skip or fail; if the cluster Kafka path is wrong, Vitest fails fast.
 
-CI runs **test** + **test:integration** for the `listings-service` matrix row (Postgres service on 5442 + bootstrap).
+**GitHub Actions** does **not** run listings Kafka integration (same as booking); run locally against your stack.
+
+**gRPC** integration tests use **insecure bind** via **`OCH_GRPC_INSECURE_TEST_BIND=1`** only under this Vitest config.
 
 ### 4. Start the listings-service
 

@@ -1,0 +1,28 @@
+@startuml c4_component_trust
+title C4 Level 3 — trust-service (components)
+skinparam defaultFontName Helvetica
+
+rectangle "trust-service" {
+  [HTTP routes\n(server.ts)] as http
+  [gRPC TrustService\n(grpc-server.ts)] as grpc
+  [Reviews / reputation\n/ moderation flows] as dom
+  [Persistence] as repo
+  [Kafka consumer\n(idempotent)] as cons
+}
+
+database "Postgres\ntrust DB" as pg
+queue "Kafka" as k
+
+cons --> dom
+http --> dom
+grpc --> dom
+dom --> repo
+repo --> pg
+cons --> k
+
+note bottom of grpc
+  proto/trust.proto
+  flags, reviews, reputation
+end note
+
+@enduml

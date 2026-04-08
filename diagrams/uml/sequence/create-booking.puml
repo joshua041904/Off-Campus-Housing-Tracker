@@ -1,0 +1,23 @@
+@startuml uml_sequence_create_booking
+title Sequence — Create booking
+skinparam defaultFontName Helvetica
+
+actor User
+participant "Webapp" as Web
+participant "Caddy" as Edge
+participant "API Gateway" as GW
+participant "booking-service" as BS
+database "Postgres\n(bookings)" as PG
+participant "Kafka" as K
+
+User -> Web : Submit booking form
+Web -> Edge : HTTPS POST /api/booking/create
+Edge -> GW : forward
+GW -> BS : POST /create (x-user-id)
+BS -> PG : INSERT booking (status=created)
+BS -> K : publish BookingCreatedV1
+BS --> GW : 201 + booking JSON
+GW --> Web
+Web --> User
+
+@enduml

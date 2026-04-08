@@ -130,6 +130,7 @@ exports.Prisma.BookingScalarFieldEnum = {
   endDate: 'endDate',
   priceCentsSnapshot: 'priceCentsSnapshot',
   currencyCode: 'currencyCode',
+  tenantNotes: 'tenantNotes',
   cancellationReason: 'cancellationReason',
   confirmedAt: 'confirmedAt',
   cancelledAt: 'cancelledAt',

@@ -1,11 +1,10 @@
 /**
- * HTTP + Postgres contract tests (no gRPC — server uses strict mTLS only).
- * Requires `listings.listings` (e.g. docker-compose postgres-listings on 5442 + bootstrap SQL).
+ * HTTP + Postgres + **cluster Kafka** (see `vitest.integration.config.mts` + `@common/utils/kafka-vitest-cluster`).
+ * Requires `listings.listings` (5442 + bootstrap SQL) and the same Kafka/TLS setup as `pnpm run test:integration`.
  *
- * Run alone so `POSTGRES_URL_LISTINGS` is fixed before `db.ts` loads:
  *   pnpm --filter listings-service run test:integration
  *
- * Skips cleanly when DB is unreachable (local dev without Docker).
+ * Skips cleanly when DB is unreachable; Kafka misconfig fails during Vitest startup/globalSetup.
  */
 process.env.POSTGRES_URL_LISTINGS ??= "postgresql://postgres:postgres@127.0.0.1:5442/listings";
 process.env.ANALYTICS_SYNC_MODE ??= "0";
@@ -52,6 +51,25 @@ describe.skipIf(!dbReady)("listings HTTP — Postgres integration", () => {
   });
 
   const testUser = "22222222-2222-4222-8222-222222222222";
+
+  it("GET /healthz returns 200", async () => {
+    const res = await request(app).get("/healthz");
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ok: true });
+  });
+
+  it("GET /metrics returns Prometheus text", async () => {
+    const res = await request(app).get("/metrics");
+    expect(res.status).toBe(200);
+    expect(String(res.headers["content-type"] || "")).toMatch(/text\/plain/);
+    expect(res.text.length).toBeGreaterThan(0);
+  });
+
+  it("GET / (root search) returns 200 with items array", async () => {
+    const res = await request(app).get("/").query({ q: "integration-root-search-no-match" });
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.items)).toBe(true);
+  });
 
   it(
     "POST /create returns 201 and row is readable via GET and SQL",

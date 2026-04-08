@@ -1,0 +1,62 @@
+{
+    "database": "auth",
+    "table_stats": [
+        {
+            "name": "mfa_settings",
+            "schema": "auth",
+            "idx_scan": 0,
+            "seq_scan": 15,
+            "n_live_tup": 63
+        },
+        {
+            "name": "oauth_providers",
+            "schema": "auth",
+            "idx_scan": 0,
+            "seq_scan": 14,
+            "n_live_tup": 0
+        },
+        {
+            "name": "passkey_challenges",
+            "schema": "auth",
+            "idx_scan": 0,
+            "seq_scan": 14,
+            "n_live_tup": 0
+        },
+        {
+            "name": "passkeys",
+            "schema": "auth",
+            "idx_scan": 0,
+            "seq_scan": 16,
+            "n_live_tup": 0
+        },
+        {
+            "name": "sessions",
+            "schema": "auth",
+            "idx_scan": 0,
+            "seq_scan": 13,
+            "n_live_tup": 0
+        },
+        {
+            "name": "user_addresses",
+            "schema": "auth",
+            "idx_scan": 0,
+            "seq_scan": 7,
+            "n_live_tup": 0
+        },
+        {
+            "name": "users",
+            "schema": "auth",
+            "idx_scan": 19,
+            "seq_scan": 65,
+            "n_live_tup": 777
+        },
+        {
+            "name": "verification_codes",
+            "schema": "auth",
+            "idx_scan": 0,
+            "seq_scan": 14,
+            "n_live_tup": 126
+        }
+    ],
+    "generated_at": "2026-04-03T20:12:02.724487+00:00"
+}

@@ -1,0 +1,27 @@
+@startuml c4_component_media
+title C4 Level 3 — media-service (components)
+skinparam defaultFontName Helvetica
+
+rectangle "media-service" {
+  [HTTP signed URLs\n(server.ts)] as http
+  [gRPC MediaService\n(grpc-server.ts)] as grpc
+  [Object metadata\n+ ACL checks] as dom
+  [DB + object store\nadapters] as repo
+}
+
+database "Postgres" as pg
+cloud "MinIO / S3" as s3
+
+http --> dom
+grpc --> dom
+dom --> repo
+repo --> pg
+repo --> s3
+
+note bottom of grpc
+  proto/media.proto
+  CreateUploadUrl, CompleteUpload,
+  GetDownloadUrl (no bytes on wire)
+end note
+
+@enduml

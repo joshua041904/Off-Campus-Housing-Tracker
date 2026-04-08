@@ -1,0 +1,21 @@
+@startuml uml_sequence_projection_update
+title Sequence — Projection update (analytics)
+skinparam defaultFontName Helvetica
+
+participant "Producer service" as P
+database "Postgres\n(write model)" as WPG
+participant "Kafka" as K
+participant "analytics-service" as A
+database "Postgres\n(analytics)" as APG
+
+P -> WPG : business transaction
+P -> K : emit fact event
+K -> A : consume
+A -> APG : upsert projection /\nrollup row
+note right of A
+  At-least-once delivery:
+  idempotency via event_id /
+  processed_events pattern.
+end note
+
+@enduml

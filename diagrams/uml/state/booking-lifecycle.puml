@@ -1,0 +1,21 @@
+@startuml uml_state_booking_lifecycle
+title State machine — Booking (Prisma BookingStatus)
+skinparam defaultFontName Helvetica
+
+[*] --> created : create
+created --> pending_confirmation : request landlord
+created --> cancelled : tenant cancel
+created --> rejected : landlord reject
+created --> expired : TTL
+pending_confirmation --> confirmed : landlord confirm
+pending_confirmation --> rejected
+pending_confirmation --> cancelled
+pending_confirmation --> expired
+confirmed --> completed : stay finished
+confirmed --> cancelled
+cancelled --> [*]
+completed --> [*]
+rejected --> [*]
+expired --> [*]
+
+@enduml

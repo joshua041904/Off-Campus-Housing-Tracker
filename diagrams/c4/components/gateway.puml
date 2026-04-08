@@ -1,0 +1,27 @@
+@startuml c4_component_gateway
+title C4 Level 3 — api-gateway (components)
+skinparam defaultFontName Helvetica
+
+rectangle "api-gateway" {
+  [Express app\n(server.ts)] as app
+  [Route handlers\n/proxy to services] as routes
+  [Auth middleware\nJWT / x-user-id] as authmw
+  [HTTP/3 & gRPC\nclient bridges] as clients
+}
+
+cloud "Downstream\nmicroservices" as svc
+database "Redis (optional)" as redis
+
+app --> routes
+routes --> authmw
+authmw --> clients
+clients --> svc : HTTP / gRPC\n(proto/*.proto)
+app --> redis
+
+note bottom of clients
+  Stubs for AuthService,
+  BookingService, ListingsService, …
+  same contracts services implement.
+end note
+
+@enduml

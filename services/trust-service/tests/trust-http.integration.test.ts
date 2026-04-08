@@ -1,5 +1,5 @@
 /**
- * Integration tests: trust HTTP against real Postgres (5446).
+ * Integration tests: trust HTTP against real Postgres (5446). **No Kafka** — not a cluster-backed event suite.
  * Run: cd services/trust-service && pnpm run test:integration
  * Skip: SKIP_TRUST_INTEGRATION=1 or no DB
  */

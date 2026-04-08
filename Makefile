@@ -39,13 +39,13 @@ SKIP_VERIFY_CURL_HTTP3 ?= 0
 .DEFAULT_GOAL := menu
 
 .PHONY: menu help setup reset verify diagnose clean-data-modeling-png generate-diagrams generate-uml generate-architecture bundle-2.1-submission generate-architecture-docs kafka-broker-status-stub db-schema-er-docs index-audit-md real-query-plan-suite up up-fast deps kubeconfig-colima cluster colima-net colima-patch-app-config-db-gateway tls-first-time trust-ca-macos verify-curl-http3 verify-docker-ports recycle-postgres-infra infra-host infra-cluster \
-	metallb-fix hosts-sanity ensure-edge-hosts wait-for-caddy-ip preflight-gate sslkeylog-seed ollama-note ollama-env verify-network-coherence verify-kafka-bootstrap verify-kafka-cluster check-kafka-config-drift kafka-runtime-sync kafka-sync-metallb kafka-alignment-suite kafka-health kafka-smoke kafka-smoke-with-health post-deploy-verify golden-snapshot chaos-suite-kafka verify-preflight-edge-routing diagnose-k6-edge cleanup-kafka-ops-pods apply-kafka-kraft kafka-refresh-tls-from-lb kafka-tls-rotate-atomic kafka-tls-guard kafka-tls-guard-remediate kafka-quorum-stable service-tls-alias-guard edge-readiness-gate onboarding-kafka-preflight kafka-onboarding-reset kafka-lb-reset kafka-headless-reset kafka-clean-slate kafka-rolling-restart onboarding-edge dev-onboard dev-onboard-hardened-reset dev-onboard-eks dev-onboard-lite ephemeral-k3s-smoke chaos-kafka-broker chaos-metallb-kafka-lb chaos-test sync-prometheus-kafka-rules colima-bridged colima-bridged-clean metallb-bring-up test test-current model summarize-ceiling strict-canonical ceiling collapse-trust collapse-messaging collapse-all \
+	metallb-fix hosts-sanity ensure-edge-hosts wait-for-caddy-ip preflight-gate sslkeylog-seed ollama-note ollama-env verify-network-coherence verify-kafka-bootstrap verify-kafka-cluster check-kafka-config-drift kafka-runtime-sync kafka-sync-metallb kafka-heal-inter-broker-tls kafka-alignment-suite kafka-health kafka-smoke kafka-smoke-with-health k8s-diagnose-restarts post-deploy-verify golden-snapshot chaos-suite-kafka verify-preflight-edge-routing diagnose-k6-edge cleanup-kafka-ops-pods apply-kafka-kraft kafka-refresh-tls-from-lb kafka-tls-rotate-atomic kafka-tls-guard kafka-tls-guard-remediate kafka-quorum-stable service-tls-alias-guard edge-readiness-gate onboarding-kafka-preflight kafka-onboarding-reset kafka-lb-reset kafka-headless-reset kafka-clean-slate kafka-rolling-restart onboarding-edge dev-onboard dev-onboard-hardened-reset dev-onboard-eks dev-onboard-lite ephemeral-k3s-smoke chaos-kafka-broker chaos-metallb-kafka-lb chaos-test sync-prometheus-kafka-rules colima-bridged colima-bridged-clean metallb-bring-up test test-current model summarize-ceiling strict-canonical ceiling collapse-trust collapse-messaging collapse-all \
 	protocol-matrix packet-capture perf-lab perf-full generate-report graph-capacity heatmap-tail compare-run regression-guard \
 	slack-report discord-report ci ci-full certify ceiling-default performance-lab-interpret performance-lab-interpret-latest performance-lab-one capacity-recommend capacity-one protocol-happiness transport-routing-hints transport-routing-hints-sync-k8s perf-lab-dashboards bundle-performance-lab-10 strict-envelope-check adaptive-pool-suggest declare-readiness shellcheck-preflight transport-lab full-edge-transport-validation endpoint-coverage collapse-smoke explain-all-dbs demo demo-network demo-full demo-k3d stack images images-all kustomize-apply \
 	deploy-dev rollouts preflight-metallb test-e2e-integrated packet-capture-standalone certify-production \
 	cluster-forensic-sweep forensic-log-sweep network-command-center deploy-monitoring-help tls-secrets-expiry-textfile \
 	chaos-suite governed-chaos failure-budget resilience-menu generate-chaos-report-md \
-	metrics-server-ready trust-integration-tests
+	metrics-server-ready trust-integration-tests test-vitest-stack
 
 # Default orchestration knobs for team "one-command" workflow.
 UP_REQUIRE_COLIMA ?= 1
@@ -141,7 +141,8 @@ help: ## List targets and short descriptions
 	@echo ""
 	@echo "Core:"
 	@echo "  make up               Full bootstrap (cluster + infra + TLS + /etc/hosts for edge; no KRaft / no deploy-dev)"
-	@echo "  make dev-onboard      Strict local onboard (staged Kafka TLS + verify gates); make setup alias"
+	@echo "  make dev-onboard      Strict local onboard (Phase 10: full kafka-alignment-suite; SAFE_ONLY=1 → kafka-health); make setup alias"
+	@echo "  make kafka-heal-inter-broker-tls  Recreate kafka-0..N-1 if CrashLoop / PKIX JKS drift (see Runbook.md)"
 	@echo "  make dev-onboard-eks  EKS: verify Kafka + edge only (no MetalLB/hosts reset)"
 	@echo "  make dev-onboard-lite CI-safe static checks (scripts + kustomize + client dry-run)"
 	@echo "  make kafka-smoke / kafka-smoke-with-health / post-deploy-verify  Live cluster gates (see Actions: Post-deploy verify)"
@@ -286,7 +287,7 @@ deps: ## Install workspace deps + Playwright browser; ensure cluster script exec
 	  exit 1; \
 	fi; \
 	cd $(REPO_ROOT) && pnpm install && pnpm --filter webapp exec playwright install chromium
-	chmod +x $(SCRIPTS)/setup-new-colima-cluster.sh $(SCRIPTS)/ensure-edge-hosts.sh $(SCRIPTS)/kafka-onboarding-reset.sh $(SCRIPTS)/kafka-clean-slate.sh $(SCRIPTS)/apply-kafka-kraft-staged.sh $(SCRIPTS)/kafka-refresh-tls-from-lb.sh $(SCRIPTS)/wait-for-kafka-external-lb-ips.sh $(SCRIPTS)/detect-k8s-environment.sh $(SCRIPTS)/dev-onboard-local.sh $(SCRIPTS)/kafka-rolling-restart.sh $(SCRIPTS)/kafka-tls-guard.sh $(SCRIPTS)/kafka-tls-rotate-atomic.sh $(SCRIPTS)/export-kafka-ca-metric.sh $(SCRIPTS)/rollout-deferred-after-kafka-tls.sh $(SCRIPTS)/kafka-quorum-stable.sh $(SCRIPTS)/service-tls-alias-guard.sh $(SCRIPTS)/edge-readiness-gate.sh $(SCRIPTS)/generate-canonical-dev-tls.sh $(SCRIPTS)/verify-kafka-no-static-advertised-env.sh $(SCRIPTS)/check-kafka-config-drift.sh $(SCRIPTS)/kafka-runtime-sync.sh $(SCRIPTS)/kafka-sync-metallb.sh $(SCRIPTS)/tests/kafka-alignment-suite.sh $(SCRIPTS)/chaos-kafka-alignment-stochastic.sh $(SCRIPTS)/golden-snapshot-verify.sh $(SCRIPTS)/auth-outbox-inspect.sh $(SCRIPTS)/auth-outbox-replay.sh
+	chmod +x $(SCRIPTS)/setup-new-colima-cluster.sh $(SCRIPTS)/ensure-edge-hosts.sh $(SCRIPTS)/kafka-onboarding-reset.sh $(SCRIPTS)/kafka-clean-slate.sh $(SCRIPTS)/apply-kafka-kraft-staged.sh $(SCRIPTS)/ensure-dev-root-ca.sh $(SCRIPTS)/kafka-refresh-tls-from-lb.sh $(SCRIPTS)/wait-for-kafka-external-lb-ips.sh $(SCRIPTS)/detect-k8s-environment.sh $(SCRIPTS)/dev-onboard-local.sh $(SCRIPTS)/kafka-rolling-restart.sh $(SCRIPTS)/kafka-tls-guard.sh $(SCRIPTS)/kafka-after-rollout-verify-brokers.sh $(SCRIPTS)/kafka-auto-heal-inter-broker-tls.sh $(SCRIPTS)/kafka-tls-rotate-atomic.sh $(SCRIPTS)/export-kafka-ca-metric.sh $(SCRIPTS)/rollout-deferred-after-kafka-tls.sh $(SCRIPTS)/kafka-quorum-stable.sh $(SCRIPTS)/service-tls-alias-guard.sh $(SCRIPTS)/edge-readiness-gate.sh $(SCRIPTS)/generate-canonical-dev-tls.sh $(SCRIPTS)/verify-kafka-no-static-advertised-env.sh $(SCRIPTS)/check-kafka-config-drift.sh $(SCRIPTS)/kafka-runtime-sync.sh $(SCRIPTS)/kafka-sync-metallb.sh $(SCRIPTS)/tests/kafka-alignment-suite.sh $(SCRIPTS)/chaos-kafka-alignment-stochastic.sh $(SCRIPTS)/golden-snapshot-verify.sh $(SCRIPTS)/auth-outbox-inspect.sh $(SCRIPTS)/auth-outbox-replay.sh
 
 # ROLE: DEV — optional kubeconfig export helper
 kubeconfig-colima: ## Print/export Colima kubeconfig path for current shell
@@ -355,16 +356,38 @@ check-kafka-config-drift: ## Compare kafka-N-external LB IP to broker advertised
 	chmod +x $(REPO_ROOT)/scripts/check-kafka-config-drift.sh
 	$(REPO_ROOT)/scripts/check-kafka-config-drift.sh
 
+kafka-heal-inter-broker-tls: ## If PKIX/JKS drift or CrashLoopBackOff: delete kafka-0..N-1, wait Ready, re-verify (KAFKA_INTER_BROKER_TLS_HEAL=0 skips)
+	bash -n $(REPO_ROOT)/scripts/kafka-auto-heal-inter-broker-tls.sh
+	chmod +x $(REPO_ROOT)/scripts/kafka-auto-heal-inter-broker-tls.sh $(REPO_ROOT)/scripts/kafka-after-rollout-verify-brokers.sh $(REPO_ROOT)/scripts/kafka-tls-guard.sh
+	HOUSING_NS=$(HOUSING_NS) KAFKA_BROKER_REPLICAS=$(KAFKA_BROKER_REPLICAS) bash $(REPO_ROOT)/scripts/kafka-auto-heal-inter-broker-tls.sh
+
 kafka-runtime-sync: ## Gate: no LB↔advertised drift + TLS SAN vs LB (optional --remediate on script CLI)
+	bash -n $(REPO_ROOT)/scripts/ensure-dev-root-ca.sh
+	bash -n $(REPO_ROOT)/scripts/verify-kafka-broker-keystore-jks.sh
 	bash -n $(REPO_ROOT)/scripts/kafka-runtime-sync.sh
-	chmod +x $(REPO_ROOT)/scripts/kafka-runtime-sync.sh
+	bash -n $(REPO_ROOT)/scripts/kafka-after-rollout-verify-brokers.sh
+	bash -n $(REPO_ROOT)/scripts/kafka-tls-guard.sh
+	bash -n $(REPO_ROOT)/scripts/kafka-auto-heal-inter-broker-tls.sh
+	chmod +x $(REPO_ROOT)/scripts/ensure-dev-root-ca.sh $(REPO_ROOT)/scripts/verify-kafka-broker-keystore-jks.sh $(REPO_ROOT)/scripts/kafka-runtime-sync.sh $(REPO_ROOT)/scripts/kafka-after-rollout-verify-brokers.sh $(REPO_ROOT)/scripts/kafka-tls-guard.sh $(REPO_ROOT)/scripts/kafka-auto-heal-inter-broker-tls.sh
+	HOUSING_NS=$(HOUSING_NS) KAFKA_BROKER_REPLICAS=$(KAFKA_BROKER_REPLICAS) bash $(REPO_ROOT)/scripts/kafka-auto-heal-inter-broker-tls.sh
 	$(REPO_ROOT)/scripts/kafka-runtime-sync.sh
 
 kafka-sync-metallb: ## Drift-aware: verify-only if aligned; else refresh TLS from LB + rollout + verify-kafka-cluster
+	bash -n $(REPO_ROOT)/scripts/ensure-dev-root-ca.sh
+	bash -n $(REPO_ROOT)/scripts/verify-kafka-broker-keystore-jks.sh
 	bash -n $(REPO_ROOT)/scripts/kafka-sync-metallb.sh
 	bash -n $(REPO_ROOT)/scripts/kafka-runtime-sync.sh
+	bash -n $(REPO_ROOT)/scripts/kafka-after-rollout-verify-brokers.sh
+	bash -n $(REPO_ROOT)/scripts/kafka-tls-guard.sh
+	bash -n $(REPO_ROOT)/scripts/kafka-auto-heal-inter-broker-tls.sh
+	chmod +x $(REPO_ROOT)/scripts/ensure-dev-root-ca.sh
+	chmod +x $(REPO_ROOT)/scripts/verify-kafka-broker-keystore-jks.sh
 	chmod +x $(REPO_ROOT)/scripts/kafka-sync-metallb.sh
 	chmod +x $(REPO_ROOT)/scripts/kafka-runtime-sync.sh
+	chmod +x $(REPO_ROOT)/scripts/kafka-after-rollout-verify-brokers.sh
+	chmod +x $(REPO_ROOT)/scripts/kafka-tls-guard.sh
+	chmod +x $(REPO_ROOT)/scripts/kafka-auto-heal-inter-broker-tls.sh
+	HOUSING_NS=$(HOUSING_NS) KAFKA_BROKER_REPLICAS=$(KAFKA_BROKER_REPLICAS) bash $(REPO_ROOT)/scripts/kafka-auto-heal-inter-broker-tls.sh
 	$(REPO_ROOT)/scripts/kafka-sync-metallb.sh
 
 kafka-alignment-report-venv: ## Venv + matplotlib for generate-kafka-alignment-report.py (PEP 668–safe)
@@ -372,8 +395,15 @@ kafka-alignment-report-venv: ## Venv + matplotlib for generate-kafka-alignment-r
 	"$(KAFKA_ALIGNMENT_REPORT_VENV)/bin/pip" install -q -r "$(REPO_ROOT)/scripts/requirements-kafka-alignment-report.txt"
 
 kafka-alignment-suite: kafka-alignment-report-venv ## Alignment test suite (safe by default; full chaos: KAFKA_ALIGNMENT_TEST_MODE=1 make kafka-alignment-suite)
+	bash -n $(REPO_ROOT)/scripts/ensure-dev-root-ca.sh
+	bash -n $(REPO_ROOT)/scripts/kafka-refresh-tls-from-lb.sh
+	bash -n $(REPO_ROOT)/scripts/wait-for-kafka-external-lb-ips.sh
+	bash -n $(REPO_ROOT)/scripts/kafka-after-rollout-verify-brokers.sh
+	bash -n $(REPO_ROOT)/scripts/kafka-tls-guard.sh
+	bash -n $(REPO_ROOT)/scripts/kafka-auto-heal-inter-broker-tls.sh
 	bash -n $(REPO_ROOT)/scripts/tests/kafka-alignment-suite.sh
-	chmod +x $(REPO_ROOT)/scripts/tests/kafka-alignment-suite.sh
+	chmod +x $(REPO_ROOT)/scripts/ensure-dev-root-ca.sh $(REPO_ROOT)/scripts/kafka-refresh-tls-from-lb.sh $(REPO_ROOT)/scripts/wait-for-kafka-external-lb-ips.sh $(REPO_ROOT)/scripts/kafka-after-rollout-verify-brokers.sh $(REPO_ROOT)/scripts/kafka-tls-guard.sh $(REPO_ROOT)/scripts/kafka-auto-heal-inter-broker-tls.sh $(REPO_ROOT)/scripts/tests/kafka-alignment-suite.sh
+	HOUSING_NS=$(HOUSING_NS) KAFKA_BROKER_REPLICAS=$(KAFKA_BROKER_REPLICAS) bash $(REPO_ROOT)/scripts/kafka-auto-heal-inter-broker-tls.sh
 	"$(KAFKA_ALIGNMENT_REPORT_VENV)/bin/python" -m py_compile "$(REPO_ROOT)/scripts/generate-kafka-alignment-report.py"
 	PATH="$(KAFKA_ALIGNMENT_REPORT_VENV)/bin:$(PATH)" $(REPO_ROOT)/scripts/tests/kafka-alignment-suite.sh
 
@@ -383,10 +413,15 @@ kafka-health-chaos-cert: ## kafka-health + destructive alignment + chaos-suite-k
 	CHAOS_SUITE=baseline-kafka CHAOS_KAFKA_ALIGNMENT=1 CHAOS_CONFIRM=1 KAFKA_ALIGNMENT_TEST_MODE=1 bash $(SCRIPTS)/run-chaos-suite.sh
 
 kafka-health: kafka-alignment-report-venv ## verify-kafka-cluster + runtime-sync check + safe alignment (destructive cert: make kafka-health-chaos-cert; golden+chaos: GOLDEN_SNAPSHOT_CHAOS=1 make golden-snapshot)
+	bash -n $(REPO_ROOT)/scripts/ensure-dev-root-ca.sh
 	bash -n $(REPO_ROOT)/scripts/verify-kafka-cluster.sh
 	bash -n $(REPO_ROOT)/scripts/kafka-runtime-sync.sh
+	bash -n $(REPO_ROOT)/scripts/kafka-after-rollout-verify-brokers.sh
+	bash -n $(REPO_ROOT)/scripts/kafka-tls-guard.sh
+	bash -n $(REPO_ROOT)/scripts/kafka-auto-heal-inter-broker-tls.sh
 	bash -n $(REPO_ROOT)/scripts/tests/kafka-alignment-suite.sh
-	chmod +x $(REPO_ROOT)/scripts/verify-kafka-cluster.sh $(REPO_ROOT)/scripts/kafka-runtime-sync.sh $(REPO_ROOT)/scripts/tests/kafka-alignment-suite.sh
+	chmod +x $(REPO_ROOT)/scripts/ensure-dev-root-ca.sh $(REPO_ROOT)/scripts/verify-kafka-cluster.sh $(REPO_ROOT)/scripts/kafka-runtime-sync.sh $(REPO_ROOT)/scripts/kafka-after-rollout-verify-brokers.sh $(REPO_ROOT)/scripts/kafka-tls-guard.sh $(REPO_ROOT)/scripts/kafka-auto-heal-inter-broker-tls.sh $(REPO_ROOT)/scripts/tests/kafka-alignment-suite.sh
+	HOUSING_NS=$(HOUSING_NS) KAFKA_BROKER_REPLICAS=$(KAFKA_BROKER_REPLICAS) bash $(REPO_ROOT)/scripts/kafka-auto-heal-inter-broker-tls.sh
 	VERIFY_KAFKA_HEALTH_ONLY=0 \
 	  VERIFY_KAFKA_SKIP_META_IDENTITY=0 \
 	  VERIFY_KAFKA_SKIP_TLS_SANS=0 \
@@ -406,6 +441,11 @@ kafka-smoke: ## In-cluster curl smoke for api-gateway /healthz (needs cluster + 
 
 kafka-smoke-with-health: kafka-health kafka-smoke ## kafka-health then gateway smoke (full stack only)
 	@true
+
+k8s-diagnose-restarts: ## Pods with restarts: namespace events, per-container describe + logs (HOUSING_NS=…)
+	bash -n $(REPO_ROOT)/scripts/k8s-diagnose-restarts.sh
+	chmod +x $(REPO_ROOT)/scripts/k8s-diagnose-restarts.sh
+	$(REPO_ROOT)/scripts/k8s-diagnose-restarts.sh
 
 post-deploy-verify: ## kafka-health + gateway smoke + k6 + canary when workloads exist (live cluster)
 	bash -n $(SCRIPTS)/ci/post-deploy-verify.sh $(SCRIPTS)/ci/smoke-api-gateway.sh $(SCRIPTS)/ci/k6-smoke-incluster.sh $(SCRIPTS)/ci/canary-pod-stability.sh
@@ -453,11 +493,12 @@ kafka-clean-slate: ## DESTROYS Kafka broker data; then run apply-kafka-kraft or 
 
 # ROLE: DEV — in-cluster KRaft (3 brokers): staged Services/LB → refresh broker TLS SANs → StatefulSet
 apply-kafka-kraft: ## Staged: headless + external LB svcs → wait IPs → kafka-ssl refresh → PDB + SS (KAFKA_TLS_ATOMIC_BEFORE_REFRESH=1 scales to 0 first)
-	chmod +x $(SCRIPTS)/apply-kafka-kraft-staged.sh $(SCRIPTS)/kafka-refresh-tls-from-lb.sh $(SCRIPTS)/wait-for-kafka-external-lb-ips.sh
+	chmod +x $(SCRIPTS)/apply-kafka-kraft-staged.sh $(SCRIPTS)/ensure-dev-root-ca.sh $(SCRIPTS)/kafka-refresh-tls-from-lb.sh $(SCRIPTS)/wait-for-kafka-external-lb-ips.sh
 	HOUSING_NS=$(HOUSING_NS) KAFKA_TLS_ATOMIC_BEFORE_REFRESH=$(KAFKA_TLS_ATOMIC_BEFORE_REFRESH) KAFKA_BROKER_REPLICAS=$(KAFKA_BROKER_REPLICAS) bash $(SCRIPTS)/apply-kafka-kraft-staged.sh
 
 kafka-refresh-tls-from-lb: ## Regenerate kafka-ssl-secret after kafka-*-external have LB IPs (requires svcs applied)
-	chmod +x $(SCRIPTS)/kafka-refresh-tls-from-lb.sh $(SCRIPTS)/wait-for-kafka-external-lb-ips.sh
+	bash -n $(SCRIPTS)/ensure-dev-root-ca.sh
+	chmod +x $(SCRIPTS)/ensure-dev-root-ca.sh $(SCRIPTS)/kafka-refresh-tls-from-lb.sh $(SCRIPTS)/wait-for-kafka-external-lb-ips.sh
 	bash $(SCRIPTS)/kafka-refresh-tls-from-lb.sh
 
 kafka-rolling-restart: ## Ordered delete kafka pods 2→1→0 with verify-kafka-cluster between (maintenance)
@@ -469,7 +510,7 @@ kafka-tls-guard: ## Mounted CA + JKS uniformity across brokers, och-kafka CA, lo
 	KAFKA_BROKER_REPLICAS=$(KAFKA_BROKER_REPLICAS) HOUSING_NS=$(HOUSING_NS) bash $(SCRIPTS)/kafka-tls-guard.sh
 
 kafka-tls-rotate-atomic: ## Scale Kafka 0 → kafka-refresh-tls-from-lb → scale back → kafka-tls-guard (JKS atomicity)
-	chmod +x $(SCRIPTS)/kafka-tls-rotate-atomic.sh $(SCRIPTS)/kafka-refresh-tls-from-lb.sh $(SCRIPTS)/wait-for-kafka-external-lb-ips.sh $(SCRIPTS)/kafka-tls-guard.sh
+	chmod +x $(SCRIPTS)/kafka-tls-rotate-atomic.sh $(SCRIPTS)/ensure-dev-root-ca.sh $(SCRIPTS)/kafka-refresh-tls-from-lb.sh $(SCRIPTS)/wait-for-kafka-external-lb-ips.sh $(SCRIPTS)/kafka-tls-guard.sh
 	KAFKA_BROKER_REPLICAS=$(KAFKA_BROKER_REPLICAS) HOUSING_NS=$(HOUSING_NS) bash $(SCRIPTS)/kafka-tls-rotate-atomic.sh
 
 kafka-tls-guard-remediate: ## Recovery from PKIX/JKS drift: atomic rotate + full guard
@@ -525,7 +566,7 @@ onboarding-edge: ## verify-preflight-edge-routing (MetalLB + hosts + TLS)
 	$(MAKE) verify-preflight-edge-routing
 
 # ROLE: DEV — deterministic local onboard (EKS: dev-onboard-eks). Wrapper: scripts/dev-onboard-local.sh (set -euo pipefail).
-dev-onboard: ## LOCAL: phased onboard + TLS/Kafka gates + kafka-health post-edge (SKIP_KAFKA_HEALTH_ON_ONBOARD=1 to skip); EKS: verify-only
+dev-onboard: ## LOCAL: phased onboard + TLS/Kafka gates + full Kafka alignment post-edge (DEV_ONBOARD_KAFKA_ALIGNMENT_SAFE_ONLY=1 → kafka-health; SKIP_KAFKA_HEALTH_ON_ONBOARD=1 skips); EKS: verify-only
 	@chmod +x $(SCRIPTS)/detect-k8s-environment.sh $(SCRIPTS)/dev-onboard-local.sh
 	@_och_env=$$(bash $(SCRIPTS)/detect-k8s-environment.sh 2>/dev/null || echo LOCAL); \
 	if [ "$$_och_env" = "EKS" ]; then \
@@ -579,6 +620,8 @@ dev-onboard-lite: ## CI-safe: bash -n scripts, kustomize kafka bundle, onboard s
 	grep -q 'kafka-quorum-stable' "$(SCRIPTS)/dev-onboard-local.sh"; \
 	grep -q 'service-tls-alias-guard' "$(SCRIPTS)/dev-onboard-local.sh"; \
 	grep -q 'edge-readiness-gate' "$(SCRIPTS)/dev-onboard-local.sh"; \
+	grep -q 'kafka-alignment-suite' "$(SCRIPTS)/dev-onboard-local.sh"; \
+	grep -q 'DEV_ONBOARD_KAFKA_ALIGNMENT_SAFE_ONLY' "$(SCRIPTS)/dev-onboard-local.sh"; \
 	grep -q 'kafka-health' "$(SCRIPTS)/dev-onboard-local.sh"; \
 	echo "▶ bash -n scripts/ci (smoke / verify helpers)"; \
 	bash -n "$(SCRIPTS)/ci/smoke-api-gateway.sh"; \
@@ -1051,3 +1094,6 @@ metrics-server-ready: ## Restart kube-system/metrics-server and wait until kubec
 
 trust-integration-tests: ## Trust HTTP+DB integration (needs Postgres 5446); SKIP_TRUST_INTEGRATION=1 to skip
 	cd $(REPO_ROOT)/services/trust-service && pnpm run test:integration
+
+test-vitest-stack: ## integration:all (Kafka assert) → system contracts → unit batch; same as pnpm run test:vitest-stack
+	cd $(REPO_ROOT) && pnpm -C services/common run build && ROLLUP_DISABLE_NATIVE=true pnpm run test:vitest-stack

@@ -1,0 +1,8 @@
+test_name,status,duration_sec
+baseline_healthy,PASS,64.000
+tls_drift_detection,PASS,1.000
+simulated_advert_drift_detect,PASS,23.000
+auto_remediate,PASS,541.000
+metallb_external_svc_churn,PASS,449.000
+broker_pod_restart_resilience,PASS,140.000
+full_cluster_rollout_resilience,PASS,447.000

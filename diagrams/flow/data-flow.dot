@@ -1,0 +1,65 @@
+digraph dataflow {
+  // Shared visual system — include inside digraph { } after the opening line.
+  graph [fontname="Helvetica", fontsize=11];
+  node [fontname="Helvetica"];
+  edge [fontname="Helvetica", fontsize=9];
+  graph [rankdir=LR, fontsize=11, label="Cross-service data flow (curated: HTTP/gRPC + Kafka)", labelloc=t];
+  node [shape=box, style=rounded, fontname="Helvetica"];
+  edge [fontname="Helvetica", fontsize=9];
+  subgraph cluster_edge {
+    label="Edge";
+    style=rounded;
+    gateway [label="API Gateway", shape=box, style="rounded,filled", fillcolor="#99ccff"];
+    caddy [label="Caddy (TLS / HTTP3)", shape=ellipse, style=filled, fillcolor="#cce6ff"];
+  }
+  subgraph cluster_svc {
+    label="Application services";
+    style=rounded;
+    auth [label="Auth", shape=box, style="rounded,filled", fillcolor="#ccffcc"];
+    listings [label="Listings", shape=box, style="rounded,filled", fillcolor="#ccffcc"];
+    bookings [label="Bookings", shape=box, style="rounded,filled", fillcolor="#ccffcc"];
+    messaging [label="Messaging", shape=box, style="rounded,filled", fillcolor="#ccffcc"];
+    notification [label="Notification", shape=box, style="rounded,filled", fillcolor="#ccffcc"];
+    trust [label="Trust", shape=box, style="rounded,filled", fillcolor="#ccffcc"];
+    analytics [label="Analytics", shape=box, style="rounded,filled", fillcolor="#ccffcc"];
+    media [label="Media", shape=box, style="rounded,filled", fillcolor="#ccffcc"];
+    event_layer [label="Event layer", shape=box, style="rounded,filled", fillcolor="#c8e6c9"];
+  }
+  subgraph cluster_data {
+    label="Data plane";
+    style=rounded;
+    postgres_fleet [label="Postgres (per-service DBs)", shape=cylinder, style=filled, fillcolor="#e6ccff"];
+    subgraph cluster_kafka_brokers {
+      label="Kafka (KRaft)";
+      style=filled;
+      fillcolor="#fff8e1";
+      color="#f9a825";
+      { rank=same;
+        kb0 [label="broker-0\nunknown", shape=hexagon, style=filled, fillcolor="#ffcc99", color="#795548"];
+        kb1 [label="broker-1\nunknown", shape=hexagon, style=filled, fillcolor="#ffcc99", color="#795548"];
+        kb2 [label="broker-2\nunknown", shape=hexagon, style=filled, fillcolor="#ffcc99", color="#795548"];
+      }
+    }
+  }
+  caddy -> gateway [label="TLS terminate"];
+  gateway -> auth [label="HTTP/gRPC"];
+  gateway -> listings [label="HTTP/gRPC"];
+  gateway -> bookings [label="HTTP/gRPC"];
+  gateway -> messaging [label="HTTP/gRPC"];
+  gateway -> media [label="HTTP/gRPC"];
+  listings -> postgres_fleet [label="SQL"];
+  bookings -> postgres_fleet [label="SQL"];
+  messaging -> postgres_fleet [label="SQL"];
+  auth -> postgres_fleet [label="SQL"];
+  notification -> postgres_fleet [label="SQL"];
+  trust -> postgres_fleet [label="SQL"];
+  analytics -> postgres_fleet [label="SQL"];
+  media -> postgres_fleet [label="SQL"];
+  event_layer -> kb0 [style=dashed, label="produce"];
+  listings -> kb0 [style=dashed, label="domain events"];
+  bookings -> kb0 [style=dashed, label="domain events"];
+  messaging -> kb0 [style=dashed, label="domain events"];
+  kb0 -> analytics [style=dashed, label="consume"];
+  kb0 -> notification [style=dashed, label="consume"];
+  kb0 -> trust [style=dashed, label="consume"];
+}

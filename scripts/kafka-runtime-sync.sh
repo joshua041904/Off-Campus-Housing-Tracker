@@ -99,11 +99,35 @@ fi
 
 # --- remediate ---
 echo "=== kafka-runtime-sync --remediate (ns=$NS replicas=$REP) ==="
-bash "$SCRIPT_DIR/kafka-refresh-tls-from-lb.sh"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+HOUSING_NS="$NS" KAFKA_BROKER_REPLICAS="$REP" bash "$SCRIPT_DIR/kafka-refresh-tls-from-lb.sh"
+
+echo "▶ Verifying broker JKS before Kafka rollout (PrivateKeyEntry + serverAuth + clientAuth EKU)…"
+chmod +x "$SCRIPT_DIR/verify-kafka-broker-keystore-jks.sh" 2>/dev/null || true
+REPO_ROOT="$REPO_ROOT" \
+  KAFKA_KEYSTORE_PATH="$REPO_ROOT/certs/kafka-ssl/kafka.keystore.jks" \
+  KAFKA_KEYSTORE_PASSWORD_FILE="$REPO_ROOT/certs/kafka-ssl/kafka.keystore-password" \
+  bash "$SCRIPT_DIR/verify-kafka-broker-keystore-jks.sh" || {
+  echo "❌ Broker keystore verification failed — aborting rollout (fix certs/kafka-ssl or kafka-ssl-from-dev-root)" >&2
+  exit 1
+}
 
 echo "▶ Rolling Kafka StatefulSet…"
 kubectl rollout restart statefulset/kafka -n "$NS" --request-timeout=30s
-kubectl rollout status statefulset/kafka -n "$NS" --timeout="${KAFKA_ROLLOUT_TIMEOUT:-600s}"
+_rollout_to="${KAFKA_REMEDIATE_ROLLOUT_TIMEOUT:-${KAFKA_ROLLOUT_TIMEOUT:-600s}}"
+kubectl rollout status statefulset/kafka -n "$NS" --timeout="$_rollout_to"
+
+chmod +x "$SCRIPT_DIR/kafka-after-rollout-verify-brokers.sh" 2>/dev/null || true
+HOUSING_NS="$NS" KAFKA_BROKER_REPLICAS="$REP" bash "$SCRIPT_DIR/kafka-after-rollout-verify-brokers.sh" || {
+  echo "❌ Post-rollout broker TLS parity / Ready check failed (see kafka-tls-guard / PKIX logs above)" >&2
+  exit 1
+}
+
+echo "▶ Post-rollout drift / SAN check…"
+if ! HOUSING_NS="$NS" KAFKA_BROKER_REPLICAS="$REP" bash "$SCRIPT_DIR/kafka-runtime-sync.sh" --check-only "$NS" "$REP"; then
+  echo "❌ kafka-runtime-sync --check-only failed after remediate rollout" >&2
+  exit 1
+fi
 
 chmod +x "$SCRIPT_DIR/verify-kafka-cluster.sh" 2>/dev/null || true
 VERIFY_KAFKA_HEALTH_ONLY=0 \
@@ -115,6 +139,10 @@ VERIFY_KAFKA_HEALTH_ONLY=0 \
   VERIFY_KAFKA_SKIP_LEADERSHIP_CHURN_GATE=0 \
   VERIFY_KAFKA_SKIP_BROKER_API_GATE=0 \
   HOUSING_NS="$NS" KAFKA_BROKER_REPLICAS="$REP" \
-  bash "$SCRIPT_DIR/verify-kafka-cluster.sh" "$NS" "$REP"
+  bash "$SCRIPT_DIR/verify-kafka-cluster.sh" "$NS" "$REP" || {
+  echo "❌ verify-kafka-cluster failed after remediate" >&2
+  exit 1
+}
 
+echo "✅ Auto-remediation successful."
 echo "✅ kafka-runtime-sync --remediate complete"

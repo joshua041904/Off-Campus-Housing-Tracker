@@ -1376,8 +1376,8 @@ if [[ "$DELETE_REGISTER_CODE" == "201" ]]; then
     DELETE_ACCOUNT_CODE=$(echo "$DELETE_ACCOUNT_RESPONSE" | tail -1)
     if [[ "$DELETE_ACCOUNT_RC" -ne 0 ]]; then
       warn "Delete account request failed (curl exit $DELETE_ACCOUNT_RC)"
-    elif [[ "$DELETE_ACCOUNT_CODE" == "204" ]]; then
-      ok "Delete account works via HTTP/2 (HTTP 204)"
+    elif [[ "$DELETE_ACCOUNT_CODE" =~ ^(202|204)$ ]]; then
+      ok "Delete account works via HTTP/2 (HTTP $DELETE_ACCOUNT_CODE; auth-service uses 202 Accepted + JSON for async/outbox delete)"
       sleep 1
       DELETE_LOGIN_RESPONSE=$(strict_curl -sS -w "\n%{http_code}" --http2 --max-time 10 \
         "${CURL_H2_RESOLVE[@]}" \
@@ -1429,8 +1429,8 @@ if type strict_http3_curl &>/dev/null && [[ -n "${HTTP3_RESOLVE:-}" ]]; then
         -H "Host: $HOST" -H "Authorization: Bearer $DEL_H3_TOKEN" --resolve "$HTTP3_RESOLVE" \
         -X DELETE "https://$HOST/api/auth/account" 2>&1) || DEL_H3_DEL_RESP=""
       DEL_H3_DEL_CODE=$(echo "$DEL_H3_DEL_RESP" | tail -1)
-      if [[ "$DEL_H3_DEL_CODE" == "204" ]]; then
-        ok "Delete account works via HTTP/3 (HTTP 204)"
+      if [[ "$DEL_H3_DEL_CODE" =~ ^(202|204)$ ]]; then
+        ok "Delete account works via HTTP/3 (HTTP $DEL_H3_DEL_CODE)"
       else
         warn "Delete account via HTTP/3 failed - HTTP $DEL_H3_DEL_CODE"
       fi

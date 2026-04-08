@@ -1094,6 +1094,7 @@ export namespace Prisma {
     endDate: Date | null
     priceCentsSnapshot: number | null
     currencyCode: string | null
+    tenantNotes: string | null
     cancellationReason: string | null
     confirmedAt: Date | null
     cancelledAt: Date | null
@@ -1112,6 +1113,7 @@ export namespace Prisma {
     endDate: Date | null
     priceCentsSnapshot: number | null
     currencyCode: string | null
+    tenantNotes: string | null
     cancellationReason: string | null
     confirmedAt: Date | null
     cancelledAt: Date | null
@@ -1130,6 +1132,7 @@ export namespace Prisma {
     endDate: number
     priceCentsSnapshot: number
     currencyCode: number
+    tenantNotes: number
     cancellationReason: number
     confirmedAt: number
     cancelledAt: number
@@ -1158,6 +1161,7 @@ export namespace Prisma {
     endDate?: true
     priceCentsSnapshot?: true
     currencyCode?: true
+    tenantNotes?: true
     cancellationReason?: true
     confirmedAt?: true
     cancelledAt?: true
@@ -1176,6 +1180,7 @@ export namespace Prisma {
     endDate?: true
     priceCentsSnapshot?: true
     currencyCode?: true
+    tenantNotes?: true
     cancellationReason?: true
     confirmedAt?: true
     cancelledAt?: true
@@ -1194,6 +1199,7 @@ export namespace Prisma {
     endDate?: true
     priceCentsSnapshot?: true
     currencyCode?: true
+    tenantNotes?: true
     cancellationReason?: true
     confirmedAt?: true
     cancelledAt?: true
@@ -1299,6 +1305,7 @@ export namespace Prisma {
     endDate: Date
     priceCentsSnapshot: number
     currencyCode: string
+    tenantNotes: string | null
     cancellationReason: string | null
     confirmedAt: Date | null
     cancelledAt: Date | null
@@ -1336,6 +1343,7 @@ export namespace Prisma {
     endDate?: boolean
     priceCentsSnapshot?: boolean
     currencyCode?: boolean
+    tenantNotes?: boolean
     cancellationReason?: boolean
     confirmedAt?: boolean
     cancelledAt?: boolean
@@ -1354,6 +1362,7 @@ export namespace Prisma {
     endDate?: boolean
     priceCentsSnapshot?: boolean
     currencyCode?: boolean
+    tenantNotes?: boolean
     cancellationReason?: boolean
     confirmedAt?: boolean
     cancelledAt?: boolean
@@ -1372,6 +1381,7 @@ export namespace Prisma {
     endDate?: boolean
     priceCentsSnapshot?: boolean
     currencyCode?: boolean
+    tenantNotes?: boolean
     cancellationReason?: boolean
     confirmedAt?: boolean
     cancelledAt?: boolean
@@ -1390,6 +1400,7 @@ export namespace Prisma {
     endDate?: boolean
     priceCentsSnapshot?: boolean
     currencyCode?: boolean
+    tenantNotes?: boolean
     cancellationReason?: boolean
     confirmedAt?: boolean
     cancelledAt?: boolean
@@ -1398,7 +1409,7 @@ export namespace Prisma {
     updatedAt?: boolean
   }
 
-  export type BookingOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "listingId" | "tenantId" | "landlordId" | "status" | "startDate" | "endDate" | "priceCentsSnapshot" | "currencyCode" | "cancellationReason" | "confirmedAt" | "cancelledAt" | "completedAt" | "createdAt" | "updatedAt", ExtArgs["result"]["booking"]>
+  export type BookingOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "listingId" | "tenantId" | "landlordId" | "status" | "startDate" | "endDate" | "priceCentsSnapshot" | "currencyCode" | "tenantNotes" | "cancellationReason" | "confirmedAt" | "cancelledAt" | "completedAt" | "createdAt" | "updatedAt", ExtArgs["result"]["booking"]>
 
   export type $BookingPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     name: "Booking"
@@ -1413,6 +1424,10 @@ export namespace Prisma {
       endDate: Date
       priceCentsSnapshot: number
       currencyCode: string
+      /**
+       * Tenant-only editable text (move-in notes, special requests). Not the listing description.
+       */
+      tenantNotes: string | null
       cancellationReason: string | null
       confirmedAt: Date | null
       cancelledAt: Date | null
@@ -1851,6 +1866,7 @@ export namespace Prisma {
     readonly endDate: FieldRef<"Booking", 'DateTime'>
     readonly priceCentsSnapshot: FieldRef<"Booking", 'Int'>
     readonly currencyCode: FieldRef<"Booking", 'String'>
+    readonly tenantNotes: FieldRef<"Booking", 'String'>
     readonly cancellationReason: FieldRef<"Booking", 'String'>
     readonly confirmedAt: FieldRef<"Booking", 'DateTime'>
     readonly cancelledAt: FieldRef<"Booking", 'DateTime'>
@@ -4374,6 +4390,7 @@ export namespace Prisma {
     endDate: 'endDate',
     priceCentsSnapshot: 'priceCentsSnapshot',
     currencyCode: 'currencyCode',
+    tenantNotes: 'tenantNotes',
     cancellationReason: 'cancellationReason',
     confirmedAt: 'confirmedAt',
     cancelledAt: 'cancelledAt',
@@ -4567,6 +4584,7 @@ export namespace Prisma {
     endDate?: DateTimeFilter<"Booking"> | Date | string
     priceCentsSnapshot?: IntFilter<"Booking"> | number
     currencyCode?: StringFilter<"Booking"> | string
+    tenantNotes?: StringNullableFilter<"Booking"> | string | null
     cancellationReason?: StringNullableFilter<"Booking"> | string | null
     confirmedAt?: DateTimeNullableFilter<"Booking"> | Date | string | null
     cancelledAt?: DateTimeNullableFilter<"Booking"> | Date | string | null
@@ -4585,6 +4603,7 @@ export namespace Prisma {
     endDate?: SortOrder
     priceCentsSnapshot?: SortOrder
     currencyCode?: SortOrder
+    tenantNotes?: SortOrderInput | SortOrder
     cancellationReason?: SortOrderInput | SortOrder
     confirmedAt?: SortOrderInput | SortOrder
     cancelledAt?: SortOrderInput | SortOrder
@@ -4606,6 +4625,7 @@ export namespace Prisma {
     endDate?: DateTimeFilter<"Booking"> | Date | string
     priceCentsSnapshot?: IntFilter<"Booking"> | number
     currencyCode?: StringFilter<"Booking"> | string
+    tenantNotes?: StringNullableFilter<"Booking"> | string | null
     cancellationReason?: StringNullableFilter<"Booking"> | string | null
     confirmedAt?: DateTimeNullableFilter<"Booking"> | Date | string | null
     cancelledAt?: DateTimeNullableFilter<"Booking"> | Date | string | null
@@ -4624,6 +4644,7 @@ export namespace Prisma {
     endDate?: SortOrder
     priceCentsSnapshot?: SortOrder
     currencyCode?: SortOrder
+    tenantNotes?: SortOrderInput | SortOrder
     cancellationReason?: SortOrderInput | SortOrder
     confirmedAt?: SortOrderInput | SortOrder
     cancelledAt?: SortOrderInput | SortOrder
@@ -4650,6 +4671,7 @@ export namespace Prisma {
     endDate?: DateTimeWithAggregatesFilter<"Booking"> | Date | string
     priceCentsSnapshot?: IntWithAggregatesFilter<"Booking"> | number
     currencyCode?: StringWithAggregatesFilter<"Booking"> | string
+    tenantNotes?: StringNullableWithAggregatesFilter<"Booking"> | string | null
     cancellationReason?: StringNullableWithAggregatesFilter<"Booking"> | string | null
     confirmedAt?: DateTimeNullableWithAggregatesFilter<"Booking"> | Date | string | null
     cancelledAt?: DateTimeNullableWithAggregatesFilter<"Booking"> | Date | string | null
@@ -4810,6 +4832,7 @@ export namespace Prisma {
     endDate: Date | string
     priceCentsSnapshot: number
     currencyCode: string
+    tenantNotes?: string | null
     cancellationReason?: string | null
     confirmedAt?: Date | string | null
     cancelledAt?: Date | string | null
@@ -4828,6 +4851,7 @@ export namespace Prisma {
     endDate: Date | string
     priceCentsSnapshot: number
     currencyCode: string
+    tenantNotes?: string | null
     cancellationReason?: string | null
     confirmedAt?: Date | string | null
     cancelledAt?: Date | string | null
@@ -4846,6 +4870,7 @@ export namespace Prisma {
     endDate?: DateTimeFieldUpdateOperationsInput | Date | string
     priceCentsSnapshot?: IntFieldUpdateOperationsInput | number
     currencyCode?: StringFieldUpdateOperationsInput | string
+    tenantNotes?: NullableStringFieldUpdateOperationsInput | string | null
     cancellationReason?: NullableStringFieldUpdateOperationsInput | string | null
     confirmedAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     cancelledAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -4864,6 +4889,7 @@ export namespace Prisma {
     endDate?: DateTimeFieldUpdateOperationsInput | Date | string
     priceCentsSnapshot?: IntFieldUpdateOperationsInput | number
     currencyCode?: StringFieldUpdateOperationsInput | string
+    tenantNotes?: NullableStringFieldUpdateOperationsInput | string | null
     cancellationReason?: NullableStringFieldUpdateOperationsInput | string | null
     confirmedAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     cancelledAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -4882,6 +4908,7 @@ export namespace Prisma {
     endDate: Date | string
     priceCentsSnapshot: number
     currencyCode: string
+    tenantNotes?: string | null
     cancellationReason?: string | null
     confirmedAt?: Date | string | null
     cancelledAt?: Date | string | null
@@ -4900,6 +4927,7 @@ export namespace Prisma {
     endDate?: DateTimeFieldUpdateOperationsInput | Date | string
     priceCentsSnapshot?: IntFieldUpdateOperationsInput | number
     currencyCode?: StringFieldUpdateOperationsInput | string
+    tenantNotes?: NullableStringFieldUpdateOperationsInput | string | null
     cancellationReason?: NullableStringFieldUpdateOperationsInput | string | null
     confirmedAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     cancelledAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -4918,6 +4946,7 @@ export namespace Prisma {
     endDate?: DateTimeFieldUpdateOperationsInput | Date | string
     priceCentsSnapshot?: IntFieldUpdateOperationsInput | number
     currencyCode?: StringFieldUpdateOperationsInput | string
+    tenantNotes?: NullableStringFieldUpdateOperationsInput | string | null
     cancellationReason?: NullableStringFieldUpdateOperationsInput | string | null
     confirmedAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     cancelledAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -5184,6 +5213,7 @@ export namespace Prisma {
     endDate?: SortOrder
     priceCentsSnapshot?: SortOrder
     currencyCode?: SortOrder
+    tenantNotes?: SortOrder
     cancellationReason?: SortOrder
     confirmedAt?: SortOrder
     cancelledAt?: SortOrder
@@ -5206,6 +5236,7 @@ export namespace Prisma {
     endDate?: SortOrder
     priceCentsSnapshot?: SortOrder
     currencyCode?: SortOrder
+    tenantNotes?: SortOrder
     cancellationReason?: SortOrder
     confirmedAt?: SortOrder
     cancelledAt?: SortOrder
@@ -5224,6 +5255,7 @@ export namespace Prisma {
     endDate?: SortOrder
     priceCentsSnapshot?: SortOrder
     currencyCode?: SortOrder
+    tenantNotes?: SortOrder
     cancellationReason?: SortOrder
     confirmedAt?: SortOrder
     cancelledAt?: SortOrder

@@ -1,0 +1,314 @@
+{
+    "tables": [
+        {
+            "name": "bookings",
+            "schema": "booking",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "listing_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "tenant_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "landlord_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "start_date",
+                    "type": "date",
+                    "nullable": false
+                },
+                {
+                    "name": "end_date",
+                    "type": "date",
+                    "nullable": false
+                },
+                {
+                    "name": "status",
+                    "type": "booking.booking_status",
+                    "nullable": false
+                },
+                {
+                    "name": "price_cents_snapshot",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "currency_code",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "cancellation_reason",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "updated_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "confirmed_at",
+                    "type": "timestamp with time zone",
+                    "nullable": true
+                },
+                {
+                    "name": "cancelled_at",
+                    "type": "timestamp with time zone",
+                    "nullable": true
+                },
+                {
+                    "name": "completed_at",
+                    "type": "timestamp with time zone",
+                    "nullable": true
+                },
+                {
+                    "name": "version",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "payment_status",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "payment_reference",
+                    "type": "text",
+                    "nullable": true
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX bookings_pkey ON booking.bookings USING btree (id)",
+                    "name": "bookings_pkey"
+                },
+                {
+                    "def": "CREATE INDEX idx_booking_landlord ON booking.bookings USING btree (landlord_id, created_at DESC)",
+                    "name": "idx_booking_landlord"
+                },
+                {
+                    "def": "CREATE INDEX idx_booking_listing_status ON booking.bookings USING btree (listing_id, status)",
+                    "name": "idx_booking_listing_status"
+                },
+                {
+                    "def": "CREATE INDEX idx_booking_status_dates ON booking.bookings USING btree (status, start_date)",
+                    "name": "idx_booking_status_dates"
+                },
+                {
+                    "def": "CREATE INDEX idx_booking_tenant ON booking.bookings USING btree (tenant_id, created_at DESC)",
+                    "name": "idx_booking_tenant"
+                },
+                {
+                    "def": "CREATE INDEX idx_bookings_listing_id ON booking.bookings USING btree (listing_id)",
+                    "name": "idx_bookings_listing_id"
+                },
+                {
+                    "def": "CREATE INDEX idx_bookings_status ON booking.bookings USING btree (status)",
+                    "name": "idx_bookings_status"
+                },
+                {
+                    "def": "CREATE INDEX idx_bookings_tenant_id ON booking.bookings USING btree (tenant_id)",
+                    "name": "idx_bookings_tenant_id"
+                },
+                {
+                    "def": "CREATE INDEX no_overlapping_bookings ON booking.bookings USING gist (listing_id, daterange(start_date, end_date, '[]'::text)) WHERE (status = ANY (ARRAY['confirmed'::booking.booking_status, 'pending_confirmation'::booking.booking_status]))",
+                    "name": "no_overlapping_bookings"
+                }
+            ]
+        },
+        {
+            "name": "outbox_events",
+            "schema": "booking",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "aggregate_id",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "type",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "version",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "payload",
+                    "type": "bytea",
+                    "nullable": false
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "published",
+                    "type": "boolean",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE INDEX idx_booking_outbox_unpublished ON booking.outbox_events USING btree (published, created_at) WHERE (published = false)",
+                    "name": "idx_booking_outbox_unpublished"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX outbox_events_pkey ON booking.outbox_events USING btree (id)",
+                    "name": "outbox_events_pkey"
+                }
+            ]
+        },
+        {
+            "name": "search_history",
+            "schema": "booking",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "user_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "query",
+                    "type": "character varying(256)",
+                    "nullable": true
+                },
+                {
+                    "name": "min_price_cents",
+                    "type": "integer",
+                    "nullable": true
+                },
+                {
+                    "name": "max_price_cents",
+                    "type": "integer",
+                    "nullable": true
+                },
+                {
+                    "name": "max_distance_km",
+                    "type": "integer",
+                    "nullable": true
+                },
+                {
+                    "name": "latitude",
+                    "type": "double precision",
+                    "nullable": true
+                },
+                {
+                    "name": "longitude",
+                    "type": "double precision",
+                    "nullable": true
+                },
+                {
+                    "name": "filters",
+                    "type": "jsonb",
+                    "nullable": true
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE INDEX idx_search_history_user_created ON booking.search_history USING btree (user_id, created_at DESC)",
+                    "name": "idx_search_history_user_created"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX search_history_pkey ON booking.search_history USING btree (id)",
+                    "name": "search_history_pkey"
+                }
+            ]
+        },
+        {
+            "name": "watchlist_items",
+            "schema": "booking",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "user_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "listing_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "source",
+                    "type": "character varying(40)",
+                    "nullable": true
+                },
+                {
+                    "name": "added_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "removed_at",
+                    "type": "timestamp with time zone",
+                    "nullable": true
+                },
+                {
+                    "name": "is_active",
+                    "type": "boolean",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE INDEX idx_watchlist_user_active_added ON booking.watchlist_items USING btree (user_id, is_active, added_at DESC)",
+                    "name": "idx_watchlist_user_active_added"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX ux_watchlist_user_listing ON booking.watchlist_items USING btree (user_id, listing_id)",
+                    "name": "ux_watchlist_user_listing"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX watchlist_items_pkey ON booking.watchlist_items USING btree (id)",
+                    "name": "watchlist_items_pkey"
+                }
+            ]
+        }
+    ],
+    "database": "bookings",
+    "foreign_keys": [
+    ],
+    "generated_at": "2026-04-03T20:12:07.858514+00:00"
+}

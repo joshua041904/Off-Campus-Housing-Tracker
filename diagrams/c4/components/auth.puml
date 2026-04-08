@@ -1,0 +1,26 @@
+@startuml c4_component_auth
+title C4 Level 3 — auth-service (components)
+skinparam defaultFontName Helvetica
+
+rectangle "auth-service" {
+  [HTTP routes\n(server.ts)] as http
+  [gRPC AuthService\n(grpc-server.ts)] as grpc
+  [Prisma\n(users, MFA, passkeys)] as prisma
+  [Session / token\nlogic] as tok
+}
+
+database "Postgres\nauth DB" as pg
+
+http --> tok
+grpc --> tok
+http --> prisma
+grpc --> prisma
+prisma --> pg
+
+note bottom of grpc
+  proto/auth.proto
+  Authenticate, Register,
+  ValidateToken, RefreshToken, …
+end note
+
+@enduml

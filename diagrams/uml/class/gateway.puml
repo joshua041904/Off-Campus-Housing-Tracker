@@ -1,0 +1,46 @@
+@startuml uml_class_gateway
+title LLD — api-gateway (HTTP façade + downstream clients)
+skinparam defaultFontName Helvetica
+
+package "Presentation (Express)" {
+  class "Express application\n(server.ts)" as App <<Node>> {
+    listen()
+  }
+  class "Route table\n(/api/* → service HTTP)" as Routes {
+    forward()
+  }
+  class "Auth middleware" as AuthMw {
+    validate JWT
+    set x-user-id
+  }
+}
+
+package "Integration — typed clients" {
+  class "HTTP proxy / fetch\n(per service URL)" as HttpC
+  class "gRPC client stubs\n(proto/*.proto)" as GrpcC {
+    AuthService
+    BookingService
+    ListingsService
+    MessagingService
+    TrustService
+    AnalyticsService
+    MediaService
+    NotificationService
+  }
+}
+
+App --> Routes
+Routes --> AuthMw
+AuthMw --> HttpC : REST to services
+AuthMw --> GrpcC : same contracts as\nservice **grpc-server.ts**
+
+note bottom of GrpcC
+  Each microservice **implements** the
+  RPCs in its **grpc-server.ts**; protos
+  are the cross-process **interface**.
+  Gateway may call gRPC where wired, and
+  HTTP elsewhere — both map to the same
+  domain operations.
+end note
+
+@enduml

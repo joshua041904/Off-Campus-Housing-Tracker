@@ -10,6 +10,7 @@
 #   KAFKA_BROKER_REPLICAS=3       — SANs for kafka-0..N-1 (headless + external service DNS)
 #   KAFKA_SSL_EXTRA_IP_SANS=      — optional manual IPs; merged with auto-discovered LB IPs when auto is on
 #   KAFKA_SSL_AUTO_METALLB_IPS=   — default 1: append LB IPs from kubectl get svc kafka-*-external (same ns). Set 0 to disable.
+#   SAN list: scripts/lib/kafka-broker-sans.sh (shared with verify-kafka-tls-sans.sh).
 
 set -euo pipefail
 
@@ -43,6 +44,9 @@ kctl() {
   fi
 }
 
+# shellcheck source=lib/kafka-broker-sans.sh
+source "$SCRIPT_DIR/lib/kafka-broker-sans.sh"
+
 if [[ ! -f "$CA_PEM" ]] || [[ ! -f "$CA_KEY" ]]; then
   echo "❌ dev-root CA not found. Run: pnpm run reissue (with KAFKA_SSL=1 to persist CA key), or ensure certs/dev-root.pem and certs/dev-root.key exist."
   exit 1
@@ -53,53 +57,10 @@ trap 'rm -rf "$TMP"' EXIT
 # Remove existing keystore/truststore so keytool never sees "alias already exists"
 rm -f "$OUT/kafka.keystore.jks" "$OUT/kafka.truststore.jks" "$OUT/kafka.keystore-password" "$OUT/kafka.truststore-password" "$OUT/kafka.key-password" "$OUT/kafka-broker.pem" 2>/dev/null || true
 
-# SANs: shared broker cert (all pods use one JKS) must list every hostname clients and peers use.
-# Includes short names (kafka-0, kafka-0.kafka, …svc, …svc.cluster.local) plus external Service DNS per broker.
-build_kafka_subject_alt_names() {
-  local ns="$1"
-  local replicas="$2"
-  local parts=()
-  parts+=("DNS:kafka")
-  parts+=("DNS:localhost")
-  parts+=("DNS:host.docker.internal")
-  parts+=("DNS:kafka-external.${ns}.svc.cluster.local")
-  local i
-  for ((i = 0; i < replicas; i++)); do
-    parts+=("DNS:kafka-${i}")
-    parts+=("DNS:kafka-${i}.kafka")
-    parts+=("DNS:kafka-${i}.kafka.${ns}.svc")
-    parts+=("DNS:kafka-${i}.kafka.${ns}.svc.cluster.local")
-    parts+=("DNS:kafka-${i}-external.${ns}.svc.cluster.local")
-  done
-  parts+=("IP:127.0.0.1")
-  parts+=("IP:192.168.5.1")
-  if [[ -n "${KAFKA_SSL_EXTRA_IP_SANS:-}" ]]; then
-    local _ip _trimmed
-    IFS=',' read -r -a _extra <<< "${KAFKA_SSL_EXTRA_IP_SANS// /}"
-    for _ip in "${_extra[@]}"; do
-      _trimmed="${_ip// /}"
-      [[ -z "$_trimmed" ]] && continue
-      parts+=("IP:${_trimmed}")
-    done
-  fi
-  local IFS=,
-  echo "${parts[*]}"
-}
-
 REPLICAS="${KAFKA_BROKER_REPLICAS:-3}"
 # Default on: KRaft EXTERNAL://<MetalLB>:9094 requires those IPs in the broker cert. Disable with KAFKA_SSL_AUTO_METALLB_IPS=0.
 if [[ "${KAFKA_SSL_AUTO_METALLB_IPS:-1}" != "0" ]]; then
-  _auto_extra=""
-  for ((i = 0; i < REPLICAS; i++)); do
-    _ip="$(kctl get svc "kafka-${i}-external" -n "$NS" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
-    if [[ -n "$_ip" ]] && [[ "$_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-      if [[ -n "$_auto_extra" ]]; then
-        _auto_extra="${_auto_extra},${_ip}"
-      else
-        _auto_extra="${_ip}"
-      fi
-    fi
-  done
+  _auto_extra="$(och_kafka_metallb_external_lb_ips_csv "$NS" "$REPLICAS")"
   if [[ -n "$_auto_extra" ]]; then
     if [[ -n "${KAFKA_SSL_EXTRA_IP_SANS:-}" ]]; then
       KAFKA_SSL_EXTRA_IP_SANS="${KAFKA_SSL_EXTRA_IP_SANS},${_auto_extra}"
@@ -111,7 +72,7 @@ if [[ "${KAFKA_SSL_AUTO_METALLB_IPS:-1}" != "0" ]]; then
     warn "KAFKA_SSL_AUTO_METALLB_IPS=1 but no kafka-*-external LoadBalancer IPs in namespace ${NS}"
   fi
 fi
-KAFKA_SANS="$(build_kafka_subject_alt_names "$NS" "$REPLICAS")"
+KAFKA_SANS="$(och_kafka_subject_alt_name_openssl_value "$NS" "$REPLICAS" "${KAFKA_SSL_EXTRA_IP_SANS:-}")"
 CN="${KAFKA_SSL_CN:-kafka}"
 say "Broker TLS SANs: replicas 0..$((REPLICAS - 1)), namespace=${NS} (MetalLB IPs auto-merged when discoverable; KAFKA_SSL_AUTO_METALLB_IPS=0 to skip)"
 

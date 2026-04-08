@@ -1,0 +1,1473 @@
+{
+    "tables": [
+        {
+            "name": "comment_attachments",
+            "schema": "forum",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "comment_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "file_url",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "file_path",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "thumbnail_url",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "file_name",
+                    "type": "character varying(512)",
+                    "nullable": true
+                },
+                {
+                    "name": "file_size",
+                    "type": "bigint",
+                    "nullable": true
+                },
+                {
+                    "name": "mime_type",
+                    "type": "character varying(128)",
+                    "nullable": true
+                },
+                {
+                    "name": "file_type",
+                    "type": "character varying(32)",
+                    "nullable": false
+                },
+                {
+                    "name": "width",
+                    "type": "integer",
+                    "nullable": true
+                },
+                {
+                    "name": "height",
+                    "type": "integer",
+                    "nullable": true
+                },
+                {
+                    "name": "duration",
+                    "type": "integer",
+                    "nullable": true
+                },
+                {
+                    "name": "display_order",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX comment_attachments_pkey ON forum.comment_attachments USING btree (id)",
+                    "name": "comment_attachments_pkey"
+                },
+                {
+                    "def": "CREATE INDEX idx_comment_attachments_comment_id ON forum.comment_attachments USING btree (comment_id)",
+                    "name": "idx_comment_attachments_comment_id"
+                },
+                {
+                    "def": "CREATE INDEX idx_comment_attachments_display_order ON forum.comment_attachments USING btree (comment_id, display_order)",
+                    "name": "idx_comment_attachments_display_order"
+                },
+                {
+                    "def": "CREATE INDEX idx_comment_attachments_file_type ON forum.comment_attachments USING btree (file_type)",
+                    "name": "idx_comment_attachments_file_type"
+                }
+            ]
+        },
+        {
+            "name": "comment_votes",
+            "schema": "forum",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "comment_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "user_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "vote_type",
+                    "type": "character varying(8)",
+                    "nullable": false
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX comment_votes_comment_id_user_id_key ON forum.comment_votes USING btree (comment_id, user_id)",
+                    "name": "comment_votes_comment_id_user_id_key"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX comment_votes_pkey ON forum.comment_votes USING btree (id)",
+                    "name": "comment_votes_pkey"
+                },
+                {
+                    "def": "CREATE INDEX idx_comment_votes_comment_id ON forum.comment_votes USING btree (comment_id)",
+                    "name": "idx_comment_votes_comment_id"
+                },
+                {
+                    "def": "CREATE INDEX idx_comment_votes_user_id ON forum.comment_votes USING btree (user_id)",
+                    "name": "idx_comment_votes_user_id"
+                }
+            ]
+        },
+        {
+            "name": "comments",
+            "schema": "forum",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "post_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "user_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "parent_id",
+                    "type": "uuid",
+                    "nullable": true
+                },
+                {
+                    "name": "content",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "upvotes",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "downvotes",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "updated_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX comments_pkey ON forum.comments USING btree (id)",
+                    "name": "comments_pkey"
+                },
+                {
+                    "def": "CREATE INDEX idx_comments_created_at ON forum.comments USING btree (created_at DESC)",
+                    "name": "idx_comments_created_at"
+                },
+                {
+                    "def": "CREATE INDEX idx_comments_parent_id ON forum.comments USING btree (parent_id)",
+                    "name": "idx_comments_parent_id"
+                },
+                {
+                    "def": "CREATE INDEX idx_comments_post_id ON forum.comments USING btree (post_id)",
+                    "name": "idx_comments_post_id"
+                },
+                {
+                    "def": "CREATE INDEX idx_comments_user_id ON forum.comments USING btree (user_id)",
+                    "name": "idx_comments_user_id"
+                }
+            ]
+        },
+        {
+            "name": "post_attachments",
+            "schema": "forum",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "post_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "file_url",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "file_path",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "thumbnail_url",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "file_name",
+                    "type": "character varying(512)",
+                    "nullable": true
+                },
+                {
+                    "name": "file_size",
+                    "type": "bigint",
+                    "nullable": true
+                },
+                {
+                    "name": "mime_type",
+                    "type": "character varying(128)",
+                    "nullable": true
+                },
+                {
+                    "name": "file_type",
+                    "type": "character varying(32)",
+                    "nullable": false
+                },
+                {
+                    "name": "width",
+                    "type": "integer",
+                    "nullable": true
+                },
+                {
+                    "name": "height",
+                    "type": "integer",
+                    "nullable": true
+                },
+                {
+                    "name": "duration",
+                    "type": "integer",
+                    "nullable": true
+                },
+                {
+                    "name": "display_order",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE INDEX idx_post_attachments_display_order ON forum.post_attachments USING btree (post_id, display_order)",
+                    "name": "idx_post_attachments_display_order"
+                },
+                {
+                    "def": "CREATE INDEX idx_post_attachments_file_type ON forum.post_attachments USING btree (file_type)",
+                    "name": "idx_post_attachments_file_type"
+                },
+                {
+                    "def": "CREATE INDEX idx_post_attachments_post_id ON forum.post_attachments USING btree (post_id)",
+                    "name": "idx_post_attachments_post_id"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX post_attachments_pkey ON forum.post_attachments USING btree (id)",
+                    "name": "post_attachments_pkey"
+                }
+            ]
+        },
+        {
+            "name": "post_votes",
+            "schema": "forum",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "post_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "user_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "vote_type",
+                    "type": "character varying(8)",
+                    "nullable": false
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE INDEX idx_post_votes_post_id ON forum.post_votes USING btree (post_id)",
+                    "name": "idx_post_votes_post_id"
+                },
+                {
+                    "def": "CREATE INDEX idx_post_votes_user_id ON forum.post_votes USING btree (user_id)",
+                    "name": "idx_post_votes_user_id"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX post_votes_pkey ON forum.post_votes USING btree (id)",
+                    "name": "post_votes_pkey"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX post_votes_post_id_user_id_key ON forum.post_votes USING btree (post_id, user_id)",
+                    "name": "post_votes_post_id_user_id_key"
+                }
+            ]
+        },
+        {
+            "name": "posts",
+            "schema": "forum",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "user_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "title",
+                    "type": "character varying(512)",
+                    "nullable": false
+                },
+                {
+                    "name": "content",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "flair",
+                    "type": "character varying(64)",
+                    "nullable": false
+                },
+                {
+                    "name": "upload_type",
+                    "type": "character varying(32)",
+                    "nullable": false
+                },
+                {
+                    "name": "upvotes",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "downvotes",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "comment_count",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "is_pinned",
+                    "type": "boolean",
+                    "nullable": false
+                },
+                {
+                    "name": "is_locked",
+                    "type": "boolean",
+                    "nullable": false
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "updated_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE INDEX idx_forum_posts_created ON forum.posts USING btree (created_at DESC, flair)",
+                    "name": "idx_forum_posts_created"
+                },
+                {
+                    "def": "CREATE INDEX idx_forum_posts_user_created ON forum.posts USING btree (user_id, created_at DESC)",
+                    "name": "idx_forum_posts_user_created"
+                },
+                {
+                    "def": "CREATE INDEX idx_posts_content_trgm ON forum.posts USING gin (content gin_trgm_ops)",
+                    "name": "idx_posts_content_trgm"
+                },
+                {
+                    "def": "CREATE INDEX idx_posts_created_at ON forum.posts USING btree (created_at DESC)",
+                    "name": "idx_posts_created_at"
+                },
+                {
+                    "def": "CREATE INDEX idx_posts_flair ON forum.posts USING btree (flair)",
+                    "name": "idx_posts_flair"
+                },
+                {
+                    "def": "CREATE INDEX idx_posts_pinned_created ON forum.posts USING btree (is_pinned DESC, created_at DESC)",
+                    "name": "idx_posts_pinned_created"
+                },
+                {
+                    "def": "CREATE INDEX idx_posts_title_trgm ON forum.posts USING gin (title gin_trgm_ops)",
+                    "name": "idx_posts_title_trgm"
+                },
+                {
+                    "def": "CREATE INDEX idx_posts_upload_type ON forum.posts USING btree (upload_type)",
+                    "name": "idx_posts_upload_type"
+                },
+                {
+                    "def": "CREATE INDEX idx_posts_upvotes_created ON forum.posts USING btree (upvotes DESC, created_at DESC)",
+                    "name": "idx_posts_upvotes_created"
+                },
+                {
+                    "def": "CREATE INDEX idx_posts_user_id ON forum.posts USING btree (user_id)",
+                    "name": "idx_posts_user_id"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX posts_pkey ON forum.posts USING btree (id)",
+                    "name": "posts_pkey"
+                }
+            ]
+        },
+        {
+            "name": "group_bans",
+            "schema": "messages",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "group_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "user_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "banned_by",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "reason",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "expires_at",
+                    "type": "timestamp with time zone",
+                    "nullable": true
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX group_bans_group_id_user_id_key ON messages.group_bans USING btree (group_id, user_id)",
+                    "name": "group_bans_group_id_user_id_key"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX group_bans_pkey ON messages.group_bans USING btree (id)",
+                    "name": "group_bans_pkey"
+                },
+                {
+                    "def": "CREATE INDEX idx_group_bans_expires ON messages.group_bans USING btree (expires_at) WHERE (expires_at IS NOT NULL)",
+                    "name": "idx_group_bans_expires"
+                },
+                {
+                    "def": "CREATE INDEX idx_group_bans_group ON messages.group_bans USING btree (group_id)",
+                    "name": "idx_group_bans_group"
+                },
+                {
+                    "def": "CREATE INDEX idx_group_bans_user ON messages.group_bans USING btree (user_id)",
+                    "name": "idx_group_bans_user"
+                }
+            ]
+        },
+        {
+            "name": "group_members",
+            "schema": "messages",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "group_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "user_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "role",
+                    "type": "character varying(16)",
+                    "nullable": false
+                },
+                {
+                    "name": "joined_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "left_at",
+                    "type": "timestamp with time zone",
+                    "nullable": true
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX group_members_group_id_user_id_key ON messages.group_members USING btree (group_id, user_id)",
+                    "name": "group_members_group_id_user_id_key"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX group_members_pkey ON messages.group_members USING btree (id)",
+                    "name": "group_members_pkey"
+                },
+                {
+                    "def": "CREATE INDEX idx_group_members_group_id ON messages.group_members USING btree (group_id)",
+                    "name": "idx_group_members_group_id"
+                },
+                {
+                    "def": "CREATE INDEX idx_group_members_left ON messages.group_members USING btree (group_id, left_at) WHERE (left_at IS NULL)",
+                    "name": "idx_group_members_left"
+                },
+                {
+                    "def": "CREATE INDEX idx_group_members_user_id ON messages.group_members USING btree (user_id)",
+                    "name": "idx_group_members_user_id"
+                }
+            ]
+        },
+        {
+            "name": "groups",
+            "schema": "messages",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "name",
+                    "type": "character varying(256)",
+                    "nullable": false
+                },
+                {
+                    "name": "description",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "created_by",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "updated_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "archived",
+                    "type": "boolean",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX groups_pkey ON messages.groups USING btree (id)",
+                    "name": "groups_pkey"
+                },
+                {
+                    "def": "CREATE INDEX idx_groups_archived ON messages.groups USING btree (archived) WHERE (archived = true)",
+                    "name": "idx_groups_archived"
+                },
+                {
+                    "def": "CREATE INDEX idx_groups_created_at ON messages.groups USING btree (created_at DESC)",
+                    "name": "idx_groups_created_at"
+                },
+                {
+                    "def": "CREATE INDEX idx_groups_created_by ON messages.groups USING btree (created_by)",
+                    "name": "idx_groups_created_by"
+                }
+            ]
+        },
+        {
+            "name": "message_attachments",
+            "schema": "messages",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "message_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "file_url",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "file_path",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "thumbnail_url",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "file_name",
+                    "type": "character varying(512)",
+                    "nullable": true
+                },
+                {
+                    "name": "file_size",
+                    "type": "bigint",
+                    "nullable": true
+                },
+                {
+                    "name": "mime_type",
+                    "type": "character varying(128)",
+                    "nullable": true
+                },
+                {
+                    "name": "file_type",
+                    "type": "character varying(32)",
+                    "nullable": false
+                },
+                {
+                    "name": "width",
+                    "type": "integer",
+                    "nullable": true
+                },
+                {
+                    "name": "height",
+                    "type": "integer",
+                    "nullable": true
+                },
+                {
+                    "name": "duration",
+                    "type": "integer",
+                    "nullable": true
+                },
+                {
+                    "name": "display_order",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE INDEX idx_message_attachments_display_order ON messages.message_attachments USING btree (message_id, display_order)",
+                    "name": "idx_message_attachments_display_order"
+                },
+                {
+                    "def": "CREATE INDEX idx_message_attachments_file_type ON messages.message_attachments USING btree (file_type)",
+                    "name": "idx_message_attachments_file_type"
+                },
+                {
+                    "def": "CREATE INDEX idx_message_attachments_message_id ON messages.message_attachments USING btree (message_id)",
+                    "name": "idx_message_attachments_message_id"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX message_attachments_pkey ON messages.message_attachments USING btree (id)",
+                    "name": "message_attachments_pkey"
+                }
+            ]
+        },
+        {
+            "name": "message_reads",
+            "schema": "messages",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "message_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "user_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "read_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "read_by_sender",
+                    "type": "boolean",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE INDEX idx_message_reads_message_id ON messages.message_reads USING btree (message_id)",
+                    "name": "idx_message_reads_message_id"
+                },
+                {
+                    "def": "CREATE INDEX idx_message_reads_read_at ON messages.message_reads USING btree (read_at DESC)",
+                    "name": "idx_message_reads_read_at"
+                },
+                {
+                    "def": "CREATE INDEX idx_message_reads_read_by_sender ON messages.message_reads USING btree (read_by_sender) WHERE (read_by_sender = true)",
+                    "name": "idx_message_reads_read_by_sender"
+                },
+                {
+                    "def": "CREATE INDEX idx_message_reads_user_id ON messages.message_reads USING btree (user_id)",
+                    "name": "idx_message_reads_user_id"
+                },
+                {
+                    "def": "CREATE INDEX idx_message_reads_user_read_at ON messages.message_reads USING btree (user_id, read_at DESC)",
+                    "name": "idx_message_reads_user_read_at"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX message_reads_message_id_user_id_key ON messages.message_reads USING btree (message_id, user_id)",
+                    "name": "message_reads_message_id_user_id_key"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX message_reads_pkey ON messages.message_reads USING btree (id)",
+                    "name": "message_reads_pkey"
+                }
+            ]
+        },
+        {
+            "name": "messages",
+            "schema": "messages",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "sender_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "recipient_id",
+                    "type": "uuid",
+                    "nullable": true
+                },
+                {
+                    "name": "group_id",
+                    "type": "uuid",
+                    "nullable": true
+                },
+                {
+                    "name": "parent_message_id",
+                    "type": "uuid",
+                    "nullable": true
+                },
+                {
+                    "name": "thread_id",
+                    "type": "uuid",
+                    "nullable": true
+                },
+                {
+                    "name": "message_type",
+                    "type": "character varying(32)",
+                    "nullable": false
+                },
+                {
+                    "name": "subject",
+                    "type": "character varying(512)",
+                    "nullable": true
+                },
+                {
+                    "name": "content",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "is_read",
+                    "type": "boolean",
+                    "nullable": false
+                },
+                {
+                    "name": "sender_display_name",
+                    "type": "character varying(128)",
+                    "nullable": true
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "updated_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "recalled_at",
+                    "type": "timestamp with time zone",
+                    "nullable": true
+                },
+                {
+                    "name": "archived",
+                    "type": "boolean",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE INDEX idx_messages_active_sender ON messages.messages USING btree (sender_id, created_at DESC)",
+                    "name": "idx_messages_active_sender"
+                },
+                {
+                    "def": "CREATE INDEX idx_messages_archived ON messages.messages USING btree (archived) WHERE (archived = true)",
+                    "name": "idx_messages_archived"
+                },
+                {
+                    "def": "CREATE INDEX idx_messages_content_trgm ON messages.messages USING gin (content gin_trgm_ops)",
+                    "name": "idx_messages_content_trgm"
+                },
+                {
+                    "def": "CREATE INDEX idx_messages_created_at ON messages.messages USING btree (created_at DESC)",
+                    "name": "idx_messages_created_at"
+                },
+                {
+                    "def": "CREATE INDEX idx_messages_group_created ON messages.messages USING btree (group_id, created_at DESC) WHERE (group_id IS NOT NULL)",
+                    "name": "idx_messages_group_created"
+                },
+                {
+                    "def": "CREATE INDEX idx_messages_group_id ON messages.messages USING btree (group_id)",
+                    "name": "idx_messages_group_id"
+                },
+                {
+                    "def": "CREATE INDEX idx_messages_is_read_created ON messages.messages USING btree (is_read, created_at DESC) WHERE (recipient_id IS NOT NULL)",
+                    "name": "idx_messages_is_read_created"
+                },
+                {
+                    "def": "CREATE INDEX idx_messages_parent_id ON messages.messages USING btree (parent_message_id)",
+                    "name": "idx_messages_parent_id"
+                },
+                {
+                    "def": "CREATE INDEX idx_messages_read_recipient ON messages.messages USING btree (is_read, recipient_id) WHERE (recipient_id IS NOT NULL)",
+                    "name": "idx_messages_read_recipient"
+                },
+                {
+                    "def": "CREATE INDEX idx_messages_recalled ON messages.messages USING btree (recalled_at) WHERE (recalled_at IS NOT NULL)",
+                    "name": "idx_messages_recalled"
+                },
+                {
+                    "def": "CREATE INDEX idx_messages_recipient_created ON messages.messages USING btree (recipient_id, created_at DESC) WHERE (recipient_id IS NOT NULL)",
+                    "name": "idx_messages_recipient_created"
+                },
+                {
+                    "def": "CREATE INDEX idx_messages_recipient_id ON messages.messages USING btree (recipient_id)",
+                    "name": "idx_messages_recipient_id"
+                },
+                {
+                    "def": "CREATE INDEX idx_messages_sender_created ON messages.messages USING btree (sender_id, created_at DESC)",
+                    "name": "idx_messages_sender_created"
+                },
+                {
+                    "def": "CREATE INDEX idx_messages_sender_id ON messages.messages USING btree (sender_id)",
+                    "name": "idx_messages_sender_id"
+                },
+                {
+                    "def": "CREATE INDEX idx_messages_subject_trgm ON messages.messages USING gin (subject gin_trgm_ops)",
+                    "name": "idx_messages_subject_trgm"
+                },
+                {
+                    "def": "CREATE INDEX idx_messages_thread_id ON messages.messages USING btree (thread_id)",
+                    "name": "idx_messages_thread_id"
+                },
+                {
+                    "def": "CREATE INDEX idx_messages_unread_inbox ON messages.messages USING btree (recipient_id, is_read, created_at DESC) WHERE ((recipient_id IS NOT NULL) AND (is_read = false))",
+                    "name": "idx_messages_unread_inbox"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX messages_pkey ON messages.messages USING btree (id)",
+                    "name": "messages_pkey"
+                }
+            ]
+        },
+        {
+            "name": "user_archived_threads",
+            "schema": "messages",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "user_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "thread_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "archived_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE INDEX idx_user_archived_threads_thread ON messages.user_archived_threads USING btree (thread_id)",
+                    "name": "idx_user_archived_threads_thread"
+                },
+                {
+                    "def": "CREATE INDEX idx_user_archived_threads_user ON messages.user_archived_threads USING btree (user_id)",
+                    "name": "idx_user_archived_threads_user"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX user_archived_threads_pkey ON messages.user_archived_threads USING btree (id)",
+                    "name": "user_archived_threads_pkey"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX user_archived_threads_user_id_thread_id_key ON messages.user_archived_threads USING btree (user_id, thread_id)",
+                    "name": "user_archived_threads_user_id_thread_id_key"
+                }
+            ]
+        },
+        {
+            "name": "user_deleted_threads",
+            "schema": "messages",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "user_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "thread_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "deleted_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE INDEX idx_user_deleted_threads_thread ON messages.user_deleted_threads USING btree (thread_id)",
+                    "name": "idx_user_deleted_threads_thread"
+                },
+                {
+                    "def": "CREATE INDEX idx_user_deleted_threads_user ON messages.user_deleted_threads USING btree (user_id)",
+                    "name": "idx_user_deleted_threads_user"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX user_deleted_threads_pkey ON messages.user_deleted_threads USING btree (id)",
+                    "name": "user_deleted_threads_pkey"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX user_deleted_threads_user_id_thread_id_key ON messages.user_deleted_threads USING btree (user_id, thread_id)",
+                    "name": "user_deleted_threads_user_id_thread_id_key"
+                }
+            ]
+        },
+        {
+            "name": "conversation_participants",
+            "schema": "messaging",
+            "columns": [
+                {
+                    "name": "conversation_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "user_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "joined_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "archived",
+                    "type": "boolean",
+                    "nullable": false
+                },
+                {
+                    "name": "deleted",
+                    "type": "boolean",
+                    "nullable": false
+                },
+                {
+                    "name": "last_read_at",
+                    "type": "timestamp with time zone",
+                    "nullable": true
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX conversation_participants_pkey ON messaging.conversation_participants USING btree (conversation_id, user_id)",
+                    "name": "conversation_participants_pkey"
+                },
+                {
+                    "def": "CREATE INDEX idx_conversation_participants_user ON messaging.conversation_participants USING btree (user_id)",
+                    "name": "idx_conversation_participants_user"
+                },
+                {
+                    "def": "CREATE INDEX idx_conversation_participants_user_archived_deleted ON messaging.conversation_participants USING btree (user_id, archived, deleted) WHERE (deleted = false)",
+                    "name": "idx_conversation_participants_user_archived_deleted"
+                }
+            ]
+        },
+        {
+            "name": "conversations",
+            "schema": "messaging",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "listing_id",
+                    "type": "uuid",
+                    "nullable": true
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "updated_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "conversation_key",
+                    "type": "text",
+                    "nullable": true
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX conversations_pkey ON messaging.conversations USING btree (id)",
+                    "name": "conversations_pkey"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX idx_conversation_key_unique ON messaging.conversations USING btree (conversation_key) WHERE (conversation_key IS NOT NULL)",
+                    "name": "idx_conversation_key_unique"
+                },
+                {
+                    "def": "CREATE INDEX idx_conversations_listing ON messaging.conversations USING btree (listing_id)",
+                    "name": "idx_conversations_listing"
+                }
+            ]
+        },
+        {
+            "name": "messages",
+            "schema": "messaging",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "conversation_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "sender_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "body",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "message_type",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "edited_at",
+                    "type": "timestamp with time zone",
+                    "nullable": true
+                },
+                {
+                    "name": "deleted_at",
+                    "type": "timestamp with time zone",
+                    "nullable": true
+                },
+                {
+                    "name": "version",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "media_id",
+                    "type": "text",
+                    "nullable": true
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE INDEX idx_messages_conversation_created ON messaging.messages USING btree (conversation_id, created_at DESC)",
+                    "name": "idx_messages_conversation_created"
+                },
+                {
+                    "def": "CREATE INDEX idx_messages_sender ON messaging.messages USING btree (sender_id, created_at DESC)",
+                    "name": "idx_messages_sender"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX messages_pkey ON messaging.messages USING btree (id)",
+                    "name": "messages_pkey"
+                }
+            ]
+        },
+        {
+            "name": "outbox_events",
+            "schema": "messaging",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "aggregate_id",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "type",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "version",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "payload",
+                    "type": "bytea",
+                    "nullable": false
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "published",
+                    "type": "boolean",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE INDEX idx_messaging_outbox_unpublished ON messaging.outbox_events USING btree (published, created_at) WHERE (published = false)",
+                    "name": "idx_messaging_outbox_unpublished"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX outbox_events_pkey ON messaging.outbox_events USING btree (id)",
+                    "name": "outbox_events_pkey"
+                }
+            ]
+        }
+    ],
+    "database": "messaging",
+    "foreign_keys": [
+        {
+            "name": "comment_attachments_comment_id_fkey",
+            "to_cols": [
+                "id"
+            ],
+            "to_table": "comments",
+            "from_cols": [
+                "comment_id"
+            ],
+            "to_schema": "forum",
+            "from_table": "comment_attachments",
+            "from_schema": "forum"
+        },
+        {
+            "name": "comment_votes_comment_id_fkey",
+            "to_cols": [
+                "id"
+            ],
+            "to_table": "comments",
+            "from_cols": [
+                "comment_id"
+            ],
+            "to_schema": "forum",
+            "from_table": "comment_votes",
+            "from_schema": "forum"
+        },
+        {
+            "name": "comments_parent_id_fkey",
+            "to_cols": [
+                "id"
+            ],
+            "to_table": "comments",
+            "from_cols": [
+                "parent_id"
+            ],
+            "to_schema": "forum",
+            "from_table": "comments",
+            "from_schema": "forum"
+        },
+        {
+            "name": "comments_post_id_fkey",
+            "to_cols": [
+                "id"
+            ],
+            "to_table": "posts",
+            "from_cols": [
+                "post_id"
+            ],
+            "to_schema": "forum",
+            "from_table": "comments",
+            "from_schema": "forum"
+        },
+        {
+            "name": "post_attachments_post_id_fkey",
+            "to_cols": [
+                "id"
+            ],
+            "to_table": "posts",
+            "from_cols": [
+                "post_id"
+            ],
+            "to_schema": "forum",
+            "from_table": "post_attachments",
+            "from_schema": "forum"
+        },
+        {
+            "name": "post_votes_post_id_fkey",
+            "to_cols": [
+                "id"
+            ],
+            "to_table": "posts",
+            "from_cols": [
+                "post_id"
+            ],
+            "to_schema": "forum",
+            "from_table": "post_votes",
+            "from_schema": "forum"
+        },
+        {
+            "name": "group_bans_group_id_fkey",
+            "to_cols": [
+                "id"
+            ],
+            "to_table": "groups",
+            "from_cols": [
+                "group_id"
+            ],
+            "to_schema": "messages",
+            "from_table": "group_bans",
+            "from_schema": "messages"
+        },
+        {
+            "name": "group_members_group_id_fkey",
+            "to_cols": [
+                "id"
+            ],
+            "to_table": "groups",
+            "from_cols": [
+                "group_id"
+            ],
+            "to_schema": "messages",
+            "from_table": "group_members",
+            "from_schema": "messages"
+        },
+        {
+            "name": "message_attachments_message_id_fkey",
+            "to_cols": [
+                "id"
+            ],
+            "to_table": "messages",
+            "from_cols": [
+                "message_id"
+            ],
+            "to_schema": "messages",
+            "from_table": "message_attachments",
+            "from_schema": "messages"
+        },
+        {
+            "name": "message_reads_message_id_fkey",
+            "to_cols": [
+                "id"
+            ],
+            "to_table": "messages",
+            "from_cols": [
+                "message_id"
+            ],
+            "to_schema": "messages",
+            "from_table": "message_reads",
+            "from_schema": "messages"
+        },
+        {
+            "name": "messages_group_id_fkey",
+            "to_cols": [
+                "id"
+            ],
+            "to_table": "groups",
+            "from_cols": [
+                "group_id"
+            ],
+            "to_schema": "messages",
+            "from_table": "messages",
+            "from_schema": "messages"
+        },
+        {
+            "name": "messages_parent_message_id_fkey",
+            "to_cols": [
+                "id"
+            ],
+            "to_table": "messages",
+            "from_cols": [
+                "parent_message_id"
+            ],
+            "to_schema": "messages",
+            "from_table": "messages",
+            "from_schema": "messages"
+        },
+        {
+            "name": "messages_thread_id_fkey",
+            "to_cols": [
+                "id"
+            ],
+            "to_table": "messages",
+            "from_cols": [
+                "thread_id"
+            ],
+            "to_schema": "messages",
+            "from_table": "messages",
+            "from_schema": "messages"
+        },
+        {
+            "name": "conversation_participants_conversation_id_fkey",
+            "to_cols": [
+                "id"
+            ],
+            "to_table": "conversations",
+            "from_cols": [
+                "conversation_id"
+            ],
+            "to_schema": "messaging",
+            "from_table": "conversation_participants",
+            "from_schema": "messaging"
+        },
+        {
+            "name": "messages_conversation_id_fkey",
+            "to_cols": [
+                "id"
+            ],
+            "to_table": "conversations",
+            "from_cols": [
+                "conversation_id"
+            ],
+            "to_schema": "messaging",
+            "from_table": "messages",
+            "from_schema": "messaging"
+        }
+    ],
+    "generated_at": "2026-04-03T00:13:07.329778+00:00"
+}

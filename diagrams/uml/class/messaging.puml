@@ -1,0 +1,44 @@
+@startuml uml_class_messaging
+title LLD — messaging-service (HTTP + gRPC — proto/messaging.proto)
+skinparam defaultFontName Helvetica
+
+package "HTTP / gRPC transport" {
+  class "Express API\n(server.ts)" as Http <<Node>>
+  class "MessagingService\n(grpc-server.ts)" as Grpc <<Node>> {
+    Forum: posts, comments, votes
+    DMs: send, thread, read receipts
+    HealthCheck()
+    --
+    see proto/messaging.proto
+  }
+}
+
+package "Domain (Prisma)" {
+  class Message <<entity>>
+  class Post <<entity>>
+  class Comment <<entity>>
+  class Group <<entity>>
+  class MessageRead <<entity>>
+}
+
+package "Infrastructure" {
+  class "PrismaClient" as Prisma <<ORM>>
+  class "Kafka emitters\n(messaging.events)" as K <<service>>
+}
+
+Http --> Prisma
+Grpc --> Prisma
+Http --> K
+Grpc --> K
+Prisma ..> Message
+Post --> Comment : contains
+Group --> Message : channels
+
+note bottom of Grpc
+  **Full RPC surface:** `proto/messaging.proto`
+  (MessagingService — 20+ methods).
+  **Events:** `proto/events/messaging/…`
+  for immutable Kafka payloads.
+end note
+
+@enduml

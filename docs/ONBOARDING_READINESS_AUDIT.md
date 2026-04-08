@@ -8,7 +8,7 @@ Last reviewed: generated from Makefile + `scripts/dev-onboard-local.sh` + relate
 | Area | Status | Notes |
 |------|--------|--------|
 | Backend order (`make images` → `make dev-onboard`) | **PASS** | `dev-onboard` never calls `make images`; missing images → pull/mount failures on deploy. |
-| Kafka hardened gates in local onboard | **PASS** | Phases include DNS, topic preflight, TLS guard (includes `verify-kafka-cluster`), quorum-stable, edge readiness, mounts check, and post-edge **`make kafka-health`** (runtime-sync check + safe alignment reports; skippable). |
+| Kafka hardened gates in local onboard | **PASS** | Phases include DNS, topic preflight, TLS guard (includes `verify-kafka-cluster`), quorum-stable, edge readiness, mounts check, and post-edge default **`KAFKA_ALIGNMENT_TEST_MODE=1 make kafka-alignment-suite`** (full alignment; **`DEV_ONBOARD_KAFKA_ALIGNMENT_SAFE_ONLY=1`** → **`kafka-health`**; skippable via **`SKIP_KAFKA_HEALTH_ON_ONBOARD`**). |
 | DB bootstrap / restore | **PASS with nuance** | Restore vs SQL bootstrap depends on `RESTORE_BACKUP_DIR` (see below). |
 | Frontend (`pnpm --filter webapp`) | **PASS** | Next.js; not Vite — no `VITE_*`. |
 | Docs vs script default for restore | **FIXED** | Script used `export RESTORE_BACKUP_DIR="${RESTORE_BACKUP_DIR:-latest}"`, so an empty value from **`make dev-onboard`** still forced **`latest`**. Default export **removed** — empty **`RESTORE_BACKUP_DIR`** skips Phase-0 restore; set **`=latest`** explicitly when you want dumps. |
@@ -48,7 +48,7 @@ Last reviewed: generated from Makefile + `scripts/dev-onboard-local.sh` + relate
 | 6 | `deploy-dev.sh` (strict envelope skipped with `SKIP_STRICT_ENVELOPE=1`) |
 | 6b | optional client mount check via `verify-kafka-cluster.sh` |
 | 7–9 | Caddy IP, `edge-readiness-gate`, `ensure-edge-hosts`, `onboarding-edge` |
-| 10 | `make kafka-health` — post-edge full `verify-kafka-cluster`, `kafka-runtime-sync --check-only`, safe alignment suite (CSV/PNG). Skipped when **`SKIP_KAFKA_HEALTH_ON_ONBOARD=1`**. |
+| 10 | Default: **`KAFKA_ALIGNMENT_TEST_MODE=1 make kafka-alignment-suite`** (full alignment; Makefile runs **`kafka-auto-heal-inter-broker-tls`** first). **`DEV_ONBOARD_KAFKA_ALIGNMENT_SAFE_ONLY=1`** → **`make kafka-health`**. Skipped when **`SKIP_KAFKA_HEALTH_ON_ONBOARD=1`**. |
 
 Script uses **`set -euo pipefail`** — a failing `make` sub-step aborts onboard.
 

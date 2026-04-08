@@ -1,0 +1,14 @@
+digraph physical {
+  graph [rankdir=LR, fontsize=11, label="Physical: media (media)", labelloc=t];
+  node [shape=record, fontname="Helvetica Neue"];
+  edge [fontname="Helvetica Neue", fontsize=8];
+
+  subgraph cluster_media {
+    style=filled;
+    color=lightgrey;
+    label="Schema: media";
+    "media_media_files" [label="{media_files|id : uuid\luser_id : uuid\lobject_key : text\lfilename : text\lcontent_type : text\lsize_bytes : bigint\lstatus : text\lcreated_at : timestamp with time zone\lupdated_at : timestamp with time zone}"];
+    "media_outbox_events" [label="{outbox_events|id : uuid\laggregate_id : text\ltype : text\lversion : integer\lpayload : bytea\lcreated_at : timestamp with time zone\lpublished : boolean}"];
+  }
+
+}

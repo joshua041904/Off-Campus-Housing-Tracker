@@ -1,0 +1,16 @@
+digraph physical {
+  graph [rankdir=LR, fontsize=11, label="Physical: notification (notification)", labelloc=t];
+  node [shape=record, fontname="Helvetica Neue"];
+  edge [fontname="Helvetica Neue", fontsize=8];
+
+  subgraph cluster_notification {
+    style=filled;
+    color=lightgrey;
+    label="Schema: notification";
+    "notification_notifications" [label="{notifications|id : uuid\luser_id : uuid\levent_type : text\lchannel : notification.notification_channel\lstatus : notification.notification_status\lpayload : jsonb\lattempt_count : integer\llast_attempt_at : timestamp with time zone\lcreated_at : timestamp with time zone}"];
+    "notification_outbox_events" [label="{outbox_events|id : uuid\laggregate_id : text\ltype : text\lversion : integer\lpayload : bytea\lcreated_at : timestamp with time zone\lpublished : boolean}"];
+    "notification_processed_events" [label="{processed_events|event_id : uuid\lprocessed_at : timestamp with time zone}"];
+    "notification_user_preferences" [label="{user_preferences|user_id : uuid\lemail_enabled : boolean\lsms_enabled : boolean\lpush_enabled : boolean\lbooking_alerts : boolean\lmessage_alerts : boolean\lmoderation_alerts : boolean\lupdated_at : timestamp with time zone}"];
+  }
+
+}

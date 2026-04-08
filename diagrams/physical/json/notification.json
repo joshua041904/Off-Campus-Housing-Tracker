@@ -1,0 +1,202 @@
+{
+    "tables": [
+        {
+            "name": "notifications",
+            "schema": "notification",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "user_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "event_type",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "channel",
+                    "type": "notification.notification_channel",
+                    "nullable": false
+                },
+                {
+                    "name": "status",
+                    "type": "notification.notification_status",
+                    "nullable": false
+                },
+                {
+                    "name": "payload",
+                    "type": "jsonb",
+                    "nullable": false
+                },
+                {
+                    "name": "attempt_count",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "last_attempt_at",
+                    "type": "timestamp with time zone",
+                    "nullable": true
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE INDEX idx_notifications_pending_retrying ON notification.notifications USING btree (status) WHERE (status = ANY (ARRAY['pending'::notification.notification_status, 'retrying'::notification.notification_status]))",
+                    "name": "idx_notifications_pending_retrying"
+                },
+                {
+                    "def": "CREATE INDEX idx_notifications_status ON notification.notifications USING btree (status)",
+                    "name": "idx_notifications_status"
+                },
+                {
+                    "def": "CREATE INDEX idx_notifications_user ON notification.notifications USING btree (user_id, created_at DESC)",
+                    "name": "idx_notifications_user"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX notifications_pkey ON notification.notifications USING btree (id)",
+                    "name": "notifications_pkey"
+                }
+            ]
+        },
+        {
+            "name": "outbox_events",
+            "schema": "notification",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "aggregate_id",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "type",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "version",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "payload",
+                    "type": "bytea",
+                    "nullable": false
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "published",
+                    "type": "boolean",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE INDEX idx_notification_outbox_unpublished ON notification.outbox_events USING btree (published, created_at) WHERE (published = false)",
+                    "name": "idx_notification_outbox_unpublished"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX outbox_events_pkey ON notification.outbox_events USING btree (id)",
+                    "name": "outbox_events_pkey"
+                }
+            ]
+        },
+        {
+            "name": "processed_events",
+            "schema": "notification",
+            "columns": [
+                {
+                    "name": "event_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "processed_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX processed_events_pkey ON notification.processed_events USING btree (event_id)",
+                    "name": "processed_events_pkey"
+                }
+            ]
+        },
+        {
+            "name": "user_preferences",
+            "schema": "notification",
+            "columns": [
+                {
+                    "name": "user_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "email_enabled",
+                    "type": "boolean",
+                    "nullable": false
+                },
+                {
+                    "name": "sms_enabled",
+                    "type": "boolean",
+                    "nullable": false
+                },
+                {
+                    "name": "push_enabled",
+                    "type": "boolean",
+                    "nullable": false
+                },
+                {
+                    "name": "booking_alerts",
+                    "type": "boolean",
+                    "nullable": false
+                },
+                {
+                    "name": "message_alerts",
+                    "type": "boolean",
+                    "nullable": false
+                },
+                {
+                    "name": "moderation_alerts",
+                    "type": "boolean",
+                    "nullable": false
+                },
+                {
+                    "name": "updated_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX user_preferences_pkey ON notification.user_preferences USING btree (user_id)",
+                    "name": "user_preferences_pkey"
+                }
+            ]
+        }
+    ],
+    "database": "notification",
+    "foreign_keys": [
+    ],
+    "generated_at": "2026-04-03T20:12:16.066021+00:00"
+}

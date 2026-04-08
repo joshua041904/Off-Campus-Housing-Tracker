@@ -1,0 +1,21 @@
+@startuml uml_sequence_booking_confirmation_flow
+title Sequence — Booking confirmation + notification path
+skinparam defaultFontName Helvetica
+
+actor User
+participant "API Gateway" as GW
+participant "booking-service" as BS
+database "Postgres\nbookings + outbox" as PG
+participant "Kafka" as K
+participant "notification-service" as NS
+database "Postgres\nnotifications" as PNG
+
+User -> GW : POST /confirm
+GW -> BS : confirm booking
+BS -> PG : UPDATE status + outbox row\n(same transaction)
+BS --> GW : OK
+BS --> K : publisher reads outbox → emit
+K --> NS : consume BookingConfirmed*
+NS -> PNG : insert notification / delivery job
+
+@enduml

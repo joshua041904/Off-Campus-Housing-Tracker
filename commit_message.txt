@@ -1,27 +1,33 @@
-dev(onboard): default post-edge kafka-health; document images → onboard contract
+fix(ci,auth,kafka,vitest): auth outbox + backup; och-ci; Kafka TLS gates; integration/system Vitest + preflight stack
 
-Summary
--------
-- Local `make dev-onboard` now ends with Phase 10: `make kafka-health` by default
-  (full verify-kafka-cluster, kafka-runtime-sync --check-only, safe alignment suite
-  and CSV/PNG under bench_logs/kafka-alignment-report/).
-- Opt out only when needed: SKIP_KAFKA_HEALTH_ON_ONBOARD=1 (default is to run Phase 10;
-  unset or 0 runs kafka-health).
-- Makefile dev-onboard help text and dev-onboard-lite static grep updated so CI
-  catches dropped wiring.
+Auth
+- Dual transactional outbox (auth_outbox + outbox_events): SQL, verify-bootstrap /
+  inspect-external-db-schemas, index fixes; backup bundle aligned with all-8 restore.
+- rebuild-housing-colima logging (ok/warn) where applicable.
 
-Two-process contract (docs)
----------------------------
-- make images — builds all default housing :dev images (see
-  scripts/lib/och-housing-docker-services-default.sh) via build-housing-images-k3s.sh
-  and loads into Colima when Colima is up; does not apply k8s or run Kafka gates.
-- make dev-onboard — full bring-up: TLS/certs, KRaft, preflight, kafka-tls-guard,
-  alias/quorum gates, deploy-dev, edge hosts + routing, then post-edge kafka-health
-  unless explicitly skipped.
+CI (och-ci)
+- Integration job keeps plaintext Kafka service containers for packages that need a broker;
+  bounded waits and parallel batches unchanged where documented.
+- transport-validation: if: always() after integration-tests so cancelled integration does
+  not leave a misleading skip in the aggregate gate.
+- on.push branch filters restored (fix/, feat/, etc.); concurrency keyed by event_name so
+  push and pull_request runs do not cancel each other. See docs/CI_CHECK_RUNS.md.
 
-Docs
-----
-- docs/DEV_ONBOARDING.md — section 0) two-step contract; Phase 10 wording.
-- docs/ONBOARDING_READINESS_AUDIT.md — Phase 10 row + summary note.
+Kafka / local cluster
+- Inter-broker TLS heal hooks, sync-metallb pre-heal, dev-onboard alignment defaults;
+  Runbook / zero-trust checklist updates as in branch.
+- Vitest cluster policy: ≥3 TLS seeds, PEM on disk, RF metadata check, assert script before
+  listings/booking integration; scripts/assert-kafka-integration-cluster.mjs + services/common
+  kafka-vitest-cluster helper.
+
+Vitest orchestration
+- test:integration:all, test:system, test:vitest-stack, test:smoke (full stack); make
+  test-vitest-stack builds @common then runs test:vitest-stack.
+- Preflight step 7a0c: PREFLIGHT_RUN_REPO_VITEST_STACK defaults to 1 — after event-layer,
+  pnpm -C services/common build && pnpm run test:vitest-stack. Set
+  PREFLIGHT_RUN_REPO_VITEST_STACK=0 to skip. PREFLIGHT_RUN_SYSTEM_CONTRACTS only applies when
+  the stack step is off.
+
+Docs: vitest-per-service-requirements.md, integration-test-tiers.md, system-test-rules.md.
 
 Made with Tom.

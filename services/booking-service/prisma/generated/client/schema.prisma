@@ -33,6 +33,8 @@ model Booking {
   endDate            DateTime      @map("end_date") @db.Date
   priceCentsSnapshot Int           @map("price_cents_snapshot")
   currencyCode       String        @map("currency_code") @db.VarChar(8)
+  /// Tenant-only editable text (move-in notes, special requests). Not the listing description.
+  tenantNotes        String?       @map("tenant_notes") @db.Text
   cancellationReason String?       @map("cancellation_reason") @db.Text
   confirmedAt        DateTime?     @map("confirmed_at")
   cancelledAt        DateTime?     @map("cancelled_at")

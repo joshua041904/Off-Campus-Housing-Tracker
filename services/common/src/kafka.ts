@@ -1,5 +1,6 @@
 import { Kafka } from "kafkajs";
 import * as fs from "fs";
+import type { ConnectionOptions } from "tls";
 
 // Strict TLS: no plaintext. When KAFKA_SSL_ENABLED=true, require CA + client cert + key (mTLS).
 // Env: KAFKA_SSL_CA_PATH, KAFKA_SSL_CERT_PATH, KAFKA_SSL_KEY_PATH (or legacy KAFKA_CA_CERT, KAFKA_CLIENT_CERT, KAFKA_CLIENT_KEY).
@@ -10,7 +11,7 @@ if (process.env.NODE_ENV !== "production") {
 }
 
 /** For tests: validate TLS env and return config or throw. Use env param to avoid process.env at load time. */
-export function getKafkaSslConfigForTest(env: NodeJS.ProcessEnv): Record<string, unknown> | undefined {
+export function getKafkaSslConfigForTest(env: NodeJS.ProcessEnv): ConnectionOptions | undefined {
   if (env.KAFKA_SSL_ENABLED !== "true") return undefined;
   const caPath = env.KAFKA_CA_CERT || env.KAFKA_SSL_CA_PATH;
   const certPath = env.KAFKA_CLIENT_CERT || env.KAFKA_SSL_CERT_PATH;
@@ -20,12 +21,16 @@ export function getKafkaSslConfigForTest(env: NodeJS.ProcessEnv): Record<string,
       "KAFKA_SSL_ENABLED=true requires all cert paths. Set KAFKA_SSL_CA_PATH, KAFKA_SSL_CERT_PATH, KAFKA_SSL_KEY_PATH (or KAFKA_CA_CERT, KAFKA_CLIENT_CERT, KAFKA_CLIENT_KEY). No plaintext fallback.",
     );
   }
-  return {
+  const base: ConnectionOptions = {
     rejectUnauthorized: true,
     ca: [fs.readFileSync(caPath, "utf-8")],
     cert: fs.readFileSync(certPath, "utf-8"),
     key: fs.readFileSync(keyPath, "utf-8"),
   };
+  if (env.KAFKA_SSL_SKIP_HOSTNAME_CHECK === "1") {
+    return { ...base, checkServerIdentity: () => undefined };
+  }
+  return base;
 }
 
 /**
@@ -54,13 +59,17 @@ const sslConfig =
             throw new Error(msg);
           }
 
-          const config: Record<string, unknown> = {
+          const base: ConnectionOptions = {
             rejectUnauthorized: true,
             ca: [fs.readFileSync(caPath, "utf-8")],
             cert: fs.readFileSync(certPath, "utf-8"),
             key: fs.readFileSync(keyPath, "utf-8"),
           };
-          return config;
+          // Dev / Colima: connect via MetalLB IPs (:9094); broker leaf may not list IP in SAN the client checks.
+          if (process.env.KAFKA_SSL_SKIP_HOSTNAME_CHECK === "1") {
+            return { ...base, checkServerIdentity: () => undefined };
+          }
+          return base;
         } catch (error) {
           console.error("[kafka] Error loading SSL certificates:", error);
           throw error;

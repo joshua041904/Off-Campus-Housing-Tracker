@@ -27,3 +27,8 @@ pnpm --filter @common/utils build
 pnpm --filter analytics-service build
 docker build -t analytics-service:dev -f services/analytics-service/Dockerfile .
 ```
+
+## Testing
+
+- **Unit:** `pnpm run test` (excludes `*.integration.test.ts`).
+- **HTTP integration (DB tier):** `pnpm run test:integration` — `createAnalyticsHttpApp()` + Postgres **5447**; no Kafka consumer startup. See repo **`docs/integration-test-tiers.md`** and root **`pnpm run test:integration:all`**.

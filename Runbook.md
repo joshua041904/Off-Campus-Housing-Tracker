@@ -1,5 +1,7 @@
 **Cluster-only focus:** This copy is for Kubernetes cluster operations, TLS/mTLS, Caddy/Envoy, MetalLB, and runbook issues. Application/product specifics are in README.md.
 
+**Colima + kubectl: TLS handshake timeout / flaky API:** If `kubectl` shows `net/http: TLS handshake timeout`, `context deadline exceeded`, or hangs against `127.0.0.1:6443`, re-establish the SSH tunnel and pin kubeconfig: **`./scripts/colima-forward-6443.sh`**. If it still flakes after sleep or heavy apply loops, **`./scripts/colima-forward-6443.sh --restart`**. Before long jobs (reissue, alignment suite, many applies), optional probe: **`./scripts/colima-api-health.sh`**. Full context: [Critical Issue #1](#critical-issue-1-tls-handshake-timeout--api-server-unreachable).
+
 ## OCH edge & gateway debugging (items 83–90)
 
 **Also see:** [k6 (macOS), MEDIA_HTTP, HAProxy path, media rebuild (items 92-97)](#k6-macos-media-http-haproxy-items-92-97) — x509/host k6, `k6 run -e`, why HAProxy is not “media backend”, gateway **HTTP** to media **:4018**, JSON parse noise, image rollout.
@@ -26,7 +28,7 @@
 
 **Author**: Tom  
 **Date**: December 17, 2025  
-**Last Updated**: March 22, 2026  
+**Last Updated**: April 6, 2026  
 **Cluster**: Colima + k3s. **Primary path:** Colima + k3s with bridged networking and MetalLB; one-time host route to LB pool for HTTP/3 (see item 68). k3d remains supported with REQUIRE_COLIMA=0. Pipeline and connection-reset runbook are Colima-first; no Kind. Use your app namespace (e.g. `housing-platform`) in place of `off-campus-housing-tracker` in commands where applicable.
 
 ## Overview
@@ -116,6 +118,8 @@ This document catalogs cluster and infrastructure bugs, issues, and solutions fo
 | 95 | media-service / gateway | **`MEDIA_HTTP`** required: gateway proxies **`/api/media/*`** over **HTTP** to **:4018**; **k6-media-health** is HTTP, not gRPC **:50068** | Same |
 | 96 | api-gateway logs | **`Expected property name or '}' in JSON`** = bad/malformed JSON body on a route — often unrelated to TLS or media | Same |
 | 97 | Deploy | After media or gateway image changes: **`SERVICES=media-service ./scripts/rebuild-och-images-and-rollout.sh`** (+ wait rollout) | Same |
+| 98 | Kafka KRaft | Inter-broker TLS: **mixed truststore** after partial broker restart → **CrashLoopBackOff**, `PKIX path validation failed`, Raft quorum loss | [Kafka KRaft: inter-broker TLS / PKIX](#kafka-kraft-inter-broker-tls--pkix-mixed-truststore-april-2026) |
+| 99 | Zero-trust (local) | Confirm **edge + Kafka + app mTLS** after churn; **KafkaJS** `unable to verify the first certificate` on old pods | [Zero-trust TLS readiness (housing)](#zero-trust-tls-readiness-housing-workloads) |
 
 **PostgreSQL restore and recover (item 79)**  
 **When:** Restoring from backup after failure or to a known state. **Preconditions:** All external Postgres containers (per-service DBs) healthy. **Client version:** `pg_restore`/`psql` must match dump version (e.g. 16.x); `brew install postgresql@16` if needed. **Procedure:** (1) Per-DB: drop DB, create DB, `pg_restore -h localhost -p <PORT> -U postgres -d <DB> --clean --if-exists -v backups/<timestamp>/<PORT>-<DB>.dump`. (2) Verify: `\dn`, `\dt *.*`, row counts. **Checklist:** All schemas present, row counts as expected, sequences OK, app pods connect, no crash loops. **Full runbook:** **docs/RUNBOOK_EXTERNAL_POSTGRES_RECOVERY.md** when present. **Scripts:** use project-specific restore scripts for your DB set. **Lessons:** pg_restore version match; `\dt *.*` for all schemas.
@@ -293,6 +297,28 @@ These entries capture a **March 2026** debugging thread: k6 failures at the edge
 - `kubectl` commands fail with: `context deadline exceeded`
 - `kubectl` commands fail with: `The connection to the server 127.0.0.1:16443 was refused`
 - API server becomes unresponsive after mass operations (deleting many pods, large rollouts)
+
+### Colima + k3s (primary path): tunnel to 127.0.0.1:6443
+
+This repo’s default local cluster is **Colima + k3s**. The API is often reached on the host as **`https://127.0.0.1:6443`** via an **SSH port-forward** from the Lima/Colima VM. When that tunnel is stale, half-open, or racing another process, `kubectl` commonly reports **TLS handshake timeout** even though the VM is “up”.
+
+**Do this first:**
+
+```bash
+./scripts/colima-forward-6443.sh
+```
+
+**If handshake timeouts persist** (e.g. after laptop sleep, VPN toggles, or long `pnpm run reissue` / many `kubectl apply` waves):
+
+```bash
+./scripts/colima-forward-6443.sh --restart
+```
+
+The script probes **`https://127.0.0.1:6443/version`** with `curl` (401/403 still counts as “API answered”) — not raw `nc`, because TCP open ≠ working TLS.
+
+**Before heavy kubectl** (optional sanity): `./scripts/colima-api-health.sh`
+
+**Related:** item 78 (Colima Docker + API recovery), item 46 (reissue + tunnel drops), `scripts/colima-start-docker-and-api.sh` when Docker socket or Colima runtime is broken.
 
 ### Root Causes
 1. **Control Plane Overload**: The Kind control-plane container's API server process becomes wedged/overloaded when:
@@ -594,6 +620,54 @@ kubectl -n off-campus-housing-tracker exec -it $(kubectl -n off-campus-housing-t
 - Use init container to wait for Zookeeper (already in deploy.yaml)
 - Ensure `kafka-ssl-secret` is created before deploying Kafka
 - Use `emptyDir` for dev (resets on pod deletion) or persistent volumes for prod
+
+---
+
+## Kafka KRaft: inter-broker TLS / PKIX (mixed truststore) (April 2026)
+
+### Symptoms
+- One or more pods **`kafka-0` / `kafka-1` / `kafka-2`** in **`CrashLoopBackOff`** while others stay **Running**
+- Broker logs: **`SSL handshake failed`**, **`SslAuthenticationException`**, **`PKIX path validation failed: Path does not chain with any of the trust anchors`**
+- KRaft / controller election retries; cluster unstable or **quorum** never forms
+
+### Root cause analysis (RCA)
+1. **Kafka loads JKS truststores and keystores at process startup.** Updating the **`kafka-ssl-secret`** changes files on the node, but **pods that were not restarted** keep the **old trust anchor** in memory and on their mounted volume snapshot until recreated.
+2. **Partial rollout** (e.g. only **`kafka-2`** restarted after TLS refresh) produces **split brain at the TLS layer**: the restarted broker presents a cert chain signed or trusted under **secret revision A**, while peers still trust **revision B** (or an older CA entry in **`kafka.truststore.jks`**).
+3. **Inter-broker TLS** (KRaft/controller and broker-to-broker) then fails PKIX validation — **not** typically a missing **SAN** on the cert; the path **does not chain** to the same trust anchor on every replica.
+4. **MetalLB / LB IP drift** is a separate class of failure (advertised listeners vs **EXTERNAL** Service IP). PKIX / truststore mismatch is **in-cluster broker trust**, not edge routing.
+
+### Remediation (fast path — dev)
+1. **Automated (preferred):** from repo root, with **`kubectl`** pointed at the right context:
+   - **`make kafka-heal-inter-broker-tls`** — runs **`scripts/kafka-auto-heal-inter-broker-tls.sh`**: verifies cross-broker JKS parity (`kafka-after-rollout-verify-brokers.sh` / **`kafka-tls-guard`** post-rollout checks); on failure or **CrashLoopBackOff**, deletes **`kafka-0` … `kafka-N-1`**, waits **Ready**, re-verifies.
+   - Set **`KAFKA_INTER_BROKER_TLS_HEAL=0`** to skip this logic when you need a dry or forensic pass.
+2. **Manual:** same effect as the script’s delete step:
+   ```bash
+   NS=off-campus-housing-tracker   # or your housing namespace
+   kubectl delete pod -n "$NS" kafka-0 kafka-1 kafka-2
+   kubectl wait --for=condition=ready pod/kafka-0 pod/kafka-1 pod/kafka-2 -n "$NS" --timeout=300s
+   ```
+   Then **`make kafka-health`** or **`KAFKA_ALIGNMENT_TEST_MODE=1 make kafka-alignment-suite`**.
+3. **If delete + verify still fails:** the **secret** may not match the **intended CA** (wrong **`kafka-ssl-secret`** content, password mismatch, or **`ssl.client.auth`** mismatch). Run **`./scripts/kafka-runtime-sync.sh --remediate`** (optional namespace/replica args) or **`make kafka-sync-metallb`** when MetalLB / SAN drift is suspected, then **`make kafka-heal-inter-broker-tls`** again.
+
+### Prevention / hygiene (repo automation)
+- **`make kafka-health`**, **`make kafka-alignment-suite`**, **`make kafka-runtime-sync`**, and **`make kafka-sync-metallb`** run **`kafka-auto-heal-inter-broker-tls.sh` first** so routine gates **self-heal** mixed truststore state before deeper checks.
+- **`kafka-runtime-sync --remediate`** and **`kafka-sync-metallb`** remediation paths already enforce **full StatefulSet rollout** and **`kafka-after-rollout-verify-brokers.sh`** after **`kubectl rollout status`**.
+- **`make dev-onboard`** (Phase 10) defaults to **`KAFKA_ALIGNMENT_TEST_MODE=1 make kafka-alignment-suite`** (full alignment). Use **`DEV_ONBOARD_KAFKA_ALIGNMENT_SAFE_ONLY=1`** for the lighter **`make kafka-health`** slice only.
+
+---
+
+## Zero-trust TLS readiness (housing workloads)
+
+**When:** After **`kafka-runtime-sync --remediate`**, alignment suite, or any **`kafka-ssl-secret`** refresh — before you call the stack “green” for strict TLS / mTLS.
+
+**Gates (run in order):**
+1. **`make kafka-heal-inter-broker-tls`** (optional if brokers already uniform) — inter-broker JKS / PKIX parity.
+2. **`HOUSING_NS=… bash scripts/service-tls-alias-guard.sh`** — **`service-tls`** and **`och-service-tls`** **`ca.crt`** fingerprints match (edge + in-cluster app server certs).
+3. **`make kafka-tls-guard`** — broker secret ↔ mount, JKS uniformity, **och-kafka** CA vs **kafka-ssl-secret**, PKIX log tail, **`make verify-kafka-cluster`**.
+4. **Kafka clients:** **`HOUSING_NS=… bash scripts/ensure-housing-cluster-secrets.sh`** then **roll out** Deployments that mount **`och-kafka-ssl-secret`** (or **`./scripts/rollout-deferred-after-kafka-tls.sh`**). If logs show **`unable to verify the first certificate`** (KafkaJS) while secrets already match in the API, the pod is almost certainly **stale mounts** — restart fixes it.
+5. **Pod hygiene:** **`make k8s-diagnose-restarts`** — restarts, probe failures, previous-container logs.
+
+**Quick “all housing pods Ready”** does not prove trust material is current; pass the gates above after TLS churn.
 
 ---
 

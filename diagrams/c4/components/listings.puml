@@ -1,0 +1,28 @@
+@startuml c4_component_listings
+title C4 Level 3 — listings-service (components)
+skinparam defaultFontName Helvetica
+
+rectangle "listings-service" {
+  [HTTP handlers\n(server.ts)] as http
+  [gRPC ListingsService\n(grpc-server.ts)] as grpc
+  [Listing / search\nbusiness logic] as dom
+  [Persistence\n(Postgres access)] as repo
+  [Domain events\n→ Kafka] as evt
+}
+
+database "Postgres\nlistings DB" as pg
+queue "Kafka" as k
+
+http --> dom
+grpc --> dom
+dom --> repo
+dom --> evt
+repo --> pg
+evt --> k
+
+note bottom of grpc
+  proto/listings.proto
+  CreateListing, GetListing, SearchListings
+end note
+
+@enduml

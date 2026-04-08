@@ -1,0 +1,10 @@
+listings	healthz	/api/listings/healthz
+listings	search	/api/listings/search?q=test
+analytics	healthz	/api/analytics/healthz
+analytics	daily-metrics	/api/analytics/daily-metrics?date=REPLACE_ANALYTICS_DATE
+auth	healthz	/auth/healthz
+booking	healthz	/api/booking/healthz
+messaging	healthz	/api/messaging/healthz
+trust	healthz	/api/trust/healthz
+trust	reputation-sample	/api/trust/reputation/00000000-0000-0000-0000-000000000001
+notification	healthz	/api/notification/healthz
