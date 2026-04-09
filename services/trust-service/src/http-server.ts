@@ -53,6 +53,12 @@ function sendErr(
   res.status(status).json(code ? { error: message, code } : { error: message });
 }
 
+function isValidUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value,
+  );
+}
+
 function requireUser(
   req: AuthedRequest,
   res: Response,
@@ -121,6 +127,15 @@ export function createTrustHttpApp() {
           sendErr(res, 400, "listing_id and reason required");
           return;
         }
+        // Validate UUIDs before DB access to avoid Postgres cast errors surfacing as 500s.
+        if (!isValidUuid(listingId)) {
+          sendErr(res, 400, "invalid listing_id", "INVALID_ID");
+          return;
+        }
+        if (!req.userId || !isValidUuid(req.userId)) {
+          sendErr(res, 400, "invalid reporter id", "INVALID_ID");
+          return;
+        }
         const r = await pool.query(
           `INSERT INTO trust.listing_flags (listing_id, reporter_id, reason) VALUES ($1::uuid, $2::uuid, $3) RETURNING id, status::text`,
           [listingId, req.userId, reason],
@@ -152,6 +167,15 @@ export function createTrustHttpApp() {
             400,
             "abuse_target_type listing|user and target_id required",
           );
+          return;
+        }
+        // Validate UUIDs before DB access to avoid Postgres cast errors surfacing as 500s.
+        if (!isValidUuid(targetId)) {
+          sendErr(res, 400, "invalid target_id", "INVALID_ID");
+          return;
+        }
+        if (!req.userId || !isValidUuid(req.userId)) {
+          sendErr(res, 400, "invalid reporter id", "INVALID_ID");
           return;
         }
         if (t === "listing") {
@@ -224,6 +248,11 @@ export function createTrustHttpApp() {
       const uid = String(req.params.userId || "").trim();
       if (!uid) {
         sendErr(res, 400, "user_id required");
+        return;
+      }
+      // Validate UUID before querying to prevent invalid UUID DB errors.
+      if (!isValidUuid(uid)) {
+        sendErr(res, 400, "invalid user_id", "INVALID_ID");
         return;
       }
       const r = await pool.query(

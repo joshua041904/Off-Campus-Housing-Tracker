@@ -266,4 +266,53 @@ describe.skipIf(skip)("trust HTTP integration", () => {
     const body = (await second.json()) as { error: string };
     expect(body.error).toBe("duplicate flag");
   });
+
+  it("POST /flag-listing returns 400 for invalid listing_id", async () => {
+    const res = await fetch(`${baseUrl}/flag-listing`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-user-id": randomUUID(),
+      },
+      body: JSON.stringify({
+        listing_id: "not-a-uuid",
+        reason: "invalid test",
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string; code?: string };
+    expect(body.error).toBe("invalid listing_id");
+    expect(body.code).toBe("INVALID_ID");
+  });
+
+  it("POST /report-abuse returns 400 for invalid target_id", async () => {
+    const res = await fetch(`${baseUrl}/report-abuse`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-user-id": randomUUID(),
+      },
+      body: JSON.stringify({
+        abuse_target_type: "listing",
+        target_id: "not-a-uuid",
+        category: "spam",
+        details: "invalid test",
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string; code?: string };
+    expect(body.error).toBe("invalid target_id");
+    expect(body.code).toBe("INVALID_ID");
+  });
+
+  it("GET /reputation returns 400 for invalid user_id", async () => {
+    const res = await fetch(`${baseUrl}/reputation/not-a-uuid`);
+    expect(res.status).toBe(400);
+
+    const body = (await res.json()) as { error: string; code?: string };
+    expect(body.error).toBe("invalid user_id");
+    expect(body.code).toBe("INVALID_ID");
+  });
 });
