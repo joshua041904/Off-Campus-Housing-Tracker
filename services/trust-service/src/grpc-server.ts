@@ -130,7 +130,6 @@ const trustHandlers = {
       });
       return;
     }
-    const reason = `${category}: ${details}`.slice(0, 2000);
     if (t === "listing") {
       pool
         .query(
