@@ -118,9 +118,11 @@ redis.on("error", (e: unknown) =>
 (async () => {
   try {
     await redis.connect();
-    console.log("auth-service redis connected");
+    logAuthEvent("redis_connected", {});
   } catch (e) {
-    console.error("auth-service redis connect failed:", e);
+    logAuthEvent("redis_connect_failed", {
+      error: e instanceof Error ? e.message : String(e),
+    });
   }
 })();
 
@@ -178,7 +180,9 @@ app.get("/healthz", async (_req: Request, res: Response) => {
   } catch (redisErr: any) {
     // Silently fail - don't log timeout errors to reduce noise
     if (!redisErr?.message?.includes("timeout")) {
-      console.warn("auth-service healthz redis ping failed:", redisErr);
+      logAuthEvent("healthz_redis_ping_failed", {
+        error: redisErr instanceof Error ? redisErr.message : String(redisErr),
+      });
     }
   }
 
@@ -227,6 +231,10 @@ app.post("/register", async (req: Request, res: Response) => {
       sendVerification?: boolean;
     };
     if (!email || !password) {
+      logAuthEvent("register_validation_failed", {
+        emailProvided: Boolean(email),
+        passwordProvided: Boolean(password),
+      });
       return sendAuthError(
         res,
         400,
@@ -238,6 +246,7 @@ app.post("/register", async (req: Request, res: Response) => {
     // Check cache first for email existence (fast path)
     const emailExists = await checkEmailExistsInCache(email);
     if (emailExists) {
+      logAuthEvent("register_email_already_exists", { email });
       return sendAuthError(
         res,
         409,
@@ -264,6 +273,7 @@ app.post("/register", async (req: Request, res: Response) => {
         phoneVerified: false,
         createdAt: new Date(),
       });
+      logAuthEvent("register_email_already_exists", { email });
       return sendAuthError(
         res,
         409,
@@ -315,23 +325,31 @@ app.post("/register", async (req: Request, res: Response) => {
     const jti = randomUUID();
     const payload: WithJti = { sub: user.id, email: user.email, jti };
     const token = signJwt(payload);
+    logAuthEvent("register_succeeded", {
+      userId: user.id,
+      email: user.email,
+      sendVerification: Boolean(sendVerification),
+    });
     res.status(201).json({
       token,
       emailVerified: !sendVerification,
       message: sendVerification ? "Verification email sent" : undefined,
     });
   } catch (e: any) {
-    console.error("register error:", e);
+    logAuthEvent("register_failed", {
+      error: e instanceof Error ? e.message : String(e),
+    });
     return sendAuthError(res, 500, "INTERNAL_ERROR", "Internal server error");
   }
 });
 
 app.post("/login", async (req: Request, res: Response) => {
+  const { email, password } = (req.body ?? {}) as {
+    email?: string;
+    password?: string;
+  };
+
   try {
-    const { email, password } = (req.body ?? {}) as {
-      email?: string;
-      password?: string;
-    };
     if (!email || !password) {
       return sendAuthError(
         res,
@@ -341,7 +359,7 @@ app.post("/login", async (req: Request, res: Response) => {
       );
     }
 
-    console.log(`[LOGIN] Login attempt for email: ${email}`);
+    logAuthEvent("login_attempted", { email });
 
     // Try cache first (fast path)
     const cacheStart = Date.now();
@@ -349,12 +367,16 @@ app.post("/login", async (req: Request, res: Response) => {
     const cacheDuration = Date.now() - cacheStart;
 
     if (user) {
-      console.log(`[LOGIN] User found in cache (hit) took ${cacheDuration}ms`);
+      logAuthEvent("login_cache_hit", {
+        email,
+        cacheDurationMs: cacheDuration,
+      });
     } else {
-      console.log(
-        `[LOGIN] Cache miss, fetching from database (took ${cacheDuration}ms)`,
-      );
-      // Cache miss - fetch from database
+      logAuthEvent("login_cache_miss", {
+        email,
+        cacheDurationMs: cacheDuration,
+      });
+
       const dbUser = await prisma.$queryRaw<
         Array<{
           id: string;
@@ -375,7 +397,6 @@ app.post("/login", async (req: Request, res: Response) => {
       `.then((r: Array<any>) => r[0] || null);
 
       if (dbUser) {
-        // Cache the user for future lookups
         await cacheUser({
           id: dbUser.id,
           email: dbUser.email,
@@ -389,9 +410,12 @@ app.post("/login", async (req: Request, res: Response) => {
       }
     }
 
-    if (!user) console.log(`[LOGIN] User not found for email: ${email}`);
+    if (!user) {
+      logAuthEvent("login_user_not_found", { email });
+    }
+
     if (!user || !user.passwordHash) {
-      // User doesn't exist or has no password - return 401 (not 500)
+      logAuthEvent("login_invalid_credentials", { email });
       return sendAuthError(
         res,
         401,
@@ -400,11 +424,11 @@ app.post("/login", async (req: Request, res: Response) => {
       );
     }
 
-    // Use queued bcrypt compare (faster than hash). Catch throws (e.g. corrupt hash) so we return 401, not 500.
     let ok = false;
     try {
       ok = await comparePassword(password, user.passwordHash);
     } catch (_) {
+      logAuthEvent("login_invalid_credentials", { email });
       return sendAuthError(
         res,
         401,
@@ -412,22 +436,33 @@ app.post("/login", async (req: Request, res: Response) => {
         "Invalid email or password",
       );
     }
-    if (!ok)
+
+    if (!ok) {
+      logAuthEvent("login_invalid_credentials", { email });
       return sendAuthError(
         res,
         401,
         "INVALID_CREDENTIALS",
         "Invalid email or password",
       );
+    }
 
-    // MFA/passkeys disabled for this setup — issue token after password check
     const jti = randomUUID();
     const payload: WithJti = { sub: user.id, email: user.email, jti };
     const token = signJwt(payload);
+
+    logAuthEvent("login_succeeded", {
+      userId: user.id,
+      email: user.email,
+    });
+
     res.json({ token });
   } catch (e: any) {
-    console.error("login error:", e);
-    // Return 401 for credential/not-found errors so we never leak 500 for auth failures (e.g. deleted user, DB blip)
+    logAuthEvent("login_failed", {
+      email,
+      error: e instanceof Error ? e.message : String(e),
+    });
+
     const msg = (e?.message ?? String(e)).toLowerCase();
     const code = e?.code ?? "";
     if (
@@ -444,6 +479,7 @@ app.post("/login", async (req: Request, res: Response) => {
         "Invalid email or password",
       );
     }
+
     return sendAuthError(res, 500, "INTERNAL_ERROR", "Internal server error");
   }
 });
