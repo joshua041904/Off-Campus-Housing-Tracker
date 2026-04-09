@@ -72,25 +72,15 @@ function sendAuthError(
   });
 }
 
-<<<<<<< HEAD
 function classifyJwtError(
   err: unknown,
 ): { code: AuthErrorCode; message: string } {
   const name = err instanceof Error ? err.name : "";
-=======
-function classifyJwtError(err: unknown): {
-  code: AuthErrorCode;
-  message: string;
-} {
-  const name = err instanceof Error ? err.name : "";
-  const message = err instanceof Error ? err.message : String(err);
->>>>>>> d4b308f57454984980598d101b2e9a7edfeca743
 
   if (name === "TokenExpiredError") {
     return { code: "EXPIRED_TOKEN", message: "Token has expired" };
   }
 
-<<<<<<< HEAD
   return { code: "INVALID_TOKEN", message: "Token is invalid" };
 }
 
@@ -103,14 +93,6 @@ function logAuthEvent(event: string, data: Record<string, unknown>) {
       ...data,
     }),
   );
-=======
-  return {
-    code: "INVALID_TOKEN",
-    message: message?.toLowerCase().includes("jwt")
-      ? "Token is invalid"
-      : "Token is invalid",
-  };
->>>>>>> d4b308f57454984980598d101b2e9a7edfeca743
 }
 
 // --- Redis (revocation list) ---
