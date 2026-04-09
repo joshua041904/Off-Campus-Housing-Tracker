@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { createListing, getListing, searchListings, type ListingJson } from "@/lib/api";
+import {
+  createListing,
+  getListing,
+  searchListings,
+  type ListingJson,
+} from "@/lib/api";
 import { getStoredEmail, getStoredToken } from "@/lib/auth-storage";
 import { Nav } from "@/components/Nav";
 import { GoogleMapEmbed } from "@/components/GoogleMapEmbed";
@@ -34,14 +39,20 @@ export default function ListingsPage() {
   const [items, setItems] = useState<ListingJson[]>([]);
   const [detail, setDetail] = useState<ListingJson | null>(null);
   const [detailId, setDetailId] = useState("");
-  const [loading, setLoading] = useState(false);
+
+  // Search, detail load, and create each manage their own loading state.
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [createLoading, setCreateLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
   const [title, setTitle] = useState("");
   const [desc, setDesc] = useState("");
   const [priceUsd, setPriceUsd] = useState("");
-  const [effectiveFrom, setEffectiveFrom] = useState(() => new Date().toISOString().slice(0, 10));
+  const [effectiveFrom, setEffectiveFrom] = useState(() =>
+    new Date().toISOString().slice(0, 10),
+  );
   const [createLat, setCreateLat] = useState("");
   const [createLng, setCreateLng] = useState("");
   const [createSmokeFree, setCreateSmokeFree] = useState(true);
@@ -70,7 +81,7 @@ export default function ListingsPage() {
     async (e?: React.FormEvent) => {
       e?.preventDefault();
       setErr(null);
-      setLoading(true);
+      setSearchLoading(true);
       try {
         const minC = minPrice ? Math.round(Number(minPrice) * 100) : undefined;
         const maxC = maxPrice ? Math.round(Number(maxPrice) * 100) : undefined;
@@ -80,7 +91,9 @@ export default function ListingsPage() {
         if (filterParking) amenityParts.push("parking");
         if (filterLaundry) amenityParts.push("in_unit_laundry");
         if (filterDishwasher) amenityParts.push("dishwasher");
-        const amenitiesParam = amenityParts.length ? amenityParts.join(",") : undefined;
+        const amenitiesParam = amenityParts.length
+          ? amenityParts.join(",")
+          : undefined;
         const list = await searchListings({
           q: q.trim() || undefined,
           min_price: minC,
@@ -97,7 +110,7 @@ export default function ListingsPage() {
         setErr(e instanceof Error ? e.message : "Search failed");
         setItems([]);
       } finally {
-        setLoading(false);
+        setSearchLoading(false);
       }
     },
     [
@@ -113,13 +126,13 @@ export default function ListingsPage() {
       filterDishwasher,
       sortBy,
       newWithin,
-    ]
+    ],
   );
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      setLoading(true);
+      setSearchLoading(true);
       setErr(null);
       try {
         const list = await searchListings({});
@@ -130,7 +143,7 @@ export default function ListingsPage() {
           setItems([]);
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setSearchLoading(false);
       }
     })();
     return () => {
@@ -142,14 +155,14 @@ export default function ListingsPage() {
     e.preventDefault();
     if (!detailId.trim()) return;
     setErr(null);
-    setLoading(true);
+    setDetailLoading(true);
     try {
       setDetail(await getListing(detailId.trim()));
     } catch (e: unknown) {
       setDetail(null);
       setErr(e instanceof Error ? e.message : "Load failed");
     } finally {
-      setLoading(false);
+      setDetailLoading(false);
     }
   }
 
@@ -159,13 +172,18 @@ export default function ListingsPage() {
     setMsg(null);
     setErr(null);
     const cents = Math.round(Number(priceUsd) * 100);
-    if (!title.trim() || !Number.isFinite(cents) || cents <= 0 || !effectiveFrom) {
+    if (
+      !title.trim() ||
+      !Number.isFinite(cents) ||
+      cents <= 0 ||
+      !effectiveFrom
+    ) {
       setErr("Title, positive price, and effective-from date required.");
       return;
     }
     const latN = createLat.trim() ? Number(createLat) : NaN;
     const lngN = createLng.trim() ? Number(createLng) : NaN;
-    setLoading(true);
+    setCreateLoading(true);
     try {
       await createListing(token, {
         title: title.trim(),
@@ -189,7 +207,7 @@ export default function ListingsPage() {
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : "Create failed");
     } finally {
-      setLoading(false);
+      setCreateLoading(false);
     }
   }
 
@@ -199,9 +217,16 @@ export default function ListingsPage() {
       <main className="mx-auto max-w-5xl px-4 py-10">
         <h1 className="font-serif text-3xl text-slate-900">Browse listings</h1>
         <p className="mt-2 text-sm text-slate-600">
-          Filter by price, features, and recency. Listings with latitude/longitude show a map when{" "}
-          <code className="rounded bg-slate-200 px-1 text-xs">NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> is set.{" "}
-          <Link href="/dashboard" className="font-medium text-teal-700 hover:underline">
+          Filter by price, features, and recency. Listings with
+          latitude/longitude show a map when{" "}
+          <code className="rounded bg-slate-200 px-1 text-xs">
+            NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+          </code>{" "}
+          is set.{" "}
+          <Link
+            href="/dashboard"
+            className="font-medium text-teal-700 hover:underline"
+          >
             Dashboard
           </Link>{" "}
           for watchlist &amp; search history.
@@ -214,7 +239,9 @@ export default function ListingsPage() {
         >
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             <div className="md:col-span-2">
-              <label className="text-xs font-medium uppercase tracking-wide text-slate-500">Keywords</label>
+              <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                Keywords
+              </label>
               <input
                 data-testid="listings-search-q"
                 value={q}
@@ -224,7 +251,9 @@ export default function ListingsPage() {
               />
             </div>
             <div>
-              <label className="text-xs font-medium uppercase tracking-wide text-slate-500">Min price (USD)</label>
+              <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                Min price (USD)
+              </label>
               <input
                 type="number"
                 step="0.01"
@@ -234,7 +263,9 @@ export default function ListingsPage() {
               />
             </div>
             <div>
-              <label className="text-xs font-medium uppercase tracking-wide text-slate-500">Max price (USD)</label>
+              <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                Max price (USD)
+              </label>
               <input
                 type="number"
                 step="0.01"
@@ -246,11 +277,19 @@ export default function ListingsPage() {
           </div>
           <div className="flex flex-wrap gap-4 text-sm">
             <label className="flex items-center gap-2">
-              <input type="checkbox" checked={smokeFree} onChange={(e) => setSmokeFree(e.target.checked)} />
+              <input
+                type="checkbox"
+                checked={smokeFree}
+                onChange={(e) => setSmokeFree(e.target.checked)}
+              />
               Smoke-free
             </label>
             <label className="flex items-center gap-2">
-              <input type="checkbox" checked={petFriendly} onChange={(e) => setPetFriendly(e.target.checked)} />
+              <input
+                type="checkbox"
+                checked={petFriendly}
+                onChange={(e) => setPetFriendly(e.target.checked)}
+              />
               Pet-friendly
             </label>
             <label className="flex items-center gap-2">
@@ -301,7 +340,9 @@ export default function ListingsPage() {
           </div>
           <div className="flex flex-wrap items-end gap-4">
             <div>
-              <label className="text-xs font-medium uppercase tracking-wide text-slate-500">Sort by</label>
+              <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                Sort by
+              </label>
               <select
                 data-testid="listings-sort"
                 value={sortBy}
@@ -315,7 +356,9 @@ export default function ListingsPage() {
               </select>
             </div>
             <div>
-              <label className="text-xs font-medium uppercase tracking-wide text-slate-500">Listed recently</label>
+              <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                Listed recently
+              </label>
               <select
                 data-testid="listings-new-within"
                 value={newWithin}
@@ -330,7 +373,7 @@ export default function ListingsPage() {
             </div>
             <button
               type="submit"
-              disabled={loading}
+              disabled={searchLoading}
               data-testid="listings-search-submit"
               className="rounded-md bg-teal-600 px-4 py-2 font-medium text-white hover:bg-teal-500 disabled:opacity-50"
             >
@@ -342,10 +385,12 @@ export default function ListingsPage() {
         <div
           data-testid="listings-results"
           className="mt-8 min-h-[3rem] space-y-3"
-          aria-busy={loading}
+          aria-busy={searchLoading}
         >
-          {items.length === 0 && !loading && (
-            <p className="text-sm text-slate-500">No listings match (or empty index).</p>
+          {items.length === 0 && !searchLoading && (
+            <p className="text-sm text-slate-500">
+              No listings match (or empty index).
+            </p>
           )}
           {items.map((row) => (
             <div
@@ -355,19 +400,32 @@ export default function ListingsPage() {
               <div className="font-medium text-slate-900">{row.title}</div>
               <div className="mt-1 text-slate-600">
                 ${(row.price_cents / 100).toFixed(2)} ·{" "}
-                <span className="font-mono text-xs text-slate-500">{row.id}</span>
+                <span className="font-mono text-xs text-slate-500">
+                  {row.id}
+                </span>
                 {row.listed_at && (
-                  <span className="ml-2 text-xs text-slate-500">Listed {row.listed_at}</span>
+                  <span className="ml-2 text-xs text-slate-500">
+                    Listed {row.listed_at}
+                  </span>
                 )}
               </div>
               {row.amenities && row.amenities.length > 0 && (
-                <p className="mt-1 text-xs text-slate-500">Features: {row.amenities.join(", ")}</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Features: {row.amenities.join(", ")}
+                </p>
               )}
               <div className="mt-3 max-w-md">
                 {row.latitude != null && row.longitude != null ? (
-                  <GoogleMapEmbed latitude={row.latitude} longitude={row.longitude} height={160} zoom={15} />
+                  <GoogleMapEmbed
+                    latitude={row.latitude}
+                    longitude={row.longitude}
+                    height={160}
+                    zoom={15}
+                  />
                 ) : (
-                  <p className="text-xs text-slate-500">No coordinates on this listing — add lat/lng when posting.</p>
+                  <p className="text-xs text-slate-500">
+                    No coordinates on this listing — add lat/lng when posting.
+                  </p>
                 )}
               </div>
             </div>
@@ -376,7 +434,10 @@ export default function ListingsPage() {
 
         <section className="mt-12 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
           <h2 className="text-lg font-medium text-slate-900">Listing by ID</h2>
-          <form onSubmit={onLoadDetail} className="mt-4 flex flex-col gap-2 sm:flex-row">
+          <form
+            onSubmit={onLoadDetail}
+            className="mt-4 flex flex-col gap-2 sm:flex-row"
+          >
             <input
               data-testid="listings-detail-id"
               value={detailId}
@@ -386,7 +447,7 @@ export default function ListingsPage() {
             />
             <button
               type="submit"
-              disabled={loading}
+              disabled={detailLoading}
               data-testid="listings-detail-load"
               className="rounded-md border border-slate-400 px-4 py-2 text-slate-800 hover:bg-slate-50 disabled:opacity-50"
             >
@@ -405,14 +466,22 @@ export default function ListingsPage() {
 
         {token ? (
           <section className="mt-10 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
-            <h2 className="text-lg font-medium text-slate-900">Post a listing</h2>
+            <h2 className="text-lg font-medium text-slate-900">
+              Post a listing
+            </h2>
             <p className="mt-1 text-xs text-slate-500">
-              Lister side: set optional coordinates for map preview (e.g. campus-adjacent). Features are stored in the
-              DB as structured amenities for both search and display.
+              Lister side: set optional coordinates for map preview (e.g.
+              campus-adjacent). Features are stored in the DB as structured
+              amenities for both search and display.
             </p>
-            <form onSubmit={onCreate} className="mt-4 grid gap-3 md:grid-cols-2">
+            <form
+              onSubmit={onCreate}
+              className="mt-4 grid gap-3 md:grid-cols-2"
+            >
               <div className="md:col-span-2">
-                <label className="text-xs font-medium uppercase text-slate-500">Title</label>
+                <label className="text-xs font-medium uppercase text-slate-500">
+                  Title
+                </label>
                 <input
                   data-testid="listings-create-title"
                   value={title}
@@ -422,7 +491,9 @@ export default function ListingsPage() {
                 />
               </div>
               <div className="md:col-span-2">
-                <label className="text-xs font-medium uppercase text-slate-500">Description</label>
+                <label className="text-xs font-medium uppercase text-slate-500">
+                  Description
+                </label>
                 <textarea
                   data-testid="listings-create-desc"
                   value={desc}
@@ -432,7 +503,9 @@ export default function ListingsPage() {
                 />
               </div>
               <div>
-                <label className="text-xs font-medium uppercase text-slate-500">Price (USD)</label>
+                <label className="text-xs font-medium uppercase text-slate-500">
+                  Price (USD)
+                </label>
                 <input
                   data-testid="listings-create-price"
                   type="number"
@@ -444,7 +517,9 @@ export default function ListingsPage() {
                 />
               </div>
               <div>
-                <label className="text-xs font-medium uppercase text-slate-500">Effective from</label>
+                <label className="text-xs font-medium uppercase text-slate-500">
+                  Effective from
+                </label>
                 <input
                   data-testid="listings-create-effective-from"
                   type="date"
@@ -455,7 +530,9 @@ export default function ListingsPage() {
                 />
               </div>
               <div>
-                <label className="text-xs font-medium uppercase text-slate-500">Latitude (optional)</label>
+                <label className="text-xs font-medium uppercase text-slate-500">
+                  Latitude (optional)
+                </label>
                 <input
                   data-testid="listings-create-lat"
                   type="text"
@@ -467,7 +544,9 @@ export default function ListingsPage() {
                 />
               </div>
               <div>
-                <label className="text-xs font-medium uppercase text-slate-500">Longitude (optional)</label>
+                <label className="text-xs font-medium uppercase text-slate-500">
+                  Longitude (optional)
+                </label>
                 <input
                   data-testid="listings-create-lng"
                   type="text"
@@ -480,19 +559,34 @@ export default function ListingsPage() {
               </div>
               <div className="md:col-span-2 flex flex-wrap gap-4 text-sm">
                 <label className="flex items-center gap-2">
-                  <input type="checkbox" checked={createSmokeFree} onChange={(e) => setCreateSmokeFree(e.target.checked)} />
+                  <input
+                    type="checkbox"
+                    checked={createSmokeFree}
+                    onChange={(e) => setCreateSmokeFree(e.target.checked)}
+                  />
                   Smoke-free
                 </label>
                 <label className="flex items-center gap-2">
-                  <input type="checkbox" checked={createPetFriendly} onChange={(e) => setCreatePetFriendly(e.target.checked)} />
+                  <input
+                    type="checkbox"
+                    checked={createPetFriendly}
+                    onChange={(e) => setCreatePetFriendly(e.target.checked)}
+                  />
                   Pet-friendly
                 </label>
                 <label className="flex items-center gap-2">
-                  <input type="checkbox" checked={createFurnished} onChange={(e) => setCreateFurnished(e.target.checked)} />
+                  <input
+                    type="checkbox"
+                    checked={createFurnished}
+                    onChange={(e) => setCreateFurnished(e.target.checked)}
+                  />
                   Furnished
                 </label>
                 {AMENITY_OPTIONS.map((a) => (
-                  <label key={a.slug} className="flex items-center gap-2">
+                  <label
+                    key={a.slug}
+                    className="flex items-center gap-2"
+                  >
                     <input
                       type="checkbox"
                       checked={
@@ -505,9 +599,12 @@ export default function ListingsPage() {
                               : createDishwasher
                       }
                       onChange={(e) => {
-                        if (a.slug === "garage") setCreateGarage(e.target.checked);
-                        else if (a.slug === "parking") setCreateParking(e.target.checked);
-                        else if (a.slug === "in_unit_laundry") setCreateLaundry(e.target.checked);
+                        if (a.slug === "garage")
+                          setCreateGarage(e.target.checked);
+                        else if (a.slug === "parking")
+                          setCreateParking(e.target.checked);
+                        else if (a.slug === "in_unit_laundry")
+                          setCreateLaundry(e.target.checked);
                         else setCreateDishwasher(e.target.checked);
                       }}
                     />
@@ -518,7 +615,7 @@ export default function ListingsPage() {
               <div className="md:col-span-2">
                 <button
                   type="submit"
-                  disabled={loading}
+                  disabled={createLoading}
                   data-testid="listings-create-submit"
                   className="rounded-md bg-teal-700 px-4 py-2 font-medium text-white hover:bg-teal-600 disabled:opacity-50"
                 >
@@ -529,7 +626,10 @@ export default function ListingsPage() {
           </section>
         ) : (
           <p className="mt-8 text-sm text-slate-600">
-            <Link href="/login" className="font-medium text-teal-700 hover:underline">
+            <Link
+              href="/login"
+              className="font-medium text-teal-700 hover:underline"
+            >
               Log in
             </Link>{" "}
             to post a listing.
@@ -537,12 +637,18 @@ export default function ListingsPage() {
         )}
 
         {msg && (
-          <p data-testid="listing-created-banner" className="mt-6 text-sm font-medium text-emerald-700">
+          <p
+            data-testid="listing-created-banner"
+            className="mt-6 text-sm font-medium text-emerald-700"
+          >
             {msg}
           </p>
         )}
         {err && (
-          <p data-testid="listings-api-error" className="mt-2 text-sm text-red-600">
+          <p
+            data-testid="listings-api-error"
+            className="mt-2 text-sm text-red-600"
+          >
             {err}
           </p>
         )}
