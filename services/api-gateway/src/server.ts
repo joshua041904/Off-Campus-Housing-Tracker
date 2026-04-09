@@ -118,23 +118,58 @@ const grpcStatusToHttp: Record<number, number> = {
 const verboseGrpcErrors =
   process.env.NODE_ENV !== "production" || process.env.GATEWAY_VERBOSE_GRPC_ERRORS === "1";
 
+function parseGrpcErrorPayload(err: any): { code: string; message: string } | null {
+  const raw = err?.details || err?.message;
+  if (typeof raw !== "string") return null;
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      typeof parsed.code === "string" &&
+      typeof parsed.message === "string"
+    ) {
+      return { code: parsed.code, message: parsed.message };
+    }
+  } catch {
+    // ignore parse failure
+  }
+
+  return null;
+}
+
 function handleGrpcError(res: Response, err: any, routeHint?: string) {
-  const code = typeof err?.code === "number" ? err.code : -1;
-  const status = grpcStatusToHttp[code] ?? 500;
-  const message = err?.details || err?.message || "grpc error";
+  const grpcCode = typeof err?.code === "number" ? err.code : -1;
+  const status = grpcStatusToHttp[grpcCode] ?? 500;
   const hint = routeHint || "auth";
+
+  const parsed = parseGrpcErrorPayload(err);
+  const fallbackMessage =
+    typeof err?.details === "string"
+      ? err.details
+      : typeof err?.message === "string"
+        ? err.message
+        : "grpc error";
+
   console.error(`[gateway → ${hint}] upstream gRPC error:`, {
-    grpcCode: code,
+    grpcCode,
     message: err?.message,
     details: err?.details,
     metadata: err?.metadata?.getMap?.() ?? undefined,
   });
-  const body: Record<string, unknown> = { error: message };
+
+  const body: Record<string, unknown> = parsed ?? {
+    code: status === 500 ? "INTERNAL_ERROR" : "UNKNOWN_ERROR",
+    message: fallbackMessage,
+  };
+
   if (verboseGrpcErrors) {
     body.detail = err?.message || String(err);
-    if (code >= 0) body.grpcCode = code;
+    if (grpcCode >= 0) body.grpcCode = grpcCode;
   }
-  res.status(status).json(body);
+
+  return res.status(status).json(body);
 }
 
 const jsonParser = express.json({ limit: "1mb" });
@@ -382,7 +417,12 @@ app.get(["/notification/healthz", "/api/notification/healthz"], createProxyMiddl
 // ----- gRPC auth (register, login, validate, refresh) -----
 app.post("/auth/register", jsonParser, async (req: Request, res: Response) => {
   const { email, password } = (req.body ?? {}) as { email?: string; password?: string };
-  if (!email || !password) return res.status(400).json({ error: "email/password required" });
+  if (!email || !password) {
+    return res.status(400).json({
+      code: "VALIDATION_ERROR",
+      message: "Email and password are required",
+    });
+  }
   try {
     const response = await promisifyGrpcCall<any>(authGrpcClient, "Register", { email, password }, 30000);
     res.status(201).json({ token: response?.token ?? "", user: response?.user ?? null });
@@ -392,7 +432,12 @@ app.post("/auth/register", jsonParser, async (req: Request, res: Response) => {
 });
 app.post("/api/auth/register", jsonParser, async (req: Request, res: Response) => {
   const { email, password } = (req.body ?? {}) as { email?: string; password?: string };
-  if (!email || !password) return res.status(400).json({ error: "email/password required" });
+  if (!email || !password) {
+    return res.status(400).json({
+      code: "VALIDATION_ERROR",
+      message: "Email and password are required",
+    });
+  }
   try {
     const response = await promisifyGrpcCall<any>(authGrpcClient, "Register", { email, password }, 30000);
     res.status(201).json({ token: response?.token ?? "", user: response?.user ?? null });
@@ -403,7 +448,12 @@ app.post("/api/auth/register", jsonParser, async (req: Request, res: Response) =
 
 const loginHandler = async (req: Request, res: Response) => {
   const { email, password, mfaCode } = (req.body ?? {}) as { email?: string; password?: string; mfaCode?: string };
-  if (!email || !password) return res.status(400).json({ error: "email/password required" });
+  if (!email || !password) {
+    return res.status(400).json({
+      code: "VALIDATION_ERROR",
+      message: "Email and password are required",
+    });
+  }
   try {
     const response = await promisifyGrpcCall<any>(authGrpcClient, "Authenticate", { email, password, mfa_code: mfaCode }, 30000);
     const requiresMFA = response?.requires_mfa === true || (!response?.token && (response?.user_id || response?.user?.id));
@@ -418,22 +468,40 @@ app.post("/api/auth/login", jsonParser, loginHandler);
 
 const validateTokenHandler = async (req: Request, res: Response) => {
   const token = extractBearer(req);
-  if (!token) return res.status(401).json({ error: "missing token", valid: false });
+  if (!token) {
+    return res.status(401).json({
+      code: "MISSING_TOKEN",
+      message: "Authorization token is required",
+      valid: false,
+    });
+  }
   try {
     const response = await promisifyGrpcCall<any>(authGrpcClient, "ValidateToken", { token }, 30000);
     if (response?.valid) return res.status(200).json({ valid: true, user: response.user });
-    return res.status(401).json({ error: "invalid token", valid: false });
+    return res.status(401).json({
+      code: "INVALID_TOKEN",
+      message: "Token is invalid",
+      valid: false,
+    });
   } catch (err: any) {
     handleGrpcError(res, err, "validate");
   }
 };
 const refreshTokenHandler = async (req: Request, res: Response) => {
   const token = extractBearer(req);
-  if (!token) return res.status(401).json({ error: "missing token" });
+  if (!token) {
+    return res.status(401).json({
+      code: "MISSING_TOKEN",
+      message: "Authorization token is required",
+    });
+  }
   try {
     const response = await promisifyGrpcCall<any>(authGrpcClient, "RefreshToken", { refresh_token: token }, 30000);
     if (response?.token) return res.status(200).json({ token: response.token });
-    return res.status(401).json({ error: "invalid token" });
+    return res.status(401).json({
+      code: "INVALID_TOKEN",
+      message: "Token is invalid",
+    });
   } catch (err: any) {
     handleGrpcError(res, err, "refresh");
   }
@@ -477,13 +545,21 @@ app.use(async (req: AuthedRequest, res: Response, next: NextFunction) => {
   if (isGetHealthzBypass(req)) return next();
   if (isOpenRoute(req)) return next();
   const token = extractBearer(req);
-  if (!token) return res.status(401).json({ error: "auth required" });
+  if (!token) {
+    return res.status(401).json({
+      code: "MISSING_TOKEN",
+      message: "Authorization token is required",
+    });
+  }
   try {
     const payload = verifyJwt(token) as TokenPayload & { jti?: string };
     if (payload?.jti) {
       try {
         const revoked = await Promise.race([redis.get(`revoked:${payload.jti}`), new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 500))]) as string | null;
-        if (revoked) return res.status(401).json({ error: "token revoked" });
+        if (revoked) return res.status(401).json({
+          code: "TOKEN_REVOKED",
+          message: "Token has been revoked",
+        });
       } catch {
         // Redis down: proceed
       }
@@ -491,7 +567,10 @@ app.use(async (req: AuthedRequest, res: Response, next: NextFunction) => {
     req.user = payload as any;
     next();
   } catch {
-    return res.status(401).json({ error: "invalid token" });
+    return res.status(401).json({
+      code: "INVALID_TOKEN",
+      message: "Token is invalid",
+    });
   }
 });
 
