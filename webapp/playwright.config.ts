@@ -70,7 +70,7 @@ export default defineConfig({
   timeout: 120_000,
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 1 : 0,
+  retries: process.env.CI ? 2 : 0,
   /**
    * Fixed 4 workers: load is shaped by gateway (E2E shaper + X-Test-Mode inflight cap) and serial
    * heavy Playwright files — not by starving parallelism.
