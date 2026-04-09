@@ -9,17 +9,17 @@ test.describe("messaging (gateway vertical)", () => {
 
   test("GET /api/messaging/healthz", async ({ request }) => {
     let lastBody = "";
-    let ok = false;
-    for (let i = 0; i < 10; i++) {
-      const r = await request.get(edgePath("/api/messaging/healthz"));
-      lastBody = await r.text();
-      if (r.ok()) {
-        ok = true;
-        break;
-      }
-      await new Promise((res) => setTimeout(res, 1_000));
-    }
-    expect(ok, lastBody).toBeTruthy();
+    await expect
+      .poll(
+        async () => {
+          const r = await request.get(edgePath("/api/messaging/healthz"));
+          lastBody = await r.text();
+          return r.ok();
+        },
+        { timeout: 10_000, intervals: [1_000] },
+      )
+      .toBeTruthy();
+    expect(lastBody).toBeTruthy();
   });
 
   test("POST /api/messaging/messages without auth → 401", async ({ request }) => {
