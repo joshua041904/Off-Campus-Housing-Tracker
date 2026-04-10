@@ -161,6 +161,7 @@ test.describe("Listings filters & maps", () => {
     test.skip(!(await apiGatewayHealthy(request)), "edge not reachable");
     const id = await firstListingIdFromSearch(request);
     test.skip(!id, "no listings in search index — seed or create listings first");
+    if (!id) return;
 
     await page.goto("/listings");
     await expect(page.getByTestId("listings-results")).toHaveAttribute("aria-busy", "false", { timeout: 60_000 });
