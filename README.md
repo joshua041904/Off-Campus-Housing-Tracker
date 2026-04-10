@@ -11,6 +11,7 @@
 make images
 
 # 2. Full local stack (~20–28 min first time; see docs/DEV_ONBOARDING.md)
+#    dev-onboard: pnpm deps → dev-root CA → cluster (up-fast) → Kafka TLS → sync+verify och-kafka-ssl-secret → deploy
 RESTORE_BACKUP_DIR=latest make dev-onboard   # restore newest Postgres backups; or: make dev-onboard (no restore)
 ```
 

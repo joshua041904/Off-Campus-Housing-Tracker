@@ -39,7 +39,7 @@ SKIP_VERIFY_CURL_HTTP3 ?= 0
 .DEFAULT_GOAL := menu
 
 .PHONY: menu help setup reset verify diagnose clean-data-modeling-png generate-diagrams generate-uml generate-architecture bundle-2.1-submission generate-architecture-docs kafka-broker-status-stub db-schema-er-docs index-audit-md real-query-plan-suite up up-fast deps kubeconfig-colima cluster colima-net colima-patch-app-config-db-gateway tls-first-time trust-ca-macos verify-curl-http3 verify-docker-ports recycle-postgres-infra infra-host infra-cluster \
-	metallb-fix hosts-sanity ensure-edge-hosts wait-for-caddy-ip preflight-gate sslkeylog-seed ollama-note ollama-env verify-network-coherence verify-kafka-bootstrap verify-kafka-cluster check-kafka-config-drift kafka-runtime-sync kafka-sync-metallb kafka-heal-inter-broker-tls kafka-alignment-suite kafka-health kafka-smoke kafka-smoke-with-health k8s-diagnose-restarts post-deploy-verify golden-snapshot chaos-suite-kafka verify-preflight-edge-routing diagnose-k6-edge cleanup-kafka-ops-pods apply-kafka-kraft kafka-refresh-tls-from-lb kafka-tls-rotate-atomic kafka-tls-guard kafka-tls-guard-remediate kafka-quorum-stable service-tls-alias-guard edge-readiness-gate onboarding-kafka-preflight kafka-onboarding-reset kafka-lb-reset kafka-headless-reset kafka-clean-slate kafka-rolling-restart onboarding-edge dev-onboard dev-onboard-hardened-reset dev-onboard-eks dev-onboard-lite ephemeral-k3s-smoke chaos-kafka-broker chaos-metallb-kafka-lb chaos-test sync-prometheus-kafka-rules colima-bridged colima-bridged-clean metallb-bring-up test test-current model summarize-ceiling strict-canonical ceiling collapse-trust collapse-messaging collapse-all \
+	metallb-fix hosts-sanity ensure-edge-hosts wait-for-caddy-ip preflight-gate sslkeylog-seed ollama-note ollama-env verify-network-coherence verify-kafka-dns kafka-diagnose-broker-dns verify-kafka-bootstrap verify-kafka-cluster check-kafka-config-drift kafka-runtime-sync kafka-sync-metallb kafka-heal-inter-broker-tls kafka-alignment-suite kafka-health kafka-smoke kafka-smoke-with-health k8s-diagnose-restarts post-deploy-verify golden-snapshot chaos-suite-kafka verify-preflight-edge-routing diagnose-k6-edge cleanup-kafka-ops-pods apply-kafka-kraft kafka-refresh-tls-from-lb kafka-tls-rotate-atomic kafka-tls-guard kafka-tls-guard-remediate kafka-quorum-stable service-tls-alias-guard edge-readiness-gate rollout-och-full onboarding-kafka-preflight kafka-onboarding-reset kafka-lb-reset kafka-headless-reset kafka-clean-slate kafka-rolling-restart onboarding-edge dev-onboard dev-onboard-hardened-reset dev-onboard-eks dev-onboard-lite ephemeral-k3s-smoke chaos-kafka-broker chaos-metallb-kafka-lb chaos-test sync-prometheus-kafka-rules colima-bridged colima-bridged-clean metallb-bring-up test test-current model summarize-ceiling strict-canonical ceiling collapse-trust collapse-messaging collapse-all \
 	protocol-matrix packet-capture perf-lab perf-full generate-report graph-capacity heatmap-tail compare-run regression-guard \
 	slack-report discord-report ci ci-full certify ceiling-default performance-lab-interpret performance-lab-interpret-latest performance-lab-one capacity-recommend capacity-one protocol-happiness transport-routing-hints transport-routing-hints-sync-k8s perf-lab-dashboards bundle-performance-lab-10 strict-envelope-check adaptive-pool-suggest declare-readiness shellcheck-preflight transport-lab full-edge-transport-validation endpoint-coverage collapse-smoke explain-all-dbs demo demo-network demo-full demo-k3d stack images images-all kustomize-apply \
 	deploy-dev rollouts preflight-metallb test-e2e-integrated packet-capture-standalone certify-production \
@@ -141,8 +141,10 @@ help: ## List targets and short descriptions
 	@echo ""
 	@echo "Core:"
 	@echo "  make up               Full bootstrap (cluster + infra + TLS + /etc/hosts for edge; no KRaft / no deploy-dev)"
-	@echo "  make dev-onboard      Strict local onboard (Phase 10: full kafka-alignment-suite; SAFE_ONLY=1 → kafka-health); make setup alias"
+	@echo "  make dev-onboard      deps + zero-trust CA + up-fast + Kafka TLS + och-kafka-ssl-secret verify (Phase 10: alignment; SAFE_ONLY=1 → kafka-health); make setup alias"
+	@echo "  make rollout-och-full  After Kafka/TLS secret fixes: ensure cluster secrets + restart all housing apps + Caddy (ordered)"
 	@echo "  make kafka-heal-inter-broker-tls  Recreate kafka-0..N-1 if CrashLoop / PKIX JKS drift (see Runbook.md)"
+	@echo "  make kafka-diagnose-broker-dns  ENOTFOUND kafka-0.kafka...? (headless svc, pods, EndpointSlices)"
 	@echo "  make dev-onboard-eks  EKS: verify Kafka + edge only (no MetalLB/hosts reset)"
 	@echo "  make dev-onboard-lite CI-safe static checks (scripts + kustomize + client dry-run)"
 	@echo "  make kafka-smoke / kafka-smoke-with-health / post-deploy-verify  Live cluster gates (see Actions: Post-deploy verify)"
@@ -287,7 +289,7 @@ deps: ## Install workspace deps + Playwright browser; ensure cluster script exec
 	  exit 1; \
 	fi; \
 	cd $(REPO_ROOT) && pnpm install && pnpm --filter webapp exec playwright install chromium
-	chmod +x $(SCRIPTS)/setup-new-colima-cluster.sh $(SCRIPTS)/ensure-edge-hosts.sh $(SCRIPTS)/kafka-onboarding-reset.sh $(SCRIPTS)/kafka-clean-slate.sh $(SCRIPTS)/apply-kafka-kraft-staged.sh $(SCRIPTS)/ensure-dev-root-ca.sh $(SCRIPTS)/kafka-refresh-tls-from-lb.sh $(SCRIPTS)/wait-for-kafka-external-lb-ips.sh $(SCRIPTS)/detect-k8s-environment.sh $(SCRIPTS)/dev-onboard-local.sh $(SCRIPTS)/kafka-rolling-restart.sh $(SCRIPTS)/kafka-tls-guard.sh $(SCRIPTS)/kafka-after-rollout-verify-brokers.sh $(SCRIPTS)/kafka-auto-heal-inter-broker-tls.sh $(SCRIPTS)/kafka-tls-rotate-atomic.sh $(SCRIPTS)/export-kafka-ca-metric.sh $(SCRIPTS)/rollout-deferred-after-kafka-tls.sh $(SCRIPTS)/kafka-quorum-stable.sh $(SCRIPTS)/service-tls-alias-guard.sh $(SCRIPTS)/edge-readiness-gate.sh $(SCRIPTS)/generate-canonical-dev-tls.sh $(SCRIPTS)/verify-kafka-no-static-advertised-env.sh $(SCRIPTS)/check-kafka-config-drift.sh $(SCRIPTS)/kafka-runtime-sync.sh $(SCRIPTS)/kafka-sync-metallb.sh $(SCRIPTS)/tests/kafka-alignment-suite.sh $(SCRIPTS)/chaos-kafka-alignment-stochastic.sh $(SCRIPTS)/golden-snapshot-verify.sh $(SCRIPTS)/auth-outbox-inspect.sh $(SCRIPTS)/auth-outbox-replay.sh
+	chmod +x $(SCRIPTS)/setup-new-colima-cluster.sh $(SCRIPTS)/ensure-edge-hosts.sh $(SCRIPTS)/kafka-onboarding-reset.sh $(SCRIPTS)/kafka-clean-slate.sh $(SCRIPTS)/apply-kafka-kraft-staged.sh $(SCRIPTS)/ensure-dev-root-ca.sh $(SCRIPTS)/dev-onboard-zero-trust-preflight.sh $(SCRIPTS)/kafka-refresh-tls-from-lb.sh $(SCRIPTS)/wait-for-kafka-external-lb-ips.sh $(SCRIPTS)/detect-k8s-environment.sh $(SCRIPTS)/dev-onboard-local.sh $(SCRIPTS)/kafka-rolling-restart.sh $(SCRIPTS)/kafka-tls-guard.sh $(SCRIPTS)/kafka-after-rollout-verify-brokers.sh $(SCRIPTS)/kafka-auto-heal-inter-broker-tls.sh $(SCRIPTS)/kafka-tls-rotate-atomic.sh $(SCRIPTS)/export-kafka-ca-metric.sh $(SCRIPTS)/rollout-deferred-after-kafka-tls.sh $(SCRIPTS)/kafka-quorum-stable.sh $(SCRIPTS)/service-tls-alias-guard.sh $(SCRIPTS)/edge-readiness-gate.sh $(SCRIPTS)/generate-canonical-dev-tls.sh $(SCRIPTS)/verify-kafka-no-static-advertised-env.sh $(SCRIPTS)/check-kafka-config-drift.sh $(SCRIPTS)/kafka-runtime-sync.sh $(SCRIPTS)/kafka-sync-metallb.sh $(SCRIPTS)/tests/kafka-alignment-suite.sh $(SCRIPTS)/chaos-kafka-alignment-stochastic.sh $(SCRIPTS)/golden-snapshot-verify.sh $(SCRIPTS)/auth-outbox-inspect.sh $(SCRIPTS)/auth-outbox-replay.sh
 
 # ROLE: DEV — optional kubeconfig export helper
 kubeconfig-colima: ## Print/export Colima kubeconfig path for current shell
@@ -337,6 +339,12 @@ tls-first-time: ## Canonical TLS: reissue → Envoy client cert → strict boots
 verify-kafka-dns: ## Requires kubectl context; fails if kafka-N DNS slice ≠ pod IP
 	bash -n $(REPO_ROOT)/scripts/validate-kafka-dns.sh
 	$(REPO_ROOT)/scripts/validate-kafka-dns.sh
+
+# ROLE: DEV/SRE — analytics-service ENOTFOUND kafka-0.kafka...? Headless svc, Ready pods, EndpointSlices, nslookup probe
+kafka-diagnose-broker-dns: ## Diagnose broker DNS / ENOTFOUND (HOUSING_NS); then: verify-kafka-dns, apply-kafka-kraft
+	bash -n $(REPO_ROOT)/scripts/diagnose-kafka-broker-dns.sh
+	chmod +x $(REPO_ROOT)/scripts/diagnose-kafka-broker-dns.sh
+	HOUSING_NS=$(HOUSING_NS) bash $(REPO_ROOT)/scripts/diagnose-kafka-broker-dns.sh
 
 preflight-kafka-k8s: ## Broker props + DNS + ensure event topics (RF=3, min ISR=2); needs kubectl
 	bash -n $(REPO_ROOT)/scripts/preflight-kafka-k8s-rollout.sh
@@ -528,6 +536,11 @@ edge-readiness-gate: ## MetalLB IP on caddy-h3 + in-pod Caddy + api-gateway /hea
 	chmod +x $(SCRIPTS)/edge-readiness-gate.sh
 	NS_ING=$(NS_ING) HOUSING_NS=$(HOUSING_NS) bash $(SCRIPTS)/edge-readiness-gate.sh
 
+# Refresh Kafka TLS alias + ordered restart of every housing Deployment and caddy-h3 (picks up Secret mounts).
+rollout-och-full: ## ensure-housing-cluster-secrets then rollout-deferred-after-kafka-tls; skip secrets: SKIP_ENSURE_CLUSTER_SECRETS=1
+	chmod +x $(SCRIPTS)/ensure-housing-cluster-secrets.sh $(SCRIPTS)/rollout-deferred-after-kafka-tls.sh $(SCRIPTS)/rollout-restart-och-full-stack.sh
+	NS_ING=$(NS_ING) HOUSING_NS=$(HOUSING_NS) OCH_ROLLOUT_STATUS_TIMEOUT=$(OCH_ROLLOUT_STATUS_TIMEOUT) SKIP_ENSURE_CLUSTER_SECRETS=$(SKIP_ENSURE_CLUSTER_SECRETS) bash $(SCRIPTS)/rollout-restart-och-full-stack.sh
+
 # DESTRUCTIVE: wipes Kafka; requires existing cluster + ingress NS. Does not run make up or Docker.
 dev-onboard-hardened-reset: ## Kafka clean slate → canonical TLS reissue-only → ensure secrets → apply-kafka → guards → housing rollouts
 	@echo "⚠️  dev-onboard-hardened-reset destroys Kafka broker data (KAFKA_CLEAN_SLATE_CONFIRM=YES)"
@@ -566,8 +579,9 @@ onboarding-edge: ## verify-preflight-edge-routing (MetalLB + hosts + TLS)
 	$(MAKE) verify-preflight-edge-routing
 
 # ROLE: DEV — deterministic local onboard (EKS: dev-onboard-eks). Wrapper: scripts/dev-onboard-local.sh (set -euo pipefail).
-dev-onboard: ## LOCAL: phased onboard + TLS/Kafka gates + full Kafka alignment post-edge (DEV_ONBOARD_KAFKA_ALIGNMENT_SAFE_ONLY=1 → kafka-health; SKIP_KAFKA_HEALTH_ON_ONBOARD=1 skips); EKS: verify-only
-	@chmod +x $(SCRIPTS)/detect-k8s-environment.sh $(SCRIPTS)/dev-onboard-local.sh
+# Local path: Phase 0.25 deps + 0.5 dev-root CA → up-fast → Kafka apply → och-kafka-ssl-secret sync+verify → … (see script header).
+dev-onboard: ## LOCAL: deps + zero-trust CA + up-fast + Kafka/housing TLS gates + alignment (DEV_ONBOARD_KAFKA_ALIGNMENT_SAFE_ONLY=1 → kafka-health); EKS: verify-only
+	@chmod +x $(SCRIPTS)/detect-k8s-environment.sh $(SCRIPTS)/dev-onboard-local.sh $(SCRIPTS)/dev-onboard-zero-trust-preflight.sh $(SCRIPTS)/ensure-dev-root-ca.sh $(SCRIPTS)/ensure-housing-cluster-secrets.sh
 	@_och_env=$$(bash $(SCRIPTS)/detect-k8s-environment.sh 2>/dev/null || echo LOCAL); \
 	if [ "$$_och_env" = "EKS" ]; then \
 	  $(MAKE) dev-onboard-eks; \
@@ -616,6 +630,10 @@ dev-onboard-lite: ## CI-safe: bash -n scripts, kustomize kafka bundle, onboard s
 	bash -n "$(SCRIPTS)/ci/ephemeral-k3s-converge.sh"; \
 	grep -q 'generate-canonical-dev-tls.sh' "$(REPO_ROOT)/Makefile"; \
 	grep -q 'apply-kafka-kraft' "$(SCRIPTS)/dev-onboard-local.sh"; \
+	grep -q 'dev-onboard-zero-trust-preflight' "$(SCRIPTS)/dev-onboard-local.sh"; \
+	grep -q 'Phase 3.5' "$(SCRIPTS)/dev-onboard-local.sh"; \
+	grep -q 'Phase 0.25' "$(SCRIPTS)/dev-onboard-local.sh"; \
+	grep -q 'up-fast' "$(SCRIPTS)/dev-onboard-local.sh"; \
 	grep -q 'kafka-refresh-tls-from-lb' "$(SCRIPTS)/apply-kafka-kraft-staged.sh"; \
 	grep -q 'kafka-quorum-stable' "$(SCRIPTS)/dev-onboard-local.sh"; \
 	grep -q 'service-tls-alias-guard' "$(SCRIPTS)/dev-onboard-local.sh"; \
