@@ -117,6 +117,16 @@ describe("buildListingsSearchQuery", () => {
     expect(sql).toMatch(/pet_friendly\s*=\s*true/);
   });
 
+  it("combines pet-friendly filter with price filter", () => {
+    const { sql } = buildListingsSearchQuery({
+      pets: true,
+      minP: 1000,
+    });
+
+    expect(sql).toContain("pet_friendly = true");
+    expect(sql).toContain("price_cents >=");
+  });
+
   it("adds amenity jsonb predicates", () => {
     const { sql, params } = buildListingsSearchQuery({
       amenitySlugs: ["garage", "parking"],
