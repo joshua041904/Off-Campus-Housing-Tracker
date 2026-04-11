@@ -1,33 +1,10 @@
-fix(ci,auth,kafka,vitest): auth outbox + backup; och-ci; Kafka TLS gates; integration/system Vitest + preflight stack
+chore(webapp): defer analytics metrics cards UI to branch saved/feat-webapp-analytics-ui-full
 
-Auth
-- Dual transactional outbox (auth_outbox + outbox_events): SQL, verify-bootstrap /
-  inspect-external-db-schemas, index fixes; backup bundle aligned with all-8 restore.
-- rebuild-housing-colima logging (ok/warn) where applicable.
+The polished daily-metrics card grid and related analytics UI live on branch
+saved/feat-webapp-analytics-ui-full (snapshot of this work before this change).
+This branch keeps the simpler analytics shell from main-line history.
 
-CI (och-ci)
-- Integration job keeps plaintext Kafka service containers for packages that need a broker;
-  bounded waits and parallel batches unchanged where documented.
-- transport-validation: if: always() after integration-tests so cancelled integration does
-  not leave a misleading skip in the aggregate gate.
-- on.push branch filters restored (fix/, feat/, etc.); concurrency keyed by event_name so
-  push and pull_request runs do not cancel each other. See docs/CI_CHECK_RUNS.md.
+Teammate: merge or cherry-pick from saved/feat-webapp-analytics-ui-full, or
+restore the file with: git checkout saved/feat-webapp-analytics-ui-full -- webapp/app/analytics/page.tsx
 
-Kafka / local cluster
-- Inter-broker TLS heal hooks, sync-metallb pre-heal, dev-onboard alignment defaults;
-  Runbook / zero-trust checklist updates as in branch.
-- Vitest cluster policy: ≥3 TLS seeds, PEM on disk, RF metadata check, assert script before
-  listings/booking integration; scripts/assert-kafka-integration-cluster.mjs + services/common
-  kafka-vitest-cluster helper.
-
-Vitest orchestration
-- test:integration:all, test:system, test:vitest-stack, test:smoke (full stack); make
-  test-vitest-stack builds @common then runs test:vitest-stack.
-- Preflight step 7a0c: PREFLIGHT_RUN_REPO_VITEST_STACK defaults to 1 — after event-layer,
-  pnpm -C services/common build && pnpm run test:vitest-stack. Set
-  PREFLIGHT_RUN_REPO_VITEST_STACK=0 to skip. PREFLIGHT_RUN_SYSTEM_CONTRACTS only applies when
-  the stack step is off.
-
-Docs: vitest-per-service-requirements.md, integration-test-tiers.md, system-test-rules.md.
-
-Made with Tom.
+Made-with: Tom
