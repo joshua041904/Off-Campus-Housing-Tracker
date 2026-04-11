@@ -98,6 +98,25 @@ describe("buildListingsSearchQuery", () => {
     expect(sql).toContain("furnished IS TRUE");
   });
 
+  it("adds pet-friendly filter when pets=true", () => {
+    const { sql } = buildListingsSearchQuery({ pets: true });
+
+    expect(sql).toContain("pet_friendly = true");
+  });
+
+  it("does not add pet-friendly filter when pets=false", () => {
+    const { sql } = buildListingsSearchQuery({ pets: false });
+
+    expect(sql).not.toContain("pet_friendly = true");
+  });
+
+  it("only returns pet-friendly constraint when requested", () => {
+    const { sql } = buildListingsSearchQuery({ pets: true });
+
+    // ensures no accidental inversion or wrong operator
+    expect(sql).toMatch(/pet_friendly\s*=\s*true/);
+  });
+
   it("adds amenity jsonb predicates", () => {
     const { sql, params } = buildListingsSearchQuery({
       amenitySlugs: ["garage", "parking"],
