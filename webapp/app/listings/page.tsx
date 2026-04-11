@@ -197,7 +197,7 @@ export default function ListingsPage() {
         latitude: Number.isFinite(latN) ? latN : null,
         longitude: Number.isFinite(lngN) ? lngN : null,
       });
-      setMsg("Listing created.");
+      setMsg("Listing created successfully.");
       setTitle("");
       setDesc("");
       setPriceUsd("");
@@ -637,12 +637,14 @@ export default function ListingsPage() {
         )}
 
         {msg && (
-          <p
+          <div
             data-testid="listing-created-banner"
-            className="mt-6 text-sm font-medium text-emerald-700"
+            role="status"
+            aria-live="polite"
+            className="mt-6 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800"
           >
             {msg}
-          </p>
+          </div>
         )}
         {err && (
           <p
