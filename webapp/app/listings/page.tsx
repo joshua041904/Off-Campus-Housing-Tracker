@@ -185,7 +185,7 @@ export default function ListingsPage() {
     const lngN = createLng.trim() ? Number(createLng) : NaN;
     setCreateLoading(true);
     try {
-      await createListing(token, {
+      const created = await createListing(token, {
         title: title.trim(),
         description: desc.trim(),
         price_cents: cents,
@@ -197,7 +197,7 @@ export default function ListingsPage() {
         latitude: Number.isFinite(latN) ? latN : null,
         longitude: Number.isFinite(lngN) ? lngN : null,
       });
-      setMsg("Listing created successfully.");
+      setMsg(`Listing created: ${created.title}`);
       setTitle("");
       setDesc("");
       setPriceUsd("");
