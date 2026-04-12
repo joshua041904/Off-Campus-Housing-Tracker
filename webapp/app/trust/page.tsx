@@ -7,6 +7,12 @@ import { getStoredEmail, getStoredToken } from "@/lib/auth-storage";
 import { getSubFromJwt } from "@/lib/jwt-sub";
 import { Nav } from "@/components/Nav";
 
+const inputClass =
+  "w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 shadow-sm focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500";
+
+const monoInputClass =
+  "w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 shadow-sm focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500";
+
 export default function TrustPage() {
   const [email, setEmail] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -112,13 +118,17 @@ export default function TrustPage() {
 
         <section className="mt-10 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
           <h2 className="text-lg font-medium text-slate-900">Reputation</h2>
-          <form data-testid="trust-reputation-form" onSubmit={onReputation} className="mt-4 flex flex-col gap-3 sm:flex-row">
+          <form
+            data-testid="trust-reputation-form"
+            onSubmit={onReputation}
+            className="mt-4 flex flex-col gap-3 sm:flex-row"
+          >
             <input
               data-testid="trust-reputation-user-id"
               value={repUserId}
               onChange={(e) => setRepUserId(e.target.value)}
               placeholder="user UUID"
-              className="flex-1 rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 shadow-sm"
+              className={`flex-1 ${monoInputClass}`}
             />
             <button
               type="submit"
@@ -174,21 +184,21 @@ export default function TrustPage() {
                   value={abuseTarget}
                   onChange={(e) => setAbuseTarget(e.target.value)}
                   placeholder="target UUID"
-                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 shadow-sm"
+                  className={monoInputClass}
                   required
                 />
                 <input
                   value={abuseCategory}
                   onChange={(e) => setAbuseCategory(e.target.value)}
                   placeholder="category"
-                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm"
+                  className={inputClass}
                 />
                 <textarea
                   value={abuseDetails}
                   onChange={(e) => setAbuseDetails(e.target.value)}
                   placeholder="details (optional)"
                   rows={3}
-                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm"
+                  className={inputClass}
                 />
                 <button
                   type="submit"
@@ -210,21 +220,21 @@ export default function TrustPage() {
                   value={bookingId}
                   onChange={(e) => setBookingId(e.target.value)}
                   placeholder="booking UUID"
-                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 shadow-sm"
+                  className={monoInputClass}
                   required
                 />
                 <input
                   value={revieweeId}
                   onChange={(e) => setRevieweeId(e.target.value)}
                   placeholder="reviewee user UUID"
-                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 shadow-sm"
+                  className={monoInputClass}
                   required
                 />
                 <input
                   value={side}
                   onChange={(e) => setSide(e.target.value)}
                   placeholder="side label e.g. guest | host"
-                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm"
+                  className={inputClass}
                 />
                 <div>
                   <label className="text-xs text-slate-600">Rating 1–5</label>
@@ -234,7 +244,7 @@ export default function TrustPage() {
                     max={5}
                     value={rating}
                     onChange={(e) => setRating(Number(e.target.value))}
-                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 shadow-sm"
+                    className={`mt-1 ${inputClass}`}
                   />
                 </div>
                 <textarea
@@ -242,12 +252,12 @@ export default function TrustPage() {
                   onChange={(e) => setComment(e.target.value)}
                   placeholder="comment"
                   rows={2}
-                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm"
+                  className={inputClass}
                 />
                 <button
                   type="submit"
                   disabled={loading}
-                  className="rounded-md bg-slate-700 px-4 py-2 font-medium text-white hover:bg-slate-600 disabled:opacity-50"
+                  className="rounded-md bg-teal-600 px-4 py-2 font-medium text-white hover:bg-teal-500 disabled:opacity-50"
                 >
                   Submit review
                 </button>

@@ -14,6 +14,12 @@ import { getStoredEmail, getStoredToken } from "@/lib/auth-storage";
 import { getSubFromJwt } from "@/lib/jwt-sub";
 import { Nav } from "@/components/Nav";
 
+const inputClass =
+  "rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 shadow-sm focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500";
+
+const fullInputClass =
+  "w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 shadow-sm focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500";
+
 export default function AnalyticsPage() {
   const [email, setEmail] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -146,7 +152,7 @@ export default function AnalyticsPage() {
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
-              className="rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 shadow-sm"
+              className={inputClass}
             />
             <button
               type="submit"
@@ -232,14 +238,14 @@ export default function AnalyticsPage() {
             <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 shadow-sm"
+              className={fullInputClass}
               placeholder="Title"
             />
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
-              className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 shadow-sm"
+              className={fullInputClass}
             />
             <div className="flex flex-wrap gap-4 text-slate-700">
               <label className="text-sm">
@@ -249,7 +255,7 @@ export default function AnalyticsPage() {
                   step="0.01"
                   value={priceUsd}
                   onChange={(e) => setPriceUsd(e.target.value)}
-                  className="ml-2 rounded-md border border-slate-300 bg-white px-2 py-1 text-slate-900 shadow-sm"
+                  className={`ml-2 ${inputClass}`}
                 />
               </label>
               <label className="flex items-center gap-2 text-sm">
@@ -282,7 +288,7 @@ export default function AnalyticsPage() {
           {feel && (
             <div
               data-testid="analytics-feel-output"
-              className="mt-4 rounded-md border border-teal-100 bg-teal-50/60 p-4 text-sm text-slate-800 whitespace-pre-wrap"
+              className="mt-4 whitespace-pre-wrap rounded-md border border-teal-100 bg-teal-50/60 p-4 text-sm text-slate-800"
             >
               {feel}
             </div>

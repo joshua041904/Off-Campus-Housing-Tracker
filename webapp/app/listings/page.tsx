@@ -19,6 +19,15 @@ const AMENITY_OPTIONS = [
   { slug: "dishwasher", label: "Dishwasher" },
 ] as const;
 
+const inputClass =
+  "mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 shadow-sm focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500";
+
+const monoInputClass =
+  "mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 shadow-sm focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500";
+
+const selectClass =
+  "mt-1 block rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500";
+
 export default function ListingsPage() {
   const [email, setEmail] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -40,7 +49,6 @@ export default function ListingsPage() {
   const [detail, setDetail] = useState<ListingJson | null>(null);
   const [detailId, setDetailId] = useState("");
 
-  // Search, detail load, and create each manage their own loading state.
   const [searchLoading, setSearchLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
@@ -91,9 +99,8 @@ export default function ListingsPage() {
         if (filterParking) amenityParts.push("parking");
         if (filterLaundry) amenityParts.push("in_unit_laundry");
         if (filterDishwasher) amenityParts.push("dishwasher");
-        const amenitiesParam = amenityParts.length
-          ? amenityParts.join(",")
-          : undefined;
+        const amenitiesParam = amenityParts.length ? amenityParts.join(",") : undefined;
+
         const list = await searchListings({
           q: q.trim() || undefined,
           min_price: minC,
@@ -171,18 +178,16 @@ export default function ListingsPage() {
     if (!token) return;
     setMsg(null);
     setErr(null);
+
     const cents = Math.round(Number(priceUsd) * 100);
-    if (
-      !title.trim() ||
-      !Number.isFinite(cents) ||
-      cents <= 0 ||
-      !effectiveFrom
-    ) {
+    if (!title.trim() || !Number.isFinite(cents) || cents <= 0 || !effectiveFrom) {
       setErr("Title, positive price, and effective-from date required.");
       return;
     }
+
     const latN = createLat.trim() ? Number(createLat) : NaN;
     const lngN = createLng.trim() ? Number(createLng) : NaN;
+
     setCreateLoading(true);
     try {
       const created = await createListing(token, {
@@ -212,21 +217,17 @@ export default function ListingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-teal-50/30 text-slate-900">
+    <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-emerald-50/50 text-slate-900">
       <Nav email={email} />
       <main className="mx-auto max-w-5xl px-4 py-10">
         <h1 className="font-serif text-3xl text-slate-900">Browse listings</h1>
         <p className="mt-2 text-sm text-slate-600">
-          Filter by price, features, and recency. Listings with
-          latitude/longitude show a map when{" "}
-          <code className="rounded bg-slate-200 px-1 text-xs">
+          Filter by price, features, and recency. Listings with latitude/longitude show a map when{" "}
+          <code className="rounded bg-slate-200 px-1 text-xs text-slate-800">
             NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
           </code>{" "}
           is set.{" "}
-          <Link
-            href="/dashboard"
-            className="font-medium text-teal-700 hover:underline"
-          >
+          <Link href="/dashboard" className="font-medium text-teal-700 hover:underline">
             Dashboard
           </Link>{" "}
           for watchlist &amp; search history.
@@ -246,7 +247,7 @@ export default function ListingsPage() {
                 data-testid="listings-search-q"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900"
+                className={inputClass}
                 placeholder="studio, laundry…"
               />
             </div>
@@ -259,7 +260,7 @@ export default function ListingsPage() {
                 step="0.01"
                 value={minPrice}
                 onChange={(e) => setMinPrice(e.target.value)}
-                className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2"
+                className={inputClass}
               />
             </div>
             <div>
@@ -271,25 +272,18 @@ export default function ListingsPage() {
                 step="0.01"
                 value={maxPrice}
                 onChange={(e) => setMaxPrice(e.target.value)}
-                className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2"
+                className={inputClass}
               />
             </div>
           </div>
-          <div className="flex flex-wrap gap-4 text-sm">
+
+          <div className="flex flex-wrap gap-4 text-sm text-slate-700">
             <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={smokeFree}
-                onChange={(e) => setSmokeFree(e.target.checked)}
-              />
+              <input type="checkbox" checked={smokeFree} onChange={(e) => setSmokeFree(e.target.checked)} />
               Smoke-free
             </label>
             <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={petFriendly}
-                onChange={(e) => setPetFriendly(e.target.checked)}
-              />
+              <input type="checkbox" checked={petFriendly} onChange={(e) => setPetFriendly(e.target.checked)} />
               Pet-friendly
             </label>
             <label className="flex items-center gap-2">
@@ -338,6 +332,7 @@ export default function ListingsPage() {
               Dishwasher
             </label>
           </div>
+
           <div className="flex flex-wrap items-end gap-4">
             <div>
               <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
@@ -347,7 +342,7 @@ export default function ListingsPage() {
                 data-testid="listings-sort"
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value)}
-                className="mt-1 block rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                className={selectClass}
               >
                 <option value="created_desc">Newest (created)</option>
                 <option value="listed_desc">Listing date</option>
@@ -363,7 +358,7 @@ export default function ListingsPage() {
                 data-testid="listings-new-within"
                 value={newWithin}
                 onChange={(e) => setNewWithin(e.target.value)}
-                className="mt-1 block rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                className={selectClass}
               >
                 <option value="">Any time</option>
                 <option value="7">Last 7 days</option>
@@ -388,9 +383,7 @@ export default function ListingsPage() {
           aria-busy={searchLoading}
         >
           {items.length === 0 && !searchLoading && (
-            <p className="text-sm text-slate-500">
-              No listings match (or empty index).
-            </p>
+            <p className="text-sm text-slate-500">No listings match (or empty index).</p>
           )}
           {items.map((row) => (
             <div
@@ -400,13 +393,9 @@ export default function ListingsPage() {
               <div className="font-medium text-slate-900">{row.title}</div>
               <div className="mt-1 text-slate-600">
                 ${(row.price_cents / 100).toFixed(2)} ·{" "}
-                <span className="font-mono text-xs text-slate-500">
-                  {row.id}
-                </span>
+                <span className="font-mono text-xs text-slate-500">{row.id}</span>
                 {row.listed_at && (
-                  <span className="ml-2 text-xs text-slate-500">
-                    Listed {row.listed_at}
-                  </span>
+                  <span className="ml-2 text-xs text-slate-500">Listed {row.listed_at}</span>
                 )}
               </div>
               {row.amenities && row.amenities.length > 0 && (
@@ -434,22 +423,19 @@ export default function ListingsPage() {
 
         <section className="mt-12 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
           <h2 className="text-lg font-medium text-slate-900">Listing by ID</h2>
-          <form
-            onSubmit={onLoadDetail}
-            className="mt-4 flex flex-col gap-2 sm:flex-row"
-          >
+          <form onSubmit={onLoadDetail} className="mt-4 flex flex-col gap-2 sm:flex-row">
             <input
               data-testid="listings-detail-id"
               value={detailId}
               onChange={(e) => setDetailId(e.target.value)}
               placeholder="listing UUID"
-              className="flex-1 rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm"
+              className={`flex-1 ${monoInputClass}`}
             />
             <button
               type="submit"
               disabled={detailLoading}
               data-testid="listings-detail-load"
-              className="rounded-md border border-slate-400 px-4 py-2 text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+              className="rounded-md border border-slate-300 bg-white px-4 py-2 font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
             >
               Load
             </button>
@@ -466,73 +452,57 @@ export default function ListingsPage() {
 
         {token ? (
           <section className="mt-10 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
-            <h2 className="text-lg font-medium text-slate-900">
-              Post a listing
-            </h2>
+            <h2 className="text-lg font-medium text-slate-900">Post a listing</h2>
             <p className="mt-1 text-xs text-slate-500">
-              Lister side: set optional coordinates for map preview (e.g.
-              campus-adjacent). Features are stored in the DB as structured
-              amenities for both search and display.
+              Lister side: set optional coordinates for map preview (e.g. campus-adjacent). Features are stored in the
+              DB as structured amenities for both search and display.
             </p>
-            <form
-              onSubmit={onCreate}
-              className="mt-4 grid gap-3 md:grid-cols-2"
-            >
+            <form onSubmit={onCreate} className="mt-4 grid gap-3 md:grid-cols-2">
               <div className="md:col-span-2">
-                <label className="text-xs font-medium uppercase text-slate-500">
-                  Title
-                </label>
+                <label className="text-xs font-medium uppercase text-slate-500">Title</label>
                 <input
                   data-testid="listings-create-title"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2"
+                  className={inputClass}
                   required
                 />
               </div>
               <div className="md:col-span-2">
-                <label className="text-xs font-medium uppercase text-slate-500">
-                  Description
-                </label>
+                <label className="text-xs font-medium uppercase text-slate-500">Description</label>
                 <textarea
                   data-testid="listings-create-desc"
                   value={desc}
                   onChange={(e) => setDesc(e.target.value)}
                   rows={3}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2"
+                  className={inputClass}
                 />
               </div>
               <div>
-                <label className="text-xs font-medium uppercase text-slate-500">
-                  Price (USD)
-                </label>
+                <label className="text-xs font-medium uppercase text-slate-500">Price (USD)</label>
                 <input
                   data-testid="listings-create-price"
                   type="number"
                   step="0.01"
                   value={priceUsd}
                   onChange={(e) => setPriceUsd(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2"
+                  className={inputClass}
                   required
                 />
               </div>
               <div>
-                <label className="text-xs font-medium uppercase text-slate-500">
-                  Effective from
-                </label>
+                <label className="text-xs font-medium uppercase text-slate-500">Effective from</label>
                 <input
                   data-testid="listings-create-effective-from"
                   type="date"
                   value={effectiveFrom}
                   onChange={(e) => setEffectiveFrom(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2"
+                  className={inputClass}
                   required
                 />
               </div>
               <div>
-                <label className="text-xs font-medium uppercase text-slate-500">
-                  Latitude (optional)
-                </label>
+                <label className="text-xs font-medium uppercase text-slate-500">Latitude (optional)</label>
                 <input
                   data-testid="listings-create-lat"
                   type="text"
@@ -540,13 +510,11 @@ export default function ListingsPage() {
                   placeholder="e.g. 42.3910"
                   value={createLat}
                   onChange={(e) => setCreateLat(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm"
+                  className={monoInputClass}
                 />
               </div>
               <div>
-                <label className="text-xs font-medium uppercase text-slate-500">
-                  Longitude (optional)
-                </label>
+                <label className="text-xs font-medium uppercase text-slate-500">Longitude (optional)</label>
                 <input
                   data-testid="listings-create-lng"
                   type="text"
@@ -554,10 +522,11 @@ export default function ListingsPage() {
                   placeholder="e.g. -72.5267"
                   value={createLng}
                   onChange={(e) => setCreateLng(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm"
+                  className={monoInputClass}
                 />
               </div>
-              <div className="md:col-span-2 flex flex-wrap gap-4 text-sm">
+
+              <div className="md:col-span-2 flex flex-wrap gap-4 text-sm text-slate-700">
                 <label className="flex items-center gap-2">
                   <input
                     type="checkbox"
@@ -583,10 +552,7 @@ export default function ListingsPage() {
                   Furnished
                 </label>
                 {AMENITY_OPTIONS.map((a) => (
-                  <label
-                    key={a.slug}
-                    className="flex items-center gap-2"
-                  >
+                  <label key={a.slug} className="flex items-center gap-2">
                     <input
                       type="checkbox"
                       checked={
@@ -599,12 +565,9 @@ export default function ListingsPage() {
                               : createDishwasher
                       }
                       onChange={(e) => {
-                        if (a.slug === "garage")
-                          setCreateGarage(e.target.checked);
-                        else if (a.slug === "parking")
-                          setCreateParking(e.target.checked);
-                        else if (a.slug === "in_unit_laundry")
-                          setCreateLaundry(e.target.checked);
+                        if (a.slug === "garage") setCreateGarage(e.target.checked);
+                        else if (a.slug === "parking") setCreateParking(e.target.checked);
+                        else if (a.slug === "in_unit_laundry") setCreateLaundry(e.target.checked);
                         else setCreateDishwasher(e.target.checked);
                       }}
                     />
@@ -612,12 +575,13 @@ export default function ListingsPage() {
                   </label>
                 ))}
               </div>
+
               <div className="md:col-span-2">
                 <button
                   type="submit"
                   disabled={createLoading}
                   data-testid="listings-create-submit"
-                  className="rounded-md bg-teal-700 px-4 py-2 font-medium text-white hover:bg-teal-600 disabled:opacity-50"
+                  className="rounded-md bg-teal-600 px-4 py-2 font-medium text-white hover:bg-teal-500 disabled:opacity-50"
                 >
                   Create listing
                 </button>
@@ -626,10 +590,7 @@ export default function ListingsPage() {
           </section>
         ) : (
           <p className="mt-8 text-sm text-slate-600">
-            <Link
-              href="/login"
-              className="font-medium text-teal-700 hover:underline"
-            >
+            <Link href="/login" className="font-medium text-teal-700 hover:underline">
               Log in
             </Link>{" "}
             to post a listing.
@@ -647,10 +608,7 @@ export default function ListingsPage() {
           </div>
         )}
         {err && (
-          <p
-            data-testid="listings-api-error"
-            className="mt-2 text-sm text-red-600"
-          >
+          <p data-testid="listings-api-error" className="mt-2 text-sm text-red-600">
             {err}
           </p>
         )}
