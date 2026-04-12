@@ -23,6 +23,12 @@ export default function RegisterPage() {
       if (!data.token) throw new Error("No token returned");
       setStoredToken(data.token);
       setStoredEmail(email.trim());
+
+      if (typeof window !== "undefined") {
+        window.location.assign("/dashboard");
+        return;
+      }
+
       router.push("/dashboard");
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : "Registration failed");
