@@ -2,10 +2,12 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { clearStoredToken } from "@/lib/auth-storage";
+import { useAuth } from "@/lib/auth-context";
 
 export function Nav({ email }: { email?: string | null }) {
   const router = useRouter();
+  const { logout } = useAuth();
+
   return (
     <header className="border-b border-teal-200/60 bg-white/80 backdrop-blur-md">
       <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-4">
@@ -27,7 +29,10 @@ export function Nav({ email }: { email?: string | null }) {
           </Link>
           {email ? (
             <>
-              <span className="hidden max-w-[200px] truncate text-slate-500 sm:inline" title={email ?? ""}>
+              <span
+                className="hidden max-w-[200px] truncate text-slate-500 sm:inline"
+                title={email ?? ""}
+              >
                 {email}
               </span>
               <Link href="/dashboard" className="hover:text-teal-700">
@@ -38,7 +43,7 @@ export function Nav({ email }: { email?: string | null }) {
                 data-testid="nav-sign-out"
                 className="rounded-md border border-slate-300 px-2 py-1.5 text-slate-700 hover:bg-slate-50"
                 onClick={() => {
-                  clearStoredToken();
+                  logout();
                   router.push("/login");
                   router.refresh();
                 }}

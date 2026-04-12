@@ -9,7 +9,7 @@ import {
   watchlistList,
   watchlistRemove,
 } from "@/lib/api";
-import { getStoredEmail, getStoredToken } from "@/lib/auth-storage";
+import { useAuth } from "@/lib/auth-context";
 import { Nav } from "@/components/Nav";
 import { GoogleMapEmbed } from "@/components/GoogleMapEmbed";
 
@@ -32,9 +32,7 @@ type WatchRow = {
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [ready, setReady] = useState(false);
-  const [token, setToken] = useState<string | null>(null);
-  const [email, setEmail] = useState<string | null>(null);
+  const { authReady, token, email, isAuthenticated } = useAuth();
 
   const [query, setQuery] = useState("near campus");
   const [minPrice, setMinPrice] = useState("");
@@ -47,25 +45,14 @@ export default function DashboardPage() {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  /** Ignore stale responses when multiple refreshAll() calls overlap (initial load vs post-save). */
   const refreshGen = useRef(0);
 
   useEffect(() => {
-    const t = getStoredToken();
-    const em = getStoredEmail();
-    if (!t) {
-      // Hard navigation is more reliable than client router in Playwright / strict edge cases.
-      if (typeof window !== "undefined" && window.location.pathname.startsWith("/dashboard")) {
-        window.location.replace(`${window.location.origin}/login`);
-        return;
-      }
+    if (!authReady) return;
+    if (!isAuthenticated) {
       void router.replace("/login");
-      return;
     }
-    setToken(t);
-    setEmail(em);
-    setReady(true);
-  }, [router]);
+  }, [authReady, isAuthenticated, router]);
 
   const refreshAll = useCallback(async () => {
     if (!token) return;
@@ -89,8 +76,8 @@ export default function DashboardPage() {
   }, [token]);
 
   useEffect(() => {
-    if (ready && token) void refreshAll();
-  }, [ready, token, refreshAll]);
+    if (authReady && token) void refreshAll();
+  }, [authReady, token, refreshAll]);
 
   async function onSaveSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -101,8 +88,12 @@ export default function DashboardPage() {
     try {
       await postSearchHistory(token, {
         query,
-        minPriceCents: minPrice ? Math.round(Number(minPrice) * 100) : undefined,
-        maxPriceCents: maxPrice ? Math.round(Number(maxPrice) * 100) : undefined,
+        minPriceCents: minPrice
+          ? Math.round(Number(minPrice) * 100)
+          : undefined,
+        maxPriceCents: maxPrice
+          ? Math.round(Number(maxPrice) * 100)
+          : undefined,
         maxDistanceKm: maxKm ? Number(maxKm) : undefined,
       });
       setMsg("Search saved to history.");
@@ -151,12 +142,16 @@ export default function DashboardPage() {
     }
   }
 
-  if (!ready) {
+  if (!authReady) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-sky-50 via-white to-emerald-50/50 text-slate-500">
         Loading…
       </div>
     );
+  }
+
+  if (!isAuthenticated) {
+    return null;
   }
 
   return (
@@ -168,31 +163,50 @@ export default function DashboardPage() {
       <main className="mx-auto max-w-5xl px-4 py-10">
         <h1 className="font-serif text-3xl text-slate-900">Housing search</h1>
         <p className="mt-2 max-w-2xl text-sm text-slate-600">
-          Search preferences are stored as <strong className="text-slate-800">search history</strong> (booking-service).
-          Listings you care about go to your <strong className="text-slate-800">watchlist</strong> (UUIDs). Browse and post
-          listings on the{" "}
-          <a href="/listings" className="font-medium text-teal-700 hover:underline">
+          Search preferences are stored as{" "}
+          <strong className="text-slate-800">search history</strong>{" "}
+          (booking-service). Listings you care about go to your{" "}
+          <strong className="text-slate-800">watchlist</strong> (UUIDs). Browse
+          and post listings on the{" "}
+          <a
+            href="/listings"
+            className="font-medium text-teal-700 hover:underline"
+          >
             listings
           </a>{" "}
           page; trust tools on{" "}
-          <a href="/trust" className="font-medium text-teal-700 hover:underline">
+          <a
+            href="/trust"
+            className="font-medium text-teal-700 hover:underline"
+          >
             trust &amp; safety
           </a>
           . Map preview uses Google Maps Embed when{" "}
-          <code className="rounded bg-slate-200 px-1 text-xs text-slate-800">NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> is set
-          (same as listings).
+          <code className="rounded bg-slate-200 px-1 text-xs text-slate-800">
+            NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+          </code>{" "}
+          is set (same as listings).
         </p>
 
         <div className="mt-6 max-w-xl">
-          <GoogleMapEmbed placeQuery="University of Massachusetts Amherst" height={180} />
+          <GoogleMapEmbed
+            placeQuery="University of Massachusetts Amherst"
+            height={180}
+          />
         </div>
 
         <div className="mt-10 grid gap-10 lg:grid-cols-2">
           <section className="rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
             <h2 className="text-lg font-medium text-slate-900">Save search</h2>
-            <form data-testid="search-form" onSubmit={onSaveSearch} className="mt-4 space-y-3">
+            <form
+              data-testid="search-form"
+              onSubmit={onSaveSearch}
+              className="mt-4 space-y-3"
+            >
               <div>
-                <label className="text-xs font-medium uppercase tracking-wide text-slate-500">Query</label>
+                <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Query
+                </label>
                 <input
                   data-testid="search-query"
                   value={query}
@@ -202,7 +216,9 @@ export default function DashboardPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-medium uppercase tracking-wide text-slate-500">Min price (USD)</label>
+                  <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                    Min price (USD)
+                  </label>
                   <input
                     type="number"
                     step="0.01"
@@ -213,7 +229,9 @@ export default function DashboardPage() {
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-medium uppercase tracking-wide text-slate-500">Max price (USD)</label>
+                  <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                    Max price (USD)
+                  </label>
                   <input
                     type="number"
                     step="0.01"
@@ -225,7 +243,9 @@ export default function DashboardPage() {
                 </div>
               </div>
               <div>
-                <label className="text-xs font-medium uppercase tracking-wide text-slate-500">Max distance (km)</label>
+                <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Max distance (km)
+                </label>
                 <input
                   data-testid="search-max-km"
                   type="number"
@@ -248,8 +268,14 @@ export default function DashboardPage() {
 
           <section className="rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
             <h2 className="text-lg font-medium text-slate-900">Watchlist</h2>
-            <p className="mt-1 text-sm text-slate-600">Add a listing UUID (from listings or seed data).</p>
-            <form data-testid="watchlist-form" onSubmit={onAddWatch} className="mt-4 flex flex-col gap-2 sm:flex-row">
+            <p className="mt-1 text-sm text-slate-600">
+              Add a listing UUID (from listings or seed data).
+            </p>
+            <form
+              data-testid="watchlist-form"
+              onSubmit={onAddWatch}
+              className="mt-4 flex flex-col gap-2 sm:flex-row"
+            >
               <input
                 data-testid="watchlist-listing-id"
                 value={listingId}
@@ -267,7 +293,9 @@ export default function DashboardPage() {
               </button>
             </form>
             <ul data-testid="watchlist-items" className="mt-6 space-y-2">
-              {watchlist.length === 0 && <li className="text-sm text-slate-500">No items yet.</li>}
+              {watchlist.length === 0 && (
+                <li className="text-sm text-slate-500">No items yet.</li>
+              )}
               {watchlist.map((w) => (
                 <li
                   key={w.listingId}
@@ -290,7 +318,9 @@ export default function DashboardPage() {
 
         <section className="mt-10 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
           <div className="flex items-center justify-between gap-4">
-            <h2 className="text-lg font-medium text-slate-900">Search history</h2>
+            <h2 className="text-lg font-medium text-slate-900">
+              Search history
+            </h2>
             <button
               type="button"
               onClick={() => refreshAll()}
@@ -319,17 +349,26 @@ export default function DashboardPage() {
                   </tr>
                 )}
                 {history.map((row) => (
-                  <tr key={row.id ?? `${row.query}-${row.createdAt}`} className="border-b border-slate-100">
+                  <tr
+                    key={row.id ?? `${row.query}-${row.createdAt}`}
+                    className="border-b border-slate-100"
+                  >
                     <td className="py-2 pr-4">{row.query ?? "—"}</td>
                     <td className="py-2 pr-4">
-                      {row.minPriceCents != null ? (row.minPriceCents / 100).toFixed(2) : "—"}
+                      {row.minPriceCents != null
+                        ? (row.minPriceCents / 100).toFixed(2)
+                        : "—"}
                     </td>
                     <td className="py-2 pr-4">
-                      {row.maxPriceCents != null ? (row.maxPriceCents / 100).toFixed(2) : "—"}
+                      {row.maxPriceCents != null
+                        ? (row.maxPriceCents / 100).toFixed(2)
+                        : "—"}
                     </td>
                     <td className="py-2 pr-4">{row.maxDistanceKm ?? "—"}</td>
                     <td className="py-2 text-slate-500">
-                      {row.createdAt ? new Date(row.createdAt).toLocaleString() : "—"}
+                      {row.createdAt
+                        ? new Date(row.createdAt).toLocaleString()
+                        : "—"}
                     </td>
                   </tr>
                 ))}
@@ -338,7 +377,11 @@ export default function DashboardPage() {
           </div>
           {(() => {
             const withGeo = history.find(
-              (r) => r.latitude != null && r.longitude != null && Number.isFinite(r.latitude) && Number.isFinite(r.longitude)
+              (r) =>
+                r.latitude != null &&
+                r.longitude != null &&
+                Number.isFinite(r.latitude) &&
+                Number.isFinite(r.longitude),
             );
             if (!withGeo) return null;
             return (
@@ -346,13 +389,20 @@ export default function DashboardPage() {
                 <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
                   Latest search with location
                 </p>
-                <GoogleMapEmbed latitude={withGeo.latitude} longitude={withGeo.longitude} height={200} zoom={13} />
+                <GoogleMapEmbed
+                  latitude={withGeo.latitude}
+                  longitude={withGeo.longitude}
+                  height={200}
+                  zoom={13}
+                />
               </div>
             );
           })()}
         </section>
 
-        {msg && <p className="mt-6 text-sm font-medium text-emerald-700">{msg}</p>}
+        {msg && (
+          <p className="mt-6 text-sm font-medium text-emerald-700">{msg}</p>
+        )}
         {err && <p className="mt-2 text-sm text-red-600">{err}</p>}
       </main>
     </div>
