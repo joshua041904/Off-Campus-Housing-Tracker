@@ -4,11 +4,12 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { loginUser } from "@/lib/api";
-import { setStoredEmail, setStoredToken } from "@/lib/auth-storage";
 import { Nav } from "@/components/Nav";
+import { useAuth } from "@/lib/auth-context";
 
 export default function LoginPage() {
   const router = useRouter();
+  const { login } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [err, setErr] = useState<string | null>(null);
@@ -21,8 +22,7 @@ export default function LoginPage() {
     try {
       const data = await loginUser(email, password);
       if (!data.token) throw new Error("No token returned");
-      setStoredToken(data.token);
-      setStoredEmail(email.trim());
+      login(data.token, email);
       router.push("/dashboard");
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : "Login failed");

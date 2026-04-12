@@ -9,7 +9,7 @@ import {
   watchlistList,
   watchlistRemove,
 } from "@/lib/api";
-import { getStoredEmail, getStoredToken } from "@/lib/auth-storage";
+import { useAuth } from "@/lib/auth-context";
 import { Nav } from "@/components/Nav";
 import { GoogleMapEmbed } from "@/components/GoogleMapEmbed";
 
@@ -32,9 +32,7 @@ type WatchRow = {
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [ready, setReady] = useState(false);
-  const [token, setToken] = useState<string | null>(null);
-  const [email, setEmail] = useState<string | null>(null);
+  const { authReady, token, email, isAuthenticated } = useAuth();
 
   const [query, setQuery] = useState("near campus");
   const [minPrice, setMinPrice] = useState("");
@@ -47,25 +45,14 @@ export default function DashboardPage() {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  /** Ignore stale responses when multiple refreshAll() calls overlap (initial load vs post-save). */
   const refreshGen = useRef(0);
 
   useEffect(() => {
-    const t = getStoredToken();
-    const em = getStoredEmail();
-    if (!t) {
-      // Hard navigation is more reliable than client router in Playwright / strict edge cases.
-      if (typeof window !== "undefined" && window.location.pathname.startsWith("/dashboard")) {
-        window.location.replace(`${window.location.origin}/login`);
-        return;
-      }
+    if (!authReady) return;
+    if (!isAuthenticated) {
       void router.replace("/login");
-      return;
     }
-    setToken(t);
-    setEmail(em);
-    setReady(true);
-  }, [router]);
+  }, [authReady, isAuthenticated, router]);
 
   const refreshAll = useCallback(async () => {
     if (!token) return;
@@ -89,8 +76,8 @@ export default function DashboardPage() {
   }, [token]);
 
   useEffect(() => {
-    if (ready && token) void refreshAll();
-  }, [ready, token, refreshAll]);
+    if (authReady && token) void refreshAll();
+  }, [authReady, token, refreshAll]);
 
   async function onSaveSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -151,7 +138,7 @@ export default function DashboardPage() {
     }
   }
 
-  if (!ready) {
+  if (!authReady || !isAuthenticated) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-sky-50 via-white to-emerald-50/50 text-slate-500">
         Loading…
