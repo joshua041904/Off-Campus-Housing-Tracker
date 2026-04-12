@@ -90,6 +90,7 @@ spec:
             initialDelaySeconds: 20
             timeoutSeconds: 10
             failureThreshold: 6
+
         # Probes gateway /readyz; writes Redis key read by gateway (watchdog-throttle-poll) to tighten E2E shaper under stress.
         - name: transport-watchdog
           image: transport-watchdog:dev
@@ -106,9 +107,10 @@ spec:
           resources:
             requests:
               cpu: "10m"
-              memory: "32Mi"
-            limits:
               memory: "64Mi"
+            limits:
+              memory: "128Mi"
+
       volumes:
         - name: service-tls
           secret:

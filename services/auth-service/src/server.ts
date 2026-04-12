@@ -22,7 +22,7 @@ import { createClient } from "redis";
 import { setupOAuthRoutes } from "./routes/oauth.js";
 import { setupVerificationRoutes } from "./routes/verification.js";
 import passkeyRouter from "./routes/passkey.js";
-import { getMockSmsProvider } from "./lib/sms-providers.js";
+//import { getMockSmsProvider } from "./lib/sms-providers.js";
 import { prisma } from "./lib/prisma.js"; // Use shared PrismaClient instance
 import {
   hashPassword,
@@ -72,9 +72,10 @@ function sendAuthError(
   });
 }
 
-function classifyJwtError(
-  err: unknown,
-): { code: AuthErrorCode; message: string } {
+function classifyJwtError(err: unknown): {
+  code: AuthErrorCode;
+  message: string;
+} {
   const name = err instanceof Error ? err.name : "";
 
   if (name === "TokenExpiredError") {
@@ -84,15 +85,33 @@ function classifyJwtError(
   return { code: "INVALID_TOKEN", message: "Token is invalid" };
 }
 
-function logAuthEvent(event: string, data: Record<string, unknown>) {
-  console.log(
-    JSON.stringify({
-      service: "auth-service",
-      event,
-      timestamp: new Date().toISOString(),
-      ...data,
-    }),
-  );
+type AuthLogLevel = "INFO" | "WARN" | "ERROR";
+
+function logAuthEvent(
+  event: string,
+  data: Record<string, unknown>,
+  level: AuthLogLevel = "INFO",
+) {
+  const entry = {
+    service: "auth-service",
+    transport: "http",
+    level,
+    event,
+    timestamp: new Date().toISOString(),
+    ...data,
+  };
+
+  if (level === "ERROR") {
+    console.error(JSON.stringify(entry));
+    return;
+  }
+
+  if (level === "WARN") {
+    console.warn(JSON.stringify(entry));
+    return;
+  }
+
+  console.log(JSON.stringify(entry));
 }
 
 // --- Redis (revocation list) ---
@@ -112,17 +131,27 @@ const redis = createClient({
   url: REDIS_URL,
   socket: { connectTimeout: 10_000 }, // Colima/host.docker.internal may need a moment on first packet
 });
-redis.on("error", (e: unknown) =>
-  console.error("auth-service redis error:", e),
-);
+redis.on("error", (e: unknown) => {
+  logAuthEvent(
+    "redis_runtime_error",
+    {
+      error: e instanceof Error ? e.message : String(e),
+    },
+    "ERROR",
+  );
+});
 (async () => {
   try {
     await redis.connect();
     logAuthEvent("redis_connected", {});
   } catch (e) {
-    logAuthEvent("redis_connect_failed", {
-      error: e instanceof Error ? e.message : String(e),
-    });
+    logAuthEvent(
+      "redis_connect_failed",
+      {
+        error: e instanceof Error ? e.message : String(e),
+      },
+      "ERROR",
+    );
   }
 })();
 
@@ -180,9 +209,14 @@ app.get("/healthz", async (_req: Request, res: Response) => {
   } catch (redisErr: any) {
     // Silently fail - don't log timeout errors to reduce noise
     if (!redisErr?.message?.includes("timeout")) {
-      logAuthEvent("healthz_redis_ping_failed", {
-        error: redisErr instanceof Error ? redisErr.message : String(redisErr),
-      });
+      logAuthEvent(
+        "healthz_redis_ping_failed",
+        {
+          error:
+            redisErr instanceof Error ? redisErr.message : String(redisErr),
+        },
+        "WARN",
+      );
     }
   }
 
@@ -231,10 +265,15 @@ app.post("/register", async (req: Request, res: Response) => {
       sendVerification?: boolean;
     };
     if (!email || !password) {
-      logAuthEvent("register_validation_failed", {
-        emailProvided: Boolean(email),
-        passwordProvided: Boolean(password),
-      });
+      logAuthEvent(
+        "register_validation_failed",
+        {
+          action: "register",
+          emailProvided: Boolean(email),
+          passwordProvided: Boolean(password),
+        },
+        "WARN",
+      );
       return sendAuthError(
         res,
         400,
@@ -246,7 +285,13 @@ app.post("/register", async (req: Request, res: Response) => {
     // Check cache first for email existence (fast path)
     const emailExists = await checkEmailExistsInCache(email);
     if (emailExists) {
-      logAuthEvent("register_email_already_exists", { email });
+      logAuthEvent(
+        "register_email_already_exists",
+        {
+          action: "register",
+        },
+        "WARN",
+      );
       return sendAuthError(
         res,
         409,
@@ -273,7 +318,13 @@ app.post("/register", async (req: Request, res: Response) => {
         phoneVerified: false,
         createdAt: new Date(),
       });
-      logAuthEvent("register_email_already_exists", { email });
+      logAuthEvent(
+        "register_email_already_exists",
+        {
+          action: "register",
+        },
+        "WARN",
+      );
       return sendAuthError(
         res,
         409,
@@ -326,8 +377,8 @@ app.post("/register", async (req: Request, res: Response) => {
     const payload: WithJti = { sub: user.id, email: user.email, jti };
     const token = signJwt(payload);
     logAuthEvent("register_succeeded", {
+      action: "register",
       userId: user.id,
-      email: user.email,
       sendVerification: Boolean(sendVerification),
     });
     res.status(201).json({
@@ -336,9 +387,14 @@ app.post("/register", async (req: Request, res: Response) => {
       message: sendVerification ? "Verification email sent" : undefined,
     });
   } catch (e: any) {
-    logAuthEvent("register_failed", {
-      error: e instanceof Error ? e.message : String(e),
-    });
+    logAuthEvent(
+      "register_failed",
+      {
+        action: "register",
+        error: e instanceof Error ? e.message : String(e),
+      },
+      "ERROR",
+    );
     return sendAuthError(res, 500, "INTERNAL_ERROR", "Internal server error");
   }
 });
@@ -359,7 +415,7 @@ app.post("/login", async (req: Request, res: Response) => {
       );
     }
 
-    logAuthEvent("login_attempted", { email });
+    logAuthEvent("login_attempted", { action: "login" });
 
     // Try cache first (fast path)
     const cacheStart = Date.now();
@@ -368,12 +424,13 @@ app.post("/login", async (req: Request, res: Response) => {
 
     if (user) {
       logAuthEvent("login_cache_hit", {
-        email,
+        action: "login",
+        userId: user.id,
         cacheDurationMs: cacheDuration,
       });
     } else {
       logAuthEvent("login_cache_miss", {
-        email,
+        action: "login",
         cacheDurationMs: cacheDuration,
       });
 
@@ -411,11 +468,24 @@ app.post("/login", async (req: Request, res: Response) => {
     }
 
     if (!user) {
-      logAuthEvent("login_user_not_found", { email });
+      logAuthEvent(
+        "login_user_not_found",
+        {
+          action: "login",
+        },
+        "WARN",
+      );
     }
 
     if (!user || !user.passwordHash) {
-      logAuthEvent("login_invalid_credentials", { email });
+      logAuthEvent(
+        "login_invalid_credentials",
+        {
+          action: "login",
+          ...(user?.id ? { userId: user.id } : {}),
+        },
+        "WARN",
+      );
       return sendAuthError(
         res,
         401,
@@ -428,7 +498,14 @@ app.post("/login", async (req: Request, res: Response) => {
     try {
       ok = await comparePassword(password, user.passwordHash);
     } catch (_) {
-      logAuthEvent("login_invalid_credentials", { email });
+      logAuthEvent(
+        "login_invalid_credentials",
+        {
+          action: "login",
+          ...(user?.id ? { userId: user.id } : {}),
+        },
+        "WARN",
+      );
       return sendAuthError(
         res,
         401,
@@ -438,7 +515,14 @@ app.post("/login", async (req: Request, res: Response) => {
     }
 
     if (!ok) {
-      logAuthEvent("login_invalid_credentials", { email });
+      logAuthEvent(
+        "login_invalid_credentials",
+        {
+          action: "login",
+          ...(user?.id ? { userId: user.id } : {}),
+        },
+        "WARN",
+      );
       return sendAuthError(
         res,
         401,
@@ -452,16 +536,20 @@ app.post("/login", async (req: Request, res: Response) => {
     const token = signJwt(payload);
 
     logAuthEvent("login_succeeded", {
+      action: "login",
       userId: user.id,
-      email: user.email,
     });
 
     res.json({ token });
   } catch (e: any) {
-    logAuthEvent("login_failed", {
-      email,
-      error: e instanceof Error ? e.message : String(e),
-    });
+    logAuthEvent(
+      "login_failed",
+      {
+        action: "login",
+        error: e instanceof Error ? e.message : String(e),
+      },
+      "ERROR",
+    );
 
     const msg = (e?.message ?? String(e)).toLowerCase();
     const code = e?.code ?? "";
@@ -493,33 +581,68 @@ app.post("/login", async (req: Request, res: Response) => {
  */
 app.post("/logout", async (req: Request, res: Response) => {
   const raw = req.headers.authorization?.split(" ")[1];
-  if (!raw) return res.status(200).json({ ok: true, revoked: false });
+
+  if (!raw) {
+    logAuthEvent("logout_no_token", { action: "logout" }, "WARN");
+    return res.status(200).json({ ok: true, revoked: false });
+  }
 
   try {
     const payload = verifyJwt(raw) as WithJti;
+    const userId = payload.sub;
+
     if (payload.jti) {
       const now = Math.floor(Date.now() / 1000);
       const exp =
-        typeof payload.exp === "number" ? payload.exp : now + 24 * 60 * 60; // fallback 24h
+        typeof payload.exp === "number" ? payload.exp : now + 24 * 60 * 60;
       const ttl = Math.max(1, exp - now);
+
       try {
         await redis.set(`revoked:${payload.jti}`, "1", { EX: ttl });
-        console.log("auth-service: revoked jti", payload.jti, "ttl", ttl, "s");
+
+        logAuthEvent("logout_succeeded", {
+          action: "logout",
+          userId,
+          revoked: true,
+          ttlSeconds: ttl,
+        });
+
         return res.status(200).json({ ok: true, revoked: true });
       } catch (redisErr) {
-        console.error(
-          "auth-service: failed to revoke token in Redis:",
-          redisErr,
+        logAuthEvent(
+          "logout_redis_failed",
+          {
+            action: "logout",
+            userId,
+            error:
+              redisErr instanceof Error ? redisErr.message : String(redisErr),
+          },
+          "ERROR",
         );
-        // Still return 200 but indicate revocation failed
+
         return res
           .status(200)
           .json({ ok: true, revoked: false, error: "Redis unavailable" });
       }
     }
+
+    logAuthEvent("logout_no_jti", {
+      action: "logout",
+      userId,
+      revoked: false,
+    });
+
     return res.status(200).json({ ok: true, revoked: false });
   } catch (err) {
-    console.error("auth-service: logout error:", err);
+    logAuthEvent(
+      "logout_failed",
+      {
+        action: "logout",
+        error: err instanceof Error ? err.message : String(err),
+      },
+      "WARN",
+    );
+
     return res.status(200).json({ ok: true, revoked: false });
   }
 });
@@ -532,7 +655,9 @@ app.post("/logout", async (req: Request, res: Response) => {
  */
 app.post("/validate", async (req: Request, res: Response) => {
   const auth = req.headers.authorization?.split(" ")[1];
+
   if (!auth) {
+    logAuthEvent("validate_missing_token", { action: "validate" }, "WARN");
     return sendAuthError(
       res,
       401,
@@ -549,16 +674,24 @@ app.post("/validate", async (req: Request, res: Response) => {
     const userId = payload.sub;
 
     if (!userId) {
+      logAuthEvent("validate_invalid_token", { action: "validate" }, "WARN");
       return sendAuthError(res, 401, "INVALID_TOKEN", "Token is invalid", {
         valid: false,
       });
     }
 
-    // Check if token is revoked
     const jti = payload.jti;
     if (jti) {
       const revoked = await redis.get(`revoked:${jti}`);
       if (revoked) {
+        logAuthEvent(
+          "validate_token_revoked",
+          {
+            action: "validate",
+            userId,
+          },
+          "WARN",
+        );
         return sendAuthError(
           res,
           401,
@@ -569,7 +702,6 @@ app.post("/validate", async (req: Request, res: Response) => {
       }
     }
 
-    // Verify user exists
     const user = await prisma.$queryRaw<
       Array<{
         id: string;
@@ -593,11 +725,28 @@ app.post("/validate", async (req: Request, res: Response) => {
     );
 
     if (!user) {
+      logAuthEvent(
+        "validate_user_not_found",
+        {
+          action: "validate",
+          userId,
+        },
+        "WARN",
+      );
       return sendAuthError(res, 401, "USER_NOT_FOUND", "User not found", {
         valid: false,
       });
     }
+
     if (user.is_deleted) {
+      logAuthEvent(
+        "validate_account_deleted",
+        {
+          action: "validate",
+          userId,
+        },
+        "WARN",
+      );
       return sendAuthError(
         res,
         401,
@@ -609,6 +758,11 @@ app.post("/validate", async (req: Request, res: Response) => {
       );
     }
 
+    logAuthEvent("validate_succeeded", {
+      action: "validate",
+      userId: user.id,
+    });
+
     return res.status(200).json({
       valid: true,
       user: {
@@ -618,18 +772,30 @@ app.post("/validate", async (req: Request, res: Response) => {
       },
     });
   } catch (err) {
-    console.error("auth-service: validate token error:", err);
     const jwtErr = classifyJwtError(err);
+
+    logAuthEvent(
+      "validate_failed",
+      {
+        action: "validate",
+        reason: jwtErr.code,
+        error: err instanceof Error ? err.message : String(err),
+      },
+      "WARN",
+    );
+
     return sendAuthError(res, 401, jwtErr.code, jwtErr.message, {
       valid: false,
     });
   }
 });
 
-// Token refresh endpoint (HTTP) - returns new token with same user
+// Token refresh endpoint (HTTP) - returns new token with same user info if the JWT is valid / not revoked
 app.post("/refresh", async (req: Request, res: Response) => {
   const auth = req.headers.authorization?.split(" ")[1];
+
   if (!auth) {
+    logAuthEvent("refresh_missing_token", { action: "refresh" }, "WARN");
     return sendAuthError(
       res,
       401,
@@ -643,14 +809,22 @@ app.post("/refresh", async (req: Request, res: Response) => {
     const userId = payload.sub;
 
     if (!userId) {
+      logAuthEvent("refresh_invalid_token", { action: "refresh" }, "WARN");
       return sendAuthError(res, 401, "INVALID_TOKEN", "Token is invalid");
     }
 
-    // Check if token is revoked
     const jti = payload.jti;
     if (jti) {
       const revoked = await redis.get(`revoked:${jti}`);
       if (revoked) {
+        logAuthEvent(
+          "refresh_token_revoked",
+          {
+            action: "refresh",
+            userId,
+          },
+          "WARN",
+        );
         return sendAuthError(
           res,
           401,
@@ -660,7 +834,6 @@ app.post("/refresh", async (req: Request, res: Response) => {
       }
     }
 
-    // Verify user exists
     const user = await prisma.$queryRaw<
       Array<{ id: string; email: string | null; is_deleted: boolean }>
     >`
@@ -673,9 +846,26 @@ app.post("/refresh", async (req: Request, res: Response) => {
     );
 
     if (!user) {
+      logAuthEvent(
+        "refresh_user_not_found",
+        {
+          action: "refresh",
+          userId,
+        },
+        "WARN",
+      );
       return sendAuthError(res, 401, "USER_NOT_FOUND", "User not found");
     }
+
     if (user.is_deleted) {
+      logAuthEvent(
+        "refresh_account_deleted",
+        {
+          action: "refresh",
+          userId,
+        },
+        "WARN",
+      );
       return sendAuthError(
         res,
         401,
@@ -684,7 +874,6 @@ app.post("/refresh", async (req: Request, res: Response) => {
       );
     }
 
-    // Generate new token
     const newJti = randomUUID();
     const newPayload: WithJti = {
       sub: user.id,
@@ -693,10 +882,25 @@ app.post("/refresh", async (req: Request, res: Response) => {
     };
     const newToken = signJwt(newPayload);
 
+    logAuthEvent("refresh_succeeded", {
+      action: "refresh",
+      userId: user.id,
+    });
+
     return res.status(200).json({ token: newToken });
   } catch (err) {
-    console.error("auth-service: refresh token error:", err);
     const jwtErr = classifyJwtError(err);
+
+    logAuthEvent(
+      "refresh_failed",
+      {
+        action: "refresh",
+        reason: jwtErr.code,
+        error: err instanceof Error ? err.message : String(err),
+      },
+      "WARN",
+    );
+
     return sendAuthError(res, 401, jwtErr.code, jwtErr.message);
   }
 });
