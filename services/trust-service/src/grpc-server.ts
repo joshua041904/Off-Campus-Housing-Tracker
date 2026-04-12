@@ -31,6 +31,12 @@ function reviewRatingOk(r: number): boolean {
   return Number.isInteger(r) && r >= 1 && r <= 5;
 }
 
+function isValidUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value,
+  );
+}
+
 const trustHandlers = {
   FlagListing(
     call: grpc.ServerUnaryCall<any, any>,
@@ -46,6 +52,23 @@ const trustHandlers = {
       cb({
         code: grpc.status.INVALID_ARGUMENT,
         message: "listing_id, reporter_id, reason required",
+      });
+      return;
+    }
+    // Validate UUIDs before DB access to avoid invalid UUID cast errors surfacing as INTERNAL.
+    if (!isValidUuid(listingId)) {
+      logGrpcTiming("FlagListing", start);
+      cb({
+        code: grpc.status.INVALID_ARGUMENT,
+        message: "invalid listing_id",
+      });
+      return;
+    }
+    if (!isValidUuid(reporterId)) {
+      logGrpcTiming("FlagListing", start);
+      cb({
+        code: grpc.status.INVALID_ARGUMENT,
+        message: "invalid reporter_id",
       });
       return;
     }
@@ -90,7 +113,23 @@ const trustHandlers = {
       });
       return;
     }
-    const reason = `${category}: ${details}`.slice(0, 2000);
+    // Validate UUIDs before DB access to keep invalid client input as INVALID_ARGUMENT.
+    if (!isValidUuid(targetId)) {
+      logGrpcTiming("ReportAbuse", start);
+      cb({
+        code: grpc.status.INVALID_ARGUMENT,
+        message: "invalid target_id",
+      });
+      return;
+    }
+    if (!isValidUuid(reporterId)) {
+      logGrpcTiming("ReportAbuse", start);
+      cb({
+        code: grpc.status.INVALID_ARGUMENT,
+        message: "invalid reporter_id",
+      });
+      return;
+    }
     if (t === "listing") {
       pool
         .query(
@@ -241,6 +280,12 @@ const trustHandlers = {
     if (!userId) {
       logGrpcTiming("GetReputation", start);
       cb({ code: grpc.status.INVALID_ARGUMENT, message: "user_id required" });
+      return;
+    }
+    // Validate UUID before querying to avoid treating malformed input as an internal error.
+    if (!isValidUuid(userId)) {
+      logGrpcTiming("GetReputation", start);
+      cb({ code: grpc.status.INVALID_ARGUMENT, message: "invalid user_id" });
       return;
     }
     pool
