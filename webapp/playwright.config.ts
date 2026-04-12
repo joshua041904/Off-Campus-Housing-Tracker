@@ -66,26 +66,26 @@ const suiteProjects = [
 export default defineConfig({
   globalSetup: "./playwright.global-setup.ts",
   testDir: "./e2e",
-  /** Register + edge round-trips exceed 30s under load; keep auth/listings verticals reliable. */
   timeout: 120_000,
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  /**
-   * Fixed 4 workers: load is shaped by gateway (E2E shaper + X-Test-Mode inflight cap) and serial
-   * heavy Playwright files — not by starving parallelism.
-   */
   workers: 4,
-  reporter: [["list"], ["html", { open: "never" }]],
+  outputDir: "test-results",
+  reporter: [
+    ["list"],
+    ["html", { open: "never", outputFolder: "playwright-report" }],
+  ],
   use: {
     baseURL,
-    // Browser E2E runs against local dev certs; app behavior is under test, not certificate validation.
     ignoreHTTPSErrors: true,
     extraHTTPHeaders: {
       "x-e2e-test": "1",
       "x-test-mode": "1",
     },
     trace: "on-first-retry",
+    screenshot: "only-on-failure",
+    video: "retain-on-failure",
   },
   projects: suiteProjects.map((p) => ({
     name: p.name,

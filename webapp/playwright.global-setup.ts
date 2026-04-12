@@ -13,15 +13,19 @@ export default async function globalSetup(): Promise<void> {
   const raw = process.env.E2E_API_BASE?.trim() || "https://off-campus-housing.test";
   const base = raw.replace(/\/$/, "");
   const caPath = process.env.NODE_EXTRA_CA_CERTS?.trim();
+
+  console.log(`[playwright global setup] strict edge check enabled for ${base}`);
+
   if (!caPath || !fs.existsSync(caPath)) {
     throw new Error(
       "PLAYWRIGHT_VERTICAL_STRICT=1 requires NODE_EXTRA_CA_CERTS pointing to an existing CA file",
     );
   }
-  const ca = fs.readFileSync(caPath);
 
+  const ca = fs.readFileSync(caPath);
   const url = new URL(`${base}/api/healthz`);
   const port = url.port ? Number(url.port) : url.protocol === "https:" ? 443 : 80;
+
   if (url.protocol !== "https:") {
     throw new Error(`PLAYWRIGHT_VERTICAL_STRICT requires https E2E_API_BASE, got ${url.protocol}`);
   }
@@ -40,17 +44,23 @@ export default async function globalSetup(): Promise<void> {
       (res) => {
         res.resume();
         if (res.statusCode === 200) {
+          console.log(`[playwright global setup] edge health check passed: ${url.toString()}`);
           resolve();
         } else {
           reject(new Error(`edge /api/healthz returned ${res.statusCode}`));
         }
       },
     );
-    req.on("error", reject);
+
+    req.on("error", (err) => {
+      reject(new Error(`[playwright global setup] edge check failed: ${String(err)}`));
+    });
+
     req.on("timeout", () => {
       req.destroy();
       reject(new Error("edge /api/healthz TLS request timed out"));
     });
+
     req.end();
   });
 }
