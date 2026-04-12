@@ -27,7 +27,10 @@ export function Nav({ email }: { email?: string | null }) {
           </Link>
           {email ? (
             <>
-              <span className="hidden max-w-[200px] truncate text-slate-500 sm:inline" title={email ?? ""}>
+              <span
+                className="hidden max-w-[200px] truncate text-slate-500 sm:inline"
+                title={email ?? ""}
+              >
                 {email}
               </span>
               <Link href="/dashboard" className="hover:text-teal-700">
@@ -39,6 +42,12 @@ export function Nav({ email }: { email?: string | null }) {
                 className="rounded-md border border-slate-300 px-2 py-1.5 text-slate-700 hover:bg-slate-50"
                 onClick={() => {
                   clearStoredToken();
+
+                  if (typeof window !== "undefined") {
+                    window.location.assign("/login");
+                    return;
+                  }
+
                   router.push("/login");
                   router.refresh();
                 }}
