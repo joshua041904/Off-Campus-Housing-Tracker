@@ -10,6 +10,44 @@ import {
 test.describe("Listings filters & maps", () => {
   test.describe.configure({ mode: "serial" });
 
+  test("sort control sends all supported sort query values", async ({
+    page,
+    request,
+  }) => {
+    test.skip(!(await apiGatewayHealthy(request)), "edge not reachable");
+    await page.goto("/listings");
+    await expect(page.getByTestId("listings-results")).toHaveAttribute(
+      "aria-busy",
+      "false",
+      { timeout: 60_000 },
+    );
+
+    const sort = page.getByTestId("listings-sort");
+    test.skip(
+      (await sort.count()) === 0,
+      "edge webapp build predates sort UI — redeploy webapp to run this assertion",
+    );
+
+    const expectedSorts = [
+      "created_desc",
+      "listed_desc",
+      "price_asc",
+      "price_desc",
+    ] as const;
+
+    for (const expectedSort of expectedSorts) {
+      await sort.selectOption(expectedSort);
+      const respPromise = page.waitForResponse(
+        (resp) =>
+          resp.url().includes("/api/listings/search") && resp.status() === 200,
+      );
+      await page.getByTestId("listings-search-submit").click();
+      const resp = await respPromise;
+      const actualSort = new URL(resp.url()).searchParams.get("sort");
+      expect(actualSort).toBe(expectedSort);
+    }
+  });
+
   test("guest sees extended search filters and sort controls", async ({ page, request }) => {
     test.skip(!(await apiGatewayHealthy(request)), "edge not reachable");
     await page.goto("/listings");

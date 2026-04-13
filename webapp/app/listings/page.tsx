@@ -6,6 +6,7 @@ import {
   createListing,
   getListing,
   searchListings,
+  type ListingSearchSort,
   type ListingJson,
 } from "@/lib/api";
 import { getStoredEmail, getStoredToken } from "@/lib/auth-storage";
@@ -33,7 +34,7 @@ export default function ListingsPage() {
   const [filterParking, setFilterParking] = useState(false);
   const [filterLaundry, setFilterLaundry] = useState(false);
   const [filterDishwasher, setFilterDishwasher] = useState(false);
-  const [sortBy, setSortBy] = useState<string>("created_desc");
+  const [sortBy, setSortBy] = useState<ListingSearchSort>("created_desc");
   const [newWithin, setNewWithin] = useState<string>("");
 
   const [items, setItems] = useState<ListingJson[]>([]);
@@ -135,7 +136,7 @@ export default function ListingsPage() {
       setSearchLoading(true);
       setErr(null);
       try {
-        const list = await searchListings({});
+        const list = await searchListings({ sort: "created_desc" });
         if (!cancelled) setItems(list);
       } catch (e: unknown) {
         if (!cancelled) {
@@ -346,7 +347,9 @@ export default function ListingsPage() {
               <select
                 data-testid="listings-sort"
                 value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
+                onChange={(e) =>
+                  setSortBy(e.target.value as ListingSearchSort)
+                }
                 className="mt-1 block rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
               >
                 <option value="created_desc">Newest (created)</option>

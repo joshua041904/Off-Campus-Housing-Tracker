@@ -1,6 +1,21 @@
 import { getApiBase } from "./config";
 
 export type ApiError = { error?: string; message?: string };
+export const LISTING_SEARCH_SORTS = [
+  "created_desc",
+  "listed_desc",
+  "price_asc",
+  "price_desc",
+] as const;
+export type ListingSearchSort = (typeof LISTING_SEARCH_SORTS)[number];
+
+export function normalizeListingSearchSort(
+  sort?: string | null,
+): ListingSearchSort {
+  return LISTING_SEARCH_SORTS.includes(sort as ListingSearchSort)
+    ? (sort as ListingSearchSort)
+    : "created_desc";
+}
 
 async function parseJson(res: Response): Promise<unknown> {
   const text = await res.text();
@@ -187,9 +202,10 @@ export async function searchListings(params: {
   amenities?: string;
   new_within_days?: number;
   /** created_desc | listed_desc | price_asc | price_desc */
-  sort?: string;
+  sort?: ListingSearchSort | string;
 }) {
   const sp = new URLSearchParams();
+  const sort = normalizeListingSearchSort(params.sort);
   if (params.q) sp.set("q", params.q);
   if (params.min_price != null && !Number.isNaN(params.min_price))
     sp.set("min_price", String(params.min_price));
@@ -202,7 +218,7 @@ export async function searchListings(params: {
   if (params.new_within_days != null && params.new_within_days > 0) {
     sp.set("new_within_days", String(Math.floor(params.new_within_days)));
   }
-  if (params.sort?.trim()) sp.set("sort", params.sort.trim());
+  sp.set("sort", sort);
   const q = sp.toString();
   const res = await apiFetch(`/api/listings/search${q ? `?${q}` : ""}`);
   const data = (await parseJson(res)) as {
