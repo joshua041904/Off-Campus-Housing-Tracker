@@ -1,6 +1,19 @@
 # Off-Campus-Housing-Tracker
 
-**TL;DR:** README is the fast path. Everything long-form lives under **`docs/`**.
+**TL;DR:** Kubernetes-based off-campus housing platform. Run `make images` then `make dev-onboard` to start the full local stack. See docs/ for detailed setup and troubleshooting.
+
+## Overview
+
+The Off-Campus Housing Tracker is a web-based platform designed to help students in the Five College community efficiently find, compare, and secure off-campus housing.
+Students often rely on fragmented sources such as social media groups, word-of-mouth, or outdated listings, leading to misinformation, scams, and inefficient searches. This system centralizes housing listings, enabling students to filter by price, distance, amenities, and availability while ensuring trust and transparency.
+
+## Features
+
+- Search and filter housing listings (price, amenities, availability)
+- Booking and messaging between students and landlords
+- Trust system with reviews and reputation scores
+- Media uploads for listings
+- Analytics and event-driven processing via Kafka
 
 ---
 
@@ -49,7 +62,7 @@ The **`pnpm`** shortcuts rebuild the image and roll the Deployment. If you only 
 
 ---
 
-## What this system is
+## Architecture Overview
 
 Kubernetes-native, **event-driven** platform for off-campus housing: **listings, booking, messaging, notifications, trust, analytics, and media**, fronted by **api-gateway** and the **webapp** (nginx), with **domain-isolated Postgres** per service (no shared app DB across domains).
 
