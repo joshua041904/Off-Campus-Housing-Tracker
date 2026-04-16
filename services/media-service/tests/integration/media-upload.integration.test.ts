@@ -20,22 +20,36 @@ describe('Media upload (integration)', () => {
     }
   })
 
-  it('B) createUploadUrl then completeUpload sets DB status to uploaded', async () => {
+  it('B) createUploadUrl then completeUpload persists metadata and sets DB status to uploaded', async () => {
     const userId = '11111111-1111-4111-a111-111111111111'
+    const filename = 'test.png'
+    const contentType = 'image/png'
+    const sizeBytes = 100
+
     const { mediaId } = await createUploadUrl({
       userId,
-      filename: 'test.png',
-      contentType: 'image/png',
-      sizeBytes: 100,
+      filename,
+      contentType,
+      sizeBytes,
     })
     expect(mediaId).toBeDefined()
 
     try {
+      const pendingRow = await getById(mediaId)
+      expect(pendingRow).not.toBeNull()
+      expect(pendingRow!.filename).toBe(filename)
+      expect(pendingRow!.content_type).toBe(contentType)
+      expect(pendingRow!.size_bytes).toBe(sizeBytes)
+      expect(pendingRow!.status).toBe('pending')
+
       const completed = await completeUpload(mediaId)
       expect(completed).toBe(true)
 
       const row = await getById(mediaId)
       expect(row).not.toBeNull()
+      expect(row!.filename).toBe(filename)
+      expect(row!.content_type).toBe(contentType)
+      expect(row!.size_bytes).toBe(sizeBytes)
       expect(row!.status).toBe('uploaded')
 
       const hasOutbox = await pool.query(
