@@ -102,6 +102,57 @@ export default function Home() {
           </div>
         </section>
 
+        <section className="border-t border-slate-200/70 bg-white py-16 sm:py-20">
+          <div className="mx-auto max-w-6xl px-4 sm:px-6">
+            <div className="max-w-2xl">
+              <p className="text-sm font-semibold uppercase tracking-[0.22em] text-teal-700">
+                How it works
+              </p>
+              <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
+                Find housing in three simple steps
+              </h2>
+            </div>
+
+            <div className="mt-10 grid gap-6 md:grid-cols-3">
+              <div className="rounded-[1.75rem] bg-white p-6 shadow-sm ring-1 ring-slate-200">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-teal-700 text-sm font-semibold text-white">
+                  1
+                </div>
+                <h3 className="mt-4 text-xl font-semibold text-slate-900">
+                  Search
+                </h3>
+                <p className="mt-3 text-sm leading-6 text-slate-600">
+                  Find options that match your budget and preferences.
+                </p>
+              </div>
+
+              <div className="rounded-[1.75rem] bg-white p-6 shadow-sm ring-1 ring-slate-200">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-teal-700 text-sm font-semibold text-white">
+                  2
+                </div>
+                <h3 className="mt-4 text-xl font-semibold text-slate-900">
+                  Compare
+                </h3>
+                <p className="mt-3 text-sm leading-6 text-slate-600">
+                  See your best matches side-by-side to choose confidently.
+                </p>
+              </div>
+
+              <div className="rounded-[1.75rem] bg-white p-6 shadow-sm ring-1 ring-slate-200">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-teal-700 text-sm font-semibold text-white">
+                  3
+                </div>
+                <h3 className="mt-4 text-xl font-semibold text-slate-900">
+                  Act
+                </h3>
+                <p className="mt-3 text-sm leading-6 text-slate-600">
+                  Contact landlords and book your housing.
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section className="border-t border-slate-200/80 bg-white/60 py-16">
           <div className="mx-auto max-w-5xl px-4">
             <h2 className="font-serif text-2xl font-medium text-slate-900 sm:text-3xl">
