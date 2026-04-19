@@ -191,7 +191,7 @@ export type ListingJson = {
   longitude?: number | null;
 };
 
-export async function searchListings(params: {
+export type ListingsSearchParams = {
   q?: string;
   min_price?: number;
   max_price?: number;
@@ -203,10 +203,14 @@ export async function searchListings(params: {
   new_within_days?: number;
   /** created_desc | listed_desc | price_asc | price_desc */
   sort?: ListingSearchSort | string;
-}) {
+};
+
+export function buildListingsSearchParams(
+  params: ListingsSearchParams,
+): URLSearchParams {
   const sp = new URLSearchParams();
   const sort = normalizeListingSearchSort(params.sort);
-  if (params.q) sp.set("q", params.q);
+  if (params.q?.trim()) sp.set("q", params.q.trim());
   if (params.min_price != null && !Number.isNaN(params.min_price))
     sp.set("min_price", String(params.min_price));
   if (params.max_price != null && !Number.isNaN(params.max_price))
@@ -219,6 +223,11 @@ export async function searchListings(params: {
     sp.set("new_within_days", String(Math.floor(params.new_within_days)));
   }
   sp.set("sort", sort);
+  return sp;
+}
+
+export async function searchListings(params: ListingsSearchParams) {
+  const sp = buildListingsSearchParams(params);
   const q = sp.toString();
   const res = await apiFetch(`/api/listings/search${q ? `?${q}` : ""}`);
   const data = (await parseJson(res)) as {
