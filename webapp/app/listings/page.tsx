@@ -20,6 +20,13 @@ const AMENITY_OPTIONS = [
   { slug: "dishwasher", label: "Dishwasher" },
 ] as const;
 
+function parseUsdInputToCents(value: string): number | undefined {
+  if (!value.trim()) return undefined;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return undefined;
+  return Math.round(parsed * 100);
+}
+
 export default function ListingsPage() {
   const [email, setEmail] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -84,8 +91,8 @@ export default function ListingsPage() {
       setErr(null);
       setSearchLoading(true);
       try {
-        const minC = minPrice ? Math.round(Number(minPrice) * 100) : undefined;
-        const maxC = maxPrice ? Math.round(Number(maxPrice) * 100) : undefined;
+        const minC = parseUsdInputToCents(minPrice);
+        const maxC = parseUsdInputToCents(maxPrice);
         const nw = newWithin ? Number(newWithin) : undefined;
         const amenityParts: string[] = [];
         if (filterGarage) amenityParts.push("garage");
@@ -172,7 +179,7 @@ export default function ListingsPage() {
     if (!token) return;
     setMsg(null);
     setErr(null);
-    const cents = Math.round(Number(priceUsd) * 100);
+    const cents = parseUsdInputToCents(priceUsd) ?? NaN;
     if (
       !title.trim() ||
       !Number.isFinite(cents) ||
