@@ -54,10 +54,10 @@ export default function Home() {
       </header>
 
       <main>
-        <section className="mx-auto max-w-4xl px-4 py-16 text-center sm:px-6 sm:py-24">
-          <div className="mx-auto max-w-3xl">
+        <section className="mx-auto grid max-w-6xl gap-12 px-4 py-16 sm:px-6 sm:py-24 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
+          <div className="max-w-3xl">
             <p className="text-sm font-semibold uppercase tracking-[0.22em] text-teal-700">
-              Off-campus housing tracker
+              Student-first housing search
             </p>
 
             <h1 className="mt-4 text-4xl font-semibold leading-tight tracking-tight text-slate-950 sm:text-5xl md:text-6xl">
@@ -99,6 +99,113 @@ export default function Home() {
                 Learn more about the project →
               </Link>
             </p>
+          </div>
+
+          <div className="relative">
+            <div className="rounded-[2rem] border border-slate-200/80 bg-white/95 p-6 shadow-[0_20px_60px_-20px_rgba(15,23,42,0.18)]">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-slate-500">
+                    Featured listings in Amherst, MA
+                  </p>
+                  <h2 className="mt-1 text-xl font-semibold text-slate-900">
+                    Explore available housing
+                  </h2>
+                </div>
+                <span className="rounded-full bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-700">
+                  Preview
+                </span>
+              </div>
+
+              <div className="mt-6 space-y-4">
+                {/* Listing 1 */}
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 transition duration-200 hover:-translate-y-0.5 hover:shadow-md">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">
+                        2 Bed near campus
+                      </p>
+                      <p className="mt-1 text-sm text-slate-600">
+                        Walkable, furnished, pet-friendly
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                      Available
+                    </span>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-600">
+                    <span className="rounded-full border border-slate-200 bg-white px-2 py-1">
+                      $1,200/mo
+                    </span>
+                    <span className="rounded-full border border-slate-200 bg-white px-2 py-1">
+                      2 bed
+                    </span>
+                    <span className="rounded-full border border-slate-200 bg-white px-2 py-1">
+                      Laundry
+                    </span>
+                  </div>
+                </div>
+
+                {/* Listing 2 */}
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 transition duration-200 hover:-translate-y-0.5 hover:shadow-md">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">
+                        Studio downtown
+                      </p>
+                      <p className="mt-1 text-sm text-slate-600">
+                        Modern unit, close to transit
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-yellow-50 px-3 py-1 text-xs font-semibold text-yellow-700">
+                      Limited
+                    </span>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-600">
+                    <span className="rounded-full border border-slate-200 bg-white px-2 py-1">
+                      $950/mo
+                    </span>
+                    <span className="rounded-full border border-slate-200 bg-white px-2 py-1">
+                      Studio
+                    </span>
+                    <span className="rounded-full border border-slate-200 bg-white px-2 py-1">
+                      Furnished
+                    </span>
+                  </div>
+                </div>
+
+                {/* Listing 3 */}
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 transition duration-200 hover:-translate-y-0.5 hover:shadow-md">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">
+                        3 Bed shared house
+                      </p>
+                      <p className="mt-1 text-sm text-slate-600">
+                        Great for roommates, backyard
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                      New
+                    </span>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-600">
+                    <span className="rounded-full border border-slate-200 bg-white px-2 py-1">
+                      $700/mo
+                    </span>
+                    <span className="rounded-full border border-slate-200 bg-white px-2 py-1">
+                      3 bed
+                    </span>
+                    <span className="rounded-full border border-slate-200 bg-white px-2 py-1">
+                      Parking
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
 
