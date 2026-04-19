@@ -221,6 +221,39 @@ export default function Home() {
             </pre>
           </div>
         </section>
+
+        <section className="bg-[#0f172a] py-16 text-white sm:py-20">
+          <div className="mx-auto max-w-4xl px-4 text-center sm:px-6">
+            <p className="text-sm font-semibold uppercase tracking-[0.22em] text-teal-300">
+              Get started
+            </p>
+
+            <h2 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
+              Start exploring off-campus housing
+            </h2>
+
+            <p className="mt-4 text-lg leading-8 text-slate-300">
+              Browse listings, create an account, and start managing your
+              housing search in one place.
+            </p>
+
+            <div className="mt-8 flex flex-wrap justify-center gap-4">
+              <Link
+                href="/listings"
+                className="rounded-full bg-teal-500 px-6 py-3 text-sm font-semibold text-white transition hover:bg-teal-400"
+              >
+                Browse listings
+              </Link>
+
+              <Link
+                href="/register"
+                className="rounded-full border border-slate-600 px-6 py-3 text-sm font-semibold text-white transition hover:border-slate-500 hover:bg-slate-800"
+              >
+                Create account
+              </Link>
+            </div>
+          </div>
+        </section>
       </main>
     </div>
   );
