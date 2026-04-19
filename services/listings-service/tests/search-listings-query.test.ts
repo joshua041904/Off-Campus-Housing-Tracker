@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildListingsSearchQuery,
+  normalizeListingsSearchSort,
   parseAmenitySlugs,
 } from "../src/search-listings-query.js";
 
@@ -33,6 +34,11 @@ describe("parseAmenitySlugs", () => {
 });
 
 describe("buildListingsSearchQuery", () => {
+  it("normalizes unsupported sorts to created_desc", () => {
+    expect(normalizeListingsSearchSort("price_desc")).toBe("price_desc");
+    expect(normalizeListingsSearchSort("unknown")).toBe("created_desc");
+  });
+
   it("defaults sort to created_desc", () => {
     const { sql, params } = buildListingsSearchQuery({});
     expect(sql).toContain("ORDER BY created_at DESC, id ASC");
@@ -85,6 +91,24 @@ describe("buildListingsSearchQuery", () => {
     expect(sql).toContain("price_cents <=");
     expect(params).toContain(100);
     expect(params).toContain(500_00);
+  });
+
+  it("combines keyword, price bounds, pet filter, and price sort", () => {
+    const { sql, params } = buildListingsSearchQuery({
+      q: "apartment",
+      minP: 100_000,
+      maxP: 300_000,
+      pets: true,
+      sort: "price_desc",
+    });
+    expect(sql).toMatch(/title ILIKE \$1 OR description ILIKE \$1/);
+    expect(sql).toContain("price_cents >= $2");
+    expect(sql).toContain("price_cents <= $3");
+    expect(sql).toContain("pet_friendly = true");
+    expect(sql).toContain(
+      "ORDER BY price_cents DESC NULLS LAST, created_at DESC, id ASC",
+    );
+    expect(params).toEqual(["%apartment%", 100_000, 300_000]);
   });
 
   it("adds boolean filters without extra params", () => {
