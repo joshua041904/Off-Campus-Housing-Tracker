@@ -153,22 +153,23 @@ export default function Home() {
           </div>
         </section>
 
-        <section className="border-t border-slate-200/80 bg-white/60 py-16">
-          <div className="mx-auto max-w-5xl px-4">
-            <h2 className="font-serif text-2xl font-medium text-slate-900 sm:text-3xl">
-              Architecture in one glance
+        <section className="border-t border-slate-200/70 bg-white py-16 sm:py-20">
+          <div className="mx-auto max-w-6xl px-4 sm:px-6">
+            <p className="text-sm font-semibold uppercase tracking-[0.22em] text-teal-700">
+              Technical foundation
+            </p>
+            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
+              Built on a distributed backend system
             </h2>
-            <p className="mt-3 max-w-3xl text-slate-600">
-              Justification: separating the browser, edge, gateway, and
-              databases keeps TLS termination, routing, and data ownership
-              explicit. You can load-test the gateway, rotate certs at Caddy,
-              and still reason about each service’s Postgres instance
-              independently.
+            <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-600">
+              This platform is backed by multiple services working together
+              through a central gateway, keeping data ownership, routing, and
+              system behavior structured and predictable.
             </p>
             <div className="mt-10 grid gap-6 md:grid-cols-3">
-              <div className="rounded-xl border border-slate-200 bg-gradient-to-b from-white to-slate-50 p-6 shadow-sm">
+              <div className="rounded-[1.75rem] border border-slate-200 bg-slate-50 p-6 shadow-sm">
                 <h3 className="text-sm font-bold uppercase tracking-wide text-teal-700">
-                  Edge &amp; gateway
+                  Gateway layer
                 </h3>
                 <p className="mt-2 text-sm leading-relaxed text-slate-600">
                   Caddy terminates HTTPS (HTTP/2 + HTTP/3). Traffic reaches the
@@ -176,9 +177,9 @@ export default function Home() {
                   strict TLS/mTLS inside the cluster.
                 </p>
               </div>
-              <div className="rounded-xl border border-slate-200 bg-gradient-to-b from-white to-slate-50 p-6 shadow-sm">
+              <div className="rounded-[1.75rem] border border-slate-200 bg-slate-50 p-6 shadow-sm">
                 <h3 className="text-sm font-bold uppercase tracking-wide text-teal-700">
-                  Services
+                  Core services
                 </h3>
                 <p className="mt-2 text-sm leading-relaxed text-slate-600">
                   Listings, booking, messaging, trust, analytics, and media each
@@ -186,11 +187,11 @@ export default function Home() {
                   webapp only sees stable HTTP APIs on one hostname.
                 </p>
               </div>
-              <div className="rounded-xl border border-slate-200 bg-gradient-to-b from-white to-slate-50 p-6 shadow-sm">
+              <div className="rounded-[1.75rem] border border-slate-200 bg-slate-50 p-6 shadow-sm">
                 <h3 className="text-sm font-bold uppercase tracking-wide text-teal-700">
-                  Data
+                  Data ownership
                 </h3>
-                <p className="mt-2 text-sm leading-relaxed text-slate-600">
+                <p className="mt-3 text-sm leading-6 text-slate-600">
                   One Postgres per domain (auth, listings, bookings, …).
                   Listings store geo coordinates and structured amenities for
                   maps and filters; nothing bypasses the gateway from the
@@ -199,7 +200,7 @@ export default function Home() {
               </div>
             </div>
             <pre
-              className="mt-10 overflow-x-auto rounded-xl border border-slate-200 bg-slate-900 p-4 text-left text-xs leading-relaxed text-teal-100/95"
+              className="mt-10 overflow-x-auto rounded-[1.75rem] border border-slate-200 bg-[#0f172a] p-5 text-left text-xs leading-relaxed text-teal-100 shadow-sm"
               aria-label="ASCII architecture diagram"
             >
               {`   Browser (Next.js)
