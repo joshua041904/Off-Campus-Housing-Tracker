@@ -79,13 +79,13 @@ export default function Home() {
               </Link>
               <Link
                 href="/register"
-                className="rounded-full border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-800 transition hover:border-slate-400 hover:bg-slate-50"
+                className="rounded-full border border-slate-300 bg-white px-6 py-3 text-sm font-medium text-slate-800 transition hover:border-slate-400 hover:bg-slate-50"
               >
                 Create account
               </Link>
               <Link
                 href="/dashboard"
-                className="rounded-full border border-transparent px-2 py-3 text-sm font-semibold text-slate-600 transition hover:text-slate-900"
+                className="px-2 py-3 text-sm font-medium text-slate-600 transition hover:text-slate-900"
               >
                 Go to dashboard
               </Link>
@@ -101,6 +101,7 @@ export default function Home() {
             </p>
           </div>
 
+          {/* TODO: Align this static featured listings preview with the real listing card component if/when a shared card abstraction exists. */}
           <div className="relative">
             <div className="rounded-[2rem] border border-slate-200/80 bg-white/95 p-6 shadow-[0_20px_60px_-20px_rgba(15,23,42,0.18)]">
               <div className="flex items-center justify-between">
