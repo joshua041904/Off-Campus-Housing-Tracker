@@ -525,24 +525,33 @@ export default function ListingsPage() {
           </div>
         </section>
 
-        <section className="mt-12 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
-          <h2 className="text-lg font-medium text-slate-900">Listing by ID</h2>
+        <section className="mt-14 rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+          <p className="text-sm font-semibold uppercase tracking-[0.22em] text-teal-700">
+            Listing lookup
+          </p>
+          <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
+            Load a listing by ID
+          </h2>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
+            Use a listing ID to inspect a specific record directly. This is a
+            secondary utility for targeted lookups.
+          </p>
           <form
             onSubmit={onLoadDetail}
-            className="mt-4 flex flex-col gap-2 sm:flex-row"
+            className="mt-6 flex flex-col gap-3 sm:flex-row"
           >
             <input
               data-testid="listings-detail-id"
               value={detailId}
               onChange={(e) => setDetailId(e.target.value)}
               placeholder="listing UUID"
-              className="flex-1 rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm"
+              className="flex-1 rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-mono text-sm text-slate-900"
             />
             <button
               type="submit"
               disabled={detailLoading}
               data-testid="listings-detail-load"
-              className="rounded-md border border-slate-400 px-4 py-2 text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+              className="rounded-full border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-800 transition hover:border-slate-400 hover:bg-slate-50 disabled:opacity-50"
             >
               Load
             </button>
@@ -550,7 +559,7 @@ export default function ListingsPage() {
           {detail && (
             <pre
               data-testid="listings-detail-json"
-              className="mt-4 overflow-x-auto rounded-md bg-slate-900 p-4 text-xs text-teal-100"
+              className="mt-6 overflow-x-auto rounded-[1.25rem] bg-[#0f172a] p-5 text-xs leading-relaxed text-teal-100"
             >
               {JSON.stringify(detail, null, 2)}
             </pre>
@@ -558,18 +567,21 @@ export default function ListingsPage() {
         </section>
 
         {token ? (
-          <section className="mt-10 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
-            <h2 className="text-lg font-medium text-slate-900">
-              Post a listing
+          <section className="mt-10 rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+            <p className="text-sm font-semibold uppercase tracking-[0.22em] text-teal-700">
+              Create listing
+            </p>
+            <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
+              Post a new listing
             </h2>
-            <p className="mt-1 text-xs text-slate-500">
-              Lister side: set optional coordinates for map preview (e.g.
-              campus-adjacent). Features are stored in the DB as structured
-              amenities for both search and display.
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
+              Add listing details, optional coordinates for map preview, and
+              structured amenities so listings can be searched and displayed
+              consistently.
             </p>
             <form
               onSubmit={onCreate}
-              className="mt-4 grid gap-3 md:grid-cols-2"
+              className="mt-6 grid gap-4 md:grid-cols-2"
             >
               <div className="md:col-span-2">
                 <label className="text-xs font-medium uppercase text-slate-500">
@@ -633,7 +645,7 @@ export default function ListingsPage() {
                   placeholder="e.g. 42.3910"
                   value={createLat}
                   onChange={(e) => setCreateLat(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm"
+                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-mono text-sm"
                 />
               </div>
               <div>
@@ -647,7 +659,7 @@ export default function ListingsPage() {
                   placeholder="e.g. -72.5267"
                   value={createLng}
                   onChange={(e) => setCreateLng(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm"
+                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-mono text-sm"
                 />
               </div>
               <div className="md:col-span-2 flex flex-wrap gap-4 text-sm">
@@ -710,7 +722,7 @@ export default function ListingsPage() {
                   type="submit"
                   disabled={createLoading}
                   data-testid="listings-create-submit"
-                  className="rounded-md bg-teal-700 px-4 py-2 font-medium text-white hover:bg-teal-600 disabled:opacity-50"
+                  className="rounded-full bg-teal-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-600 disabled:opacity-50"
                 >
                   Create listing
                 </button>
@@ -718,7 +730,7 @@ export default function ListingsPage() {
             </form>
           </section>
         ) : (
-          <p className="mt-8 text-sm text-slate-600">
+          <p className="mt-10 rounded-[1.25rem] border border-slate-200 bg-white px-5 py-4 text-sm text-slate-600 shadow-sm">
             <Link
               href="/login"
               className="font-medium text-teal-700 hover:underline"
