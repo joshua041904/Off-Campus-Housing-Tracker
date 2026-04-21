@@ -417,55 +417,113 @@ export default function ListingsPage() {
           </div>
         </form>
 
-        <div
+        <section
           data-testid="listings-results"
-          className="mt-8 min-h-[3rem] space-y-3"
+          className="mt-10"
           aria-busy={searchLoading}
         >
-          {items.length === 0 && !searchLoading && (
-            <p className="text-sm text-slate-500">
-              No listings match (or empty index).
-            </p>
-          )}
-          {items.map((row) => (
-            <div
-              key={row.id}
-              className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm"
-            >
-              <div className="font-medium text-slate-900">{row.title}</div>
-              <div className="mt-1 text-slate-600">
-                ${(row.price_cents / 100).toFixed(2)} ·{" "}
-                <span className="font-mono text-xs text-slate-500">
-                  {row.id}
-                </span>
-                {row.listed_at && (
-                  <span className="ml-2 text-xs text-slate-500">
-                    Listed {row.listed_at}
-                  </span>
-                )}
-              </div>
-              {row.amenities && row.amenities.length > 0 && (
-                <p className="mt-1 text-xs text-slate-500">
-                  Features: {row.amenities.join(", ")}
-                </p>
-              )}
-              <div className="mt-3 max-w-md">
-                {row.latitude != null && row.longitude != null ? (
-                  <GoogleMapEmbed
-                    latitude={row.latitude}
-                    longitude={row.longitude}
-                    height={160}
-                    zoom={15}
-                  />
-                ) : (
-                  <p className="text-xs text-slate-500">
-                    No coordinates on this listing — add lat/lng when posting.
-                  </p>
-                )}
-              </div>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.22em] text-teal-700">
+                Results
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">
+                Available listings
+              </h2>
             </div>
-          ))}
-        </div>
+            <p className="text-sm text-slate-500">
+              {searchLoading
+                ? "Updating results…"
+                : `${items.length} listing${items.length === 1 ? "" : "s"} found`}
+            </p>
+          </div>
+          <div className="mt-8 grid gap-6 lg:grid-cols-2">
+            {items.length === 0 && !searchLoading && (
+              <div className="mt-8 rounded-[1.75rem] border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center">
+                <p className="text-base font-medium text-slate-900">
+                  No listings matched your current filters.
+                </p>
+                <p className="mt-2 text-sm text-slate-500">
+                  Try adjusting your search terms, price range, or amenities to
+                  see more options.
+                </p>
+              </div>
+            )}
+            {items.map((row) => (
+              <article
+                key={row.id}
+                className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xl font-semibold text-slate-900">
+                      {row.title}
+                    </p>
+                    <p className="mt-2 text-sm text-slate-500">
+                      Listing ID{" "}
+                      <span className="font-mono text-xs text-slate-500">
+                        {row.id}
+                      </span>
+                    </p>
+                  </div>
+                  <div className="rounded-full bg-teal-50 px-3 py-1 text-sm font-semibold text-teal-700">
+                    ${(row.price_cents / 100).toFixed(2)}
+                  </div>
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-2 text-xs text-slate-600">
+                  {row.smoke_free && (
+                    <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
+                      Smoke-free
+                    </span>
+                  )}
+                  {row.pet_friendly && (
+                    <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
+                      Pet-friendly
+                    </span>
+                  )}
+                  {row.furnished && (
+                    <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
+                      Furnished
+                    </span>
+                  )}
+                  {row.amenities?.map((amenity) => (
+                    <span
+                      key={amenity}
+                      className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1"
+                    >
+                      {amenity.replaceAll("_", " ")}
+                    </span>
+                  ))}
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-4 text-sm text-slate-500">
+                  {row.listed_at && <span>Listed {row.listed_at}</span>}
+                  {row.latitude != null && row.longitude != null ? (
+                    <span>Map preview available</span>
+                  ) : (
+                    <span>No coordinates provided</span>
+                  )}
+                </div>
+
+                <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+                  {row.latitude != null && row.longitude != null ? (
+                    <GoogleMapEmbed
+                      latitude={row.latitude}
+                      longitude={row.longitude}
+                      height={180}
+                      zoom={15}
+                    />
+                  ) : (
+                    <div className="flex h-[180px] items-center justify-center px-6 text-center text-sm text-slate-500">
+                      This listing does not include map coordinates yet.
+                    </div>
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
 
         <section className="mt-12 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
           <h2 className="text-lg font-medium text-slate-900">Listing by ID</h2>
