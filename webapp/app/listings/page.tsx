@@ -215,173 +215,205 @@ export default function ListingsPage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-teal-50/30 text-slate-900">
       <Nav email={email} />
-      <main className="mx-auto max-w-5xl px-4 py-10">
-        <h1 className="font-serif text-3xl text-slate-900">Browse listings</h1>
-        <p className="mt-2 text-sm text-slate-600">
-          Filter by price, features, and recency. Listings with
-          latitude/longitude show a map when{" "}
-          <code className="rounded bg-slate-200 px-1 text-xs">
-            NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
-          </code>{" "}
-          is set.{" "}
-          <Link
-            href="/dashboard"
-            className="font-medium text-teal-700 hover:underline"
-          >
-            Dashboard
-          </Link>{" "}
-          for watchlist &amp; search history.
-        </p>
+      <main className="mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-12">
+        <section className="max-w-3xl">
+          <p className="text-sm font-semibold uppercase tracking-[0.22em] text-teal-700">
+            Listings
+          </p>
+          <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
+            Browse off-campus housing
+          </h1>
+          <p className="mt-4 text-lg leading-8 text-slate-600">
+            Search listings by price, amenities, and recency to find options
+            that match your needs. You can also continue to your{" "}
+            <Link
+              href="/dashboard"
+              className="font-medium text-teal-700 hover:underline"
+            >
+              dashboard
+            </Link>{" "}
+            for watchlist and search history.
+          </p>
+        </section>
 
         <form
           data-testid="listings-search-form"
           onSubmit={onSearch}
-          className="mt-8 space-y-4 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm"
+          className="mt-10 rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8"
         >
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <div className="md:col-span-2">
-              <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Keywords
-              </label>
-              <input
-                data-testid="listings-search-q"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900"
-                placeholder="studio, laundry…"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Min price (USD)
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                value={minPrice}
-                onChange={(e) => setMinPrice(e.target.value)}
-                className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Max price (USD)
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                value={maxPrice}
-                onChange={(e) => setMaxPrice(e.target.value)}
-                className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2"
-              />
+          <div className="max-w-2xl">
+            <p className="text-sm font-semibold uppercase tracking-[0.22em] text-teal-700">
+              Search and filter
+            </p>
+            <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">
+              Narrow down your options
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-slate-600">
+              Use keywords, pricing, amenities, and sort options to find
+              listings that fit your budget and preferences.
+            </p>
+          </div>
+          <div className="mt-8">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+              Basics
+            </p>
+            <div className="mt-3 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+              <div className="md:col-span-2">
+                <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Keywords
+                </label>
+                <input
+                  data-testid="listings-search-q"
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-slate-900"
+                  placeholder="studio, laundry…"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Min price (USD)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={minPrice}
+                  onChange={(e) => setMinPrice(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Max price (USD)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={maxPrice}
+                  onChange={(e) => setMaxPrice(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+                />
+              </div>
             </div>
           </div>
-          <div className="flex flex-wrap gap-4 text-sm">
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={smokeFree}
-                onChange={(e) => setSmokeFree(e.target.checked)}
-              />
-              Smoke-free
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={petFriendly}
-                onChange={(e) => setPetFriendly(e.target.checked)}
-              />
-              Pet-friendly
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                data-testid="listings-filter-furnished"
-                type="checkbox"
-                checked={furnishedOnly}
-                onChange={(e) => setFurnishedOnly(e.target.checked)}
-              />
-              Furnished only
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                data-testid="listings-filter-garage"
-                type="checkbox"
-                checked={filterGarage}
-                onChange={(e) => setFilterGarage(e.target.checked)}
-              />
-              Garage
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                data-testid="listings-filter-parking"
-                type="checkbox"
-                checked={filterParking}
-                onChange={(e) => setFilterParking(e.target.checked)}
-              />
-              Parking
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                data-testid="listings-filter-laundry"
-                type="checkbox"
-                checked={filterLaundry}
-                onChange={(e) => setFilterLaundry(e.target.checked)}
-              />
-              In-unit laundry
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                data-testid="listings-filter-dishwasher"
-                type="checkbox"
-                checked={filterDishwasher}
-                onChange={(e) => setFilterDishwasher(e.target.checked)}
-              />
-              Dishwasher
-            </label>
+
+          <div className="mt-8">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+              Preferences and amenities
+            </p>
+            <div className="mt-3 flex flex-wrap gap-3 text-sm">
+              <label className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2">
+                <input
+                  type="checkbox"
+                  checked={smokeFree}
+                  onChange={(e) => setSmokeFree(e.target.checked)}
+                />
+                Smoke-free
+              </label>
+              <label className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2">
+                <input
+                  type="checkbox"
+                  checked={petFriendly}
+                  onChange={(e) => setPetFriendly(e.target.checked)}
+                />
+                Pet-friendly
+              </label>
+              <label className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2">
+                <input
+                  data-testid="listings-filter-furnished"
+                  type="checkbox"
+                  checked={furnishedOnly}
+                  onChange={(e) => setFurnishedOnly(e.target.checked)}
+                />
+                Furnished only
+              </label>
+              <label className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2">
+                <input
+                  data-testid="listings-filter-garage"
+                  type="checkbox"
+                  checked={filterGarage}
+                  onChange={(e) => setFilterGarage(e.target.checked)}
+                />
+                Garage
+              </label>
+              <label className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2">
+                <input
+                  data-testid="listings-filter-parking"
+                  type="checkbox"
+                  checked={filterParking}
+                  onChange={(e) => setFilterParking(e.target.checked)}
+                />
+                Parking
+              </label>
+              <label className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2">
+                <input
+                  data-testid="listings-filter-laundry"
+                  type="checkbox"
+                  checked={filterLaundry}
+                  onChange={(e) => setFilterLaundry(e.target.checked)}
+                />
+                In-unit laundry
+              </label>
+              <label className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2">
+                <input
+                  data-testid="listings-filter-dishwasher"
+                  type="checkbox"
+                  checked={filterDishwasher}
+                  onChange={(e) => setFilterDishwasher(e.target.checked)}
+                />
+                Dishwasher
+              </label>
+            </div>
           </div>
-          <div className="flex flex-wrap items-end gap-4">
-            <div>
-              <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Sort by
-              </label>
-              <select
-                data-testid="listings-sort"
-                value={sortBy}
-                onChange={(e) =>
-                  setSortBy(e.target.value as ListingSearchSort)
-                }
-                className="mt-1 block rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+
+          <div className="mt-8">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+              Sorting and recency
+            </p>
+            <div className="mt-3 flex flex-wrap items-end gap-4">
+              <div>
+                <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Sort by
+                </label>
+                <select
+                  data-testid="listings-sort"
+                  value={sortBy}
+                  onChange={(e) =>
+                    setSortBy(e.target.value as ListingSearchSort)
+                  }
+                  className="mt-1 block rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
+                >
+                  <option value="created_desc">Newest (created)</option>
+                  <option value="listed_desc">Listing date</option>
+                  <option value="price_asc">Price: low to high</option>
+                  <option value="price_desc">Price: high to low</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Listed recently
+                </label>
+                <select
+                  data-testid="listings-new-within"
+                  value={newWithin}
+                  onChange={(e) => setNewWithin(e.target.value)}
+                  className="mt-1 block rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
+                >
+                  <option value="">Any time</option>
+                  <option value="7">Last 7 days</option>
+                  <option value="30">Last 30 days</option>
+                  <option value="90">Last 90 days</option>
+                </select>
+              </div>
+              <button
+                type="submit"
+                disabled={searchLoading}
+                data-testid="listings-search-submit"
+                className="rounded-full bg-teal-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-600 disabled:opacity-50"
               >
-                <option value="created_desc">Newest (created)</option>
-                <option value="listed_desc">Listing date</option>
-                <option value="price_asc">Price: low to high</option>
-                <option value="price_desc">Price: high to low</option>
-              </select>
+                Search
+              </button>
             </div>
-            <div>
-              <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Listed recently
-              </label>
-              <select
-                data-testid="listings-new-within"
-                value={newWithin}
-                onChange={(e) => setNewWithin(e.target.value)}
-                className="mt-1 block rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
-              >
-                <option value="">Any time</option>
-                <option value="7">Last 7 days</option>
-                <option value="30">Last 30 days</option>
-                <option value="90">Last 90 days</option>
-              </select>
-            </div>
-            <button
-              type="submit"
-              disabled={searchLoading}
-              data-testid="listings-search-submit"
-              className="rounded-md bg-teal-600 px-4 py-2 font-medium text-white hover:bg-teal-500 disabled:opacity-50"
-            >
-              Search
-            </button>
           </div>
         </form>
 
@@ -489,7 +521,7 @@ export default function ListingsPage() {
                   data-testid="listings-create-title"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2"
+                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
                   required
                 />
               </div>
@@ -502,7 +534,7 @@ export default function ListingsPage() {
                   value={desc}
                   onChange={(e) => setDesc(e.target.value)}
                   rows={3}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2"
+                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
                 />
               </div>
               <div>
@@ -515,7 +547,7 @@ export default function ListingsPage() {
                   step="0.01"
                   value={priceUsd}
                   onChange={(e) => setPriceUsd(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2"
+                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
                   required
                 />
               </div>
@@ -528,7 +560,7 @@ export default function ListingsPage() {
                   type="date"
                   value={effectiveFrom}
                   onChange={(e) => setEffectiveFrom(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2"
+                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
                   required
                 />
               </div>
@@ -561,7 +593,7 @@ export default function ListingsPage() {
                 />
               </div>
               <div className="md:col-span-2 flex flex-wrap gap-4 text-sm">
-                <label className="flex items-center gap-2">
+                <label className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2">
                   <input
                     type="checkbox"
                     checked={createSmokeFree}
@@ -569,7 +601,7 @@ export default function ListingsPage() {
                   />
                   Smoke-free
                 </label>
-                <label className="flex items-center gap-2">
+                <label className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2">
                   <input
                     type="checkbox"
                     checked={createPetFriendly}
@@ -577,7 +609,7 @@ export default function ListingsPage() {
                   />
                   Pet-friendly
                 </label>
-                <label className="flex items-center gap-2">
+                <label className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2">
                   <input
                     type="checkbox"
                     checked={createFurnished}
@@ -588,7 +620,7 @@ export default function ListingsPage() {
                 {AMENITY_OPTIONS.map((a) => (
                   <label
                     key={a.slug}
-                    className="flex items-center gap-2"
+                    className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2"
                   >
                     <input
                       type="checkbox"
