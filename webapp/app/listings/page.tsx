@@ -20,6 +20,180 @@ const AMENITY_OPTIONS = [
   { slug: "dishwasher", label: "Dishwasher" },
 ] as const;
 
+function ListingsHeaderSection() {
+  return (
+    <section className="max-w-3xl">
+      <p className="text-sm font-semibold uppercase tracking-[0.22em] text-teal-700">
+        Listings
+      </p>
+      <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
+        Browse off-campus housing
+      </h1>
+      <p className="mt-4 text-lg leading-8 text-slate-600">
+        Search listings by price, amenities, and recency to find options that
+        match your needs. You can also continue to your{" "}
+        <Link
+          href="/dashboard"
+          className="font-medium text-teal-700 hover:underline"
+        >
+          dashboard
+        </Link>{" "}
+        for watchlist and search history.
+      </p>
+    </section>
+  );
+}
+
+function ListingsResultsSection({
+  items,
+  searchLoading,
+}: {
+  items: ListingJson[];
+  searchLoading: boolean;
+}) {
+  return (
+    <section
+      data-testid="listings-results"
+      className="mt-10"
+      aria-busy={searchLoading}
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-[0.22em] text-teal-700">
+            Results
+          </p>
+          <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">
+            Available listings
+          </h2>
+        </div>
+        <p className="text-sm text-slate-500">
+          {searchLoading
+            ? "Updating results…"
+            : `${items.length} listing${items.length === 1 ? "" : "s"} found`}
+        </p>
+      </div>
+      <div className="mt-8 grid gap-6 lg:grid-cols-2">
+        {items.length === 0 && !searchLoading && (
+          <div className="mt-8 rounded-[1.75rem] border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center">
+            <p className="text-base font-medium text-slate-900">
+              No listings matched your current filters.
+            </p>
+            <p className="mt-2 text-sm text-slate-500">
+              Try adjusting your search terms, price range, or amenities to see
+              more options.
+            </p>
+          </div>
+        )}
+        {items.map((row) => (
+          <article
+            key={row.id}
+            className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xl font-semibold text-slate-900">
+                  {row.title}
+                </p>
+                <p className="mt-2 text-sm text-slate-500">
+                  Listing ID{" "}
+                  <span className="font-mono text-xs text-slate-500">
+                    {row.id}
+                  </span>
+                </p>
+              </div>
+              <div className="rounded-full bg-teal-50 px-3 py-1 text-sm font-semibold text-teal-700">
+                ${(row.price_cents / 100).toFixed(2)}
+              </div>
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-2 text-xs text-slate-600">
+              {row.smoke_free && (
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
+                  Smoke-free
+                </span>
+              )}
+              {row.pet_friendly && (
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
+                  Pet-friendly
+                </span>
+              )}
+              {row.furnished && (
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
+                  Furnished
+                </span>
+              )}
+              {row.amenities?.map((amenity) => (
+                <span
+                  key={amenity}
+                  className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1"
+                >
+                  {amenity.replaceAll("_", " ")}
+                </span>
+              ))}
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-4 text-sm text-slate-500">
+              {row.listed_at && <span>Listed {row.listed_at}</span>}
+              {row.latitude != null && row.longitude != null ? (
+                <span>Map preview available</span>
+              ) : (
+                <span>No coordinates provided</span>
+              )}
+            </div>
+
+            <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+              {row.latitude != null && row.longitude != null ? (
+                <GoogleMapEmbed
+                  latitude={row.latitude}
+                  longitude={row.longitude}
+                  height={180}
+                  zoom={15}
+                />
+              ) : (
+                <div className="flex h-[180px] items-center justify-center px-6 text-center text-sm text-slate-500">
+                  This listing does not include map coordinates yet.
+                </div>
+              )}
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ListingsFeedback({
+  msg,
+  err,
+}: {
+  msg: string | null;
+  err: string | null;
+}) {
+  return (
+    <>
+      {msg && (
+        <div
+          data-testid="listing-created-banner"
+          role="status"
+          aria-live="polite"
+          className="mt-6 rounded-[1.25rem] border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-medium text-emerald-800 shadow-sm"
+        >
+          {msg}
+        </div>
+      )}
+      {err && (
+        <div
+          data-testid="listings-api-error"
+          role="alert"
+          className="mt-4 rounded-[1.25rem] border border-red-200 bg-red-50 px-5 py-4 text-sm font-medium text-red-700 shadow-sm"
+        >
+          {err}
+        </div>
+      )}
+    </>
+  );
+}
+
 export default function ListingsPage() {
   const [email, setEmail] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -216,25 +390,7 @@ export default function ListingsPage() {
     <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-teal-50/30 text-slate-900">
       <Nav email={email} />
       <main className="mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-12">
-        <section className="max-w-3xl">
-          <p className="text-sm font-semibold uppercase tracking-[0.22em] text-teal-700">
-            Listings
-          </p>
-          <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
-            Browse off-campus housing
-          </h1>
-          <p className="mt-4 text-lg leading-8 text-slate-600">
-            Search listings by price, amenities, and recency to find options
-            that match your needs. You can also continue to your{" "}
-            <Link
-              href="/dashboard"
-              className="font-medium text-teal-700 hover:underline"
-            >
-              dashboard
-            </Link>{" "}
-            for watchlist and search history.
-          </p>
-        </section>
+        <ListingsHeaderSection />
 
         <form
           data-testid="listings-search-form"
@@ -417,113 +573,10 @@ export default function ListingsPage() {
           </div>
         </form>
 
-        <section
-          data-testid="listings-results"
-          className="mt-10"
-          aria-busy={searchLoading}
-        >
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.22em] text-teal-700">
-                Results
-              </p>
-              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">
-                Available listings
-              </h2>
-            </div>
-            <p className="text-sm text-slate-500">
-              {searchLoading
-                ? "Updating results…"
-                : `${items.length} listing${items.length === 1 ? "" : "s"} found`}
-            </p>
-          </div>
-          <div className="mt-8 grid gap-6 lg:grid-cols-2">
-            {items.length === 0 && !searchLoading && (
-              <div className="mt-8 rounded-[1.75rem] border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center">
-                <p className="text-base font-medium text-slate-900">
-                  No listings matched your current filters.
-                </p>
-                <p className="mt-2 text-sm text-slate-500">
-                  Try adjusting your search terms, price range, or amenities to
-                  see more options.
-                </p>
-              </div>
-            )}
-            {items.map((row) => (
-              <article
-                key={row.id}
-                className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-xl font-semibold text-slate-900">
-                      {row.title}
-                    </p>
-                    <p className="mt-2 text-sm text-slate-500">
-                      Listing ID{" "}
-                      <span className="font-mono text-xs text-slate-500">
-                        {row.id}
-                      </span>
-                    </p>
-                  </div>
-                  <div className="rounded-full bg-teal-50 px-3 py-1 text-sm font-semibold text-teal-700">
-                    ${(row.price_cents / 100).toFixed(2)}
-                  </div>
-                </div>
-
-                <div className="mt-4 flex flex-wrap gap-2 text-xs text-slate-600">
-                  {row.smoke_free && (
-                    <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
-                      Smoke-free
-                    </span>
-                  )}
-                  {row.pet_friendly && (
-                    <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
-                      Pet-friendly
-                    </span>
-                  )}
-                  {row.furnished && (
-                    <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
-                      Furnished
-                    </span>
-                  )}
-                  {row.amenities?.map((amenity) => (
-                    <span
-                      key={amenity}
-                      className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1"
-                    >
-                      {amenity.replaceAll("_", " ")}
-                    </span>
-                  ))}
-                </div>
-
-                <div className="mt-4 flex flex-wrap gap-4 text-sm text-slate-500">
-                  {row.listed_at && <span>Listed {row.listed_at}</span>}
-                  {row.latitude != null && row.longitude != null ? (
-                    <span>Map preview available</span>
-                  ) : (
-                    <span>No coordinates provided</span>
-                  )}
-                </div>
-
-                <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
-                  {row.latitude != null && row.longitude != null ? (
-                    <GoogleMapEmbed
-                      latitude={row.latitude}
-                      longitude={row.longitude}
-                      height={180}
-                      zoom={15}
-                    />
-                  ) : (
-                    <div className="flex h-[180px] items-center justify-center px-6 text-center text-sm text-slate-500">
-                      This listing does not include map coordinates yet.
-                    </div>
-                  )}
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
+        <ListingsResultsSection
+          items={items}
+          searchLoading={searchLoading}
+        />
 
         <section className="mt-14 rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
           <p className="text-sm font-semibold uppercase tracking-[0.22em] text-teal-700">
@@ -741,25 +794,10 @@ export default function ListingsPage() {
           </p>
         )}
 
-        {msg && (
-          <div
-            data-testid="listing-created-banner"
-            role="status"
-            aria-live="polite"
-            className="mt-6 rounded-[1.25rem] border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-medium text-emerald-800 shadow-sm"
-          >
-            {msg}
-          </div>
-        )}
-        {err && (
-          <div
-            data-testid="listings-api-error"
-            role="alert"
-            className="mt-4 rounded-[1.25rem] border border-red-200 bg-red-50 px-5 py-4 text-sm font-medium text-red-700 shadow-sm"
-          >
-            {err}
-          </div>
-        )}
+        <ListingsFeedback
+          msg={msg}
+          err={err}
+        />
       </main>
     </div>
   );
