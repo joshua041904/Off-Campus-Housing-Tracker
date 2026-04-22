@@ -69,6 +69,13 @@ const TENANT_NOTES_MAX = 4000;
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+function disableHistoryCaching(res: Response): void {
+  res.setHeader("Cache-Control", "private, no-store, max-age=0");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  res.vary("x-user-id");
+}
+
 export function createBookingHttpApp(): Express {
   const app = express();
   app.use(express.json({ limit: "1mb" }));
@@ -236,6 +243,7 @@ export function createBookingHttpApp(): Express {
 
   app.post("/search-history", requireUser, async (req: AuthedRequest, res: Response) => {
     try {
+      disableHistoryCaching(res);
       const { query, minPriceCents, maxPriceCents, maxDistanceKm, latitude, longitude, filters } = req.body as {
         query?: string;
         minPriceCents?: number;
@@ -266,6 +274,7 @@ export function createBookingHttpApp(): Express {
 
   app.get("/search-history/list", requireUser, async (req: AuthedRequest, res: Response) => {
     try {
+      disableHistoryCaching(res);
       const limit = Math.min(Number(req.query.limit || 25), 100);
       const items = await prisma.searchHistory.findMany({
         where: { userId: req.userId! },
