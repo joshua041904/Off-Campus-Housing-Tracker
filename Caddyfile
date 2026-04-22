@@ -141,11 +141,8 @@ https://off-campus-housing.test {
 				keepalive_idle_conns_per_host 64
 			}
 			lb_policy round_robin
-			health_uri /healthz
-			health_interval 30s
-			health_timeout 5s
-			fail_duration 30s
-			max_fails 3
+			# No active upstream health checks: Caddy starts before api-gateway is ready and logs
+			# "connection refused" until K8s readiness converges; rely on kube readiness + passive retries.
 		}
 	}
 

@@ -15,10 +15,12 @@ spec:
     port: 443
     targetPort: 443
     protocol: TCP
+    nodePort: 30443
   - name: https-udp
     port: 443
     targetPort: 443
     protocol: UDP
+    nodePort: 30443
   - name: grpc-h2c
     port: 5000
     targetPort: 5000

@@ -19,10 +19,13 @@ spec:
     port: 443
     targetPort: 443
     protocol: TCP
+    # Explicit nodePort so k3s/klipper-lb publishes UDP/443 for QUIC (same number, different protocol, is valid).
+    nodePort: 30443
   - name: https-udp
     port: 443
     targetPort: 443
     protocol: UDP
+    nodePort: 30443
   - name: grpc-h2c
     port: 5000
     targetPort: 5000
