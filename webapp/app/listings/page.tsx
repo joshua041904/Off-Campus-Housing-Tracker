@@ -47,15 +47,18 @@ function ListingsHeaderSection() {
 function ListingsResultsSection({
   items,
   searchLoading,
+  searchError,
 }: {
   items: ListingJson[];
   searchLoading: boolean;
+  searchError: string | null;
 }) {
   return (
     <section
       data-testid="listings-results"
       className="mt-10"
       aria-busy={searchLoading}
+      aria-live="polite"
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
@@ -69,12 +72,33 @@ function ListingsResultsSection({
         <p className="text-sm text-slate-500">
           {searchLoading
             ? "Updating results…"
-            : `${items.length} listing${items.length === 1 ? "" : "s"} found`}
+            : searchError
+              ? "0 Listings"
+              : `${items.length} listing${items.length === 1 ? "" : "s"} found`}
         </p>
       </div>
-      <div className="mt-8 grid gap-6 lg:grid-cols-2">
-        {items.length === 0 && !searchLoading && (
-          <div className="mt-8 rounded-[1.75rem] border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center">
+      <div className="mt-8">
+        {searchLoading ? (
+          <div className="rounded-[1.75rem] border border-slate-200 bg-white px-6 py-10 text-center shadow-sm">
+            <p className="text-base font-medium text-slate-900">
+              Loading listings…
+            </p>
+            <p className="mt-2 text-sm text-slate-500">
+              We&apos;re updating the results for your current filters.
+            </p>
+          </div>
+        ) : searchError ? (
+          <div
+            role="alert"
+            className="rounded-[1.75rem] border border-red-200 bg-red-50 px-6 py-10 text-center shadow-sm"
+          >
+            <p className="text-base font-medium text-red-900">
+              Could not load listings
+            </p>
+            <p className="mt-2 text-sm text-red-700">{searchError}</p>
+          </div>
+        ) : items.length === 0 ? (
+          <div className="rounded-[1.75rem] border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center">
             <p className="text-base font-medium text-slate-900">
               No listings matched your current filters.
             </p>
@@ -83,80 +107,83 @@ function ListingsResultsSection({
               more options.
             </p>
           </div>
-        )}
-        {items.map((row) => (
-          <article
-            key={row.id}
-            className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md"
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xl font-semibold text-slate-900">
-                  {row.title}
-                </p>
-                <p className="mt-2 text-sm text-slate-500">
-                  Listing ID{" "}
-                  <span className="font-mono text-xs text-slate-500">
-                    {row.id}
-                  </span>
-                </p>
-              </div>
-              <div className="rounded-full bg-teal-50 px-3 py-1 text-sm font-semibold text-teal-700">
-                ${(row.price_cents / 100).toFixed(2)}
-              </div>
-            </div>
-
-            <div className="mt-4 flex flex-wrap gap-2 text-xs text-slate-600">
-              {row.smoke_free && (
-                <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
-                  Smoke-free
-                </span>
-              )}
-              {row.pet_friendly && (
-                <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
-                  Pet-friendly
-                </span>
-              )}
-              {row.furnished && (
-                <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
-                  Furnished
-                </span>
-              )}
-              {row.amenities?.map((amenity) => (
-                <span
-                  key={amenity}
-                  className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1"
-                >
-                  {amenity.replaceAll("_", " ")}
-                </span>
-              ))}
-            </div>
-
-            <div className="mt-4 flex flex-wrap gap-4 text-sm text-slate-500">
-              {row.listed_at && <span>Listed {row.listed_at}</span>}
-              {row.latitude != null && row.longitude != null ? (
-                <span>Map preview available</span>
-              ) : (
-                <span>No coordinates provided</span>
-              )}
-            </div>
-
-            <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
-              {row.latitude != null && row.longitude != null ? (
-                <GoogleMapEmbed
-                  latitude={row.latitude}
-                  longitude={row.longitude}
-                  height={180}
-                  zoom={15}
-                />
-              ) : (
-                <div className="flex h-[180px] items-center justify-center px-6 text-center text-sm text-slate-500">
-                  This listing does not include map coordinates yet.
+        ) : (
+          <div className="grid gap-6 lg:grid-cols-2">
+            {items.map((row) => (
+              <article
+                key={row.id}
+                className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xl font-semibold text-slate-900">
+                      {row.title}
+                    </p>
+                    <p className="mt-2 text-sm text-slate-500">
+                      Listing ID{" "}
+                      <span className="font-mono text-xs text-slate-500">
+                        {row.id}
+                      </span>
+                    </p>
+                  </div>
+                  <div className="rounded-full bg-teal-50 px-3 py-1 text-sm font-semibold text-teal-700">
+                    ${(row.price_cents / 100).toFixed(2)}
+                  </div>
                 </div>
-              )}
-            </div>
-          </article>
-        ))}
+
+                <div className="mt-4 flex flex-wrap gap-2 text-xs text-slate-600">
+                  {row.smoke_free && (
+                    <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
+                      Smoke-free
+                    </span>
+                  )}
+                  {row.pet_friendly && (
+                    <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
+                      Pet-friendly
+                    </span>
+                  )}
+                  {row.furnished && (
+                    <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
+                      Furnished
+                    </span>
+                  )}
+                  {row.amenities?.map((amenity) => (
+                    <span
+                      key={amenity}
+                      className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1"
+                    >
+                      {amenity.replaceAll("_", " ")}
+                    </span>
+                  ))}
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-4 text-sm text-slate-500">
+                  {row.listed_at && <span>Listed {row.listed_at}</span>}
+                  {row.latitude != null && row.longitude != null ? (
+                    <span>Map preview available</span>
+                  ) : (
+                    <span>No coordinates provided</span>
+                  )}
+                </div>
+
+                <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+                  {row.latitude != null && row.longitude != null ? (
+                    <GoogleMapEmbed
+                      latitude={row.latitude}
+                      longitude={row.longitude}
+                      height={180}
+                      zoom={15}
+                    />
+                  ) : (
+                    <div className="flex h-[180px] items-center justify-center px-6 text-center text-sm text-slate-500">
+                      This listing does not include map coordinates yet.
+                    </div>
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
       </div>
     </section>
   );
@@ -737,6 +764,7 @@ export default function ListingsPage() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -773,7 +801,7 @@ export default function ListingsPage() {
   const onSearch = useCallback(
     async (e?: React.FormEvent) => {
       e?.preventDefault();
-      setErr(null);
+      setSearchError(null);
       setSearchLoading(true);
       try {
         const minC = minPrice ? Math.round(Number(minPrice) * 100) : undefined;
@@ -800,7 +828,7 @@ export default function ListingsPage() {
         });
         setItems(list);
       } catch (e: unknown) {
-        setErr(e instanceof Error ? e.message : "Search failed");
+        setSearchError(e instanceof Error ? e.message : "Search failed");
         setItems([]);
       } finally {
         setSearchLoading(false);
@@ -826,13 +854,15 @@ export default function ListingsPage() {
     let cancelled = false;
     void (async () => {
       setSearchLoading(true);
-      setErr(null);
+      setSearchError(null);
       try {
         const list = await searchListings({ sort: "created_desc" });
         if (!cancelled) setItems(list);
       } catch (e: unknown) {
         if (!cancelled) {
-          setErr(e instanceof Error ? e.message : "Could not load listings");
+          setSearchError(
+            e instanceof Error ? e.message : "Could not load listings",
+          );
           setItems([]);
         }
       } finally {
@@ -942,6 +972,7 @@ export default function ListingsPage() {
         <ListingsResultsSection
           items={items}
           searchLoading={searchLoading}
+          searchError={searchError}
         />
 
         <ListingLookupSection
