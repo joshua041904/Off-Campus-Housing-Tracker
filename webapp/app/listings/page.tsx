@@ -504,10 +504,11 @@ function ListingsSearchSection({
         </p>
         <div className="mt-3 flex flex-wrap items-end gap-4">
           <div>
-            <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            <label htmlFor="listings-sort" className="text-xs font-medium uppercase tracking-wide text-slate-500">
               Sort by
             </label>
             <select
+              id="listings-sort"
               data-testid="listings-sort"
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as ListingSearchSort)}
@@ -520,10 +521,11 @@ function ListingsSearchSection({
             </select>
           </div>
           <div>
-            <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            <label htmlFor="listings-new-within" className="text-xs font-medium uppercase tracking-wide text-slate-500">
               Listed recently
             </label>
             <select
+              id="listings-new-within"
               data-testid="listings-new-within"
               value={newWithin}
               onChange={(e) => setNewWithin(e.target.value)}
