@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { registerUser } from "@/lib/api";
@@ -14,33 +14,42 @@ export default function RegisterPage() {
   const [password, setPassword] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const controllerRef = useRef<AbortController | null>(null);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (loading) return;
     setErr(null);
+
+    controllerRef.current?.abort();
+    const controller = new AbortController();
+    controllerRef.current = controller;
+
     setLoading(true);
     try {
       const data = await registerUser(email, password);
+      if (controller.signal.aborted) return;
       if (!data.token) throw new Error("No token returned");
       login(data.token, email);
       router.push("/dashboard");
     } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : "Registration failed");
+      if (e instanceof Error && e.name === "AbortError") return;
+      setErr(e instanceof Error ? e.message : "Registration failed. Please try again.");
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-emerald-50/50 text-slate-900">
+    <div className="min-h-screen bg-gradient-to-br from-[#f8faf8] via-[#fcfcfb] to-[#eefaf6] text-slate-900">
       <Nav />
-      <main className="mx-auto max-w-md px-4 py-16">
-        <div className="rounded-xl border border-slate-200 bg-white/90 p-8 shadow-sm backdrop-blur-sm">
-          <h1 className="font-serif text-3xl text-slate-900">Create account</h1>
-          <p className="mt-2 text-sm text-slate-600">Registers via gateway → auth-service (gRPC).</p>
-          <form data-testid="register-form" onSubmit={onSubmit} className="mt-8 space-y-4">
+      <main className="mx-auto max-w-md px-4 py-16 sm:py-24">
+        <div className="rounded-[2rem] border border-slate-200/80 bg-white/95 p-8 shadow-[0_20px_60px_-20px_rgba(15,23,42,0.18)]">
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-950">Create account</h1>
+          <p className="mt-2 text-sm text-slate-500">Registers via gateway → auth-service (gRPC).</p>
+          <form data-testid="register-form" onSubmit={onSubmit} className="mt-8 space-y-4" aria-busy={loading}>
             <div>
-              <label className="block text-sm font-medium text-slate-600" htmlFor="email">
+              <label className="block text-sm font-medium text-slate-700" htmlFor="email">
                 Email
               </label>
               <input
@@ -50,12 +59,13 @@ export default function RegisterPage() {
                 autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 shadow-sm focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                disabled={loading}
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-900 shadow-sm focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500 disabled:opacity-60"
                 required
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-600" htmlFor="password">
+              <label className="block text-sm font-medium text-slate-700" htmlFor="password">
                 Password
               </label>
               <input
@@ -66,24 +76,31 @@ export default function RegisterPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 minLength={8}
-                className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 shadow-sm focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                disabled={loading}
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-900 shadow-sm focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500 disabled:opacity-60"
                 required
               />
             </div>
             {err && (
-              <p data-testid="register-error" className="text-sm text-red-600">
+              <p data-testid="register-error" role="alert" className="rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-600">
                 {err}
               </p>
             )}
             <button
               type="submit"
               disabled={loading}
-              className="w-full rounded-lg bg-teal-600 py-2.5 font-semibold text-white shadow-md shadow-teal-600/20 hover:bg-teal-500 disabled:opacity-50"
+              className="flex w-full items-center justify-center gap-2 rounded-full bg-teal-700 py-2.5 font-semibold text-white shadow-lg shadow-teal-700/20 transition hover:bg-teal-600 disabled:opacity-60"
             >
-              {loading ? "Creating…" : "Register"}
+              {loading && (
+                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                </svg>
+              )}
+              {loading ? "Creating…" : "Create account"}
             </button>
           </form>
-          <p className="mt-6 text-center text-sm text-slate-600">
+          <p className="mt-6 text-center text-sm text-slate-500">
             Already have an account?{" "}
             <Link href="/login" className="font-medium text-teal-700 hover:underline">
               Log in
