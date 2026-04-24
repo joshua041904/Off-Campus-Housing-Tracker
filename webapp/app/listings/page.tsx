@@ -61,7 +61,7 @@ function filtersReducer(state: ListingFilters, action: FilterAction): ListingFil
 }
 
 // ---------------------------------------------------------------------------
-// URL ↔ filter state helpers
+// URL <-> filter state helpers
 // ---------------------------------------------------------------------------
 function filtersToParams(f: ListingFilters): URLSearchParams {
   const p = new URLSearchParams();
@@ -396,7 +396,7 @@ function ListingsSearchSection({
               data-testid="listings-search-q"
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-slate-900 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-slate-900 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500"
               placeholder="studio, laundry…"
             />
           </div>
@@ -410,7 +410,7 @@ function ListingsSearchSection({
               step="0.01"
               value={minPrice}
               onChange={(e) => setMinPrice(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500"
             />
           </div>
           <div>
@@ -423,7 +423,7 @@ function ListingsSearchSection({
               step="0.01"
               value={maxPrice}
               onChange={(e) => setMaxPrice(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500"
             />
           </div>
         </div>
@@ -496,7 +496,7 @@ function ListingsSearchSection({
             Dishwasher
           </label>
         </div>
-      </div>
+      </fieldset>
 
       <div className="mt-8">
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
@@ -512,7 +512,7 @@ function ListingsSearchSection({
               data-testid="listings-sort"
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as ListingSearchSort)}
-              className="mt-1 block rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+              className="mt-1 block rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500"
             >
               <option value="created_desc">Newest (created)</option>
               <option value="listed_desc">Listing date</option>
@@ -529,7 +529,7 @@ function ListingsSearchSection({
               data-testid="listings-new-within"
               value={newWithin}
               onChange={(e) => setNewWithin(e.target.value)}
-              className="mt-1 block rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+              className="mt-1 block rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500"
             >
               <option value="">Any time</option>
               <option value="7">Last 7 days</option>
@@ -692,7 +692,7 @@ function CreateListingSection({
             data-testid="listings-create-title"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500"
             required
           />
         </div>
@@ -705,7 +705,7 @@ function CreateListingSection({
             value={desc}
             onChange={(e) => setDesc(e.target.value)}
             rows={3}
-            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500"
           />
         </div>
         <div>
@@ -718,7 +718,7 @@ function CreateListingSection({
             step="0.01"
             value={priceUsd}
             onChange={(e) => setPriceUsd(e.target.value)}
-            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500"
             required
           />
         </div>
@@ -731,7 +731,7 @@ function CreateListingSection({
             type="date"
             value={effectiveFrom}
             onChange={(e) => setEffectiveFrom(e.target.value)}
-            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500"
             required
           />
         </div>
