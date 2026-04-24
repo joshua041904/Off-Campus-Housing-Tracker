@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { registerUser } from "@/lib/api";
 import { Nav } from "@/components/Nav";
 import { useAuth } from "@/lib/auth-context";
+import { mapAuthError } from "@/lib/auth-errors";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -34,7 +35,7 @@ export default function RegisterPage() {
       router.push("/dashboard");
     } catch (e: unknown) {
       if (e instanceof Error && e.name === "AbortError") return;
-      setErr(e instanceof Error ? e.message : "Registration failed. Please try again.");
+      setErr(mapAuthError(e, "Registration failed. Please try again."));
     } finally {
       if (!controller.signal.aborted) setLoading(false);
     }
@@ -82,7 +83,7 @@ export default function RegisterPage() {
               />
             </div>
             {err && (
-              <p data-testid="register-error" role="alert" className="rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-600">
+              <p data-testid="register-error" role="alert" aria-live="assertive" aria-atomic="true" className="rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-600">
                 {err}
               </p>
             )}
