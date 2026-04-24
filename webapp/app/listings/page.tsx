@@ -13,6 +13,52 @@ import { getStoredEmail, getStoredToken } from "@/lib/auth-storage";
 import { Nav } from "@/components/Nav";
 import { GoogleMapEmbed } from "@/components/GoogleMapEmbed";
 
+
+// ---------------------------------------------------------------------------
+// Filter state — single source of truth for all search/filter fields
+// ---------------------------------------------------------------------------
+export type ListingFilters = {
+  q: string;
+  minPrice: string;
+  maxPrice: string;
+  smokeFree: boolean;
+  petFriendly: boolean;
+  furnishedOnly: boolean;
+  filterGarage: boolean;
+  filterParking: boolean;
+  filterLaundry: boolean;
+  filterDishwasher: boolean;
+  sortBy: ListingSearchSort;
+  newWithin: string;
+};
+
+export const DEFAULT_FILTERS: ListingFilters = {
+  q: '',
+  minPrice: '',
+  maxPrice: '',
+  smokeFree: false,
+  petFriendly: false,
+  furnishedOnly: false,
+  filterGarage: false,
+  filterParking: false,
+  filterLaundry: false,
+  filterDishwasher: false,
+  sortBy: 'created_desc',
+  newWithin: '',
+};
+
+type FilterAction =
+  | { type: 'SET'; payload: Partial<ListingFilters> }
+  | { type: 'RESET' };
+
+function filtersReducer(state: ListingFilters, action: FilterAction): ListingFilters {
+  switch (action.type) {
+    case 'SET': return { ...state, ...action.payload };
+    case 'RESET': return DEFAULT_FILTERS;
+    default: return state;
+  }
+}
+
 const AMENITY_OPTIONS = [
   { slug: "garage", label: "Garage" },
   { slug: "parking", label: "Parking" },
