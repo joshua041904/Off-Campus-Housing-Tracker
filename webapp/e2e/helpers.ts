@@ -110,7 +110,7 @@ export async function registerViaUi(page: Page, email: string, password: string)
       { timeout: responseTimeout },
     );
 
-    await page.locator('[data-testid="register-form"]').getByRole("button", { name: "Register" }).click();
+    await page.locator('[data-testid="register-form"]').getByRole("button", { name: "Create account" }).click();
 
     let regStatus = 0;
     let regBody = "";
