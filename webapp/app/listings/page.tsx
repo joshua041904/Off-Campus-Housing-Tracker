@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useReducer, useState } from "react";
+import { Suspense, useCallback, useEffect, useReducer, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation"; // eslint-disable-line @typescript-eslint/no-unused-vars
 import {
   createListing,
   getListing,
@@ -57,6 +58,47 @@ function filtersReducer(state: ListingFilters, action: FilterAction): ListingFil
     case 'RESET': return DEFAULT_FILTERS;
     default: return state;
   }
+}
+
+// ---------------------------------------------------------------------------
+// URL ↔ filter state helpers
+// ---------------------------------------------------------------------------
+function filtersToParams(f: ListingFilters): URLSearchParams {
+  const p = new URLSearchParams();
+  if (f.q) p.set('q', f.q);
+  if (f.minPrice) p.set('min_price', f.minPrice);
+  if (f.maxPrice) p.set('max_price', f.maxPrice);
+  if (f.smokeFree) p.set('smoke_free', '1');
+  if (f.petFriendly) p.set('pet_friendly', '1');
+  if (f.furnishedOnly) p.set('furnished', '1');
+  const amenities: string[] = [];
+  if (f.filterGarage) amenities.push('garage');
+  if (f.filterParking) amenities.push('parking');
+  if (f.filterLaundry) amenities.push('in_unit_laundry');
+  if (f.filterDishwasher) amenities.push('dishwasher');
+  if (amenities.length) p.set('amenities', amenities.join(','));
+  if (f.newWithin) p.set('new_within', f.newWithin);
+  if (f.sortBy && f.sortBy !== 'created_desc') p.set('sort', f.sortBy);
+  return p;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function paramsToFilters(p: URLSearchParams): Partial<ListingFilters> {
+  const amenities = (p.get('amenities') || '').split(',');
+  return {
+    q: p.get('q') || '',
+    minPrice: p.get('min_price') || '',
+    maxPrice: p.get('max_price') || '',
+    smokeFree: p.get('smoke_free') === '1',
+    petFriendly: p.get('pet_friendly') === '1',
+    furnishedOnly: p.get('furnished') === '1',
+    filterGarage: amenities.includes('garage'),
+    filterParking: amenities.includes('parking'),
+    filterLaundry: amenities.includes('in_unit_laundry'),
+    filterDishwasher: amenities.includes('dishwasher'),
+    newWithin: p.get('new_within') || '',
+    sortBy: (p.get('sort') as ListingFilters['sortBy']) || 'created_desc',
+  };
 }
 
 const AMENITY_OPTIONS = [
@@ -785,7 +827,9 @@ function CreateListingSection({
   );
 }
 
-export default function ListingsPage() {
+function ListingsPageInner() {
+  const router = useRouter();
+  const searchParams = useSearchParams(); // eslint-disable-line @typescript-eslint/no-unused-vars
   const [email, setEmail] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
 
@@ -838,6 +882,13 @@ export default function ListingsPage() {
     setToken(getStoredToken());
     setEmail(getStoredEmail());
   }, []);
+
+  // Sync filter state → URL query params on every filter change
+  useEffect(() => {
+    const params = filtersToParams(filters);
+    const qs = params.toString();
+    router.replace(qs ? `/listings?${qs}` : '/listings', { scroll: false });
+  }, [filters]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const buildCreateAmenities = (): string[] => {
     const parts: string[] = [];
@@ -1082,5 +1133,13 @@ export default function ListingsPage() {
         />
       </main>
     </div>
+  );
+}
+
+export default function ListingsPage() {
+  return (
+    <Suspense>
+      <ListingsPageInner />
+    </Suspense>
   );
 }
