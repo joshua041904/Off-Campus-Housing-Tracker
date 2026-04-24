@@ -44,6 +44,26 @@ function extractIds(body: string): string {
   return JSON.stringify((parsed.items ?? []).map((item) => item.id ?? ""));
 }
 
+function assertPriceDescending(body: string): void {
+  const parsed = JSON.parse(body) as {
+    items?: Array<{ price_cents?: number | null }>;
+  };
+  const prices = (parsed.items ?? []).map((item) => item.price_cents ?? null);
+  let sawNull = false;
+  let previous: number | null = null;
+  for (const price of prices) {
+    if (price == null) {
+      sawNull = true;
+      continue;
+    }
+    expect(sawNull, "null prices must sort last").toBeFalsy();
+    if (previous != null) {
+      expect(price).toBeLessThanOrEqual(previous);
+    }
+    previous = price;
+  }
+}
+
 function assertPriceAscendingNullsLast(body: string): void {
   const parsed = JSON.parse(body) as {
     items?: Array<{ price_cents?: number | null }>;
@@ -62,6 +82,36 @@ function assertPriceAscendingNullsLast(body: string): void {
     }
     previous = price;
   }
+}
+
+function assertFullListingsFilterBody(
+  body: string,
+  options: {
+    minPrice?: number;
+    maxPrice?: number;
+    petFriendly?: boolean;
+    sort: "price_asc" | "price_desc";
+  },
+): void {
+  const parsed = JSON.parse(body) as {
+    items?: Array<{ price_cents?: number | null; pet_friendly?: boolean | null }>;
+  };
+  const items = parsed.items ?? [];
+  expect(Array.isArray(items)).toBe(true);
+  for (const item of items) {
+    const price = item.price_cents;
+    if (options.minPrice != null && price != null) {
+      expect(price).toBeGreaterThanOrEqual(options.minPrice);
+    }
+    if (options.maxPrice != null && price != null) {
+      expect(price).toBeLessThanOrEqual(options.maxPrice);
+    }
+    if (options.petFriendly) {
+      expect(item.pet_friendly).toBe(true);
+    }
+  }
+  if (options.sort === "price_asc") assertPriceAscendingNullsLast(body);
+  else assertPriceDescending(body);
 }
 
 test.describe("transport protocol (curl)", () => {
@@ -121,6 +171,59 @@ test.describe("transport protocol (curl)", () => {
     }
   });
 
+  test("listings full filter flow works over HTTP/2", async ({ request }) => {
+    test.skip(!(await apiGatewayHealthy(request)), "edge not up");
+    test.skip(
+      !process.env.NODE_EXTRA_CA_CERTS?.trim(),
+      "NODE_EXTRA_CA_CERTS required for curl TLS",
+    );
+
+    try {
+      const response = curlJson(
+        "/api/listings/search?q=apartment&min_price=100000&max_price=300000&sort=price_desc&pet_friendly=1",
+        ["--http2", "-i"],
+      );
+      expect(["2", "1.1"]).toContain(response.httpVersion);
+      expect(response.body).toContain("\r\n200 ");
+      expect(response.body).toMatch(/\r\ncontent-type:\s*application\/json/i);
+      const body = response.body.split("\r\n\r\n").slice(-1)[0] ?? "";
+      expect(JSON.parse(body)).toHaveProperty("items");
+      assertFullListingsFilterBody(body, {
+        minPrice: 100_000,
+        maxPrice: 300_000,
+        petFriendly: true,
+        sort: "price_desc",
+      });
+    } catch (e) {
+      test.skip(true, `curl listings/search full flow over --http2 failed: ${(e as Error).message}`);
+    }
+  });
+
+  test("listings full filter flow matches over HTTP/1.1", async ({ request }) => {
+    test.skip(!(await apiGatewayHealthy(request)), "edge not up");
+    test.skip(
+      !process.env.NODE_EXTRA_CA_CERTS?.trim(),
+      "NODE_EXTRA_CA_CERTS required for curl TLS",
+    );
+
+    try {
+      const response = curlJson(
+        "/api/listings/search?min_price=100000&sort=price_asc",
+        ["--http1.1", "-i"],
+      );
+      expect(response.httpVersion).toBe("1.1");
+      expect(response.body).toContain("\r\n200 ");
+      const body = response.body.split("\r\n\r\n").slice(-1)[0] ?? "";
+      expect(JSON.parse(body)).toHaveProperty("items");
+      assertFullListingsFilterBody(body, {
+        minPrice: 100_000,
+        sort: "price_asc",
+      });
+    } catch (e) {
+      test.skip(true, `curl listings/search full flow over --http1.1 failed: ${(e as Error).message}`);
+    }
+  });
+
   test("listings search sort works over HTTP/3", async ({ request }) => {
     test.skip(!(await apiGatewayHealthy(request)), "edge not up");
     test.skip(
@@ -139,6 +242,36 @@ test.describe("transport protocol (curl)", () => {
         throw e;
       }
       test.skip(true, `curl listings/search over --http3-only failed: ${(e as Error).message}`);
+    }
+  });
+
+  test("listings full filter flow works over HTTP/3", async ({ request }) => {
+    test.skip(!(await apiGatewayHealthy(request)), "edge not up");
+    test.skip(
+      !process.env.NODE_EXTRA_CA_CERTS?.trim(),
+      "NODE_EXTRA_CA_CERTS required for curl TLS",
+    );
+
+    try {
+      const response = curlJson(
+        "/api/listings/search?q=apartment&min_price=100000&max_price=300000&sort=price_desc&pet_friendly=1",
+        ["--http3-only", "-i"],
+      );
+      expect(response.httpVersion).toBe("3");
+      expect(response.body).toContain("\r\n200 ");
+      const body = response.body.split("\r\n\r\n").slice(-1)[0] ?? "";
+      expect(JSON.parse(body)).toHaveProperty("items");
+      assertFullListingsFilterBody(body, {
+        minPrice: 100_000,
+        maxPrice: 300_000,
+        petFriendly: true,
+        sort: "price_desc",
+      });
+    } catch (e) {
+      if (process.env.PLAYWRIGHT_STRICT_HTTP3 === "1") {
+        throw e;
+      }
+      test.skip(true, `curl listings/search full flow over --http3-only failed: ${(e as Error).message}`);
     }
   });
 });

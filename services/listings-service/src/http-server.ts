@@ -117,6 +117,12 @@ function amenitySlugsFromBooleanQuery(q: Request["query"]): string[] {
   return out;
 }
 
+function firstQueryValue(value: unknown): string | undefined {
+  if (Array.isArray(value)) return firstQueryValue(value[0]);
+  if (value == null) return undefined;
+  return String(value);
+}
+
 function rowToJson(row: Record<string, unknown>) {
   return {
     id: row.id,
@@ -202,14 +208,18 @@ export function createListingsHttpApp() {
   const searchListingsPublic = async (req: Request, res: Response) => {
     try {
       const searchT0 = Date.now();
-      const minP =
-        req.query.min_price != null ? Number(req.query.min_price) : null;
-      const maxP =
-        req.query.max_price != null ? Number(req.query.max_price) : null;
+      const priceFilters = validateSearchFilters({
+        min_price: firstQueryValue(req.query.min_price),
+        max_price: firstQueryValue(req.query.max_price),
+      });
+      if (!priceFilters.ok) {
+        res.status(400).json({ error: priceFilters.message });
+        return;
+      }
+      const { min_price: minP, max_price: maxP } = priceFilters.value;
+      const newWithinValue = firstQueryValue(req.query.new_within_days);
       const newWithinRaw =
-        req.query.new_within_days != null
-          ? Number(req.query.new_within_days)
-          : null;
+        newWithinValue != null ? Number(newWithinValue) : null;
       const newWithin =
         newWithinRaw != null &&
         Number.isFinite(newWithinRaw) &&
@@ -218,9 +228,10 @@ export function createListingsHttpApp() {
           ? Math.floor(newWithinRaw)
           : null;
       // Parse pagination params; invalid values fall back to builder defaults.
-      const limitRaw = req.query.limit != null ? Number(req.query.limit) : null;
-      const offsetRaw =
-        req.query.offset != null ? Number(req.query.offset) : null;
+      const limitValue = firstQueryValue(req.query.limit);
+      const offsetValue = firstQueryValue(req.query.offset);
+      const limitRaw = limitValue != null ? Number(limitValue) : null;
+      const offsetRaw = offsetValue != null ? Number(offsetValue) : null;
 
       const limit =
         limitRaw != null && Number.isFinite(limitRaw) && limitRaw > 0
@@ -243,21 +254,17 @@ export function createListingsHttpApp() {
           ...amenitySlugsFromBooleanQuery(req.query),
         ]),
       ];
-      const qStr = String(req.query.q || "").trim();
+      const qStr = (firstQueryValue(req.query.q) ?? "").trim();
       const { sql, params } = buildListingsSearchQuery({
         q: qStr,
-        minP: minP != null && !Number.isNaN(minP) ? minP : null,
-        maxP: maxP != null && !Number.isNaN(maxP) ? maxP : null,
-        smoke: req.query.smoke_free === "1" || req.query.smoke_free === "true",
-        pets:
-          req.query.pet_friendly === "1" || req.query.pet_friendly === "true",
-        furnished:
-          req.query.furnished === "1" ||
-          req.query.furnished === "true" ||
-          req.query.furnished === "yes",
+        minP,
+        maxP,
+        smoke: truthyQuery(req.query.smoke_free),
+        pets: truthyQuery(req.query.pet_friendly),
+        furnished: truthyQuery(req.query.furnished),
         amenitySlugs,
         newWithin,
-        sort: String(req.query.sort || "created_desc").trim(),
+        sort: firstQueryValue(req.query.sort) ?? "created_desc",
         limit,
         offset,
       });

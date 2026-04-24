@@ -7,6 +7,11 @@ const SEARCH_SORTS = new Set([
   "price_desc",
 ]);
 
+export function normalizeListingsSearchSort(sort?: string | null): string {
+  const sortRaw = (sort ?? "created_desc").trim();
+  return SEARCH_SORTS.has(sortRaw) ? sortRaw : "created_desc";
+}
+
 export function parseAmenitySlugs(raw: string): string[] {
   return [
     ...new Set(
@@ -44,8 +49,7 @@ export function buildListingsSearchQuery(filters: ListingsSearchFilters): {
   const furnished = Boolean(filters.furnished);
   const amenitySlugs = [...new Set(filters.amenitySlugs ?? [])];
   const newWithin = filters.newWithin ?? null;
-  const sortRaw = (filters.sort ?? "created_desc").trim();
-  const sort = SEARCH_SORTS.has(sortRaw) ? sortRaw : "created_desc";
+  const sort = normalizeListingsSearchSort(filters.sort);
 
   // Pagination parsing with defaults and guards against invalid input (negative, non-integer, non-finite, etc).
   const MAX_LIMIT = 100;
