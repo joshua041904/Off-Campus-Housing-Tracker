@@ -396,7 +396,7 @@ function ListingsSearchSection({
               data-testid="listings-search-q"
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-slate-900"
+              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-slate-900 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
               placeholder="studio, laundry…"
             />
           </div>
@@ -410,7 +410,7 @@ function ListingsSearchSection({
               step="0.01"
               value={minPrice}
               onChange={(e) => setMinPrice(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
             />
           </div>
           <div>
@@ -423,7 +423,7 @@ function ListingsSearchSection({
               step="0.01"
               value={maxPrice}
               onChange={(e) => setMaxPrice(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
             />
           </div>
         </div>
@@ -512,7 +512,7 @@ function ListingsSearchSection({
               data-testid="listings-sort"
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as ListingSearchSort)}
-              className="mt-1 block rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
+              className="mt-1 block rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
             >
               <option value="created_desc">Newest (created)</option>
               <option value="listed_desc">Listing date</option>
@@ -529,7 +529,7 @@ function ListingsSearchSection({
               data-testid="listings-new-within"
               value={newWithin}
               onChange={(e) => setNewWithin(e.target.value)}
-              className="mt-1 block rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
+              className="mt-1 block rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
             >
               <option value="">Any time</option>
               <option value="7">Last 7 days</option>
@@ -541,7 +541,7 @@ function ListingsSearchSection({
             type="submit"
             disabled={searchLoading}
             data-testid="listings-search-submit"
-            className="rounded-full bg-teal-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-600 disabled:opacity-50"
+            className="rounded-full bg-teal-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 disabled:opacity-50"
           >
             Search
           </button>
@@ -591,7 +591,7 @@ function ListingLookupSection({
           type="submit"
           disabled={detailLoading}
           data-testid="listings-detail-load"
-          className="rounded-full border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-800 transition hover:border-slate-400 hover:bg-slate-50 disabled:opacity-50"
+          className="rounded-full border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-800 transition hover:border-slate-400 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:opacity-50"
         >
           Load
         </button>
@@ -692,7 +692,7 @@ function CreateListingSection({
             data-testid="listings-create-title"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
             required
           />
         </div>
@@ -705,7 +705,7 @@ function CreateListingSection({
             value={desc}
             onChange={(e) => setDesc(e.target.value)}
             rows={3}
-            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
           />
         </div>
         <div>
@@ -718,7 +718,7 @@ function CreateListingSection({
             step="0.01"
             value={priceUsd}
             onChange={(e) => setPriceUsd(e.target.value)}
-            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
             required
           />
         </div>
@@ -731,7 +731,7 @@ function CreateListingSection({
             type="date"
             value={effectiveFrom}
             onChange={(e) => setEffectiveFrom(e.target.value)}
-            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
             required
           />
         </div>
@@ -822,7 +822,7 @@ function CreateListingSection({
             type="submit"
             disabled={createLoading}
             data-testid="listings-create-submit"
-            className="rounded-full bg-teal-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-600 disabled:opacity-50"
+            className="rounded-full bg-teal-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 disabled:opacity-50"
           >
             Create listing
           </button>
