@@ -29,64 +29,90 @@ const populatedListings = [
   },
 ];
 
-test.describe("listings page visual states", () => {
-  test.use({
-    // Always use local Next.js dev server for visual tests — no edge stack required
-    baseURL: process.env.VISUAL_TEST_BASE_URL || "http://localhost:3000",
-  });
+// Test on both desktop and mobile viewports
+const VIEWPORTS = [
+  { name: "desktop", width: 1280, height: 800 },
+  { name: "mobile", width: 390, height: 844 },
+];
 
-  test.beforeEach(async ({ page }) => {
-    // Block Google Maps embed to avoid external dependency and layout drift
-    await page.route("**/maps.googleapis.com/**", (route) => route.abort());
-    await page.route("**/maps.gstatic.com/**", (route) => route.abort());
-  });
+for (const viewport of VIEWPORTS) {
+  test.describe(`listings page visual states [${viewport.name}]`, () => {
+    test.use({
+      baseURL: process.env.VISUAL_TEST_BASE_URL || "http://localhost:3000",
+      viewport: { width: viewport.width, height: viewport.height },
+    });
 
-  test("populated results", async ({ page }) => {
-    await page.route("**/api/listings/search*", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(populatedListings),
+    test.beforeEach(async ({ page }) => {
+      // Block ALL external requests for full network isolation
+      await page.route("**/*", async (route) => {
+        const url = route.request().url();
+        if (
+          url.startsWith("http://localhost") ||
+          url.startsWith("http://127.0.0.1")
+        ) {
+          await route.continue();
+        } else {
+          await route.abort();
+        }
       });
     });
-    await page.goto("/listings");
-    await expect(page.getByTestId("listings-results")).toBeVisible();
-    await expect(page.getByText("2 Bed near campus")).toBeVisible();
-    await expect(page.getByTestId("listings-results")).toHaveScreenshot(
-      "listings-results-populated.png",
-      { maxDiffPixelRatio: 0.02 },
-    );
-  });
 
-  test("empty results", async ({ page }) => {
-    await page.route("**/api/listings/search*", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify([]),
+    test(`populated results [${viewport.name}]`, async ({ page }) => {
+      await page.route("**/api/listings/search*", async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify(populatedListings),
+        });
       });
-    });
-    await page.goto("/listings");
-    await expect(page.getByTestId("listings-results")).toBeVisible();
-    await expect(page.getByTestId("listings-results")).toHaveScreenshot(
-      "listings-results-empty.png",
-      { maxDiffPixelRatio: 0.02 },
-    );
-  });
 
-  test("error state", async ({ page }) => {
-    await page.route("**/api/listings/search*", async (route) => {
-      await route.fulfill({
-        status: 500,
-        contentType: "application/json",
-        body: JSON.stringify({ error: "listings search 500" }),
-      });
+      await page.goto("/listings");
+      await page.waitForLoadState("networkidle");
+      await expect(page.getByTestId("listings-results")).toBeVisible();
+      await expect(page.getByText("2 Bed near campus")).toBeVisible();
+
+      await expect(page.getByTestId("listings-results")).toHaveScreenshot(
+        `listings-results-populated-${viewport.name}.png`,
+        { maxDiffPixelRatio: 0.005 },
+      );
     });
-    await page.goto("/listings");
-    await expect(page.getByTestId("listings-results")).toBeVisible();
-    await expect(page.getByTestId("listings-results")).toHaveScreenshot(
-      "listings-results-error.png",
-      { maxDiffPixelRatio: 0.02 },
-    );
+
+    test(`empty results [${viewport.name}]`, async ({ page }) => {
+      await page.route("**/api/listings/search*", async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify([]),
+        });
+      });
+
+      await page.goto("/listings");
+      await page.waitForLoadState("networkidle");
+      await expect(page.getByTestId("listings-results")).toBeVisible();
+
+      await expect(page.getByTestId("listings-results")).toHaveScreenshot(
+        `listings-results-empty-${viewport.name}.png`,
+        { maxDiffPixelRatio: 0.005 },
+      );
+    });
+
+    test(`error state [${viewport.name}]`, async ({ page }) => {
+      await page.route("**/api/listings/search*", async (route) => {
+        await route.fulfill({
+          status: 500,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "listings search 500" }),
+        });
+      });
+
+      await page.goto("/listings");
+      await page.waitForLoadState("networkidle");
+      await expect(page.getByTestId("listings-results")).toBeVisible();
+
+      await expect(page.getByTestId("listings-results")).toHaveScreenshot(
+        `listings-results-error-${viewport.name}.png`,
+        { maxDiffPixelRatio: 0.005 },
+      );
+    });
   });
-});
+}
