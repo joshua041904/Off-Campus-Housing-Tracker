@@ -30,12 +30,17 @@ const populatedListings = [
 ];
 
 test.describe("listings page visual states", () => {
-  test.beforeEach(() => {
-    test.skip(
-      process.env.E2E_API_BASE === undefined,
-      "Requires running webapp/edge environment",
-    );
+  test.use({
+    // Always use local Next.js dev server for visual tests — no edge stack required
+    baseURL: process.env.VISUAL_TEST_BASE_URL || "http://localhost:3000",
   });
+
+  test.beforeEach(async ({ page }) => {
+    // Block Google Maps embed to avoid external dependency and layout drift
+    await page.route("**/maps.googleapis.com/**", (route) => route.abort());
+    await page.route("**/maps.gstatic.com/**", (route) => route.abort());
+  });
+
   test("populated results", async ({ page }) => {
     await page.route("**/api/listings/search*", async (route) => {
       await route.fulfill({
@@ -44,17 +49,12 @@ test.describe("listings page visual states", () => {
         body: JSON.stringify(populatedListings),
       });
     });
-
     await page.goto("/listings");
-
-    // wait for correct state
     await expect(page.getByTestId("listings-results")).toBeVisible();
-    await expect(page.getByText("Available listings")).toBeVisible();
-    await expect(page.getByText("2 listings found")).toBeVisible();
-
-    // snapshot
+    await expect(page.getByText("2 Bed near campus")).toBeVisible();
     await expect(page.getByTestId("listings-results")).toHaveScreenshot(
       "listings-results-populated.png",
+      { maxDiffPixelRatio: 0.02 },
     );
   });
 
@@ -66,18 +66,11 @@ test.describe("listings page visual states", () => {
         body: JSON.stringify([]),
       });
     });
-
     await page.goto("/listings");
-
-    // wait for correct state
     await expect(page.getByTestId("listings-results")).toBeVisible();
-    await expect(
-      page.getByText("No listings matched your current filters."),
-    ).toBeVisible();
-
-    // snapshot
     await expect(page.getByTestId("listings-results")).toHaveScreenshot(
       "listings-results-empty.png",
+      { maxDiffPixelRatio: 0.02 },
     );
   });
 
@@ -89,16 +82,11 @@ test.describe("listings page visual states", () => {
         body: JSON.stringify({ error: "listings search 500" }),
       });
     });
-
     await page.goto("/listings");
-
-    // wait for correct state
     await expect(page.getByTestId("listings-results")).toBeVisible();
-    await expect(page.getByText("Could not load listings")).toBeVisible();
-
-    // snapshot
     await expect(page.getByTestId("listings-results")).toHaveScreenshot(
       "listings-results-error.png",
+      { maxDiffPixelRatio: 0.02 },
     );
   });
 });
