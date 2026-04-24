@@ -106,6 +106,14 @@ function injectIdentityHeadersIfAny(req: AuthedRequest, _res: Response, next: Ne
   next();
 }
 
+function disableHistoryCaching(_req: Request, res: Response, next: NextFunction) {
+  res.setHeader("Cache-Control", "private, no-store, max-age=0");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  res.vary("Authorization");
+  next();
+}
+
 const grpcStatusToHttp: Record<number, number> = {
   [grpc.status.INVALID_ARGUMENT ?? 3]: 400,
   [grpc.status.UNAUTHENTICATED ?? 16]: 401,
@@ -510,6 +518,16 @@ app.post("/auth/validate", jsonParser, validateTokenHandler);
 app.post("/api/auth/validate", jsonParser, validateTokenHandler);
 app.post("/auth/refresh", jsonParser, refreshTokenHandler);
 app.post("/api/auth/refresh", jsonParser, refreshTokenHandler);
+
+app.use(
+  [
+    "/booking/search-history",
+    "/booking/search-history/list",
+    "/api/booking/search-history",
+    "/api/booking/search-history/list",
+  ],
+  disableHistoryCaching,
+);
 
 // Unknown /api/* (no mounted service prefix) → 404 without JWT (avoids 401 on typos / missing routes).
 const KNOWN_API_FIRST_SEGMENTS = new Set([

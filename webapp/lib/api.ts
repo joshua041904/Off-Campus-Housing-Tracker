@@ -1,6 +1,24 @@
 import { getApiBase } from "./config";
 
 export type ApiError = { error?: string; message?: string };
+export type SearchHistoryPayload = {
+  query?: string;
+  minPriceCents?: number;
+  maxPriceCents?: number;
+  maxDistanceKm?: number;
+  latitude?: number;
+  longitude?: number;
+};
+export type SearchHistoryRow = {
+  id?: string;
+  query?: string | null;
+  minPriceCents?: number | null;
+  maxPriceCents?: number | null;
+  maxDistanceKm?: number | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  createdAt?: string;
+};
 export const LISTING_SEARCH_SORTS = [
   "created_desc",
   "listed_desc",
@@ -82,21 +100,19 @@ export async function loginUser(email: string, password: string) {
 
 export async function postSearchHistory(
   token: string,
-  body: {
-    query?: string;
-    minPriceCents?: number;
-    maxPriceCents?: number;
-    maxDistanceKm?: number;
-    latitude?: number;
-    longitude?: number;
-  },
+  body: SearchHistoryPayload,
 ) {
   const res = await apiFetch("/api/booking/search-history", {
     method: "POST",
     token,
     body: JSON.stringify(body),
+    cache: "no-store",
+    headers: {
+      "Cache-Control": "no-store",
+      Pragma: "no-cache",
+    },
   });
-  const data = await parseJson(res);
+  const data = (await parseJson(res)) as SearchHistoryRow;
   if (!res.ok)
     throw new Error(
       (data as ApiError)?.error || `search-history ${res.status}`,
@@ -110,9 +126,14 @@ export async function listSearchHistory(token: string, limit = 25) {
     {
       method: "GET",
       token,
+      cache: "no-store",
+      headers: {
+        "Cache-Control": "no-store",
+        Pragma: "no-cache",
+      },
     },
   );
-  const data = (await parseJson(res)) as { items?: unknown[] };
+  const data = (await parseJson(res)) as { items?: SearchHistoryRow[] };
   if (!res.ok)
     throw new Error(
       (data as ApiError)?.error || `list search-history ${res.status}`,

@@ -13,6 +13,7 @@ async function main() {
     requiredTopics: [BOOKING_EVENTS_TOPIC, userLifecycleV1Topic()],
   });
   const app = createBookingHttpApp();
+  app.set("etag", false);
   app.listen(HTTP_PORT, "0.0.0.0", () => {
     console.log(`[booking] HTTP server listening on port ${HTTP_PORT}`);
   });
