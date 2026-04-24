@@ -126,7 +126,7 @@ export default function AnalyticsPage() {
   }, [date]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#f8faf8] via-[#fcfcfb] to-[#eefaf6] text-slate-900">
+    <div data-testid="analytics-page" className="min-h-screen bg-gradient-to-br from-[#f8faf8] via-[#fcfcfb] to-[#eefaf6] text-slate-900">
       <Nav email={email} />
       <main className="mx-auto max-w-4xl px-4 py-12 sm:px-6 sm:py-16">
 
