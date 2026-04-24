@@ -29,7 +29,11 @@ const chrome = { ...devices["Desktop Chrome"] };
 const suiteProjects = [
   {
     name: "01-guest-shell",
-    testMatch: ["guest.spec.ts", "webapp-pages.spec.ts", "messaging-mentioned.spec.ts"],
+    testMatch: [
+      "guest.spec.ts",
+      "webapp-pages.spec.ts",
+      "messaging-mentioned.spec.ts",
+    ],
   },
   {
     name: "02-auth-booking",
@@ -37,7 +41,12 @@ const suiteProjects = [
   },
   {
     name: "03-listings",
-    testMatch: ["listing-and-analytics-journey.spec.ts", "listings-filters-maps.spec.ts", "search-filters.spec.ts"],
+    testMatch: [
+      "listing-and-analytics-journey.spec.ts",
+      "listings-filters-maps.spec.ts",
+      "search-filters.spec.ts",
+      "listings.visual.spec.ts",
+    ],
   },
   {
     name: "04-analytics",

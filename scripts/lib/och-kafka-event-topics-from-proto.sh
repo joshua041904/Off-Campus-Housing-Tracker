@@ -15,6 +15,7 @@
 #   - Always add "${ENV_PREFIX}.messaging.dlq${SUF}"
 
 och_kafka_event_topics_fill() {
+  : "${SUF:=}"
   OCH_KAFKA_EVENT_TOPICS=()
   local proto_root="${PROTO_EVENTS_ROOT:-$REPO_ROOT/proto/events}"
   if [[ ! -d "$proto_root" ]]; then

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   listSearchHistory,
   postSearchHistory,
+  type SearchHistoryRow,
   watchlistAdd,
   watchlistList,
   watchlistRemove,
@@ -13,16 +14,7 @@ import { useAuth } from "@/lib/auth-context";
 import { Nav } from "@/components/Nav";
 import { GoogleMapEmbed } from "@/components/GoogleMapEmbed";
 
-type SearchRow = {
-  id?: string;
-  query?: string | null;
-  minPriceCents?: number | null;
-  maxPriceCents?: number | null;
-  maxDistanceKm?: number | null;
-  latitude?: number | null;
-  longitude?: number | null;
-  createdAt?: string;
-};
+type SearchRow = SearchHistoryRow;
 
 type WatchRow = {
   listingId?: string;
@@ -85,17 +77,21 @@ export default function DashboardPage() {
     setMsg(null);
     setErr(null);
     setLoading(true);
+    const nextRow: SearchRow = {
+      query,
+      minPriceCents: minPrice ? Math.round(Number(minPrice) * 100) : null,
+      maxPriceCents: maxPrice ? Math.round(Number(maxPrice) * 100) : null,
+      maxDistanceKm: maxKm ? Number(maxKm) : null,
+      createdAt: new Date().toISOString(),
+    };
     try {
-      await postSearchHistory(token, {
-        query,
-        minPriceCents: minPrice
-          ? Math.round(Number(minPrice) * 100)
-          : undefined,
-        maxPriceCents: maxPrice
-          ? Math.round(Number(maxPrice) * 100)
-          : undefined,
-        maxDistanceKm: maxKm ? Number(maxKm) : undefined,
+      const created = await postSearchHistory(token, {
+        query: nextRow.query ?? undefined,
+        minPriceCents: nextRow.minPriceCents ?? undefined,
+        maxPriceCents: nextRow.maxPriceCents ?? undefined,
+        maxDistanceKm: nextRow.maxDistanceKm ?? undefined,
       });
+      setHistory((current) => [created, ...current]);
       setMsg("Search saved to history.");
       await refreshAll();
     } catch (e: unknown) {
