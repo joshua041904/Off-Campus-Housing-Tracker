@@ -429,10 +429,10 @@ function ListingsSearchSection({
         </div>
       </div>
 
-      <div className="mt-8">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+      <fieldset className="mt-8 border-0 p-0 m-0">
+        <legend className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
           Preferences and amenities
-        </p>
+        </legend>
         <div className="mt-3 flex flex-wrap gap-3 text-sm">
           <label className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2">
             <input
