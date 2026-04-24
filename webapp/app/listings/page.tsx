@@ -388,10 +388,11 @@ function ListingsSearchSection({
         </p>
         <div className="mt-3 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <div className="md:col-span-2">
-            <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            <label htmlFor="listings-q" className="text-xs font-medium uppercase tracking-wide text-slate-500">
               Keywords
             </label>
             <input
+              id="listings-q"
               data-testid="listings-search-q"
               value={q}
               onChange={(e) => setQ(e.target.value)}
@@ -400,10 +401,11 @@ function ListingsSearchSection({
             />
           </div>
           <div>
-            <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            <label htmlFor="listings-min-price" className="text-xs font-medium uppercase tracking-wide text-slate-500">
               Min price (USD)
             </label>
             <input
+              id="listings-min-price"
               type="number"
               step="0.01"
               value={minPrice}
@@ -412,10 +414,11 @@ function ListingsSearchSection({
             />
           </div>
           <div>
-            <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            <label htmlFor="listings-max-price" className="text-xs font-medium uppercase tracking-wide text-slate-500">
               Max price (USD)
             </label>
             <input
+              id="listings-max-price"
               type="number"
               step="0.01"
               value={maxPrice}
