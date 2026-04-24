@@ -17,7 +17,7 @@ const SAFE_REGISTER_MESSAGES = [
   "Something went wrong. Please try again.",
 ];
 
-const ALL_SAFE_MESSAGES = [...new Set([...SAFE_LOGIN_MESSAGES, ...SAFE_REGISTER_MESSAGES])];
+const ALL_SAFE_MESSAGES = [...SAFE_LOGIN_MESSAGES, ...SAFE_REGISTER_MESSAGES];
 
 export function mapAuthError(err: unknown, fallback = "Something went wrong. Please try again."): string {
   if (!(err instanceof Error)) return fallback;
