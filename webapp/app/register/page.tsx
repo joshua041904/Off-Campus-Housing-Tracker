@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { registerUser } from "@/lib/api";
@@ -15,21 +15,33 @@ export default function RegisterPage() {
   const [password, setPassword] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const controllerRef = useRef<AbortController | null>(null);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (loading) return;
     setErr(null);
+
+    controllerRef.current?.abort();
+    const controller = new AbortController();
+    controllerRef.current = controller;
+
     setLoading(true);
     try {
       const data = await registerUser(email, password);
+      if (controller.signal.aborted) return;
       if (!data.token) throw new Error("No token returned");
       login(data.token, email);
       router.push("/dashboard");
     } catch (e: unknown) {
+<<<<<<< HEAD
       setErr(mapAuthError(e, "Registration failed. Please try again."));
+=======
+      if (e instanceof Error && e.name === "AbortError") return;
+      setErr(e instanceof Error ? e.message : "Registration failed. Please try again.");
+>>>>>>> origin/main
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
   }
 
@@ -75,6 +87,7 @@ export default function RegisterPage() {
               />
             </div>
             {err && (
+<<<<<<< HEAD
               <p
                 data-testid="register-error"
                 role="alert"
@@ -82,6 +95,9 @@ export default function RegisterPage() {
                 aria-atomic="true"
                 className="rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-600"
               >
+=======
+              <p data-testid="register-error" role="alert" className="rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-600">
+>>>>>>> origin/main
                 {err}
               </p>
             )}

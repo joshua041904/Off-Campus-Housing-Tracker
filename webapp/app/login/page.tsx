@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { loginUser } from "@/lib/api";
@@ -15,21 +15,29 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const controllerRef = useRef<AbortController | null>(null);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (loading) return;
     setErr(null);
+
+    controllerRef.current?.abort();
+    const controller = new AbortController();
+    controllerRef.current = controller;
+
     setLoading(true);
     try {
       const data = await loginUser(email, password);
+      if (controller.signal.aborted) return;
       if (!data.token) throw new Error("No token returned");
       login(data.token, email);
       router.push("/dashboard");
     } catch (e: unknown) {
+      if (e instanceof Error && e.name === "AbortError") return;
       setErr(mapAuthError(e, "Login failed. Please try again."));
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
   }
 
@@ -74,12 +82,7 @@ export default function LoginPage() {
               />
             </div>
             {err && (
-              <p
-                data-testid="login-error"
-                role="alert"
-                aria-live="assertive"
-                className="rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-600"
-              >
+              <p data-testid="login-error" role="alert" aria-live="assertive" className="rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-600">
                 {err}
               </p>
             )}
