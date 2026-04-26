@@ -102,17 +102,34 @@ export default function TrustPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-emerald-50/50 text-slate-900">
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-teal-50/30 text-slate-900">
       <Nav email={email} />
-      <main className="mx-auto max-w-3xl px-4 py-10">
-        <h1 className="font-serif text-3xl text-slate-900">Trust &amp; safety</h1>
-        <p className="mt-2 text-sm text-slate-600">
-          Report abuse and submit peer reviews via gateway → trust-service. Reputation lookup is public.
-        </p>
+      <main className="mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-12">
+        <section className="max-w-3xl">
+          <p className="text-sm font-semibold uppercase tracking-[0.22em] text-teal-700">
+            Trust & safety
+          </p>
+          <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
+            Manage trust, safety, and reputation
+          </h1>
+          <p className="mt-4 text-lg leading-8 text-slate-600">
+            Report abuse, submit peer reviews, and look up user reputation.
+            These tools help maintain a safe and trustworthy housing community.
+          </p>
+        </section>
 
-        <section className="mt-10 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
-          <h2 className="text-lg font-medium text-slate-900">Reputation</h2>
-          <form data-testid="trust-reputation-form" onSubmit={onReputation} className="mt-4 flex flex-col gap-3 sm:flex-row">
+        <section className="mt-10 rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+          <p className="text-sm font-semibold uppercase tracking-[0.22em] text-teal-700">
+            Moderation
+          </p>
+          <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
+            Report abuse
+          </h2>
+          <form
+            data-testid="trust-reputation-form"
+            onSubmit={onReputation}
+            className="mt-4 flex flex-col gap-3 sm:flex-row"
+          >
             <input
               data-testid="trust-reputation-user-id"
               value={repUserId}
@@ -139,7 +156,10 @@ export default function TrustPage() {
             </button>
           )}
           {repScore != null && (
-            <p data-testid="trust-reputation-score" className="mt-4 text-sm text-slate-600">
+            <p
+              data-testid="trust-reputation-score"
+              className="mt-4 text-sm text-slate-600"
+            >
               Score: <strong className="text-teal-800">{repScore}</strong>
             </p>
           )}
@@ -147,9 +167,17 @@ export default function TrustPage() {
 
         {token ? (
           <>
-            <section className="mt-8 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
-              <h2 className="text-lg font-medium text-slate-900">Report abuse</h2>
-              <form onSubmit={onReport} className="mt-4 space-y-3">
+            <section className="mt-10 rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+              <p className="text-sm font-semibold uppercase tracking-[0.22em] text-teal-700">
+                Reputation
+              </p>
+              <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
+                Look up a user’s reputation
+              </h2>
+              <form
+                onSubmit={onReport}
+                className="mt-4 space-y-3"
+              >
                 <div className="flex gap-4 text-sm text-slate-700">
                   <label className="flex items-center gap-2">
                     <input
@@ -200,12 +228,21 @@ export default function TrustPage() {
               </form>
             </section>
 
-            <section className="mt-8 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
-              <h2 className="text-lg font-medium text-slate-900">Peer review</h2>
-              <p className="mt-1 text-xs text-slate-600">
-                After a booking — both sides can leave a review (unique per booking/reviewer).
+            <section className="mt-10 rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+              <p className="text-sm font-semibold uppercase tracking-[0.22em] text-teal-700">
+                Reviews
               </p>
-              <form onSubmit={onPeerReview} className="mt-4 space-y-3">
+              <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
+                Submit a peer review
+              </h2>
+              <p className="mt-1 text-xs text-slate-600">
+                After a booking — both sides can leave a review (unique per
+                booking/reviewer).
+              </p>
+              <form
+                onSubmit={onPeerReview}
+                className="mt-4 space-y-3"
+              >
                 <input
                   value={bookingId}
                   onChange={(e) => setBookingId(e.target.value)}
@@ -255,15 +292,20 @@ export default function TrustPage() {
             </section>
           </>
         ) : (
-          <p className="mt-8 text-sm text-slate-600">
-            <Link href="/login" className="font-medium text-teal-700 hover:underline">
+          <div className="mt-10 rounded-[1.25rem] border border-slate-200 bg-white px-5 py-4 text-sm text-slate-600 shadow-sm">
+            <Link
+              href="/login"
+              className="font-medium text-teal-700 hover:underline"
+            >
               Log in
             </Link>{" "}
             to report abuse or submit peer reviews.
-          </p>
+          </div>
         )}
 
-        {msg && <p className="mt-6 text-sm font-medium text-emerald-700">{msg}</p>}
+        {msg && (
+          <p className="mt-6 text-sm font-medium text-emerald-700">{msg}</p>
+        )}
         {err && <p className="mt-2 text-sm text-red-600">{err}</p>}
       </main>
     </div>
