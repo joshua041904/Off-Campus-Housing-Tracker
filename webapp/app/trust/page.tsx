@@ -50,6 +50,7 @@ function ReputationSection({
       <form
         data-testid="trust-reputation-form"
         onSubmit={onReputation}
+        aria-busy={loading}
         className="mt-4 flex flex-col gap-3 sm:flex-row"
       >
         <input
@@ -65,7 +66,7 @@ function ReputationSection({
           data-testid="trust-reputation-submit"
           className="rounded-md bg-teal-600 px-4 py-2 font-medium text-white hover:bg-teal-500 disabled:opacity-50"
         >
-          Look up
+          {loading ? "Looking up…" : "Look up"}
         </button>
       </form>
       {mySub && (
@@ -122,6 +123,7 @@ function ReportAbuseSection({
       </h2>
       <form
         onSubmit={onReport}
+        aria-busy={loading}
         className="mt-4 space-y-3"
       >
         <div className="flex gap-4 text-sm text-slate-700">
@@ -169,7 +171,7 @@ function ReportAbuseSection({
           disabled={loading}
           className="rounded-md border border-red-200 bg-red-50 px-4 py-2 font-medium text-red-800 hover:bg-red-100 disabled:opacity-50"
         >
-          Submit report
+          {loading ? "Submitting report…" : "Submit report"}
         </button>
       </form>
     </section>
@@ -217,6 +219,7 @@ function PeerReviewSection({
       </p>
       <form
         onSubmit={onPeerReview}
+        aria-busy={loading}
         className="mt-4 space-y-3"
       >
         <input
@@ -262,7 +265,7 @@ function PeerReviewSection({
           disabled={loading}
           className="rounded-md bg-slate-700 px-4 py-2 font-medium text-white hover:bg-slate-600 disabled:opacity-50"
         >
-          Submit review
+          {loading ? "Submitting review…" : "Submit review"}
         </button>
       </form>
     </section>
@@ -293,9 +296,22 @@ function TrustFeedback({
   return (
     <>
       {msg && (
-        <p className="mt-6 text-sm font-medium text-emerald-700">{msg}</p>
+        <div
+          role="status"
+          aria-live="polite"
+          className="mt-6 rounded-[1.25rem] border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-medium text-emerald-800 shadow-sm"
+        >
+          {msg}
+        </div>
       )}
-      {err && <p className="mt-2 text-sm text-red-600">{err}</p>}
+      {err && (
+        <div
+          role="alert"
+          className="mt-4 rounded-[1.25rem] border border-red-200 bg-red-50 px-5 py-4 text-sm font-medium text-red-700 shadow-sm"
+        >
+          {err}
+        </div>
+      )}
     </>
   );
 }
@@ -335,6 +351,7 @@ export default function TrustPage() {
   async function onReputation(e: React.FormEvent) {
     e.preventDefault();
     if (!repUserId.trim()) return;
+    setMsg(null);
     setErr(null);
     setLoading(true);
     try {
