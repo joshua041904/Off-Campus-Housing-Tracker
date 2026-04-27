@@ -20,7 +20,8 @@
     "test:e2e:smoke": "NODE_EXTRA_CA_CERTS=$PWD/../certs/dev-root.pem playwright test --project=01-guest-shell --project=04-analytics",
     "test:e2e:strict-edge": "sh ../scripts/webapp-playwright-strict-edge.sh",
     "test:e2e:ui": "NODE_EXTRA_CA_CERTS=$PWD/../certs/dev-root.pem playwright test --ui",
-    "test:e2e:headed": "NODE_EXTRA_CA_CERTS=$PWD/../certs/dev-root.pem playwright test --headed"
+    "test:e2e:headed": "NODE_EXTRA_CA_CERTS=$PWD/../certs/dev-root.pem playwright test --headed",
+    "test:e2e:visual": "PLAYWRIGHT_VISUAL_ONLY=1 VISUAL_TEST_BASE_URL=http://localhost:3000 playwright test --project=03-listings --grep listings.visual"
   },
   "dependencies": {
     "react": "^18",

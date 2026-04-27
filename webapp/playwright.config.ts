@@ -74,6 +74,14 @@ const suiteProjects = [
 ] as const;
 
 export default defineConfig({
+  webServer: process.env.PLAYWRIGHT_VISUAL_ONLY
+    ? {
+        command: "pnpm --filter webapp dev",
+        url: "http://localhost:3000",
+        reuseExistingServer: true,
+        timeout: 120_000,
+      }
+    : undefined,
   globalSetup: "./playwright.global-setup.ts",
   testDir: "./e2e",
   timeout: 120_000,
