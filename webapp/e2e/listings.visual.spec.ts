@@ -29,7 +29,6 @@ const populatedListings = [
   },
 ];
 
-// Test on both desktop and mobile viewports
 const VIEWPORTS = [
   { name: "desktop", width: 1280, height: 800 },
   { name: "mobile", width: 390, height: 844 },
@@ -43,6 +42,11 @@ for (const viewport of VIEWPORTS) {
     });
 
     test.beforeEach(async ({ page }) => {
+      // Disable CSS animations/transitions to prevent rendering drift
+      await page.addStyleTag({
+        content: `*, *::before, *::after { animation-duration: 0s !important; transition-duration: 0s !important; }`,
+      });
+
       // Block ALL external requests for full network isolation
       await page.route("**/*", async (route) => {
         const url = route.request().url();
@@ -69,6 +73,7 @@ for (const viewport of VIEWPORTS) {
       await page.goto("/listings");
       await page.waitForLoadState("networkidle");
       await expect(page.getByTestId("listings-results")).toBeVisible();
+      // Semantic assertion — catch non-visual regressions
       await expect(page.getByText("2 Bed near campus")).toBeVisible();
 
       await expect(page.getByTestId("listings-results")).toHaveScreenshot(
@@ -89,6 +94,8 @@ for (const viewport of VIEWPORTS) {
       await page.goto("/listings");
       await page.waitForLoadState("networkidle");
       await expect(page.getByTestId("listings-results")).toBeVisible();
+      // Semantic assertion
+      await expect(page.getByText("No listings matched your current filters.")).toBeVisible();
 
       await expect(page.getByTestId("listings-results")).toHaveScreenshot(
         `listings-results-empty-${viewport.name}.png`,
@@ -108,6 +115,8 @@ for (const viewport of VIEWPORTS) {
       await page.goto("/listings");
       await page.waitForLoadState("networkidle");
       await expect(page.getByTestId("listings-results")).toBeVisible();
+      // Semantic assertion
+      await expect(page.getByText("Could not load listings")).toBeVisible();
 
       await expect(page.getByTestId("listings-results")).toHaveScreenshot(
         `listings-results-error-${viewport.name}.png`,
