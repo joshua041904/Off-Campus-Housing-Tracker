@@ -33,6 +33,7 @@ const suiteProjects = [
       "guest.spec.ts",
       "webapp-pages.spec.ts",
       "messaging-mentioned.spec.ts",
+      "trust.visual.spec.ts",
     ],
   },
   {
