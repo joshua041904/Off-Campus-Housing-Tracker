@@ -287,32 +287,31 @@ function TrustLoginPrompt() {
 }
 
 function TrustFeedback({
-  msg,
-  err,
+  feedback,
 }: {
-  msg: string | null;
-  err: string | null;
+  feedback: { type: "success" | "error" | null; message: string };
 }) {
+  if (!feedback.type) return null;
+
+  if (feedback.type === "success") {
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        className="mt-6 rounded-[1.25rem] border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-medium text-emerald-800 shadow-sm"
+      >
+        {feedback.message}
+      </div>
+    );
+  }
+
   return (
-    <>
-      {msg && (
-        <div
-          role="status"
-          aria-live="polite"
-          className="mt-6 rounded-[1.25rem] border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-medium text-emerald-800 shadow-sm"
-        >
-          {msg}
-        </div>
-      )}
-      {err && (
-        <div
-          role="alert"
-          className="mt-4 rounded-[1.25rem] border border-red-200 bg-red-50 px-5 py-4 text-sm font-medium text-red-700 shadow-sm"
-        >
-          {err}
-        </div>
-      )}
-    </>
+    <div
+      role="alert"
+      className="mt-4 rounded-[1.25rem] border border-red-200 bg-red-50 px-5 py-4 text-sm font-medium text-red-700 shadow-sm"
+    >
+      {feedback.message}
+    </div>
   );
 }
 
@@ -336,8 +335,15 @@ export default function TrustPage() {
   const [comment, setComment] = useState("");
 
   const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
+  type FeedbackState = {
+    type: "success" | "error" | null;
+    message: string;
+  };
+
+  const [feedback, setFeedback] = useState<FeedbackState>({
+    type: null,
+    message: "",
+  });
 
   useEffect(() => {
     const t = getStoredToken();
@@ -351,16 +357,21 @@ export default function TrustPage() {
   async function onReputation(e: React.FormEvent) {
     e.preventDefault();
     if (loading) return;
-    setMsg(null);
-    setErr(null);
+    setFeedback({ type: null, message: "" });
     setLoading(true);
     try {
       const r = await getReputation(repUserId.trim());
       setRepScore(r.score);
-      setMsg(`Reputation for ${r.user_id}: ${r.score}`);
+      setFeedback({
+        type: "success",
+        message: `Reputation for ${r.user_id}: ${r.score}`,
+      });
     } catch (e: unknown) {
       setRepScore(null);
-      setErr(e instanceof Error ? e.message : "Lookup failed");
+      setFeedback({
+        type: "error",
+        message: e instanceof Error ? e.message : "Lookup failed",
+      });
     } finally {
       setLoading(false);
     }
@@ -370,8 +381,7 @@ export default function TrustPage() {
     e.preventDefault();
     if (loading) return;
     if (!token) return;
-    setMsg(null);
-    setErr(null);
+    setFeedback({ type: null, message: "" });
     setLoading(true);
     try {
       await reportAbuse(token, {
@@ -380,10 +390,16 @@ export default function TrustPage() {
         category: abuseCategory,
         details: abuseDetails,
       });
-      setMsg("Report submitted.");
+      setFeedback({
+        type: "success",
+        message: "Report submitted.",
+      });
       setAbuseDetails("");
     } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : "Report failed");
+      setFeedback({
+        type: "error",
+        message: e instanceof Error ? e.message : "Report failed",
+      });
     } finally {
       setLoading(false);
     }
@@ -393,8 +409,7 @@ export default function TrustPage() {
     e.preventDefault();
     if (loading) return;
     if (!token) return;
-    setMsg(null);
-    setErr(null);
+    setFeedback({ type: null, message: "" });
     setLoading(true);
     try {
       await submitPeerReview(token, {
@@ -404,10 +419,16 @@ export default function TrustPage() {
         rating,
         comment,
       });
-      setMsg("Peer review submitted.");
+      setFeedback({
+        type: "success",
+        message: "Peer review submitted.",
+      });
       setComment("");
     } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : "Review failed");
+      setFeedback({
+        type: "error",
+        message: e instanceof Error ? e.message : "Review failed",
+      });
     } finally {
       setLoading(false);
     }
@@ -461,10 +482,7 @@ export default function TrustPage() {
           <TrustLoginPrompt />
         )}
 
-        <TrustFeedback
-          msg={msg}
-          err={err}
-        />
+        <TrustFeedback feedback={feedback} />
       </main>
     </div>
   );
