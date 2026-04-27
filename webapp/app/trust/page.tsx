@@ -350,7 +350,7 @@ export default function TrustPage() {
 
   async function onReputation(e: React.FormEvent) {
     e.preventDefault();
-    if (!repUserId.trim()) return;
+    if (loading) return;
     setMsg(null);
     setErr(null);
     setLoading(true);
@@ -368,6 +368,7 @@ export default function TrustPage() {
 
   async function onReport(e: React.FormEvent) {
     e.preventDefault();
+    if (loading) return;
     if (!token) return;
     setMsg(null);
     setErr(null);
@@ -390,6 +391,7 @@ export default function TrustPage() {
 
   async function onPeerReview(e: React.FormEvent) {
     e.preventDefault();
+    if (loading) return;
     if (!token) return;
     setMsg(null);
     setErr(null);
