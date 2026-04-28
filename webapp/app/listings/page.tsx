@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useReducer, useState } from "react";
 import Link from "next/link";
 import {
   createListing,
@@ -12,6 +12,52 @@ import {
 import { getStoredEmail, getStoredToken } from "@/lib/auth-storage";
 import { Nav } from "@/components/Nav";
 import { GoogleMapEmbed } from "@/components/GoogleMapEmbed";
+
+
+// ---------------------------------------------------------------------------
+// Filter state — single source of truth for all search/filter fields
+// ---------------------------------------------------------------------------
+type ListingFilters = {
+  q: string;
+  minPrice: string;
+  maxPrice: string;
+  smokeFree: boolean;
+  petFriendly: boolean;
+  furnishedOnly: boolean;
+  filterGarage: boolean;
+  filterParking: boolean;
+  filterLaundry: boolean;
+  filterDishwasher: boolean;
+  sortBy: ListingSearchSort;
+  newWithin: string;
+};
+
+const DEFAULT_FILTERS: ListingFilters = {
+  q: '',
+  minPrice: '',
+  maxPrice: '',
+  smokeFree: false,
+  petFriendly: false,
+  furnishedOnly: false,
+  filterGarage: false,
+  filterParking: false,
+  filterLaundry: false,
+  filterDishwasher: false,
+  sortBy: 'created_desc',
+  newWithin: '',
+};
+
+type FilterAction =
+  | { type: 'SET'; payload: Partial<ListingFilters> }
+  | { type: 'RESET' };
+
+function filtersReducer(state: ListingFilters, action: FilterAction): ListingFilters {
+  switch (action.type) {
+    case 'SET': return { ...state, ...action.payload };
+    case 'RESET': return DEFAULT_FILTERS;
+    default: return state;
+  }
+}
 
 const AMENITY_OPTIONS = [
   { slug: "garage", label: "Garage" },
@@ -250,29 +296,29 @@ function ListingsSearchSection({
   onSearch,
 }: {
   q: string;
-  setQ: React.Dispatch<React.SetStateAction<string>>;
+  setQ: (v: string) => void;
   minPrice: string;
-  setMinPrice: React.Dispatch<React.SetStateAction<string>>;
+  setMinPrice: (v: string) => void;
   maxPrice: string;
-  setMaxPrice: React.Dispatch<React.SetStateAction<string>>;
+  setMaxPrice: (v: string) => void;
   smokeFree: boolean;
-  setSmokeFree: React.Dispatch<React.SetStateAction<boolean>>;
+  setSmokeFree: (v: boolean) => void;
   petFriendly: boolean;
-  setPetFriendly: React.Dispatch<React.SetStateAction<boolean>>;
+  setPetFriendly: (v: boolean) => void;
   furnishedOnly: boolean;
-  setFurnishedOnly: React.Dispatch<React.SetStateAction<boolean>>;
+  setFurnishedOnly: (v: boolean) => void;
   filterGarage: boolean;
-  setFilterGarage: React.Dispatch<React.SetStateAction<boolean>>;
+  setFilterGarage: (v: boolean) => void;
   filterParking: boolean;
-  setFilterParking: React.Dispatch<React.SetStateAction<boolean>>;
+  setFilterParking: (v: boolean) => void;
   filterLaundry: boolean;
-  setFilterLaundry: React.Dispatch<React.SetStateAction<boolean>>;
+  setFilterLaundry: (v: boolean) => void;
   filterDishwasher: boolean;
-  setFilterDishwasher: React.Dispatch<React.SetStateAction<boolean>>;
+  setFilterDishwasher: (v: boolean) => void;
   sortBy: ListingSearchSort;
-  setSortBy: React.Dispatch<React.SetStateAction<ListingSearchSort>>;
+  setSortBy: (v: ListingSearchSort) => void;
   newWithin: string;
-  setNewWithin: React.Dispatch<React.SetStateAction<string>>;
+  setNewWithin: (v: string) => void;
   searchLoading: boolean;
   onSearch: (e?: React.FormEvent) => Promise<void>;
 }) {
@@ -466,7 +512,7 @@ function ListingLookupSection({
   onLoadDetail,
 }: {
   detailId: string;
-  setDetailId: React.Dispatch<React.SetStateAction<string>>;
+  setDetailId: (v: string) => void;
   detailLoading: boolean;
   detail: ListingJson | null;
   onLoadDetail: (e: React.FormEvent) => Promise<void>;
@@ -546,31 +592,31 @@ function CreateListingSection({
   onCreate,
 }: {
   title: string;
-  setTitle: React.Dispatch<React.SetStateAction<string>>;
+  setTitle: (v: string) => void;
   desc: string;
-  setDesc: React.Dispatch<React.SetStateAction<string>>;
+  setDesc: (v: string) => void;
   priceUsd: string;
-  setPriceUsd: React.Dispatch<React.SetStateAction<string>>;
+  setPriceUsd: (v: string) => void;
   effectiveFrom: string;
-  setEffectiveFrom: React.Dispatch<React.SetStateAction<string>>;
+  setEffectiveFrom: (v: string) => void;
   createLat: string;
-  setCreateLat: React.Dispatch<React.SetStateAction<string>>;
+  setCreateLat: (v: string) => void;
   createLng: string;
-  setCreateLng: React.Dispatch<React.SetStateAction<string>>;
+  setCreateLng: (v: string) => void;
   createSmokeFree: boolean;
-  setCreateSmokeFree: React.Dispatch<React.SetStateAction<boolean>>;
+  setCreateSmokeFree: (v: boolean) => void;
   createPetFriendly: boolean;
-  setCreatePetFriendly: React.Dispatch<React.SetStateAction<boolean>>;
+  setCreatePetFriendly: (v: boolean) => void;
   createFurnished: boolean;
-  setCreateFurnished: React.Dispatch<React.SetStateAction<boolean>>;
+  setCreateFurnished: (v: boolean) => void;
   createGarage: boolean;
-  setCreateGarage: React.Dispatch<React.SetStateAction<boolean>>;
+  setCreateGarage: (v: boolean) => void;
   createParking: boolean;
-  setCreateParking: React.Dispatch<React.SetStateAction<boolean>>;
+  setCreateParking: (v: boolean) => void;
   createLaundry: boolean;
-  setCreateLaundry: React.Dispatch<React.SetStateAction<boolean>>;
+  setCreateLaundry: (v: boolean) => void;
   createDishwasher: boolean;
-  setCreateDishwasher: React.Dispatch<React.SetStateAction<boolean>>;
+  setCreateDishwasher: (v: boolean) => void;
   createLoading: boolean;
   onCreate: (e: React.FormEvent) => Promise<void>;
 }) {
@@ -743,18 +789,22 @@ export default function ListingsPage() {
   const [email, setEmail] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
 
-  const [q, setQ] = useState("");
-  const [minPrice, setMinPrice] = useState("");
-  const [maxPrice, setMaxPrice] = useState("");
-  const [smokeFree, setSmokeFree] = useState(false);
-  const [petFriendly, setPetFriendly] = useState(false);
-  const [furnishedOnly, setFurnishedOnly] = useState(false);
-  const [filterGarage, setFilterGarage] = useState(false);
-  const [filterParking, setFilterParking] = useState(false);
-  const [filterLaundry, setFilterLaundry] = useState(false);
-  const [filterDishwasher, setFilterDishwasher] = useState(false);
-  const [sortBy, setSortBy] = useState<ListingSearchSort>("created_desc");
-  const [newWithin, setNewWithin] = useState<string>("");
+  const [filters, dispatchFilters] = useReducer(filtersReducer, DEFAULT_FILTERS);
+  const { q, minPrice, maxPrice, smokeFree, petFriendly, furnishedOnly,
+    filterGarage, filterParking, filterLaundry, filterDishwasher,
+    sortBy, newWithin } = filters;
+  const setQ = (v: string) => dispatchFilters({ type: 'SET', payload: { q: v } });
+  const setMinPrice = (v: string) => dispatchFilters({ type: 'SET', payload: { minPrice: v } });
+  const setMaxPrice = (v: string) => dispatchFilters({ type: 'SET', payload: { maxPrice: v } });
+  const setSmokeFree = (v: boolean) => dispatchFilters({ type: 'SET', payload: { smokeFree: v } });
+  const setPetFriendly = (v: boolean) => dispatchFilters({ type: 'SET', payload: { petFriendly: v } });
+  const setFurnishedOnly = (v: boolean) => dispatchFilters({ type: 'SET', payload: { furnishedOnly: v } });
+  const setFilterGarage = (v: boolean) => dispatchFilters({ type: 'SET', payload: { filterGarage: v } });
+  const setFilterParking = (v: boolean) => dispatchFilters({ type: 'SET', payload: { filterParking: v } });
+  const setFilterLaundry = (v: boolean) => dispatchFilters({ type: 'SET', payload: { filterLaundry: v } });
+  const setFilterDishwasher = (v: boolean) => dispatchFilters({ type: 'SET', payload: { filterDishwasher: v } });
+  const setSortBy = (v: ListingSearchSort) => dispatchFilters({ type: 'SET', payload: { sortBy: v } });
+  const setNewWithin = (v: string) => dispatchFilters({ type: 'SET', payload: { newWithin: v } });
 
   const [items, setItems] = useState<ListingJson[]>([]);
   const [detail, setDetail] = useState<ListingJson | null>(null);
