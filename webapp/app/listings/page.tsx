@@ -62,7 +62,7 @@ function filtersReducer(state: ListingFilters, action: FilterAction): ListingFil
 }
 
 // ---------------------------------------------------------------------------
-// URL ↔ filter state helpers
+// URL <-> filter state helpers
 // ---------------------------------------------------------------------------
 function filtersToParams(f: ListingFilters): URLSearchParams {
   const p = new URLSearchParams();
@@ -164,7 +164,7 @@ function ListingsResultsSection({
             Available listings
           </h2>
         </div>
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-slate-500" role="status" aria-live="polite" aria-atomic="true">
           {searchLoading
             ? "Updating results…"
             : searchError
@@ -395,48 +395,51 @@ function ListingsSearchSection({
         </p>
         <div className="mt-3 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <div className="md:col-span-2">
-            <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            <label htmlFor="listings-q" className="text-xs font-medium uppercase tracking-wide text-slate-500">
               Keywords
             </label>
             <input
+              id="listings-q"
               data-testid="listings-search-q"
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-slate-900"
+              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-slate-900 focus-visible:border-teal-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
               placeholder="studio, laundry…"
             />
           </div>
           <div>
-            <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            <label htmlFor="listings-min-price" className="text-xs font-medium uppercase tracking-wide text-slate-500">
               Min price (USD)
             </label>
             <input
+              id="listings-min-price"
               type="number"
               step="0.01"
               value={minPrice}
               onChange={(e) => setMinPrice(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 focus-visible:border-teal-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
             />
           </div>
           <div>
-            <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            <label htmlFor="listings-max-price" className="text-xs font-medium uppercase tracking-wide text-slate-500">
               Max price (USD)
             </label>
             <input
+              id="listings-max-price"
               type="number"
               step="0.01"
               value={maxPrice}
               onChange={(e) => setMaxPrice(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 focus-visible:border-teal-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
             />
           </div>
         </div>
       </div>
 
-      <div className="mt-8">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+      <fieldset className="mt-8 border-0 p-0 m-0">
+        <legend className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
           Preferences and amenities
-        </p>
+        </legend>
         <div className="mt-3 flex flex-wrap gap-3 text-sm">
           <label className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2">
             <input
@@ -500,7 +503,7 @@ function ListingsSearchSection({
             Dishwasher
           </label>
         </div>
-      </div>
+      </fieldset>
 
       <div className="mt-8">
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
@@ -508,14 +511,15 @@ function ListingsSearchSection({
         </p>
         <div className="mt-3 flex flex-wrap items-end gap-4">
           <div>
-            <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            <label htmlFor="listings-sort" className="text-xs font-medium uppercase tracking-wide text-slate-500">
               Sort by
             </label>
             <select
+              id="listings-sort"
               data-testid="listings-sort"
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as ListingSearchSort)}
-              className="mt-1 block rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
+              className="mt-1 block rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm focus-visible:border-teal-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
             >
               <option value="created_desc">Newest (created)</option>
               <option value="listed_desc">Listing date</option>
@@ -524,14 +528,15 @@ function ListingsSearchSection({
             </select>
           </div>
           <div>
-            <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            <label htmlFor="listings-new-within" className="text-xs font-medium uppercase tracking-wide text-slate-500">
               Listed recently
             </label>
             <select
+              id="listings-new-within"
               data-testid="listings-new-within"
               value={newWithin}
               onChange={(e) => setNewWithin(e.target.value)}
-              className="mt-1 block rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
+              className="mt-1 block rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm focus-visible:border-teal-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
             >
               <option value="">Any time</option>
               <option value="7">Last 7 days</option>
@@ -543,7 +548,7 @@ function ListingsSearchSection({
             type="submit"
             disabled={searchLoading}
             data-testid="listings-search-submit"
-            className="rounded-full bg-teal-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-600 disabled:opacity-50"
+            className="rounded-full bg-teal-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 disabled:opacity-50"
           >
             Search
           </button>
@@ -593,7 +598,7 @@ function ListingLookupSection({
           type="submit"
           disabled={detailLoading}
           data-testid="listings-detail-load"
-          className="rounded-full border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-800 transition hover:border-slate-400 hover:bg-slate-50 disabled:opacity-50"
+          className="rounded-full border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-800 transition hover:border-slate-400 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:opacity-50"
         >
           Load
         </button>
@@ -694,7 +699,7 @@ function CreateListingSection({
             data-testid="listings-create-title"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 focus-visible:border-teal-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
             required
           />
         </div>
@@ -707,7 +712,7 @@ function CreateListingSection({
             value={desc}
             onChange={(e) => setDesc(e.target.value)}
             rows={3}
-            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 focus-visible:border-teal-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
           />
         </div>
         <div>
@@ -720,7 +725,7 @@ function CreateListingSection({
             step="0.01"
             value={priceUsd}
             onChange={(e) => setPriceUsd(e.target.value)}
-            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 focus-visible:border-teal-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
             required
           />
         </div>
@@ -733,7 +738,7 @@ function CreateListingSection({
             type="date"
             value={effectiveFrom}
             onChange={(e) => setEffectiveFrom(e.target.value)}
-            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 focus-visible:border-teal-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
             required
           />
         </div>
@@ -824,7 +829,7 @@ function CreateListingSection({
             type="submit"
             disabled={createLoading}
             data-testid="listings-create-submit"
-            className="rounded-full bg-teal-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-600 disabled:opacity-50"
+            className="rounded-full bg-teal-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 disabled:opacity-50"
           >
             Create listing
           </button>
@@ -1046,6 +1051,7 @@ function ListingsPageInner() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-teal-50/30 text-slate-900">
+      <a href="#listings-results" className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:rounded-lg focus:bg-teal-700 focus:px-4 focus:py-2 focus:text-white focus:text-sm focus:font-semibold">Skip to listings</a>
       <Nav email={email} />
       <main className="mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-12">
         <ListingsHeaderSection />
