@@ -154,6 +154,22 @@ export function createBookingHttpApp(): Express {
           return;
         }
 
+        if (!UUID_RE.test(listingId)) {
+          res.status(400).json({
+            valid: false,
+            error: "listingId must be a valid UUID",
+          });
+          return;
+        }
+
+        if (landlordId && !UUID_RE.test(landlordId)) {
+          res.status(400).json({
+            valid: false,
+            error: "landlordId must be a valid UUID",
+          });
+          return;
+        }
+
         const parsedStartDate = new Date(startDate);
         const parsedEndDate = new Date(endDate);
 
