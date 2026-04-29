@@ -70,6 +70,7 @@ function ReputationSection({
         <button
           type="submit"
           disabled={loading}
+          aria-disabled={loading}
           data-testid="trust-reputation-submit"
           className="rounded-md bg-teal-600 px-4 py-2 font-medium text-white hover:bg-teal-500 disabled:opacity-50"
         >
@@ -133,7 +134,9 @@ function ReportAbuseSection({
         aria-busy={loading}
         className="mt-4 space-y-3"
       >
-        <div className="flex gap-4 text-sm text-slate-700">
+        <fieldset className="flex gap-4 text-sm text-slate-700">
+          <legend className="sr-only">Abuse target type</legend>
+
           <label className="flex items-center gap-2">
             <input
               type="radio"
@@ -143,6 +146,7 @@ function ReportAbuseSection({
             />
             Listing
           </label>
+
           <label className="flex items-center gap-2">
             <input
               type="radio"
@@ -152,7 +156,7 @@ function ReportAbuseSection({
             />
             User
           </label>
-        </div>
+        </fieldset>
         <label
           htmlFor="trust-abuse-target"
           className="sr-only"
@@ -197,6 +201,7 @@ function ReportAbuseSection({
         <button
           type="submit"
           disabled={loading}
+          aria-disabled={loading}
           className="rounded-md border border-red-200 bg-red-50 px-4 py-2 font-medium text-red-800 hover:bg-red-100 disabled:opacity-50"
         >
           {loading ? "Submitting report…" : "Submit report"}
@@ -325,6 +330,7 @@ function PeerReviewSection({
         <button
           type="submit"
           disabled={loading}
+          aria-disabled={loading}
           className="rounded-md bg-slate-700 px-4 py-2 font-medium text-white hover:bg-slate-600 disabled:opacity-50"
         >
           {loading ? "Submitting review…" : "Submit review"}
