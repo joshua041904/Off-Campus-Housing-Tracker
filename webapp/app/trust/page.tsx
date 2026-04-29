@@ -53,7 +53,14 @@ function ReputationSection({
         aria-busy={loading}
         className="mt-4 flex flex-col gap-3 sm:flex-row"
       >
+        <label
+          htmlFor="trust-reputation-user-id"
+          className="sr-only"
+        >
+          User UUID
+        </label>
         <input
+          id="trust-reputation-user-id"
           data-testid="trust-reputation-user-id"
           value={repUserId}
           onChange={(e) => setRepUserId(e.target.value)}
@@ -146,20 +153,41 @@ function ReportAbuseSection({
             User
           </label>
         </div>
+        <label
+          htmlFor="trust-abuse-target"
+          className="sr-only"
+        >
+          Target UUID
+        </label>
         <input
+          id="trust-abuse-target"
           value={abuseTarget}
           onChange={(e) => setAbuseTarget(e.target.value)}
           placeholder="target UUID"
           className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 shadow-sm"
           required
         />
+        <label
+          htmlFor="trust-abuse-category"
+          className="sr-only"
+        >
+          Abuse category
+        </label>
         <input
+          id="trust-abuse-category"
           value={abuseCategory}
           onChange={(e) => setAbuseCategory(e.target.value)}
           placeholder="category"
           className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm"
         />
+        <label
+          htmlFor="trust-abuse-details"
+          className="sr-only"
+        >
+          Abuse details
+        </label>
         <textarea
+          id="trust-abuse-details"
           value={abuseDetails}
           onChange={(e) => setAbuseDetails(e.target.value)}
           placeholder="details (optional)"
@@ -222,29 +250,56 @@ function PeerReviewSection({
         aria-busy={loading}
         className="mt-4 space-y-3"
       >
+        <label
+          htmlFor="trust-booking-id"
+          className="sr-only"
+        >
+          Booking UUID
+        </label>
         <input
+          id="trust-booking-id"
           value={bookingId}
           onChange={(e) => setBookingId(e.target.value)}
           placeholder="booking UUID"
           className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 shadow-sm"
           required
         />
+        <label
+          htmlFor="trust-reviewee-id"
+          className="sr-only"
+        >
+          Reviewee user UUID
+        </label>
         <input
+          id="trust-reviewee-id"
           value={revieweeId}
           onChange={(e) => setRevieweeId(e.target.value)}
           placeholder="reviewee user UUID"
           className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 shadow-sm"
           required
         />
+        <label
+          htmlFor="trust-review-side"
+          className="sr-only"
+        >
+          Review side
+        </label>
         <input
+          id="trust-review-side"
           value={side}
           onChange={(e) => setSide(e.target.value)}
           placeholder="side label e.g. guest | host"
           className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm"
         />
         <div>
-          <label className="text-xs text-slate-600">Rating 1–5</label>
+          <label
+            htmlFor="trust-review-rating"
+            className="text-xs text-slate-600"
+          >
+            Rating 1–5
+          </label>
           <input
+            id="trust-review-rating"
             type="number"
             min={1}
             max={5}
@@ -253,7 +308,14 @@ function PeerReviewSection({
             className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 shadow-sm"
           />
         </div>
+        <label
+          htmlFor="trust-review-comment"
+          className="sr-only"
+        >
+          Review comment
+        </label>
         <textarea
+          id="trust-review-comment"
           value={comment}
           onChange={(e) => setComment(e.target.value)}
           placeholder="comment"
