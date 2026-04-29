@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { getReputation, reportAbuse, submitPeerReview } from "@/lib/api";
 import { getStoredEmail, getStoredToken } from "@/lib/auth-storage";
@@ -53,7 +53,14 @@ function ReputationSection({
         aria-busy={loading}
         className="mt-4 flex flex-col gap-3 sm:flex-row"
       >
+        <label
+          htmlFor="trust-reputation-user-id"
+          className="sr-only"
+        >
+          User UUID
+        </label>
         <input
+          id="trust-reputation-user-id"
           data-testid="trust-reputation-user-id"
           value={repUserId}
           onChange={(e) => setRepUserId(e.target.value)}
@@ -63,6 +70,7 @@ function ReputationSection({
         <button
           type="submit"
           disabled={loading}
+          aria-disabled={loading}
           data-testid="trust-reputation-submit"
           className="rounded-md bg-teal-600 px-4 py-2 font-medium text-white hover:bg-teal-500 disabled:opacity-50"
         >
@@ -126,7 +134,9 @@ function ReportAbuseSection({
         aria-busy={loading}
         className="mt-4 space-y-3"
       >
-        <div className="flex gap-4 text-sm text-slate-700">
+        <fieldset className="flex gap-4 text-sm text-slate-700">
+          <legend className="sr-only">Abuse target type</legend>
+
           <label className="flex items-center gap-2">
             <input
               type="radio"
@@ -136,6 +146,7 @@ function ReportAbuseSection({
             />
             Listing
           </label>
+
           <label className="flex items-center gap-2">
             <input
               type="radio"
@@ -145,21 +156,42 @@ function ReportAbuseSection({
             />
             User
           </label>
-        </div>
+        </fieldset>
+        <label
+          htmlFor="trust-abuse-target"
+          className="sr-only"
+        >
+          Target UUID
+        </label>
         <input
+          id="trust-abuse-target"
           value={abuseTarget}
           onChange={(e) => setAbuseTarget(e.target.value)}
           placeholder="target UUID"
           className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 shadow-sm"
           required
         />
+        <label
+          htmlFor="trust-abuse-category"
+          className="sr-only"
+        >
+          Abuse category
+        </label>
         <input
+          id="trust-abuse-category"
           value={abuseCategory}
           onChange={(e) => setAbuseCategory(e.target.value)}
           placeholder="category"
           className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm"
         />
+        <label
+          htmlFor="trust-abuse-details"
+          className="sr-only"
+        >
+          Abuse details
+        </label>
         <textarea
+          id="trust-abuse-details"
           value={abuseDetails}
           onChange={(e) => setAbuseDetails(e.target.value)}
           placeholder="details (optional)"
@@ -169,6 +201,7 @@ function ReportAbuseSection({
         <button
           type="submit"
           disabled={loading}
+          aria-disabled={loading}
           className="rounded-md border border-red-200 bg-red-50 px-4 py-2 font-medium text-red-800 hover:bg-red-100 disabled:opacity-50"
         >
           {loading ? "Submitting report…" : "Submit report"}
@@ -222,29 +255,56 @@ function PeerReviewSection({
         aria-busy={loading}
         className="mt-4 space-y-3"
       >
+        <label
+          htmlFor="trust-booking-id"
+          className="sr-only"
+        >
+          Booking UUID
+        </label>
         <input
+          id="trust-booking-id"
           value={bookingId}
           onChange={(e) => setBookingId(e.target.value)}
           placeholder="booking UUID"
           className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 shadow-sm"
           required
         />
+        <label
+          htmlFor="trust-reviewee-id"
+          className="sr-only"
+        >
+          Reviewee user UUID
+        </label>
         <input
+          id="trust-reviewee-id"
           value={revieweeId}
           onChange={(e) => setRevieweeId(e.target.value)}
           placeholder="reviewee user UUID"
           className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 shadow-sm"
           required
         />
+        <label
+          htmlFor="trust-review-side"
+          className="sr-only"
+        >
+          Review side
+        </label>
         <input
+          id="trust-review-side"
           value={side}
           onChange={(e) => setSide(e.target.value)}
           placeholder="side label e.g. guest | host"
           className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm"
         />
         <div>
-          <label className="text-xs text-slate-600">Rating 1–5</label>
+          <label
+            htmlFor="trust-review-rating"
+            className="text-xs text-slate-600"
+          >
+            Rating 1–5
+          </label>
           <input
+            id="trust-review-rating"
             type="number"
             min={1}
             max={5}
@@ -253,7 +313,14 @@ function PeerReviewSection({
             className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 shadow-sm"
           />
         </div>
+        <label
+          htmlFor="trust-review-comment"
+          className="sr-only"
+        >
+          Review comment
+        </label>
         <textarea
+          id="trust-review-comment"
           value={comment}
           onChange={(e) => setComment(e.target.value)}
           placeholder="comment"
@@ -263,6 +330,7 @@ function PeerReviewSection({
         <button
           type="submit"
           disabled={loading}
+          aria-disabled={loading}
           className="rounded-md bg-slate-700 px-4 py-2 font-medium text-white hover:bg-slate-600 disabled:opacity-50"
         >
           {loading ? "Submitting review…" : "Submit review"}
@@ -288,16 +356,21 @@ function TrustLoginPrompt() {
 
 function TrustFeedback({
   feedback,
+  feedbackRef,
 }: {
   feedback: { type: "success" | "error" | null; message: string };
+  feedbackRef: React.RefObject<HTMLDivElement>;
 }) {
   if (!feedback.type) return null;
 
   if (feedback.type === "success") {
     return (
       <div
+        ref={feedbackRef}
         role="status"
         aria-live="polite"
+        aria-atomic="true"
+        tabIndex={-1}
         className="mt-6 rounded-[1.25rem] border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-medium text-emerald-800 shadow-sm"
       >
         {feedback.message}
@@ -307,7 +380,10 @@ function TrustFeedback({
 
   return (
     <div
+      ref={feedbackRef}
       role="alert"
+      aria-atomic="true"
+      tabIndex={-1}
       className="mt-4 rounded-[1.25rem] border border-red-200 bg-red-50 px-5 py-4 text-sm font-medium text-red-700 shadow-sm"
     >
       {feedback.message}
@@ -345,6 +421,8 @@ export default function TrustPage() {
     message: "",
   });
 
+  const feedbackRef = useRef<HTMLDivElement | null>(null);
+
   useEffect(() => {
     const t = getStoredToken();
     setToken(t);
@@ -353,6 +431,12 @@ export default function TrustPage() {
     setMySub(sub);
     if (sub) setRepUserId(sub);
   }, []);
+
+  useEffect(() => {
+    if (!feedback.type) return;
+
+    feedbackRef.current?.focus();
+  }, [feedback.type]);
 
   async function onReputation(e: React.FormEvent) {
     e.preventDefault();
@@ -482,7 +566,10 @@ export default function TrustPage() {
           <TrustLoginPrompt />
         )}
 
-        <TrustFeedback feedback={feedback} />
+        <TrustFeedback
+          feedback={feedback}
+          feedbackRef={feedbackRef}
+        />
       </main>
     </div>
   );
