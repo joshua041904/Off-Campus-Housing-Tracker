@@ -366,6 +366,7 @@ function TrustFeedback({
       <div
         role="status"
         aria-live="polite"
+        aria-atomic="true"
         className="mt-6 rounded-[1.25rem] border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-medium text-emerald-800 shadow-sm"
       >
         {feedback.message}
@@ -376,6 +377,7 @@ function TrustFeedback({
   return (
     <div
       role="alert"
+      aria-atomic="true"
       className="mt-4 rounded-[1.25rem] border border-red-200 bg-red-50 px-5 py-4 text-sm font-medium text-red-700 shadow-sm"
     >
       {feedback.message}
