@@ -24,6 +24,31 @@ function TrustHeaderSection() {
   );
 }
 
+function SkeletonLine({ className = "" }: { className?: string }) {
+  return (
+    <div
+      aria-hidden="true"
+      className={`animate-pulse rounded-md bg-slate-200 ${className}`}
+    />
+  );
+}
+
+function ReputationSkeleton() {
+  return (
+    <div
+      data-testid="trust-reputation-skeleton"
+      className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-4"
+      aria-hidden="true"
+    >
+      <SkeletonLine className="h-4 w-32" />
+
+      <SkeletonLine className="mt-3 h-7 w-24" />
+
+      <SkeletonLine className="mt-3 h-3 w-48" />
+    </div>
+  );
+}
+
 function ReputationSection({
   repUserId,
   setRepUserId,
@@ -78,13 +103,17 @@ function ReputationSection({
           Use my account id
         </button>
       )}
-      {repScore != null && (
-        <p
-          data-testid="trust-reputation-score"
-          className="mt-4 text-sm text-slate-600"
-        >
-          Score: <strong className="text-teal-800">{repScore}</strong>
-        </p>
+      {loading ? (
+        <ReputationSkeleton />
+      ) : (
+        repScore != null && (
+          <p
+            data-testid="trust-reputation-score"
+            className="mt-4 text-sm text-slate-600"
+          >
+            Score: <strong className="text-teal-800">{repScore}</strong>
+          </p>
+        )
       )}
     </section>
   );
@@ -121,11 +150,7 @@ function ReportAbuseSection({
       <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
         Report abuse
       </h2>
-      <form
-        onSubmit={onReport}
-        aria-busy={loading}
-        className="mt-4 space-y-3"
-      >
+      <form onSubmit={onReport} aria-busy={loading} className="mt-4 space-y-3">
         <div className="flex gap-4 text-sm text-slate-700">
           <label className="flex items-center gap-2">
             <input
@@ -275,10 +300,7 @@ function PeerReviewSection({
 function TrustLoginPrompt() {
   return (
     <div className="mt-10 rounded-[1.25rem] border border-slate-200 bg-white px-5 py-4 text-sm text-slate-600 shadow-sm">
-      <Link
-        href="/login"
-        className="font-medium text-teal-700 hover:underline"
-      >
+      <Link href="/login" className="font-medium text-teal-700 hover:underline">
         Log in
       </Link>{" "}
       to report abuse or submit peer reviews.
