@@ -111,13 +111,11 @@ export function createBookingHttpApp(): Express {
       await prisma.$queryRaw`SELECT 1`;
       res.status(200).json({ ok: true, db: "connected" });
     } catch {
-      res
-        .status(200)
-        .json({
-          ok: true,
-          db: "disconnected",
-          warning: "database unavailable",
-        });
+      res.status(200).json({
+        ok: true,
+        db: "disconnected",
+        warning: "database unavailable",
+      });
     }
   });
 
@@ -171,34 +169,32 @@ export function createBookingHttpApp(): Express {
         }
 
         if (parsedStartDate >= parsedEndDate) {
-          const overlappingBooking = await prisma.booking.findFirst({
-            where: {
-              listingId,
-              status: {
-                not: "cancelled",
-              },
-              AND: [
-                {
-                  startDate: {
-                    lt: parsedEndDate,
-                  },
-                },
-                {
-                  endDate: {
-                    gt: parsedStartDate,
-                  },
-                },
-              ],
-            },
+          res.status(400).json({
+            valid: false,
+            error: "startDate must be before endDate",
           });
+          return;
+        }
 
-          if (overlappingBooking) {
-            res.status(409).json({
-              valid: false,
-              error: "Booking dates overlap with an existing booking",
-            });
-            return;
-          }
+        const overlappingBooking = await prisma.booking.findFirst({
+          where: {
+            listingId,
+            status: {
+              not: "cancelled",
+            },
+            AND: [
+              { startDate: { lt: parsedEndDate } },
+              { endDate: { gt: parsedStartDate } },
+            ],
+          },
+        });
+
+        if (overlappingBooking) {
+          res.status(409).json({
+            valid: false,
+            error: "Booking dates overlap with an existing booking",
+          });
+          return;
         }
 
         res.status(200).json({
@@ -570,11 +566,9 @@ export function createBookingHttpApp(): Express {
           return;
         }
         if (current.status === "cancelled" || current.status === "completed") {
-          res
-            .status(409)
-            .json({
-              error: "cannot edit tenant notes for terminal booking status",
-            });
+          res.status(409).json({
+            error: "cannot edit tenant notes for terminal booking status",
+          });
           return;
         }
 
