@@ -109,6 +109,63 @@ export function createBookingHttpApp(): Express {
     }),
   );
 
+  app.post("/dry-run", requireUser, async (req: AuthedRequest, res: Response) => {
+    try {
+      const { listingId, startDate, endDate, landlordId, priceCents } = req.body as {
+        listingId?: string;
+        startDate?: string;
+        endDate?: string;
+        landlordId?: string;
+        priceCents?: number;
+      };
+
+      if (!listingId || !startDate || !endDate || !req.userId) {
+        res.status(400).json({
+          valid: false,
+          error: "listingId, startDate, endDate required",
+        });
+        return;
+      }
+
+      const parsedStartDate = new Date(startDate);
+      const parsedEndDate = new Date(endDate);
+
+      if (Number.isNaN(parsedStartDate.getTime()) || Number.isNaN(parsedEndDate.getTime())) {
+        res.status(400).json({
+          valid: false,
+          error: "startDate and endDate must be valid dates",
+        });
+        return;
+      }
+
+      if (parsedStartDate >= parsedEndDate) {
+        res.status(400).json({
+          valid: false,
+          error: "startDate must be before endDate",
+        });
+        return;
+      }
+
+      res.status(200).json({
+        valid: true,
+        message: "Booking request is valid",
+        bookingPreview: {
+          listingId,
+          tenantId: req.userId,
+          landlordId: landlordId || req.userId,
+          status: "created",
+          startDate: parsedStartDate.toISOString(),
+          endDate: parsedEndDate.toISOString(),
+          priceCentsSnapshot: Number.isFinite(priceCents) ? Number(priceCents) : 0,
+          currencyCode: "USD",
+        },
+      });
+    } catch (error) {
+      console.error("[booking] dry-run failed", error);
+      res.status(500).json({ valid: false, error: "internal" });
+    }
+  });
+
   app.post("/create", requireUser, async (req: AuthedRequest, res: Response) => {
     try {
       const { listingId, startDate, endDate, landlordId, priceCents } = req.body as {
