@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Nav } from "@/components/Nav";
 
 function HeroSection() {
   return (
@@ -324,55 +325,7 @@ function ClosingCtaSection() {
 export default function Home() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#f8faf8] via-[#fcfcfb] to-[#eefaf6] text-slate-900">
-      <header className="border-b border-slate-200/80 bg-white/70 backdrop-blur-md">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
-          <Link
-            href="/"
-            className="font-semibold tracking-[0.08em] text-slate-900"
-          >
-            Off-Campus Housing Tracker
-          </Link>
-
-          <nav className="flex flex-wrap items-center gap-3 text-sm font-medium text-slate-600">
-            <Link
-              href="/listings"
-              className="transition hover:text-teal-700"
-            >
-              Listings
-            </Link>
-            <Link
-              href="/mission"
-              className="transition hover:text-teal-700"
-            >
-              Mission
-            </Link>
-            <Link
-              href="/trust"
-              className="transition hover:text-teal-700"
-            >
-              Trust
-            </Link>
-            <Link
-              href="/analytics"
-              className="transition hover:text-teal-700"
-            >
-              Analytics
-            </Link>
-            <Link
-              href="/login"
-              className="transition hover:text-slate-900"
-            >
-              Log in
-            </Link>
-            <Link
-              href="/register"
-              className="rounded-full bg-teal-700 px-4 py-2 text-white shadow-sm transition hover:bg-teal-600"
-            >
-              Create account
-            </Link>
-          </nav>
-        </div>
-      </header>
+      <Nav />
 
       <main>
         <HeroSection />
