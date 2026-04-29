@@ -21,7 +21,9 @@ test.describe("trust page interactions", () => {
     await page.getByPlaceholder("user UUID").fill("123");
     await page.getByTestId("trust-reputation-submit").click();
 
-    await expect(page.getByText(/Reputation for/)).toBeVisible();
+    const status = page.getByRole("status");
+    await expect(status).toBeVisible();
+    await expect(status).toContainText("Reputation for");
   });
 
   test("reputation lookup error", async ({ page }) => {
@@ -37,7 +39,9 @@ test.describe("trust page interactions", () => {
     await page.getByPlaceholder("user UUID").fill("123");
     await page.getByTestId("trust-reputation-submit").click();
 
-    await expect(page.getByRole("alert")).toBeVisible();
+    const alert = page.getByRole("alert");
+    await expect(alert).toBeVisible();
+    await expect(alert).toContainText("fail");
   });
 
   test("feedback resets on new action", async ({ page }) => {
@@ -66,11 +70,15 @@ test.describe("trust page interactions", () => {
     await input.fill("123");
     await submit.click();
 
-    await expect(page.getByText(/Reputation for/)).toBeVisible();
+    const status = page.getByRole("status");
+    await expect(status).toBeVisible();
+    await expect(status).toContainText("Reputation for");
 
     // second action → should clear success and show error
     await submit.click();
 
-    await expect(page.getByRole("alert")).toBeVisible();
+    const alert = page.getByRole("alert");
+    await expect(alert).toBeVisible();
+    await expect(alert).toContainText("fail");
   });
 });
