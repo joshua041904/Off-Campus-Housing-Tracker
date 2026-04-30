@@ -8,10 +8,13 @@ export function Nav({ email }: { email?: string | null }) {
   const router = useRouter();
   const pathname = usePathname();
 
+  const isActive = (href: string) =>
+    href === "/"
+      ? pathname === href
+      : pathname === href || pathname.startsWith(`${href}/`);
+
   const navLinkClass = (href: string) =>
-    `transition ${
-      pathname === href ? "text-teal-700" : "hover:text-slate-950"
-    }`;
+    `transition ${isActive(href) ? "text-teal-700" : "hover:text-slate-950"}`;
   const { logout } = useAuth();
 
   return (
@@ -20,7 +23,7 @@ export function Nav({ email }: { email?: string | null }) {
         <Link
           href="/"
           className={`text-base font-semibold tracking-tight transition ${
-            pathname === "/"
+            isActive("/")
               ? "text-teal-700"
               : "text-slate-950 hover:text-teal-700"
           }`}
@@ -32,24 +35,28 @@ export function Nav({ email }: { email?: string | null }) {
           <Link
             href="/listings"
             className={navLinkClass("/listings")}
+            aria-current={isActive("/listings") ? "page" : undefined}
           >
             Listings
           </Link>
           <Link
             href="/mission"
             className={navLinkClass("/mission")}
+            aria-current={isActive("/mission") ? "page" : undefined}
           >
             Mission
           </Link>
           <Link
             href="/trust"
             className={navLinkClass("/trust")}
+            aria-current={isActive("/trust") ? "page" : undefined}
           >
             Trust
           </Link>
           <Link
             href="/analytics"
             className={navLinkClass("/analytics")}
+            aria-current={isActive("/analytics") ? "page" : undefined}
           >
             Analytics
           </Link>
@@ -65,6 +72,7 @@ export function Nav({ email }: { email?: string | null }) {
               <Link
                 href="/dashboard"
                 className={navLinkClass("/dashboard")}
+                aria-current={isActive("/dashboard") ? "page" : undefined}
               >
                 Dashboard
               </Link>
@@ -86,16 +94,18 @@ export function Nav({ email }: { email?: string | null }) {
               <Link
                 href="/login"
                 className={navLinkClass("/login")}
+                aria-current={isActive("/login") ? "page" : undefined}
               >
                 Log in
               </Link>
               <Link
                 href="/register"
                 className={`rounded-full px-4 py-2 text-sm font-semibold shadow-lg shadow-teal-700/20 transition ${
-                  pathname === "/register"
+                  isActive("/register")
                     ? "bg-teal-800 text-white"
                     : "bg-teal-700 text-white hover:bg-teal-600"
                 }`}
+                aria-current={isActive("/register") ? "page" : undefined}
               >
                 Create account
               </Link>
