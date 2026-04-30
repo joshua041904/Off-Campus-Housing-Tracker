@@ -1,11 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 
 export function Nav({ email }: { email?: string | null }) {
   const router = useRouter();
+  const pathname = usePathname();
+
+  const navLinkClass = (href: string) =>
+    `transition ${
+      pathname === href ? "text-teal-700" : "hover:text-slate-950"
+    }`;
   const { logout } = useAuth();
 
   return (
@@ -13,7 +19,11 @@ export function Nav({ email }: { email?: string | null }) {
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
         <Link
           href="/"
-          className="text-base font-semibold tracking-tight text-slate-950 transition hover:text-teal-700"
+          className={`text-base font-semibold tracking-tight transition ${
+            pathname === "/"
+              ? "text-teal-700"
+              : "text-slate-950 hover:text-teal-700"
+          }`}
         >
           Off-Campus Housing Tracker
         </Link>
@@ -21,25 +31,25 @@ export function Nav({ email }: { email?: string | null }) {
         <nav className="flex flex-wrap items-center justify-end gap-3 text-sm font-medium text-slate-600">
           <Link
             href="/listings"
-            className="transition hover:text-slate-950"
+            className={navLinkClass("/listings")}
           >
             Listings
           </Link>
           <Link
             href="/mission"
-            className="transition hover:text-slate-950"
+            className={navLinkClass("/mission")}
           >
             Mission
           </Link>
           <Link
             href="/trust"
-            className="transition hover:text-slate-950"
+            className={navLinkClass("/trust")}
           >
             Trust
           </Link>
           <Link
             href="/analytics"
-            className="transition hover:text-slate-950"
+            className={navLinkClass("/analytics")}
           >
             Analytics
           </Link>
@@ -54,7 +64,7 @@ export function Nav({ email }: { email?: string | null }) {
               </span>
               <Link
                 href="/dashboard"
-                className="transition hover:text-slate-950"
+                className={navLinkClass("/dashboard")}
               >
                 Dashboard
               </Link>
@@ -75,13 +85,17 @@ export function Nav({ email }: { email?: string | null }) {
             <>
               <Link
                 href="/login"
-                className="transition hover:text-slate-950"
+                className={navLinkClass("/login")}
               >
                 Log in
               </Link>
               <Link
                 href="/register"
-                className="rounded-full bg-teal-700 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-teal-700/20 transition hover:bg-teal-600"
+                className={`rounded-full px-4 py-2 text-sm font-semibold shadow-lg shadow-teal-700/20 transition ${
+                  pathname === "/register"
+                    ? "bg-teal-800 text-white"
+                    : "bg-teal-700 text-white hover:bg-teal-600"
+                }`}
               >
                 Create account
               </Link>
