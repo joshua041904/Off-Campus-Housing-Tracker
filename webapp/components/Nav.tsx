@@ -40,6 +40,13 @@ export function Nav({ email }: { email?: string | null }) {
             Listings
           </Link>
           <Link
+            href="/booking"
+            className={navLinkClass("/booking")}
+            aria-current={isActive("/booking") ? "page" : undefined}
+          >
+            Booking
+          </Link>
+          <Link
             href="/mission"
             className={navLinkClass("/mission")}
             aria-current={isActive("/mission") ? "page" : undefined}
