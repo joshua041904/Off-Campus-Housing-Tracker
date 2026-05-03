@@ -193,6 +193,108 @@ export async function watchlistList(token: string) {
   return data.items ?? [];
 }
 
+export type BookingStatus =
+  | "created"
+  | "pending_confirmation"
+  | "confirmed"
+  | "rejected"
+  | "cancelled"
+  | "expired"
+  | "completed";
+
+export type BookingJson = {
+  id: string;
+  listingId: string;
+  tenantId: string;
+  landlordId: string;
+  status: BookingStatus;
+  startDate: string;
+  endDate: string;
+  priceCentsSnapshot: number;
+  currencyCode: string;
+  tenantNotes?: string | null;
+  cancellationReason?: string | null;
+  confirmedAt?: string | null;
+  cancelledAt?: string | null;
+  completedAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export async function createBooking(
+  token: string,
+  body: {
+    listingId: string;
+    startDate: string;
+    endDate: string;
+    landlordId?: string;
+    priceCents?: number;
+  },
+) {
+  const res = await apiFetch("/api/booking/create", {
+    method: "POST",
+    token,
+    body: JSON.stringify(body),
+  });
+  const data = (await parseJson(res)) as BookingJson & ApiError;
+  if (!res.ok) throw new Error(data?.error || `create booking ${res.status}`);
+  return data as BookingJson;
+}
+
+export async function getBooking(token: string, bookingId: string) {
+  const res = await apiFetch(`/api/booking/${encodeURIComponent(bookingId)}`, {
+    method: "GET",
+    token,
+  });
+  const data = (await parseJson(res)) as BookingJson & ApiError;
+  if (!res.ok) throw new Error(data?.error || `get booking ${res.status}`);
+  return data as BookingJson;
+}
+
+export async function confirmBooking(
+  token: string,
+  body: { bookingId: string; landlordId?: string },
+) {
+  const res = await apiFetch("/api/booking/confirm", {
+    method: "POST",
+    token,
+    body: JSON.stringify(body),
+  });
+  const data = (await parseJson(res)) as BookingJson & ApiError;
+  if (!res.ok) throw new Error(data?.error || `confirm booking ${res.status}`);
+  return data as BookingJson;
+}
+
+export async function cancelBooking(
+  token: string,
+  body: { bookingId: string; cancelledBy?: string },
+) {
+  const res = await apiFetch("/api/booking/cancel", {
+    method: "POST",
+    token,
+    body: JSON.stringify(body),
+  });
+  const data = (await parseJson(res)) as BookingJson & ApiError;
+  if (!res.ok) throw new Error(data?.error || `cancel booking ${res.status}`);
+  return data as BookingJson;
+}
+
+export async function updateBookingTenantNotes(
+  token: string,
+  bookingId: string,
+  tenantNotes: string | null,
+) {
+  const res = await apiFetch(`/api/booking/${encodeURIComponent(bookingId)}`, {
+    method: "PATCH",
+    token,
+    body: JSON.stringify({ tenantNotes }),
+  });
+  const data = (await parseJson(res)) as BookingJson & ApiError;
+  if (!res.ok)
+    throw new Error(data?.error || `update booking notes ${res.status}`);
+  return data as BookingJson;
+}
+
 export type ListingJson = {
   id: string;
   user_id: string;
