@@ -54,6 +54,13 @@ export function Nav({ email }: { email?: string | null }) {
             Mission
           </Link>
           <Link
+            href="/community"
+            className={navLinkClass("/community")}
+            aria-current={isActive("/community") ? "page" : undefined}
+          >
+            Community
+          </Link>
+          <Link
             href="/trust"
             className={navLinkClass("/trust")}
             aria-current={isActive("/trust") ? "page" : undefined}

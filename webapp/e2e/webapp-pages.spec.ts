@@ -7,16 +7,22 @@ test.describe("Webapp pages (guest)", () => {
     await expect(page.getByTestId("mission-heading")).toBeVisible();
   });
 
+  test("community page renders", async ({ page }) => {
+    await page.goto("/community");
+    await expect(page.getByTestId("community-heading")).toBeVisible();
+  });
+
   test("analytics page shell renders", async ({ page }) => {
     await page.goto("/analytics");
     await expect(page.getByTestId("analytics-heading")).toBeVisible();
   });
 
-  test("nav links: home → listings → trust → analytics", async ({ page }) => {
+  test("nav links: home → listings → community → trust → analytics", async ({ page }) => {
     await page.goto("/");
     await page.waitForLoadState("domcontentloaded");
     for (const { name, path } of [
       { name: "Listings", path: /\/listings$/ },
+      { name: "Community", path: /\/community$/ },
       { name: "Trust", path: /\/trust$/ },
       { name: "Analytics", path: /\/analytics$/ },
     ] as const) {
