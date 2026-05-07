@@ -6,6 +6,7 @@ import { getReputation, reportAbuse, submitPeerReview } from "@/lib/api";
 import { getStoredEmail, getStoredToken } from "@/lib/auth-storage";
 import { getSubFromJwt } from "@/lib/jwt-sub";
 import { Nav } from "@/components/Nav";
+import { trackTrustEvent } from "@/lib/track";
 
 function TrustHeaderSection() {
   return (
@@ -446,6 +447,7 @@ export default function TrustPage() {
     try {
       const r = await getReputation(repUserId.trim());
       setRepScore(r.score);
+      trackTrustEvent({ type: "reputation_lookup", userId: repUserId.trim() });
       setFeedback({
         type: "success",
         message: `Reputation for ${r.user_id}: ${r.score}`,
@@ -474,6 +476,7 @@ export default function TrustPage() {
         category: abuseCategory,
         details: abuseDetails,
       });
+      trackTrustEvent({ type: "report_submitted", targetType: abuseType, category: abuseCategory });
       setFeedback({
         type: "success",
         message: "Report submitted.",
@@ -503,6 +506,7 @@ export default function TrustPage() {
         rating,
         comment,
       });
+      trackTrustEvent({ type: "peer_review_submitted", side, rating });
       setFeedback({
         type: "success",
         message: "Peer review submitted.",
