@@ -1,11 +1,9 @@
 import Link from "next/link";
-import { Nav } from "@/components/Nav";
 
 export default function MissionPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-emerald-50/50 text-slate-900">
-      <Nav />
-      <main className="mx-auto max-w-3xl px-4 py-16">
+            <main className="mx-auto max-w-3xl px-4 py-16">
         <p className="text-sm font-semibold uppercase tracking-[0.2em] text-teal-600">Why we built this</p>
         <h1 className="mt-4 font-serif text-4xl font-medium text-slate-900" data-testid="mission-heading">
           Housing shouldn&apos;t be a full-time job for students.

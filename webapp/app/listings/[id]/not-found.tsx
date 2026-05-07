@@ -1,11 +1,9 @@
 import Link from "next/link";
-import { Nav } from "@/components/Nav";
 
 export default function ListingNotFound() {
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(45,212,191,0.14),_transparent_28%),linear-gradient(180deg,_#f8fffd_0%,_#ffffff_34%,_#f8fafc_100%)] text-slate-900">
-      <Nav />
-
+      
       <main className="mx-auto flex max-w-3xl flex-col items-center px-4 py-20 text-center sm:px-6">
         <p className="text-sm font-semibold uppercase tracking-[0.22em] text-teal-700">
           Listing not found

@@ -4,7 +4,6 @@ import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { loginUser } from "@/lib/api";
-import { Nav } from "@/components/Nav";
 import { useAuth } from "@/lib/auth-context";
 import { mapAuthError } from "@/lib/auth-errors";
 
@@ -43,8 +42,7 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#f8faf8] via-[#fcfcfb] to-[#eefaf6] text-slate-900">
-      <Nav />
-      <main className="mx-auto max-w-md px-4 py-16 sm:py-24">
+            <main className="mx-auto max-w-md px-4 py-16 sm:py-24">
         <div className="rounded-[2rem] border border-slate-200/80 bg-white/95 p-8 shadow-[0_20px_60px_-20px_rgba(15,23,42,0.18)]">
           <h1 className="text-2xl font-semibold tracking-tight text-slate-950">Log in</h1>
           <p className="mt-2 text-sm text-slate-500">Use your api-gateway auth account (JWT).</p>

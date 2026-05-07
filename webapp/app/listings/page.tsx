@@ -11,8 +11,7 @@ import {
   type ListingSearchSort,
   type ListingJson,
 } from "@/lib/api";
-import { getStoredEmail, getStoredToken } from "@/lib/auth-storage";
-import { Nav } from "@/components/Nav";
+import { getStoredToken } from "@/lib/auth-storage";
 import { ListingCard } from "@/components/listings/ListingCard";
 
 // ---------------------------------------------------------------------------
@@ -806,7 +805,6 @@ function CreateListingSection({
 function ListingsPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams(); // eslint-disable-line @typescript-eslint/no-unused-vars
-  const [email, setEmail] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
 
   const [filters, dispatchFilters] = useReducer(
@@ -882,7 +880,6 @@ function ListingsPageInner() {
 
   useEffect(() => {
     setToken(getStoredToken());
-    setEmail(getStoredEmail());
   }, []);
 
   const debouncedFilters = useDebounce(filters, 300);
@@ -1047,8 +1044,7 @@ function ListingsPageInner() {
       >
         Skip to listings
       </a>
-      <Nav email={email} />
-      <main className="mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-12">
+            <main className="mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-12">
         <ListingsHeaderSection />
 
         <ListingsSearchSection

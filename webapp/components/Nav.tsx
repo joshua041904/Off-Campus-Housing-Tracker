@@ -4,9 +4,11 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 
-export function Nav({ email }: { email?: string | null }) {
+export function Nav({ email: emailProp }: { email?: string | null } = {}) {
   const router = useRouter();
   const pathname = usePathname();
+  const { logout, email: contextEmail } = useAuth();
+  const email = emailProp ?? contextEmail;
 
   const isActive = (href: string) =>
     href === "/"
@@ -15,7 +17,6 @@ export function Nav({ email }: { email?: string | null }) {
 
   const navLinkClass = (href: string) =>
     `transition ${isActive(href) ? "text-teal-700" : "hover:text-slate-950"}`;
-  const { logout } = useAuth();
 
   return (
     <header className="border-b border-slate-200/70 bg-white/80 backdrop-blur-md">
