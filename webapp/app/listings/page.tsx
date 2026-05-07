@@ -162,7 +162,7 @@ function ListingsResultsSection({
   return (
     <section
       data-testid="listings-results"
-      className="mt-10"
+      className="mt-12"
       aria-busy={searchLoading}
       aria-live="polite"
     >
@@ -190,7 +190,7 @@ function ListingsResultsSection({
       </div>
       <div className="mt-8">
         {searchLoading ? (
-          <div className="rounded-[1.75rem] border border-slate-200 bg-white px-6 py-10 text-center shadow-sm">
+          <div className="rounded-[1.75rem] border border-slate-200 bg-white px-6 py-12 text-center shadow-sm">
             <p className="text-base font-medium text-slate-900">
               Loading listings…
             </p>
@@ -219,7 +219,7 @@ function ListingsResultsSection({
             </p>
           </div>
         ) : (
-          <div className="grid gap-6 lg:grid-cols-2">
+          <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
             {items.map((row) => (
               <ListingCard
                 key={row.id}

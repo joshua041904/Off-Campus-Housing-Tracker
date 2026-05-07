@@ -12,12 +12,12 @@ function formatAmenity(amenity: string) {
 
 export function ListingCard({ listing }: { listing: ListingJson }) {
   return (
-    <article className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md">
+    <article className="flex h-full flex-col rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md">
       <div className="flex items-start justify-between gap-4">
         <div>
           <Link
             href={`/listings/${encodeURIComponent(listing.id)}`}
-            className="text-xl font-semibold text-slate-900 transition hover:text-teal-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+            className="line-clamp-2 text-xl font-semibold text-slate-900 transition hover:text-teal-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
           >
             {listing.title}
           </Link>
@@ -69,7 +69,7 @@ export function ListingCard({ listing }: { listing: ListingJson }) {
         )}
       </div>
 
-      <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+      <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
         {listing.latitude != null && listing.longitude != null ? (
           <GoogleMapEmbed
             latitude={listing.latitude}
