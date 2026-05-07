@@ -1,5 +1,6 @@
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
+import { trace, SpanStatusCode } from "@opentelemetry/api";
 import {
   registerHealthService,
   resolveProtoPath,
@@ -7,6 +8,9 @@ import {
 } from "@common/utils";
 import { pool } from "./db.js";
 import { analyzeListingFeelText } from "./ollama.js";
+import { recordAnalyzeTelemetry } from "./intelligence/analyticsUnifiedObservabilityMetrics.js";
+
+const aiTracer = trace.getTracer("och-analytics-ai");
 
 const PROTO = resolveProtoPath("analytics.proto");
 const pd = protoLoader.loadSync(PROTO, {
@@ -18,7 +22,8 @@ const pd = protoLoader.loadSync(PROTO, {
 });
 const root = grpc.loadPackageDefinition(pd) as any;
 
-const analyticsService = {
+/** Raw `AnalyticsService` RPC implementations (unit-test via `call` + `cb`). */
+export const analyticsGrpcHandlers = {
   GetDailyMetrics(call: grpc.ServerUnaryCall<any, any>, cb: grpc.sendUnaryData<any>) {
     const date = String(call.request?.date || "").trim();
     if (!date) {
@@ -99,12 +104,44 @@ const analyticsService = {
       cb({ code: grpc.status.INVALID_ARGUMENT, message: "title and price_cents required" });
       return;
     }
-    analyzeListingFeelText({
-      title,
-      description: String(req.description || ""),
-      price_cents,
-      audience: String(req.audience || "renter"),
-    })
+    const t0 = Date.now();
+    aiTracer
+      .startActiveSpan("analytics.grpc.analyze_listing_feel", async (span) => {
+        span.setAttribute("rpc.system", "grpc");
+        span.setAttribute("rpc.service", "AnalyticsService.AnalyzeListingFeel");
+        try {
+          const o = await analyzeListingFeelText({
+            title,
+            description: String(req.description || ""),
+            price_cents,
+            audience: String(req.audience || "renter"),
+            analysis_depth: req.analysis_depth,
+          });
+          const wallMs = Date.now() - t0;
+          const fb =
+            String(o.model_used).includes("fallback") ||
+            o.model_used === "none" ||
+            o.model_used === "rule-based-fallback";
+          span.setAttribute("ai.model", o.model_used);
+          span.setAttribute("ai.fallback", fb);
+          span.setAttribute("ai.latency_ms", wallMs);
+          span.setStatus({ code: SpanStatusCode.OK });
+          recordAnalyzeTelemetry({
+            route: "grpc_analyze_listing_feel",
+            httpStatus: 200,
+            latencyMs: wallMs,
+            modelUsed: o.model_used,
+            temperature: Number(o.generation_meta?.temperature ?? 0.3),
+            tokensInput: o.generation_meta?.prompt_chars,
+            tokensOutput: o.generation_meta?.token_estimate,
+            fallback: fb,
+          });
+          return o;
+        } catch (e) {
+          span.setStatus({ code: SpanStatusCode.ERROR, message: String((e as Error)?.message || e) });
+          throw e;
+        }
+      })
       .then((o) => cb(null, o))
       .catch((e) => {
         console.error("[AnalyzeListingFeel]", e);
@@ -113,7 +150,8 @@ const analyticsService = {
   },
 };
 
-const adminService = {
+/** Raw `RecommendationAdminService` RPC implementations. */
+export const analyticsRecommendationAdminGrpcHandlers = {
   ActivateModel(call: grpc.ServerUnaryCall<any, any>, cb: grpc.sendUnaryData<any>) {
     const name = String(call.request?.name || "").trim();
     const version = String(call.request?.version || "").trim();
@@ -156,23 +194,29 @@ const adminService = {
   },
 };
 
+/** K8s grpc-health-probe callback (same semantics as `registerHealthService` on this server). */
+export async function analyticsGrpcHealthProbe(): Promise<boolean> {
+  try {
+    await pool.query("SELECT 1");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function startGrpcServer(port: number): grpc.Server {
   const server = new grpc.Server();
-  server.addService(root.analytics.AnalyticsService.service, analyticsService);
-  server.addService(root.analytics.RecommendationAdminService.service, adminService);
+  server.addService(root.analytics.AnalyticsService.service, analyticsGrpcHandlers);
+  server.addService(
+    root.analytics.RecommendationAdminService.service,
+    analyticsRecommendationAdminGrpcHandlers,
+  );
 
   // Primary name must match K8s readiness -service=; register every gRPC service FQ name on this server.
   registerHealthService(
     server,
     "analytics.AnalyticsService",
-    async () => {
-      try {
-        await pool.query("SELECT 1");
-        return true;
-      } catch {
-        return false;
-      }
-    },
+    analyticsGrpcHealthProbe,
     ["analytics.RecommendationAdminService"]
   );
 

@@ -4,6 +4,7 @@ import * as protoLoader from "@grpc/proto-loader";
 import * as fs from "fs";
 import * as path from "path";
 import { resolveProtoPath } from "./proto.js";
+import { tracingInterceptor } from "./otel/grpc-client-interceptor.js";
 
 function buildCredentials() {
   const caPath =
@@ -16,7 +17,20 @@ function buildCredentials() {
   const clientCertPath = process.env.GRPC_CLIENT_CERT || process.env.TLS_CERT_PATH || "/etc/certs/tls.crt";
   const clientKeyPath = process.env.GRPC_CLIENT_KEY || process.env.TLS_KEY_PATH || "/etc/certs/tls.key";
 
-  if (fs.existsSync(caPath) && fs.existsSync(clientCertPath) && fs.existsSync(clientKeyPath)) {
+  const hasMtlsTriple =
+    fs.existsSync(caPath) && fs.existsSync(clientCertPath) && fs.existsSync(clientKeyPath);
+  const hasCaOnly = fs.existsSync(caPath);
+
+  // Vitest imports service modules (e.g. api-gateway `server.ts`) without listening; `certs/` is not in git
+  // so CI has no dev CA. HTTP-only tests never dial gRPC — use plaintext channel creds when no CA on disk.
+  if (process.env.VITEST === "true" && !hasCaOnly) {
+    console.warn(
+      `[grpc-client] VITEST: no CA at ${caPath} — using insecure channel credentials (no cluster TLS material in workspace)`,
+    );
+    return grpc.credentials.createInsecure();
+  }
+
+  if (hasMtlsTriple) {
     const rootCert = fs.readFileSync(caPath);
     const clientCert = fs.readFileSync(clientCertPath);
     const clientKey = fs.readFileSync(clientKeyPath);
@@ -24,7 +38,7 @@ function buildCredentials() {
     return grpc.credentials.createSsl(rootCert, clientKey, clientCert);
   }
 
-  if (fs.existsSync(caPath)) {
+  if (hasCaOnly) {
     const rootCert = fs.readFileSync(caPath);
     console.log(`[grpc-client] Using STRICT TLS with CA certificate only: ${caPath}`);
     return grpc.credentials.createSsl(rootCert);
@@ -82,6 +96,10 @@ function createClientWithOptions(ServiceClass: any, address: string, credentials
   const options: grpc.ChannelOptions = {};
   if (addressHost.includes("service") || addressHost.includes("-")) {
     (options as any)["grpc.ssl_target_name_override"] = serverName;
+  }
+  if (process.env.OTEL_SDK_DISABLED !== "true" && process.env.OTEL_SDK_DISABLED !== "1") {
+    const existing = options.interceptors ?? [];
+    options.interceptors = [...existing, tracingInterceptor];
   }
   return new ServiceClass(address, credentials, options);
 }

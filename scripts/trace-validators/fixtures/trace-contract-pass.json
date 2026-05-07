@@ -1,0 +1,120 @@
+{
+  "traceID": "fixturedeadbeef0000000000000001",
+  "spans": [
+    {
+      "traceID": "fixturedeadbeef0000000000000001",
+      "spanID": "0000000000000001",
+      "operationName": "HTTP GET /api/debug/full-trace",
+      "startTime": 1000000000000,
+      "duration": 800000,
+      "references": [],
+      "processID": "p1",
+      "tags": [
+        { "key": "net.proto", "value": "h3" },
+        { "key": "http.route", "value": "/api/debug/full-trace" },
+        { "key": "trace.coverage", "value": "full" }
+      ]
+    },
+    {
+      "traceID": "fixturedeadbeef0000000000000001",
+      "spanID": "0000000000000002",
+      "operationName": "full_trace.auth",
+      "startTime": 1000000000100,
+      "duration": 100000,
+      "references": [{ "refType": "CHILD_OF", "spanID": "0000000000000001" }],
+      "processID": "p1",
+      "tags": [{ "key": "net.proto", "value": "h1" }, { "key": "trace.coverage", "value": "full" }]
+    },
+    {
+      "traceID": "fixturedeadbeef0000000000000001",
+      "spanID": "0000000000000003",
+      "operationName": "HTTP GET /healthz",
+      "startTime": 1000000000200,
+      "duration": 80000,
+      "references": [{ "refType": "CHILD_OF", "spanID": "0000000000000002" }],
+      "processID": "p2",
+      "tags": [{ "key": "net.proto", "value": "h1" }]
+    },
+    {
+      "traceID": "fixturedeadbeef0000000000000001",
+      "spanID": "0000000000000004",
+      "operationName": "HTTP GET /search",
+      "startTime": 1000000000400,
+      "duration": 120000,
+      "references": [{ "refType": "CHILD_OF", "spanID": "0000000000000001" }],
+      "processID": "p3",
+      "tags": [{ "key": "net.proto", "value": "h1" }]
+    },
+    {
+      "traceID": "fixturedeadbeef0000000000000001",
+      "spanID": "0000000000000005",
+      "operationName": "HTTP GET /reputation",
+      "startTime": 1000000000600,
+      "duration": 90000,
+      "references": [{ "refType": "CHILD_OF", "spanID": "0000000000000001" }],
+      "processID": "p4",
+      "tags": [{ "key": "net.proto", "value": "h1" }]
+    },
+    {
+      "traceID": "fixturedeadbeef0000000000000001",
+      "spanID": "0000000000000006",
+      "operationName": "HTTP GET /healthz",
+      "startTime": 1000000000800,
+      "duration": 70000,
+      "references": [{ "refType": "CHILD_OF", "spanID": "0000000000000001" }],
+      "processID": "p5",
+      "tags": [{ "key": "net.proto", "value": "h1" }]
+    },
+    {
+      "traceID": "fixturedeadbeef0000000000000001",
+      "spanID": "0000000000000007",
+      "operationName": "HTTP GET /healthz",
+      "startTime": 1000000001000,
+      "duration": 60000,
+      "references": [{ "refType": "CHILD_OF", "spanID": "0000000000000001" }],
+      "processID": "p6",
+      "tags": [{ "key": "net.proto", "value": "h1" }]
+    },
+    {
+      "traceID": "fixturedeadbeef0000000000000001",
+      "spanID": "0000000000000008",
+      "operationName": "HTTP GET /healthz",
+      "startTime": 1000000001200,
+      "duration": 60000,
+      "references": [{ "refType": "CHILD_OF", "spanID": "0000000000000001" }],
+      "processID": "p7",
+      "tags": [{ "key": "net.proto", "value": "h1" }]
+    },
+    {
+      "traceID": "fixturedeadbeef0000000000000001",
+      "spanID": "0000000000000009",
+      "operationName": "HTTP GET /healthz",
+      "startTime": 1000000001400,
+      "duration": 60000,
+      "references": [{ "refType": "CHILD_OF", "spanID": "0000000000000001" }],
+      "processID": "p8",
+      "tags": [{ "key": "net.proto", "value": "h1" }]
+    },
+    {
+      "traceID": "fixturedeadbeef0000000000000001",
+      "spanID": "0000000000000010",
+      "operationName": "HTTP GET /healthz",
+      "startTime": 1000000001600,
+      "duration": 60000,
+      "references": [{ "refType": "CHILD_OF", "spanID": "0000000000000001" }],
+      "processID": "p9",
+      "tags": [{ "key": "net.proto", "value": "h1" }]
+    }
+  ],
+  "processes": {
+    "p1": { "serviceName": "api-gateway" },
+    "p2": { "serviceName": "auth-service" },
+    "p3": { "serviceName": "listings-service" },
+    "p4": { "serviceName": "trust-service" },
+    "p5": { "serviceName": "booking-service" },
+    "p6": { "serviceName": "messaging-service" },
+    "p7": { "serviceName": "media-service" },
+    "p8": { "serviceName": "notification-service" },
+    "p9": { "serviceName": "analytics-service" }
+  }
+}

@@ -5,7 +5,12 @@ const gatewayInternal = process.env.API_GATEWAY_INTERNAL || "http://127.0.0.1:40
 const nextConfig = {
   async rewrites() {
     if (process.env.NEXT_PUBLIC_API_BASE) return [];
-    return [{ source: "/api/:path*", destination: `${gatewayInternal}/api/:path*` }];
+    // /api/* → gateway; /insights/* → same gateway (analytics service-relative paths). Without this,
+    // GET /insights/listing-feel hits Next and yields "Cannot GET" — nginx had the same gap before location ^~ /insights/.
+    return [
+      { source: "/api/:path*", destination: `${gatewayInternal}/api/:path*` },
+      { source: "/insights/:path*", destination: `${gatewayInternal}/insights/:path*` },
+    ];
   },
 };
 

@@ -6,6 +6,11 @@
 #
 # Usage: ./scripts/dev-generate-certs.sh
 # Prereq: openssl. Optional: keytool (for Kafka broker JKS).
+#
+# Env:
+#   DEV_CERTS_ENSURE_ONLY=1 — create only missing files (idempotent; cold-bootstrap / bootstrap disk contract).
+#     Does not rotate existing messaging/media/kafka material. Kafka broker JKS is built only if kafka.keystore.jks is absent.
+#   DEV_CERTS_FORCE_KAFKA_BROKER=1 — with DEV_CERTS_ENSURE_ONLY=1, regenerate Kafka broker PEM/JKS even when keystore exists.
 
 set -euo pipefail
 
@@ -63,87 +68,118 @@ else
 fi
 
 # 3. messaging-service leaf
-say "3. Creating messaging-service leaf..."
-openssl genrsa -out "$CERTS/messaging-service.key" 2048 2>/dev/null
-openssl req -new -key "$CERTS/messaging-service.key" -out "$TMP/messaging.csr" \
-  -subj "/CN=messaging-service/O=off-campus-housing-dev" 2>/dev/null
-openssl x509 -req -in "$TMP/messaging.csr" -CA "$CA_PEM" -CAkey "$CA_KEY" -CAcreateserial \
-  -out "$CERTS/messaging-service.crt" -days "$DAYS" -sha256 2>/dev/null
-ok "messaging-service.crt, .key"
+if [[ "${DEV_CERTS_ENSURE_ONLY:-0}" != "1" ]] || [[ ! -f "$CERTS/messaging-service.crt" ]] || [[ ! -f "$CERTS/messaging-service.key" ]]; then
+  say "3. Creating messaging-service leaf..."
+  openssl genrsa -out "$CERTS/messaging-service.key" 2048 2>/dev/null
+  openssl req -new -key "$CERTS/messaging-service.key" -out "$TMP/messaging.csr" \
+    -subj "/CN=messaging-service/O=off-campus-housing-dev" 2>/dev/null
+  openssl x509 -req -in "$TMP/messaging.csr" -CA "$CA_PEM" -CAkey "$CA_KEY" -CAcreateserial \
+    -out "$CERTS/messaging-service.crt" -days "$DAYS" -sha256 2>/dev/null
+  ok "messaging-service.crt, .key"
+else
+  ok "messaging-service.crt|.key already exist (DEV_CERTS_ENSURE_ONLY=1)"
+fi
 
 # 4. media-service leaf
-say "4. Creating media-service leaf..."
-openssl genrsa -out "$CERTS/media-service.key" 2048 2>/dev/null
-openssl req -new -key "$CERTS/media-service.key" -out "$TMP/media.csr" \
-  -subj "/CN=media-service/O=off-campus-housing-dev" 2>/dev/null
-openssl x509 -req -in "$TMP/media.csr" -CA "$CA_PEM" -CAkey "$CA_KEY" \
-  -out "$CERTS/media-service.crt" -days "$DAYS" -sha256 2>/dev/null
-ok "media-service.crt, .key"
+if [[ "${DEV_CERTS_ENSURE_ONLY:-0}" != "1" ]] || [[ ! -f "$CERTS/media-service.crt" ]] || [[ ! -f "$CERTS/media-service.key" ]]; then
+  say "4. Creating media-service leaf..."
+  openssl genrsa -out "$CERTS/media-service.key" 2048 2>/dev/null
+  openssl req -new -key "$CERTS/media-service.key" -out "$TMP/media.csr" \
+    -subj "/CN=media-service/O=off-campus-housing-dev" 2>/dev/null
+  openssl x509 -req -in "$TMP/media.csr" -CA "$CA_PEM" -CAkey "$CA_KEY" \
+    -out "$CERTS/media-service.crt" -days "$DAYS" -sha256 2>/dev/null
+  ok "media-service.crt, .key"
+else
+  ok "media-service.crt|.key already exist (DEV_CERTS_ENSURE_ONLY=1)"
+fi
 
 # 5. Kafka client cert (Node: KAFKA_SSL_CA_PATH, KAFKA_SSL_CERT_PATH, KAFKA_SSL_KEY_PATH)
-say "5. Creating Kafka client leaf (Node)..."
-cp "$CA_PEM" "$KAFKA_DEV/ca.pem"
-openssl genrsa -out "$KAFKA_DEV/client.key" 2048 2>/dev/null
-openssl req -new -key "$KAFKA_DEV/client.key" -out "$TMP/kafka-client.csr" \
-  -subj "/CN=kafka-client/O=off-campus-housing-dev" 2>/dev/null
-cat > "$TMP/kafka-client.ext" <<'EOF'
+if [[ "${DEV_CERTS_ENSURE_ONLY:-0}" != "1" ]] || [[ ! -f "$KAFKA_DEV/client.crt" ]] || [[ ! -f "$KAFKA_DEV/client.key" ]] || [[ ! -f "$KAFKA_DEV/ca.pem" ]]; then
+  say "5. Creating Kafka client leaf (Node)..."
+  cp "$CA_PEM" "$KAFKA_DEV/ca.pem"
+  openssl genrsa -out "$KAFKA_DEV/client.key" 2048 2>/dev/null
+  openssl req -new -key "$KAFKA_DEV/client.key" -out "$TMP/kafka-client.csr" \
+    -subj "/CN=kafka-client/O=off-campus-housing-dev" 2>/dev/null
+  cat > "$TMP/kafka-client.ext" <<'EOF'
 [v3_client]
 basicConstraints = CA:FALSE
 keyUsage = digitalSignature, keyEncipherment
 extendedKeyUsage = clientAuth
 EOF
-openssl x509 -req -in "$TMP/kafka-client.csr" -CA "$CA_PEM" -CAkey "$CA_KEY" \
-  -CAcreateserial -out "$KAFKA_DEV/client.crt" -days "$DAYS" -sha256 \
-  -extensions v3_client -extfile "$TMP/kafka-client.ext" 2>/dev/null
-ok "kafka-dev/ca.pem, client.crt, client.key"
+  openssl x509 -req -in "$TMP/kafka-client.csr" -CA "$CA_PEM" -CAkey "$CA_KEY" \
+    -CAcreateserial -out "$KAFKA_DEV/client.crt" -days "$DAYS" -sha256 \
+    -extensions v3_client -extfile "$TMP/kafka-client.ext" 2>/dev/null
+  ok "kafka-dev/ca.pem, client.crt, client.key"
+else
+  ok "kafka-dev client material already exists (DEV_CERTS_ENSURE_ONLY=1)"
+fi
 
 # 6. Kafka broker cert (PEM + optional JKS for docker-compose Kafka)
-say "6. Creating Kafka broker cert..."
-KAFKA_SANS="DNS:kafka,DNS:localhost,DNS:host.docker.internal,IP:127.0.0.1,IP:192.168.5.1"
-openssl genrsa -out "$TMP/kafka-broker.key" 2048 2>/dev/null
-openssl req -new -key "$TMP/kafka-broker.key" -out "$TMP/kafka-broker.csr" \
-  -subj "/CN=kafka/O=off-campus-housing-dev" 2>/dev/null
-cat > "$TMP/san.ext" <<EOF
+_kafka_broker_need_create() {
+  if [[ "${DEV_CERTS_FORCE_KAFKA_BROKER:-0}" == "1" ]]; then
+    return 0
+  fi
+  if [[ "${DEV_CERTS_ENSURE_ONLY:-0}" == "1" ]]; then
+    [[ ! -f "$KAFKA_SSL/kafka.keystore.jks" ]]
+  else
+    return 0
+  fi
+}
+
+if _kafka_broker_need_create; then
+  say "6. Creating Kafka broker cert..."
+  KAFKA_SANS="DNS:kafka,DNS:localhost,DNS:host.docker.internal,IP:127.0.0.1,IP:192.168.5.1"
+  openssl genrsa -out "$TMP/kafka-broker.key" 2048 2>/dev/null
+  openssl req -new -key "$TMP/kafka-broker.key" -out "$TMP/kafka-broker.csr" \
+    -subj "/CN=kafka/O=off-campus-housing-dev" 2>/dev/null
+  cat > "$TMP/san.ext" <<EOF
 [kafka_broker_tls]
 basicConstraints = critical, CA:FALSE
 keyUsage = critical, digitalSignature, keyEncipherment
 extendedKeyUsage = serverAuth, clientAuth
 subjectAltName = $KAFKA_SANS
 EOF
-if ! openssl x509 -req -in "$TMP/kafka-broker.csr" -CA "$CA_PEM" -CAkey "$CA_KEY" \
-  -CAcreateserial -out "$TMP/kafka-broker.crt" -days "$DAYS" -extensions kafka_broker_tls -extfile "$TMP/san.ext"; then
-  echo "❌ openssl x509 broker sign failed"
-  exit 1
-fi
-if ! openssl x509 -in "$TMP/kafka-broker.crt" -text -noout | grep -A2 "Extended Key Usage" | grep -q "TLS Web Client Authentication"; then
-  echo "❌ Broker cert missing clientAuth EKU after sign"
-  openssl x509 -in "$TMP/kafka-broker.crt" -text -noout | grep -A3 "Extended Key Usage" || true
-  exit 1
-fi
+  if ! openssl x509 -req -in "$TMP/kafka-broker.csr" -CA "$CA_PEM" -CAkey "$CA_KEY" \
+    -CAcreateserial -out "$TMP/kafka-broker.crt" -days "$DAYS" -extensions kafka_broker_tls -extfile "$TMP/san.ext"; then
+    echo "❌ openssl x509 broker sign failed"
+    exit 1
+  fi
+  if ! openssl x509 -in "$TMP/kafka-broker.crt" -text -noout | grep -A2 "Extended Key Usage" | grep -q "TLS Web Client Authentication"; then
+    echo "❌ Broker cert missing clientAuth EKU after sign"
+    openssl x509 -in "$TMP/kafka-broker.crt" -text -noout | grep -A3 "Extended Key Usage" || true
+    exit 1
+  fi
 
-mkdir -p "$KAFKA_SSL"
-cp "$CA_PEM" "$KAFKA_SSL/ca-cert.pem"
-cp "$TMP/kafka-broker.crt" "$KAFKA_SSL/kafka-broker.crt"
-cp "$TMP/kafka-broker.key" "$KAFKA_SSL/kafka-broker.key"
+  mkdir -p "$KAFKA_SSL"
+  cp "$CA_PEM" "$KAFKA_SSL/ca-cert.pem"
+  cp "$TMP/kafka-broker.crt" "$KAFKA_SSL/kafka-broker.crt"
+  cp "$TMP/kafka-broker.key" "$KAFKA_SSL/kafka-broker.key"
 
-if command -v keytool >/dev/null 2>&1; then
-  PASS="${KAFKA_SSL_PASS:-changeit}"
-  openssl pkcs12 -export -in "$TMP/kafka-broker.crt" -inkey "$TMP/kafka-broker.key" \
-    -out "$TMP/kafka.p12" -passout "pass:$PASS" -name kafka 2>/dev/null
-  keytool -importkeystore -srckeystore "$TMP/kafka.p12" -srcstoretype PKCS12 -srcstorepass "$PASS" \
-    -destkeystore "$KAFKA_SSL/kafka.keystore.jks" -deststoretype JKS -deststorepass "$PASS" -noprompt 2>/dev/null
-  keytool -importcert -alias dev-root-ca -file "$CA_PEM" -keystore "$KAFKA_SSL/kafka.truststore.jks" -storepass "$PASS" -noprompt 2>/dev/null || true
-  echo -n "$PASS" > "$KAFKA_SSL/kafka.keystore-password"
-  echo -n "$PASS" > "$KAFKA_SSL/kafka.truststore-password"
-  echo -n "$PASS" > "$KAFKA_SSL/kafka.key-password"
-  chmod +x "$SCRIPT_DIR/verify-kafka-broker-keystore-jks.sh" 2>/dev/null || true
-  KAFKA_KEYSTORE_PATH="$KAFKA_SSL/kafka.keystore.jks" \
-    KAFKA_KEYSTORE_PASSWORD_FILE="$KAFKA_SSL/kafka.keystore-password" \
-    REPO_ROOT="$REPO_ROOT" \
-    bash "$SCRIPT_DIR/verify-kafka-broker-keystore-jks.sh" || exit 1
-  ok "Kafka broker JKS in certs/kafka-ssl/"
+  if command -v keytool >/dev/null 2>&1; then
+    PASS="${KAFKA_SSL_PASS:-changeit}"
+    openssl pkcs12 -export -in "$TMP/kafka-broker.crt" -inkey "$TMP/kafka-broker.key" \
+      -out "$TMP/kafka.p12" -passout "pass:$PASS" -name kafka 2>/dev/null
+    keytool -importkeystore -srckeystore "$TMP/kafka.p12" -srcstoretype PKCS12 -srcstorepass "$PASS" \
+      -destkeystore "$KAFKA_SSL/kafka.keystore.jks" -deststoretype JKS -deststorepass "$PASS" -noprompt 2>/dev/null
+    keytool -importcert -alias dev-root-ca -file "$CA_PEM" -keystore "$KAFKA_SSL/kafka.truststore.jks" -storepass "$PASS" -noprompt 2>/dev/null || true
+    echo -n "$PASS" > "$KAFKA_SSL/kafka.keystore-password"
+    echo -n "$PASS" > "$KAFKA_SSL/kafka.truststore-password"
+    echo -n "$PASS" > "$KAFKA_SSL/kafka.key-password"
+    chmod +x "$SCRIPT_DIR/verify-kafka-broker-keystore-jks.sh" 2>/dev/null || true
+    KAFKA_KEYSTORE_PATH="$KAFKA_SSL/kafka.keystore.jks" \
+      KAFKA_KEYSTORE_PASSWORD_FILE="$KAFKA_SSL/kafka.keystore-password" \
+      REPO_ROOT="$REPO_ROOT" \
+      bash "$SCRIPT_DIR/verify-kafka-broker-keystore-jks.sh" || exit 1
+    ok "Kafka broker JKS in certs/kafka-ssl/"
+  else
+    if [[ "${DEV_CERTS_ENSURE_ONLY:-0}" == "1" ]]; then
+      echo "❌ keytool required to create certs/kafka-ssl/kafka.keystore.jks (install JDK / brew install openjdk)" >&2
+      exit 1
+    fi
+    warn "keytool not found; Kafka broker needs JKS. Run: brew install openjdk, then re-run this script or scripts/kafka-ssl-from-dev-root.sh"
+  fi
 else
-  warn "keytool not found; Kafka broker needs JKS. Run: brew install openjdk, then re-run this script or scripts/kafka-ssl-from-dev-root.sh"
+  ok "Kafka broker JKS already present (DEV_CERTS_ENSURE_ONLY=1); skip step 6 (use DEV_CERTS_FORCE_KAFKA_BROKER=1 to regenerate)"
 fi
 
 say "=== Dev certs done ==="

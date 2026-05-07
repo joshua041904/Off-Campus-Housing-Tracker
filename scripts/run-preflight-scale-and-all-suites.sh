@@ -8,10 +8,15 @@ if [[ -z "${BASH_VERSION:-}" ]]; then
 fi
 set -euo pipefail
 IFS=$'\n\t'
+# api-gateway route-hit JSONL: och-service-coverage-matrix per-suite columns (must match route-coverage-middleware allowlist).
+: "${OCH_X_SUITE:=bash}"
+export OCH_X_SUITE
+: "${K6_X_SUITE:=k6}"
+export K6_X_SUITE
 #
 # Breakdown (what this script does):
 #   1. Context: When REQUIRE_COLIMA=0 (e.g. k3d), keeps current context and uses in-cluster Caddy verify (no port-forward). When REQUIRE_COLIMA=1, prefers Colima context and host/tunnel-based verify.
-#   2. Phase 1A: Read-only API and cluster checks. Phase 1B: Reissue CA+leaf, Kafka SSL, remove in-cluster DB/Kafka, scale to baseline (1 replica per app, 2 Caddy).
+#   2. Phase 1A: Read-only API and cluster checks. Phase 1B: Reissue CA+leaf, Kafka SSL, remove in-cluster DB/Kafka, scale to baseline (1 replica per app, 2 Caddy; Ollama HPA cap + ollama=1).
 #   3. Caddy strict TLS: On k3d/REQUIRE_COLIMA=0 uses verify-caddy-strict-tls-in-cluster.sh (curl from a pod). On Colima may use NodePort or port-forward.
 #   4. Strict TLS/mTLS preflight: ensure-strict-tls-mtls-preflight.sh (service-tls + dev-root-ca chain).
 #   5. Optional pgbench: step 8 when RUN_PGBENCH=1. Step 7a runs verify pods → Vitest (event-layer + messaging + media) →
@@ -26,8 +31,16 @@ IFS=$'\n\t'
 # Use: ./scripts/run-preflight-scale-and-all-suites.sh
 #   REQUIRE_COLIMA=0  use k3d (default for preflight). REQUIRE_COLIMA=1  use Colima + k3s (primary). With REQUIRE_COLIMA=1 and METALLB_ENABLED=1 preflight uses install-metallb-colima.sh, caddy-h3-service-loadbalancer.yaml, and ensures :dev images (no k3d registry/3c0/3c0a/3c0b). Colima only used optionally for L2 verification when REQUIRE_COLIMA=0 (METALLB_VERIFY_COLIMA_L2=1).
 # Get ready first: ./scripts/ensure-ready-for-preflight.sh
-# Node: preflight loads nvm and runs `nvm use 18` so node/pnpm match typical dev installs (avoids Homebrew Node vs nvm ABI drift). PREFLIGHT_SKIP_NVM=1 to skip (e.g. CI). Requires Node 18 installed in nvm (`nvm install 18`).
+# Node: preflight loads nvm and aligns to repo .nvmrc (Node 20). PREFLIGHT_SKIP_NVM=1 skips nvm only; PREFLIGHT_SKIP_NODE_VERSION_CHECK=1 skips the hard v20 gate (not recommended).
 # Host tools (curl HTTP/3, tcpdump, tshark, htop): ./scripts/install-preflight-tools.sh (run once)
+# Workspace: preflight does NOT run pnpm install or build — it only asserts required artifacts exist. Run
+#   make cold-bootstrap (installs + pnpm run build before cluster) or manually: pnpm install && pnpm run build.
+#   Contract gate needs tools/kafka-contract/dist/index.js (see _och_preflight_assert_kafka_contract_dist).
+#   Early deps: make kafka-alignment-report-venv (matplotlib for Kafka alignment PNGs) unless PREFLIGHT_SKIP_KAFKA_ALIGNMENT_REPORT_VENV=1.
+#   Contract: node scripts/verify-bootstrap-state.mjs at preflight-start and preflight-end (VERIFY_BOOTSTRAP_STATE_SKIP=1 skips).
+# Strict lab (PREFLIGHT_STRICT_EXIT=1): requires bench_logs/bootstrap-artifact.json with state=BOOTSTRAP_COMPLETE
+#   (run make cold-bootstrap so P9 writes the artifact). Optional: PREFLIGHT_REQUIRE_NO_DRIFT=1 runs
+#   python3 scripts/cluster_health_dag.py drift — exit 1 if drift vs artifact (see make detect-drift).
 # Layers: docs/PREFLIGHT_AND_DIAGNOSTICS.md and docs/COLIMA_K3S_ANALYZE_EVERY_LAYER.md
 #
 # Cluster stopped / API unreachable (be aware — get the cluster back before expecting preflight to pass):
@@ -46,15 +59,19 @@ IFS=$'\n\t'
 #   - Linux / Docker k6: SSL_CERT_FILE=certs/dev-root.pem is honored for TLS verify.
 #
 # macOS + host k6 (Homebrew k6): Go uses Security.framework — SSL_CERT_FILE does NOT fix x509 for
-#   https://off-campus-housing.test. Step 7a runs ./scripts/lib/trust-dev-root-ca-macos.sh automatically
-#   before k6 (adds dev-root to login keychain; re-run after CA rotation). Overrides:
-#   SKIP_MACOS_DEV_CA_TRUST=1 — you already trusted the CA manually.
-#   K6_USE_DOCKER_K6=1 — use grafana/k6 in Docker for other k6 flows (Linux; SSL_CERT_FILE works). Housing edge smoke uses host k6 only.
-#   PREFLIGHT_STRICT_MACOS_K6_TRUST=0 — if keychain step fails, continue anyway (k6 may still x509).
+#   https://off-campus-housing.test. Step 7a **detects** dev-root-ca in the keychain search path (no writes by default).
+#   Detection order: default keychain list (no path), then login.keychain-db, then System.keychain-db.
+#   Trust the CA once in Keychain Access (Always Trust) or: security add-trusted-cert …
+#   Overrides: SKIP_MACOS_DEV_CA_TRUST=1 — skip check; PREFLIGHT_MACOS_CA_AUTO_TRUST=1 — run trust-dev-root-ca-macos.sh (deletes prior dev-root-ca in login, then add; may prompt).
+#   PREFLIGHT_MACOS_CA_PROMPT_TRUST=auto|0|1 — auto (default): if dev-root-ca not found and stdout is a TTY, run
+#     security add-trusted-cert … (Touch ID / password prompt) once before failing strict check. Set 0 for CI/non-interactive.
+#   K6_USE_DOCKER_K6=1 — Docker k6 + SSL_CERT_FILE. PREFLIGHT_STRICT_MACOS_K6_TRUST=0 — warn-only if cert missing.
+#   PREFLIGHT_MACOS_K6_KEYCHAIN_FINGERPRINT_FALLBACK=1 — if CN search fails, scan login.keychain PEMs for SHA-256(DER) match to certs/dev-root.pem (slower; for imports under a different label).
 #
 # Ensures:
 #   - API server ready (mandatory); re-checked after reissue
-#   - off-campus-housing-tracker: service 1, exporters 1, envoy-test 1, Caddy 2
+#   - off-campus-housing-tracker: service 1, exporters 1, envoy-test 1, Caddy 2; Ollama Deployment scaled to 1 and
+#     HPA ollama maxReplicas capped (PREFLIGHT_OLLAMA_HPA_MAX_REPLICAS default 1) so single-node Colima never load-balances across a cold Ollama pod.
 #   - Reissue CA + leaf (dev-root-ca / off-campus-housing-local-tls match); verify no curl 60
 #   - Strict TLS (CA + leaf); no in-cluster Postgres. Kafka:
 #     - PREFLIGHT_KAFKA_SUBSTRATE=kraft (default): infra/k8s/base/config app-config targets headless KRaft (:9093).
@@ -71,6 +88,8 @@ IFS=$'\n\t'
 #   - PREFLIGHT_SKIP_KAFKA_EKU_CHECK=1 — skip openssl broker clientAuth EKU gate in that script.
 #   - PREFLIGHT_SKIP_KAFKA_JKS_VERIFY=1 — skip keytool verify on kafka.keystore.jks (PEM/JKS drift not caught).
 #   - PREFLIGHT_SKIP_KAFKA_TLS_SAN_GATE=1 — skip step 6a2c (pnpm verify:kafka-bootstrap + verify:kafka-tls-sans). Do not use in CI you care about.
+#   - PREFLIGHT_SKIP_KAFKA_METALLB_PIN=1 — legacy no-op (MetalLB allocator assigns kafka-*-external IPs; no pinning).
+#   - PREFLIGHT_SKIP_KAFKA_RESTART_AFTER_METALLB_PIN=1 — skip rollout restart statefulset/kafka after kafka-kraft-metallb apply (default: restart when metallb-system exists so pods re-read LB ingress IPs).
 #   - PREFLIGHT_SKIP_KAFKA_ADVERTISED_LISTENERS_GATE=1 — skip step 6a2c2 (KRaft only: each broker advertised.listeners INTERNAL FQDN kafka-N.kafka.<ns>.svc.cluster.local:9093 + EXTERNAL <kafka-N-external LB IP>:9094).
 #   - PREFLIGHT_SKIP_KAFKA_KRAFT_HEALTH_GATES=1 — skip verify-kafka-cluster.sh entirely (quorum, leadership logs, broker API, and the rest of the ritual). Default: full verify-kafka-cluster.sh (6a2c0, 6a2c, 6a2c2, 6a2c6, 6a2c3–5); preflight does not use VERIFY_KAFKA_HEALTH_ONLY.
 #   - PREFLIGHT_SKIP_EDGE_ROUTING_GATES=1 — skip 6b1–6b2 (Ingress /api+/auth→api-gateway:4020 order, DNS→caddy-h3 or ingress-nginx-controller LB). Fixes silent k6 0-byte runs from edge drift.
@@ -78,6 +97,8 @@ IFS=$'\n\t'
 #   - PREFLIGHT_KAFKA_TLS_PREFLIGHT_JOB=1 — after 6a2c, run infra/k8s/kafka-certs/kafka-tls-preflight-job.yaml (in-cluster mTLS to headless :9093). Default 0 (opt-in: slower, needs brokers + och-kafka-ssl-secret).
 #   - PREFLIGHT_SKIP_KAFKA_ALIGNMENT_SUITE=1 — skip 6a2c9 scripts/tests/kafka-alignment-suite.sh.
 #   - PREFLIGHT_KAFKA_ALIGNMENT_SUITE_SAFE_ONLY=1 — alignment suite runs safe tests only (KAFKA_ALIGNMENT_TEST_MODE=0). Default: full mutating suite (simulated drift, auto_remediate, MetalLB churn, broker restart, full rollout; KAFKA_ALIGNMENT_TEST_MODE=1).
+#   - REQUIRE_COLIMA=1 + METALLB_ENABLED=1: exports PREFLIGHT_SKIP_KAFKA_ALIGNMENT_SUITE=0, KAFKA_ALIGNMENT_TEST_MODE=1,
+#     OTEL_PREFLIGHT_TRACE_SAMPLE=1, and defaults PREFLIGHT_MAIN_LOG to bench_logs/preflight-<timestamp>.log (lab parity).
 #   - PREFLIGHT_KAFKA_ALIGNMENT_SUITE_DESTRUCTIVE=1 — no longer required (default is full suite); kept as a no-op alias for older invocations.
 #   - Step 7 (Vitest, k6, Playwright) runs only after step 6b (Kafka strict path + wait-for-all-services-ready); 7a8 Playwright is never overlapped with topic creation.
 #   RUN_SUITES=0 skip test suites.
@@ -89,9 +110,45 @@ IFS=$'\n\t'
 #     core = auth-service api-gateway messaging-service media-service (finishes without listings/booking/trust/analytics).
 #     Override exact list: PREFLIGHT_APP_DEPLOYS="auth-service api-gateway messaging-service"
 #     (Script IFS=$'\n\t': space-separated lists use _och_preflight_deploys_to_arr / IFS=' ' read -a — not unquoted `for x in $PREFLIGHT_APP_DEPLOYS`.)
+#   PREFLIGHT_OLLAMA_HPA_MAX_REPLICAS — default 1: patch HPA/ollama maxReplicas before/after recovery applies (base manifest is 3).
+#     Set to 0 to skip cap (e.g. multi-node soak). Ollama is scaled in step 4 separately from PREFLIGHT_APP_DEPLOYS.
+#   PREFLIGHT_RECONCILE_OLLAMA_GATEWAY_STACK (default 1) — after kubeconfig is ready, kubectl apply k8s/ollama-gateway*.yaml via
+#     apply-ollama-gateway-stack.sh so REDIS_URL=configMapRef(app-config) and external Redis (:6380) stay aligned with repo (cold-bootstrap alone is not re-run).
+#     Set 0 to skip. OLLAMA_GATEWAY_USE_EXTERNAL_REDIS (default 1) is exported for that apply.
 #   RUN_MESSAGING_LOAD=1 (default) — after Vitest + housing scripts, run k6 edge smoke grid (run-housing-k6-edge-smoke.sh) if k6 is installed.
 #   RUN_K6_SERVICE_GRID=0 — skip the full k6 per-service smoke (gateway, auth, listings, booking health, trust, analytics, messaging, media, event-layer + booking/search JWT).
 #   RUN_PREFLIGHT_PLAYWRIGHT=0 — skip Playwright E2E (https edge /api/readyz wait + tests against E2E_API_BASE).
+#   Step 7 auto-wiring (no manual exports): E2E_API_BASE defaults to https://off-campus-housing.test; JAEGER_QUERY_BASE
+#     probes inherited shell/Make values (curl /api/services) before trusting them, then prefers kubectl port-forward to
+#     observability svc/jaeger (ClusterIP), then LoadBalancer IP if present (stale exports are cleared for discovery).
+#     (default manifest: svc/jaeger ClusterIP — PREFLIGHT_JAEGER_PORT_FORWARD=0 disables forward and requires LB).
+#     JAEGER_PF_LOCAL_PORT — single local bind port (default tries 16686 16687 26686 36686 if unset and PF exits or never answers).
+#   PREFLIGHT_STRICT_EDGE_RESOLVE=1 (default): curl --resolve off-campus-housing.test:443:<MetalLB IP> /api/readyz before suites.
+#   Phase Barrier Contract (scripts/phase-barrier.sh; docs/preflight-phase-barrier-contract.md): isolates heavy phases (Kafka, Vitest, k6, edge suites).
+#   PREFLIGHT_PHASE_BARRIER_POST_KAFKA=1 (default): barrier after 6a2c9 Kafka alignment suite.
+#   PREFLIGHT_PHASE_BARRIER_PRE_STEP7=1 (default): barrier before step-7 suite matrix (replaces gateway-only drain). Set 0 to skip.
+#   PREFLIGHT_GATEWAY_DRAIN_BEFORE_STEP7=0: legacy alias — if 0, skips pre-step7 barrier even when PREFLIGHT_PHASE_BARRIER_PRE_STEP7 is unset.
+#   PREFLIGHT_GATEWAY_DRAIN_ROLLOUT_TIMEOUT=180: passed via PHASE_BARRIER_GATEWAY_ROLLOUT_TIMEOUT for barrier gateway rollout.
+#   PREFLIGHT_PHASE_BARRIER_POST_INTEGRATION=1 (default): barrier + TCP pool stabilize after repo Vitest stack (7a0c), before 7a service suites.
+#   PHASE_BARRIER_POST_INTEGRATION_STABILIZE_SEC=10: trailing sleep after that barrier (default 10).
+#   PREFLIGHT_PHASE_BARRIER_POST_K6_GRID=1 (default): barrier after 7a3–7a7 k6 per-service edge smoke, before listings lab / Phase D.
+#   PREFLIGHT_STRICT_EXIT=1: TRANSPORT_STUDY_PCAP defaults to 1; step 7b transport study is fatal; end-of-run artifact seal
+#     requires trace-validation/*.json|*.prom and transport-forensics/*.pcap|quic-invariants.json (unless early exit skips 7b).
+#   PREFLIGHT_TRANSPORT_STUDY_REQUIRED=1 — step 7b Experiment 6: Colima L1 capture during in-cluster k6 → transport-study-v7.json
+#     (v7b: scripts/transport-study-v7b.mjs --enforce-gates + Jaeger overlap + strict span-tree flows; JAEGER_QUERY_BASE + tshark + node).
+#     Skips Experiment 8 host curl PCAP when that artifact exists. See scripts/run-transport-study-experiments.sh header.
+#   PREFLIGHT_RUN_QUIC_V7_FORENSIC=1 (default) — when PREFLIGHT_STRICT_EXIT=1, after housing suites succeed run QUIC v6+v7 jq gates + optional Jaeger.
+#   Phase 1 (quiet transport + OTEL, before step-7 matrix):
+#     PREFLIGHT_RUN_TRANSPORT_PHASE1=1 (default under strict + QUIC forensics) — run scripts/preflight-controlled-transport-otel-prove.sh on Colima
+#       (default L1 BPF: udp port 443 + tcp:443 to LB; QUIC often lacks LB IP in outer IPv4 on node capture after DNAT — optional QUIC_TUNE_UDP_BUFFERS sysctl, minimal H2+H3+gRPC+Jaeger seed → v6/v7).
+#     PREFLIGHT_TRANSPORT_PHASE1_STYLE=controlled (default) | make | skip — make = only `make transport-quic-v6-v7-prove`; skip = no Phase 1.
+#     PREFLIGHT_RUN_ISOLATED_QUIC_PROVE=0 — legacy alias to set PREFLIGHT_RUN_TRANSPORT_PHASE1=0 (skip Phase 1).
+#     PREFLIGHT_PHASE1_STRICT_UDP_BPF=1 — set CAPTURE_V2_L1_UDP_HOST_MATCH (udp+host LB); default is wide UDP. Legacy: PREFLIGHT_PHASE1_LOOSE_UDP_BPF=0 forces strict.
+#     7a8b/7a8c reuse Phase 1 capture dir when present (no second `make transport-quic-v6-v7-prove` unless Phase 1 was skipped or failed to emit v7).
+#   Long-running L1 span during the full matrix is incompatible with high-concurrency Playwright on Colima:
+#     PREFLIGHT_QUIC_L1_SPAN_STEP7=0 (default when unset). Set =1 to capture the whole matrix; optional tight UDP: export PREFLIGHT_QUIC_L1_UDP_BPF_HOST_MATCH=1 before span (sets CAPTURE_V2_L1_UDP_HOST_MATCH).
+#     Skip forensics: PREFLIGHT_RUN_QUIC_V7_FORENSIC=0 or PREFLIGHT_RUN_QUIC_V6_FORENSIC=0. Artifacts copy to $PREFLIGHT_RUN_DIR/transport-forensics/quic-transport-invariant/ (set PREFLIGHT_QUIC_PROVE_COPY_PCAP=0 to skip pcap).
+#   QUIC_FORENSIC_TRAFFIC_MODE=minimal|strict|full — burst HTTP/3 before capture stop in standalone (default minimal).
 #   Edge hostname / headless DNS (Playwright + Node fetch require off-campus-housing.test → IP):
 #     OCH_EDGE_IP=<MetalLB-or-NodeIP> — when DNS fails, scripts/lib/edge-test-url.sh prints curl --resolve hints.
 #     OCH_AUTO_EDGE_HOSTS=1 — if DNS fails, append "$OCH_EDGE_IP hostname" to /etc/hosts (needs sudo on non-root).
@@ -106,12 +163,21 @@ IFS=$'\n\t'
 #   PREFLIGHT_FULL_EDGE_TRANSPORT_VALIDATION=0 — set 1 to run scripts/protocol/full-edge-transport-validation.sh after housing HTTP suites
 #     (per-service H2/H3/gRPC JSON under PREFLIGHT_RUN_DIR/full-edge-transport-validation; extra cluster load).
 #   PREFLIGHT_RUN_K6_PHASES=1 (default) — when RUN_K6=1, run scripts/load/run-k6-phases.sh after 7a (multi-phase HTTP/2 + xk6 HTTP/3 load). Set 0 to skip (edge grid only).
+#   PREFLIGHT_K6_REALISTIC_MULTI_PROTO=1 (default) — append phase `realistic` (k6-multi-protocol-realistic.js: H1/H2/H3 + unique auth/search). Set 0 to skip. Uses .k6-build/bin/k6-http3 when present (same as matrix / 6d).
+#     Colima QUIC budget: script defaults H3 preAllocatedVUs=10, maxVUs=80 (H1/H2 unchanged). Tune: K6_REALISTIC_H3_PRE_VUS, K6_REALISTIC_H3_MAX_VUS; HTTP/3-only isolation: K6_REALISTIC_H3_ONLY=1.
 #   PREFLIGHT_K8S_IMAGE_VERIFY=1 (default) — after housing manifests apply, run scripts/ci/verify-k8s-images.sh (kubectl = source of truth). k3d: after 3c0a registry push; Colima: after 3c0-housing + host aliases. Skipped if first deployment is missing.
 #   PREFLIGHT_K8S_IMAGE_DRIFT=0 — set 1 to compare pod vs deployment template image in verify-k8s-images.sh.
 #   Colima step 2e sources scripts/lib/ensure-colima-docker-context.sh so docker image inspect uses Colima's daemon (avoids Docker Desktop vs Colima socket mismatch).
 #   PREFLIGHT_K6_MESSAGING_LIMIT_FINDER=0 — set 1 to run scripts/load/k6-messaging-limit-finder.js after the edge grid (long ramping-arrival-rate; uses k6-strict-edge-tls.js). Default off.
 #   PREFLIGHT_VERBOSE_HOUSING_MESSAGING_SUITE=1 — step 7a: show "Housing HTTP/2 + HTTP/3 suite done" and run ensure-messaging-schema.psql (noisy DDL). Default: quieter preflight (schema already applied by bring-up / migrations; re-run manually if needed: ./scripts/ensure-messaging-schema.sh).
 #   PREFLIGHT_EXIT_AFTER_HOUSING_SUITES=1 — exit after step 7a (Vitest + housing HTTP suite + k6 grid + Playwright); skip transport study / in-cluster k6 / step 8 pgbench. make demo sets this to 1; make demo-full sets 0.
+#   PREFLIGHT_STEP7_OBSERVABILITY_GATES=1 — run Jaeger span-tree + overlap gates (7a-obs). Default 0; make preflight-lab exports 1.
+#   Step7 deterministic trace (recommended): scripts/step7-generate-trace.sh seeds curl + W3C traceparent; preflight sets
+#     STEP7_CANONICAL_TRACE_ID unless already exported. STEP7_CANONICAL_TRACE_SEED=0 skips seed (list-only mode).
+#     STEP7_POST_SEED_SLEEP_MS / STEP7_CANONICAL_POLL_* tune Jaeger ingestion wait (see run-step7-observability-gates.mjs).
+#     STEP7_STRICT=0 — gate soft-fail (exit 0). STEP7_DEBUG_DUMP=1 — write step7-trace-debug.json on failure.
+#     STEP7_CANONICAL_CONTRACT=1 (default in preflight Step7) — require depth≥3, dynamic min spans, all services/*-service+api-gateway for seeded /api/debug/full-trace. Set STEP7_CANONICAL_CONTRACT=0 to relax.
+#   PREFLIGHT_LAB (default 1 via Makefile preflight-strict) — run-housing-k6-edge-smoke.sh appends k6-preflight-lab-randomized-all-endpoints.js after the grid (random data, all service health + public routes). PREFLIGHT_LAB=0 skips that pass.
 #     Set RUN_MESSAGING_LOAD=0 to skip. Tune: K6_MESSAGING_DURATION, K6_MESSAGING_RATE, K6_MESSAGING_VUS, K6_MEDIA_*.
 #   Preflight does not apply DB migrations or infra/db/*.sql by default; run scripts/setup-*-db.sh or scripts/ensure-*.sh manually when schema changes.
 #   Exception: PREFLIGHT_PHASE_D_TAIL_LAB=1|full runs scripts/perf/run-preflight-phase-d-tail-lab.sh after the k6 edge grid, which **best-effort** runs
@@ -130,6 +196,12 @@ IFS=$'\n\t'
 #     PREFLIGHT_FORENSIC=1 — also runs scripts/cluster-log-sweep.sh + scripts/network-command-center.sh into $PREFLIGHT_RUN_DIR/forensics/ (heavy).
 #     PREFLIGHT_FAIL_ON_RECENT_RESTART=1 — exit 1 if any container lastState.terminated.finishedAt within PREFLIGHT_RECENT_RESTART_WINDOW_SEC (default 7200).
 #     See docs/CLUSTER_FORENSICS_AND_OBSERVABILITY.md.
+#   PREFLIGHT_STRICT_EXIT=1 — exported for run-playwright-e2e-preflight.sh (seed failures fatal there). After step 7,
+#     exit 1 if the housing test matrix failed (Vitest stack / bash / k6 / Playwright — Playwright now returns non-zero
+#     from _run_all_suites on E2E/Jaeger failure). After step 9, exit 1 if perf artifacts (protocol matrix + canonical bundle)
+#     returned non-zero (e.g. strict canonical missing Phase D k6 logs). Default 0: historical behavior (warn + continue;
+#     final exit 0 when RUN_PGBENCH=0).
+#   JAEGER_VERIFY_ASYNC_VERTICALS=0 — skip verify-jaeger-async-verticals.sh (Kafka producer/consumer Jaeger flows) inside Playwright preflight.
 #
 #   --- Load-lab orchestration (step 7a k6 edge grid): interference, not infra saturation ---
 #   When TIME_WAIT and conntrack stay low, node CPU looks moderate, and standalone k6 scripts are clean — but
@@ -165,12 +237,12 @@ IFS=$'\n\t'
 #
 #   k6 suite stability (orchestration — reduces cross-test contention on Colima/k3s; see scripts/lib/k6-suite-resource-hooks.sh):
 #     K6_SUITE_COOLDOWN_SEC=15 — sleep after every k6 block; K6_SUITE_CAR_EXTRA_SEC=20 — extra after constant-arrival-rate scripts.
-#     K6_SUITE_LOG_TOP=1 — kubectl top nodes + pods after each block; K6_SUITE_FAIL_ON_NODE_CPU=1 — exit hook code 3 if any node CPU% ≥ K6_SUITE_NODE_CPU_MAX (default 85). Set K6_SUITE_FAIL_ON_NODE_CPU=0 to only log.
+#     K6_SUITE_LOG_TOP=1 — kubectl top nodes + pods after each block; K6_SUITE_FAIL_ON_NODE_CPU=1 — exit hook code 3 if any node CPU% ≥ K6_SUITE_NODE_CPU_MAX (default 92). Set K6_SUITE_FAIL_ON_NODE_CPU=0 to only log.
 #     K6_SUITE_RESTART_ENVOY_AFTER_CAR=0 — set 1 to rollout restart deployment/envoy-test in envoy-test after each CAR test (+ K6_SUITE_ENVOY_RESTART_SLEEP_SEC=10).
 #     K6_SUITE_RESOURCE_LOG / K6_SUITE_RESOURCE_LOG_AUTO=1 — append kubectl top snapshots to $PREFLIGHT_RUN_DIR/k6-suite-resources.log (AUTO on in step 7a; proves contention offline).
 #     K6_SUITE_STABILITY_AGGRESSIVE=1 — enables Envoy restart after CAR by default (clears connection state; disruptive).
 #     K6_SUITE_LOG_TOP_BEFORE=1 — snapshot before each k6 run; K6_SUITE_COLIMA_DROP_CACHES=1 — colima ssh sync+drop_caches before each k6 (harsh lab; Colima VM only).
-#     K6_SUITE_WARN_HOT_RESOURCES=1 (default) — stderr warnings when node CPU%/MEM% ≥ K6_SUITE_WARN_NODE_CPU / _MEM (default 80); fail still at K6_SUITE_NODE_CPU_MAX (85).
+#     K6_SUITE_WARN_HOT_RESOURCES=1 (default) — stderr warnings when node CPU%/MEM% ≥ K6_SUITE_WARN_NODE_CPU / _MEM (default 80); fail still at K6_SUITE_NODE_CPU_MAX (92).
 #     K6_SUITE_GATEWAY_DRAIN=1 — after each k6 block, wait until api-gateway pod CPU (kubectl top) < K6_SUITE_GATEWAY_DRAIN_MAX_MILLICORES (default 150m); needs metrics-server. run-housing-k6-edge-smoke.sh defaults this on.
 #     K6_ORCHESTRATION_VU_SCENARIO=1 — in edge smoke, messaging + media k6 scripts use ramping-vus instead of constant-arrival-rate (less iteration drop / shared-gateway interference). Set 0 for legacy CAR stress.
 #     K6_SUITE_KILL_K6_AFTER_BLOCK=1 — default in run-housing-k6-edge-smoke.sh; SIGKILL lingering k6 (all k6 on host). Set 0 to disable.
@@ -268,9 +340,12 @@ IFS=$'\n\t'
 #
 #   --- Step 7a — testing matrix (edge + services; what preflight runs vs run manually) ---
 #   Playwright E2E (7a8): run-playwright-e2e-preflight.sh → waits for E2E_API_BASE/api/readyz, then
-#     scripts/webapp-playwright-strict-edge.sh → pnpm exec playwright test (webapp/playwright.config.ts — 7 projects:
-#     01-guest-shell … 07-system-integrity). Default PREFLIGHT_PLAYWRIGHT_STRICT_HTTP3=1 enables CI-style strict transport gates.
-#     Optional screenshots: E2E_SCREENSHOTS=1. Targeted runs: webapp/package.json test:e2e:*.
+#     scripts/webapp-playwright-strict-edge.sh → default test:e2e:strict-verticals-and-integrity (projects 06+07; cross-service
+#     / transport). PLAYWRIGHT_E2E_MATRIX=full → all projects. JAEGER_QUERY_BASE is required (Jaeger query :16686); after tests
+#     always runs verify-jaeger-tracing-services.sh + verify-jaeger-trace-all-verticals.sh. Trace reports default to
+#     $PREFLIGHT_RUN_DIR/trace-validation/ (JSON, MD, alerts, trace_flow_validation.prom); override TRACE_VALIDATION_REPORT_DIR
+#     or set TRACE_VALIDATION_REPORT_DISABLED=1. PREFLIGHT_PLAYWRIGHT_STRICT_HTTP3=1
+#     sets PLAYWRIGHT_VERTICAL_STRICT + PLAYWRIGHT_STRICT_HTTP3. Optional: E2E_SCREENSHOTS=1, webapp/package.json test:e2e:*.
 #   k6 shared module: scripts/load/k6-strict-edge-tls.js — imported by all edge k6 scripts (BASE_URL, TLS CA, tags).
 #   k6 in default preflight grid: run-housing-k6-edge-smoke.sh → gateway/auth/listings/booking/trust/analytics/
 #     messaging/media/event-layer + optional analytics-listing-feel + JWT booking/search (see script triples).
@@ -287,6 +362,7 @@ IFS=$'\n\t'
 #   RUN_K6=1 run k6 load phase; RUN_PGBENCH=1 run pgbench sweeps before suites (set by RUN_FULL_LOAD=1).
 #   When RUN_FULL_LOAD=1: K6_PHASES=read,soak,limit,max, K6_HTTP3=1, K6_HTTP3_PHASES=1 (run-k6-phases.sh runs xk6-http3 phases). Step 6d builds xk6-http3 if missing; SKIP_XK6_BUILD=1 to skip.
 #   KILL_STALE_FIRST=1 (default) kill stale pipeline/test processes before running; set 0 to skip.
+#     find-and-kill-idle-then-run-pipeline.sh protects CALLER_PID and its ancestors (nohup/bash -c/tee) + script-path pgrep patterns; KILL_STALE_FIRST=0 remains an escape hatch if needed.
 #   SKIP_API_SERVER_CHECK=1 skip step 3 (use only if API check is flaky and Colima is known good).
 #   COLIMA_START=1 (default) if API not reachable, start Colima and wait for 127.0.0.1:6443. Set 0 to fail fast.
 #   COLIMA_TEARDOWN_FIRST=1 — run ./scripts/colima-teardown-and-start.sh first (full teardown + start + 6443 tunnel), then proceed. Use when reissue hits 49400/connection refused.
@@ -334,7 +410,7 @@ IFS=$'\n\t'
 #         Kafka SSL (3b), Phase 1B write lock.
 #   3b    3b1–3b4: Re-ensure API, Caddy strict TLS verify, scale to baseline, pod/DB/Redis/TLS checks. 3b4: no SQL applied (run ensure-* or setup-* manually).
 #   3c    Colima+MetalLB: 3c1-early installs MetalLB before 3a (reissue) so webhook is ready while API is calm. 3c0-housing: kubectl apply -k each infra/k8s/base/<app> in PREFLIGHT_APP_DEPLOYS so Deployments exist before scale (fixes missing notification-service). 3c0: k3d node restart (optional). 3c0b: API stabilize. 3c1: MetalLB install (skipped on Colima if 3c1-early succeeded). 3c1a: FRR BGP. 3c2: Caddy deploy + service. 3c1b: MetalLB verify (VERIFY_MODE=stable). 3c1c: optional Colima-only L2/BGP (METALLB_VERIFY_COLIMA_L2=1). Colima pool default: METALLB_POOL=192.168.64.240-192.168.64.250 so host can reach LB IP.
-#   4     Scale to baseline (1 replica per app, 2 Caddy, exporters 1, Envoy 1).
+#   4     Scale to baseline (1 replica per app, 2 Caddy, exporters 1, Envoy 1); patch HPA/ollama maxReplicas (default 1); scale ollama to 1.
 #   5     Strict TLS/mTLS preflight (ensure-strict-tls-mtls-preflight.sh). Verify Caddy strict TLS (no curl 60).
 #   6     6a1–6a2: Force deployments, ensure Kafka (compose or KRaft topics); 6a2b validate-kafka-stack-contract.sh;
 #         6a2c verify:kafka-bootstrap + verify:kafka-tls-sans (SAN drift + MetalLB IP SANs when LB assigned); 6a2c2 KRaft advertised.listeners INTERNAL+EXTERNAL; verify-kafka-cluster.sh full ritual (meta identity, SANs, advertised, CA consistency, quorum, leadership logs, broker API); optional 6a2d mTLS Job (PREFLIGHT_KAFKA_TLS_PREFLIGHT_JOB=1).
@@ -343,7 +419,7 @@ IFS=$'\n\t'
 #         6b3: cluster nodes Ready (k3d) + pod summary.
 #         6d: build xk6-http3 if RUN_K6=1. 6e: ensure-tcpdump-in-capture-pods (before suites).
 #   7     7a: Vitest (event-layer-verification, messaging-service, media-service) + housing bash suites + k6 edge grid + Phase D + Playwright.
-#         Event-layer: pnpm test (ROLLUP_DISABLE_NATIVE in package.json). Use same Node as `pnpm install` (nvm use 18 at script start).
+#         Event-layer: pnpm test (ROLLUP_DISABLE_NATIVE in package.json). Use Node 20 per .nvmrc (enforced at script start unless skipped).
 #         (Legacy 8-suite run-all-test-suites.sh is NOT invoked here — use ./scripts/run-all-test-suites.sh manually for auth/rotation-only matrix.)
 #         ROTATION_UDP_STATS=1 (Colima) captures UDP stats. Step 8 runs when RUN_PGBENCH=1.
 #         7a0c–7a0d: CI transport gates (QUIC hostname grep + Python transport_validator). 7a3–7a7: run-housing-k6-edge-smoke.sh (curl /api/healthz + /auth/healthz before k6 unless SKIP_K6_EDGE_CURL_GATE=1).
@@ -360,17 +436,33 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 export PATH="$SCRIPT_DIR/shims:/opt/homebrew/bin:/usr/local/bin:${PATH:-}"
 
-# Ensure nvm Node 18 is used before any node/pnpm (non-login shells often get Homebrew Node first). PREFLIGHT_SKIP_NVM=1 skips.
+_och_preflight_assert_node20() {
+  [[ "${PREFLIGHT_SKIP_NODE_VERSION_CHECK:-0}" == "1" ]] && return 0
+  local _v
+  _v="$(node -v 2>/dev/null || echo "")"
+  if [[ ! "$_v" =~ ^v20\. ]]; then
+    echo "❌ Preflight requires Node.js 20.x (have: ${_v:-none}). Install: nvm install 20 && nvm use (see .nvmrc). CI: set ACTIONS_NODE_VERSION=20. To bypass: PREFLIGHT_SKIP_NODE_VERSION_CHECK=1 (not recommended)." >&2
+    exit 1
+  fi
+}
+
+# Ensure nvm matches repo .nvmrc before any node/pnpm (non-login shells often get Homebrew Node first). PREFLIGHT_SKIP_NVM=1 skips nvm only.
 if [[ "${PREFLIGHT_SKIP_NVM:-0}" != "1" ]]; then
   export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
   if [[ -s "$NVM_DIR/nvm.sh" ]]; then
     # shellcheck source=/dev/null
     . "$NVM_DIR/nvm.sh"
-    nvm use 18 >/dev/null || true
+    _nvm_want="20"
+    if [[ -f "$REPO_ROOT/.nvmrc" ]]; then
+      _nvm_want="$(tr -d ' \r\n' <"$REPO_ROOT/.nvmrc" 2>/dev/null || echo 20)"
+    fi
+    nvm install "$_nvm_want" >/dev/null 2>&1 || true
+    nvm use "$_nvm_want" >/dev/null 2>&1 || nvm use 20 >/dev/null 2>&1 || true
   fi
 fi
 echo "Using Node: $(node -v 2>/dev/null || echo '?')"
 echo "Node path: $(which node 2>/dev/null || echo '?')"
+_och_preflight_assert_node20
 
 cd "$REPO_ROOT"
 
@@ -409,11 +501,102 @@ export BASELINE_H3_VERIFY_MAX_TIME="${BASELINE_H3_VERIFY_MAX_TIME:-25}"
 export BASELINE_H3_VERIFY_RETRIES="${BASELINE_H3_VERIFY_RETRIES:-3}"
 export BASELINE_H3_VERIFY_SLEEP="${BASELINE_H3_VERIFY_SLEEP:-5}"
 
+export PREFLIGHT_STRICT_EXIT="${PREFLIGHT_STRICT_EXIT:-0}"
+# Strict runs: wire-level QUIC invariant (Colima L1 node capture → v6+v7 jq); skip with *_FORENSIC=0.
+export PREFLIGHT_RUN_QUIC_V7_FORENSIC="${PREFLIGHT_RUN_QUIC_V7_FORENSIC:-1}"
+export PREFLIGHT_RUN_QUIC_V6_FORENSIC="${PREFLIGHT_RUN_QUIC_V6_FORENSIC:-1}"
+# Strict runs default QUIC PCAP forensics (override with TRANSPORT_STUDY_PCAP=0).
+[[ "${PREFLIGHT_STRICT_EXIT}" == "1" ]] && export TRANSPORT_STUDY_PCAP="${TRANSPORT_STUDY_PCAP:-1}"
+
 say() { printf "\n\033[1m%s\033[0m\n" "$*"; }
 ok()  { echo "✅ $*"; }
 warn(){ echo "⚠️  $*"; }
 fail(){ echo "❌ $*" >&2; exit 1; }
 info(){ echo "ℹ️  $*"; }
+
+# Assert workspace artifacts required by strict gates (preflight must not mutate the repo; cold-bootstrap guarantees build).
+_och_preflight_assert_kafka_contract_dist() {
+  local _kc="$REPO_ROOT/tools/kafka-contract/dist/index.js"
+  if [[ ! -s "$_kc" ]]; then
+    fail "Missing kafka-contract dist: $_kc — run make cold-bootstrap (workspace invariant) or: pnpm install && pnpm run build && pnpm --filter kafka-contract run build"
+  fi
+  info "kafka-contract dist present (contract gate prerequisite): $_kc"
+}
+_och_preflight_assert_kafka_contract_dist
+
+if [[ "${PREFLIGHT_SKIP_KAFKA_ALIGNMENT_REPORT_VENV:-0}" != "1" ]]; then
+  say "[Preflight-deps] kafka-alignment-report-venv (matplotlib for Kafka alignment suite / report PNGs)"
+  (cd "$REPO_ROOT" && command -v make >/dev/null 2>&1 && make kafka-alignment-report-venv) \
+    || fail "kafka-alignment-report-venv failed — install matplotlib venv (same as cold-bootstrap) or set PREFLIGHT_SKIP_KAFKA_ALIGNMENT_REPORT_VENV=1"
+  ok "kafka-alignment-report venv ready"
+fi
+
+if [[ "${PREFLIGHT_STRICT_EXIT:-0}" == "1" ]]; then
+  _ba="$REPO_ROOT/bench_logs/bootstrap-artifact.json"
+  [[ -f "$_ba" ]] || fail "PREFLIGHT_STRICT_EXIT=1 requires $_ba — run make cold-bootstrap (constructor) before strict preflight"
+  python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); sys.exit(0 if d.get("state")=="BOOTSTRAP_COMPLETE" else 1)' "$_ba" \
+    || fail "bootstrap-artifact.json must have state=BOOTSTRAP_COMPLETE (got other state — re-run cold-bootstrap / bootstrap P9)"
+  info "bootstrap-artifact.json present (strict preflight constructor contract)"
+fi
+if [[ "${PREFLIGHT_REQUIRE_NO_DRIFT:-0}" == "1" ]]; then
+  say "[Preflight] PREFLIGHT_REQUIRE_NO_DRIFT=1 — running cluster_health_dag.py drift"
+  (cd "$REPO_ROOT" && python3 "$SCRIPT_DIR/cluster_health_dag.py" drift --repo "$REPO_ROOT") \
+    || fail "Bootstrap drift detected — see bench_logs/drift-detection.json (remediate or make cold-bootstrap)"
+  ok "drift check: no drift vs bootstrap-artifact"
+fi
+
+_och_preflight_phase_guard() {
+  [[ "${PREFLIGHT_SKIP_PHASE_GUARD:-0}" == "1" ]] && return 0
+  local _g="$REPO_ROOT/infra/bootstrap_invariants.graph.json"
+  local _p="$REPO_ROOT/bench_logs/bootstrap_state_progress.json"
+  [[ -f "$_g" ]] || return 0
+  node "$SCRIPT_DIR/bootstrap-phase-guard.mjs" --graph "$_g" --progress "$_p" "$@" || return 1
+}
+
+if [[ "${PREFLIGHT_RESET_PHASE_GUARD:-0}" == "1" ]]; then
+  _och_preflight_phase_guard --reset 2>/dev/null || true
+fi
+
+_och_preflight_verify_bootstrap_state() {
+  local _ctx="${1:-}"
+  [[ -n "$_ctx" ]] || fail "verify-bootstrap-state: missing context"
+  [[ "${VERIFY_BOOTSTRAP_STATE_SKIP:-0}" == "1" ]] && return 0
+  say "[Preflight] verify-bootstrap-state (${_ctx}) — machine contract (see docs/BOOTSTRAP_STATE_CONTRACT.md)"
+  local _out="${PREFLIGHT_RUN_DIR:-$REPO_ROOT/bench_logs}/bootstrap-state-verify-${_ctx}.json"
+  if [[ "$_ctx" == "preflight-end" ]]; then
+    _och_preflight_phase_guard --enter E.transport || fail "phase guard: cannot enter E.transport (need D.observability + F.kafka_alignment + G.app_runtime in bench_logs/bootstrap_state_progress.json — run bootstrap or complete phases; PREFLIGHT_SKIP_PHASE_GUARD=1 to skip)"
+  fi
+  (cd "$REPO_ROOT" && HOUSING_NS="${HOUSING_NS:-${NAMESPACE:-off-campus-housing-tracker}}" VERIFY_BOOTSTRAP_CONTEXT="${_ctx}" PREFLIGHT_RUN_DIR="${PREFLIGHT_RUN_DIR:-}" \
+    node "$SCRIPT_DIR/verify-bootstrap-state.mjs" --json-out "$_out") \
+    || fail "verify-bootstrap-state (${_ctx}) failed — inspect $_out"
+  _och_preflight_phase_guard --sync-verify-json "$_out" 2>/dev/null || true
+  if [[ "$_ctx" == "preflight-end" ]]; then
+    _och_preflight_phase_guard --complete E.transport 2>/dev/null || true
+  fi
+  ok "verify-bootstrap-state (${_ctx}) OK"
+}
+_och_preflight_verify_bootstrap_state preflight-start
+
+# When PREFLIGHT_STRICT_EXIT=1, require trace + QUIC forensics artifacts under PREFLIGHT_RUN_DIR.
+_preflight_strict_seal_artifacts() {
+  [[ "${PREFLIGHT_STRICT_EXIT:-0}" != "1" ]] && return 0
+  local base="${PREFLIGHT_RUN_DIR:-}"
+  [[ -z "$base" || ! -d "$base" ]] && { echo "[strict seal] PREFLIGHT_RUN_DIR missing or not a directory" >&2; return 1; }
+  local failed=0
+  if [[ "${RUN_PREFLIGHT_PLAYWRIGHT:-1}" != "0" ]]; then
+    for f in "$base/trace-validation/trace-validation-report.json" "$base/trace-validation/trace_flow_validation.prom"; do
+      if [[ ! -f "$f" ]]; then echo "[strict seal] missing required file: $f" >&2; failed=1; fi
+    done
+  fi
+  # Full continuation runs transport study with PCAP; early exit skips 7b so do not require PCAP there.
+  if [[ "${PREFLIGHT_EXIT_AFTER_HOUSING_SUITES:-0}" != "1" ]] && [[ "${TRANSPORT_STUDY_PCAP:-0}" == "1" ]]; then
+    for f in "$base/transport-forensics/quic-capture.pcap" "$base/transport-forensics/quic-invariants.json"; do
+      if [[ ! -f "$f" ]]; then echo "[strict seal] missing required file: $f" >&2; failed=1; fi
+    done
+  fi
+  [[ "$failed" == "1" ]] && return 1
+  return 0
+}
 
 # kubectl source-of-truth for deployment container images (not host docker store).
 _och_preflight_verify_k8s_images() {
@@ -524,7 +707,7 @@ if [[ "${RUN_FULL_LOAD}" == "1" ]]; then
   [[ "${RUN_PGBENCH:-1}" != "0" ]] && export RUN_PGBENCH=1
   export PGBENCH_MODE="${PGBENCH_MODE:-deep}"
   # k6 multi-phase + xk6 HTTP/3 phases (read, soak, limit, max over HTTP/3). run-all-test-suites passes these to run-k6-phases.sh.
-  export K6_PHASES="${K6_PHASES:-read,soak,limit,max}"
+  export K6_PHASES="${K6_PHASES:-read,soak,limit,max,realistic}"
   export K6_HTTP3="${K6_HTTP3:-1}"
   export K6_HTTP3_PHASES="${K6_HTTP3_PHASES:-1}"
   export K6_PROTOCOL_COMPARISON="${K6_PROTOCOL_COMPARISON:-1}"
@@ -550,6 +733,9 @@ else
 fi
 export PREFLIGHT_APP_DEPLOYS
 export WAIT_APP_SERVICES="$PREFLIGHT_APP_DEPLOYS"
+# Single-node lab: keep Ollama HPA from scaling past 1 (cold second pod + LB → intermittent 502). See step 4.
+PREFLIGHT_OLLAMA_HPA_MAX_REPLICAS="${PREFLIGHT_OLLAMA_HPA_MAX_REPLICAS:-1}"
+export PREFLIGHT_OLLAMA_HPA_MAX_REPLICAS
 RUN_MESSAGING_LOAD="${RUN_MESSAGING_LOAD:-1}"
 # Issues 9 & 10 Phase D lab after k6 edge grid (see scripts/perf/run-preflight-phase-d-tail-lab.sh). Default full; set PREFLIGHT_PHASE_D_TAIL_LAB=0 to skip.
 PREFLIGHT_PHASE_D_TAIL_LAB="${PREFLIGHT_PHASE_D_TAIL_LAB:-full}"
@@ -574,9 +760,21 @@ if [[ "$PREFLIGHT_PHASE" != "full" ]]; then
 else
   PREFLIGHT_ABORT_ON_SLOW_APPLY="${PREFLIGHT_ABORT_ON_SLOW_APPLY:-0}"
 fi
-# Tee entire preflight output to one log file for full-run analysis (inside PREFLIGHT_RUN_DIR by default).
+# Tee entire preflight output for full-run analysis.
+# Colima + MetalLB lab profile (REQUIRE_COLIMA=1 METALLB_ENABLED=1): same defaults as manual lab — alignment suite on,
+#   mutating KAFKA_ALIGNMENT_TEST_MODE=1, OTEL_PREFLIGHT_TRACE_SAMPLE=1, transcript → bench_logs/preflight-<timestamp>.log
+#   (override with PREFLIGHT_MAIN_LOG, or any of the env vars, before invoking).
+_preflight_default_main_log="$PREFLIGHT_RUN_DIR/preflight-full.log"
+if [[ "${REQUIRE_COLIMA:-0}" == "1" ]] && [[ "${METALLB_ENABLED:-0}" == "1" ]]; then
+  export PREFLIGHT_SKIP_KAFKA_ALIGNMENT_SUITE="${PREFLIGHT_SKIP_KAFKA_ALIGNMENT_SUITE:-0}"
+  export OTEL_PREFLIGHT_TRACE_SAMPLE="${OTEL_PREFLIGHT_TRACE_SAMPLE:-1}"
+  export KAFKA_ALIGNMENT_TEST_MODE="${KAFKA_ALIGNMENT_TEST_MODE:-1}"
+  mkdir -p "$REPO_ROOT/bench_logs"
+  _preflight_default_main_log="$REPO_ROOT/bench_logs/preflight-$(date +%Y%m%d-%H%M%S).log"
+  info "Colima+MetalLB lab profile: PREFLIGHT_SKIP_KAFKA_ALIGNMENT_SUITE=$PREFLIGHT_SKIP_KAFKA_ALIGNMENT_SUITE KAFKA_ALIGNMENT_TEST_MODE=$KAFKA_ALIGNMENT_TEST_MODE OTEL_PREFLIGHT_TRACE_SAMPLE=$OTEL_PREFLIGHT_TRACE_SAMPLE default log=$_preflight_default_main_log"
+fi
 # Set PREFLIGHT_MAIN_LOG= to disable (empty string); or set a custom path.
-PREFLIGHT_MAIN_LOG="${PREFLIGHT_MAIN_LOG:-$PREFLIGHT_RUN_DIR/preflight-full.log}"
+PREFLIGHT_MAIN_LOG="${PREFLIGHT_MAIN_LOG:-$_preflight_default_main_log}"
 if [[ -n "$PREFLIGHT_MAIN_LOG" ]]; then
   mkdir -p "$(dirname "$PREFLIGHT_MAIN_LOG")" 2>/dev/null || true
   exec > >(tee "$PREFLIGHT_MAIN_LOG") 2>&1
@@ -585,6 +783,7 @@ fi
 echo "Preflight run directory (artifacts): $PREFLIGHT_RUN_DIR"
 info "PREFLIGHT_RUN_DIR=$PREFLIGHT_RUN_DIR (preflight-full.log, telemetry, k6 snapshots, phase-d, suite logs, pgbench)"
 info "PREFLIGHT_APP_SCOPE=${PREFLIGHT_APP_SCOPE:-full} — scale/wait targets: $PREFLIGHT_APP_DEPLOYS"
+info "PREFLIGHT_OLLAMA_HPA_MAX_REPLICAS=${PREFLIGHT_OLLAMA_HPA_MAX_REPLICAS:-1} (step 4 + 4a: cap HPA/ollama; 0=skip; ollama Deployment scaled to 1 with other baselines)"
 info "RUN_MESSAGING_LOAD=${RUN_MESSAGING_LOAD:-1} (k6 messaging/media health after suites, if k6 installed)"
 info "PREFLIGHT_LISTINGS_K6_GATEWAY_LAB=${PREFLIGHT_LISTINGS_K6_GATEWAY_LAB:-1} (7a7-listings: audit + VU + arrival + limit-finder; 0=skip)"
 info "PREFLIGHT_PHASE_D_TAIL_LAB=${PREFLIGHT_PHASE_D_TAIL_LAB:-full} (default full = Phase D + cross-service isolation; 0 = skip)"
@@ -640,6 +839,11 @@ _preflight_telemetry_on_exit() {
 
 _preflight_combined_exit() {
   local e=$?
+  if [[ -n "${PREFLIGHT_JAEGER_PF_PID:-}" ]]; then
+    kill "${PREFLIGHT_JAEGER_PF_PID}" 2>/dev/null || true
+    wait "${PREFLIGHT_JAEGER_PF_PID}" 2>/dev/null || true
+    unset PREFLIGHT_JAEGER_PF_PID
+  fi
   _preflight_telemetry_on_exit
   if [[ "${_PREFLIGHT_FORENSICS_ENABLED:-0}" == "1" ]] && [[ -f "${SCRIPT_DIR}/lib/preflight-forensics.sh" ]]; then
     # shellcheck source=scripts/lib/preflight-forensics.sh
@@ -657,12 +861,11 @@ if [[ "$PREFLIGHT_TELEMETRY" == "1" ]]; then
   # Live CSV for dashboard: fixed name at repo root so a static file server can fetch it; copy also under run dir.
   TELEMETRY_LIVE_CSV="${TELEMETRY_LIVE_CSV:-$REPO_ROOT/live-telemetry.csv}"
   [[ "${TELEMETRY_PERF:-0}" == "1" ]] && TELEMETRY_PERF_DATA="$PREFLIGHT_RUN_DIR/perf.data"
-  trap 'e=$?; _preflight_combined_exit' EXIT
   : > "$TELEMETRY_DURING"
   # Telemetry loop is started after step 0 (kill stale) so it is never mistaken for a stale process.
-elif [[ "${_PREFLIGHT_FORENSICS_ENABLED:-0}" == "1" ]]; then
-  trap 'e=$?; _preflight_combined_exit' EXIT
 fi
+# Always: Jaeger port-forward cleanup + optional telemetry/forensics (see _preflight_combined_exit).
+trap 'e=$?; _preflight_combined_exit' EXIT
 
 _phase_a_only()  { [[ "$PREFLIGHT_PHASE" == "A" ]]; }
 _phase_a_or_full() { [[ "$PREFLIGHT_PHASE" == "A" ]] || [[ "$PREFLIGHT_PHASE" == "full" ]]; }
@@ -802,6 +1005,10 @@ _preflight_run_perf_artifacts() {
       export SKIP_HTTP3="${PREFLIGHT_PERF_MATRIX_SKIP_HTTP3:-0}"
       export K6_MATRIX_STRICT="${PREFLIGHT_PERF_MATRIX_STRICT:-0}"
       export K6_HTTP2_DISABLE_REUSE="${PREFLIGHT_PERF_MATRIX_HTTP2_NO_REUSE:-0}"
+      if [[ "${PREFLIGHT_K6_REALISTIC_MULTI_PROTO:-1}" == "1" ]]; then
+        export K6_MATRIX_RUN_REALISTIC="${K6_MATRIX_RUN_REALISTIC:-1}"
+        export K6_REALISTIC_DURATION="${K6_REALISTIC_DURATION:-90s}"
+      fi
       "$SCRIPT_DIR/load/run-k6-protocol-matrix.sh"
     ) || warn "9a run-k6-protocol-matrix.sh had issues (non-fatal)"
     # Canonical contract uses service-latency.csv and raw-metrics.txt at run root.
@@ -1257,6 +1464,26 @@ if [[ "$ctx" == *"colima"* ]]; then
     info "  cluster[$_i]: $_name -> $_server"
     _i=$((_i + 1))
   done
+fi
+
+# 2c3. Reconcile ollama-gateway + worker (REDIS_URL from app-config → host Docker Redis :6380; skip in-cluster redis by default).
+if [[ "${PREFLIGHT_RECONCILE_OLLAMA_GATEWAY_STACK:-1}" == "1" ]] && [[ "${BOOTSTRAP_SKIP_OLLAMA_GATEWAY_STACK:-0}" != "1" ]]; then
+  _och_ns="${HOUSING_NS:-${NAMESPACE:-off-campus-housing-tracker}}"
+  if kubectl get ns "$_och_ns" --request-timeout=15s &>/dev/null; then
+    if kubectl get deploy ollama-gateway -n "$_och_ns" --request-timeout=10s &>/dev/null || kubectl get deploy ollama-worker -n "$_och_ns" --request-timeout=10s &>/dev/null; then
+      export OLLAMA_GATEWAY_USE_EXTERNAL_REDIS="${OLLAMA_GATEWAY_USE_EXTERNAL_REDIS:-1}"
+      say "2c3. Reconciling ollama-gateway stack (apply-ollama-gateway-stack.sh; OLLAMA_GATEWAY_USE_EXTERNAL_REDIS=$OLLAMA_GATEWAY_USE_EXTERNAL_REDIS)…"
+      if [[ -x "$SCRIPT_DIR/apply-ollama-gateway-stack.sh" ]]; then
+        if HOUSING_NS="$_och_ns" bash "$SCRIPT_DIR/apply-ollama-gateway-stack.sh"; then
+          ok "ollama-gateway stack reconciled"
+        else
+          warn "apply-ollama-gateway-stack.sh failed (continuing preflight)"
+        fi
+      else
+        warn "apply-ollama-gateway-stack.sh not executable; skip 2c3"
+      fi
+    fi
+  fi
 fi
 
 # 2d. Brief pause so API server isn't hammered immediately after config changes
@@ -1848,6 +2075,12 @@ if ! _phase_a_only; then
 fi
 
 # 3c. Apply app-config (+ optional kafka-external), nginx/haproxy. Default KRaft: apply kafka-kraft-metallb after app-config.
+_och_pin_kafka_external_metallb_ips() {
+  # MetalLB assigns kafka-*-external IPs (no pool formula pinning). TLS follows live LB IPs (kafka-refresh-tls-from-lb.sh).
+  [[ "${PREFLIGHT_SKIP_KAFKA_METALLB_PIN:-0}" == "1" ]] && return 0
+  return 0
+}
+
 _phase_start "3c_apply_app_config"
 _PREFLIGHT_KAFKA_SUBSTRATE="${PREFLIGHT_KAFKA_SUBSTRATE:-kraft}"
 say "3c. Applying app-config${_PREFLIGHT_KAFKA_SUBSTRATE:+ (Kafka substrate: $_PREFLIGHT_KAFKA_SUBSTRATE)}, nginx, haproxy..."
@@ -1865,8 +2098,16 @@ if [[ "$_PREFLIGHT_KAFKA_SUBSTRATE" == "kraft" ]] && [[ "${PREFLIGHT_SKIP_KRAFT_
   if [[ -d "$REPO_ROOT/infra/k8s/kafka-kraft-metallb" ]]; then
     say "3c-kraft. Applying in-cluster KRaft (infra/k8s/kafka-kraft-metallb/)..."
     kubectl apply -k "$REPO_ROOT/infra/k8s/kafka-kraft-metallb/" --request-timeout=60s 2>/dev/null && ok "Applied kafka-kraft-metallb" || warn "kafka-kraft-metallb apply skipped or failed"
-    say "3c-kraft-wait. Waiting for kafka-0..2 Ready (up to 600s)..."
+    _och_pin_kafka_external_metallb_ips
     _kraft_ns="${HOUSING_NS:-off-campus-housing-tracker}"
+    if kubectl get ns metallb-system --request-timeout=8s >/dev/null 2>&1 \
+      && [[ "${PREFLIGHT_SKIP_KAFKA_RESTART_AFTER_METALLB_PIN:-0}" != "1" ]] \
+      && kubectl get sts kafka -n "$_kraft_ns" --request-timeout=15s >/dev/null 2>&1; then
+      say "3c-kraft-rollout-after-lb. Rolling Kafka StatefulSet (pods re-run fetch-external-lb-ip after external Services + MetalLB)…"
+      kubectl rollout restart statefulset/kafka -n "$_kraft_ns" --request-timeout=30s 2>/dev/null || true
+      kubectl rollout status statefulset/kafka -n "$_kraft_ns" --timeout="${KAFKA_ROLLOUT_TIMEOUT:-600s}" 2>/dev/null && ok "Kafka rollout after external LB reconcile" || warn "Kafka rollout after LB reconcile did not complete cleanly"
+    fi
+    say "3c-kraft-wait. Waiting for kafka-0..2 Ready (up to 600s)..."
     for _ki in 0 1 2; do
       if [[ "$ctx" == *"colima"* ]] && command -v colima >/dev/null 2>&1; then
         colima ssh -- kubectl --request-timeout=60s wait pod "kafka-${_ki}" -n "$_kraft_ns" --for=condition=Ready --timeout=600s 2>/dev/null && ok "kafka-${_ki} Ready" || warn "kafka-${_ki} not Ready in time"
@@ -2399,9 +2640,33 @@ _restart_one() {
 }
 _restart_one analytics-service
 
-# --- Step 4: Scale to baseline (1 replica per app, exporters 1, Envoy 1, Caddy 2) ---
+# --- Step 4: Scale to baseline (1 replica per app + ollama, exporters 1, Envoy 1, Caddy 2; Ollama HPA maxReplicas capped) ---
 _phase_start "4_scale_baseline"
-say "4. Scaling to baseline (service 1, exporters 1, Envoy 1, Caddy 2)..."
+# Cap Ollama HPA before scaling (base HPA maxReplicas=3; preflight may run without dev overlay).
+_preflight_cap_ollama_hpa_max() {
+  local ns="${HOUSING_NS:-off-campus-housing-tracker}"
+  local maxr="${PREFLIGHT_OLLAMA_HPA_MAX_REPLICAS:-1}"
+  [[ "${maxr}" == "0" ]] && return 0
+  local _has=0 _patch_rc=1
+  if [[ "$ctx" == *"colima"* ]] && command -v colima >/dev/null 2>&1; then
+    colima ssh -- kubectl get hpa ollama -n "$ns" --request-timeout=10s >/dev/null 2>&1 && _has=1
+  else
+    _kubectl get hpa ollama -n "$ns" >/dev/null 2>&1 && _has=1
+  fi
+  [[ "$_has" -ne 1 ]] && return 0
+  if [[ "$ctx" == *"colima"* ]] && command -v colima >/dev/null 2>&1; then
+    colima ssh -- kubectl patch hpa ollama -n "$ns" --type=merge -p "{\"spec\":{\"maxReplicas\":${maxr}}}" --request-timeout=15s >/dev/null 2>&1 && _patch_rc=0
+  else
+    _kubectl patch hpa ollama -n "$ns" --type=merge -p "{\"spec\":{\"maxReplicas\":${maxr}}}" >/dev/null 2>&1 && _patch_rc=0
+  fi
+  if [[ "$_patch_rc" -eq 0 ]]; then
+    ok "ollama HPA maxReplicas=${maxr}"
+  else
+    warn "ollama HPA patch maxReplicas=${maxr} failed (missing HPA or API)"
+  fi
+}
+_preflight_cap_ollama_hpa_max
+say "4. Scaling to baseline (service 1, ollama HPA max ${PREFLIGHT_OLLAMA_HPA_MAX_REPLICAS:-1}, exporters 1, Envoy 1, Caddy 2)..."
 _scale_one() {
   local name=$1 ns=${2:-off-campus-housing-tracker} rep=${3:-1} rc=1
   local _kd="$REPO_ROOT/infra/k8s/base/$name"
@@ -2450,6 +2715,7 @@ done
 for ex in nginx-exporter haproxy-exporter; do _scale_one "$ex"; done
 _scale_one "envoy-test" "envoy-test"
 _scale_one "caddy-h3" "ingress-nginx" 2
+_scale_one "ollama"
 set -e
 
 # 4a. Recovery pass: after reissue + applies + scale, API may have been overloaded. One retry of failed applies and scale.
@@ -2464,6 +2730,15 @@ if [[ "${PREFLIGHT_RECOVERY_PASS:-1}" == "1" ]] && [[ "$PREFLIGHT_PHASE" == "ful
     [[ -d "$k" ]] && kubectl apply -k "$k" --request-timeout=25s 2>/dev/null && ok "Recovery: $(basename "$k")" || true
   elif [[ "${PREFLIGHT_SKIP_KRAFT_APPLY:-0}" != "1" ]] && [[ -d "$REPO_ROOT/infra/k8s/kafka-kraft-metallb" ]]; then
     kubectl apply -k "$REPO_ROOT/infra/k8s/kafka-kraft-metallb/" --request-timeout=45s 2>/dev/null && ok "Recovery: kafka-kraft-metallb" || true
+    _och_pin_kafka_external_metallb_ips
+    _rec_kraft_ns="${HOUSING_NS:-off-campus-housing-tracker}"
+    if kubectl get ns metallb-system --request-timeout=8s >/dev/null 2>&1 \
+      && [[ "${PREFLIGHT_SKIP_KAFKA_RESTART_AFTER_METALLB_PIN:-0}" != "1" ]] \
+      && kubectl get sts kafka -n "$_rec_kraft_ns" --request-timeout=15s >/dev/null 2>&1; then
+      say "4a-kraft-rollout-after-lb. Rolling Kafka after recovery (external Services + MetalLB)…"
+      kubectl rollout restart statefulset/kafka -n "$_rec_kraft_ns" --request-timeout=30s 2>/dev/null || true
+      kubectl rollout status statefulset/kafka -n "$_rec_kraft_ns" --timeout="${KAFKA_ROLLOUT_TIMEOUT:-600s}" 2>/dev/null && ok "Recovery: Kafka rollout after LB reconcile" || warn "Recovery: Kafka rollout after LB reconcile incomplete"
+    fi
   fi
   _apply_housing_app_bases
   # Recovery: use LoadBalancer on Colima when MetalLB exists; otherwise NodePort
@@ -2475,6 +2750,7 @@ if [[ "${PREFLIGHT_RECOVERY_PASS:-1}" == "1" ]] && [[ "$PREFLIGHT_PHASE" == "ful
     kubectl apply -f "$REPO_ROOT/infra/k8s/caddy-h3-service-nodeport.yaml" --request-timeout=25s 2>/dev/null && ok "Recovery: caddy-h3-service-nodeport" || true
   fi
   sleep "${APPLY_RATE_LIMIT_SLEEP:-2}"
+  _preflight_cap_ollama_hpa_max
   _och_preflight_deploys_to_arr
   for deploy in "${OCH_PREFLIGHT_DEPLOY_ARR[@]}"; do
     [[ -z "$deploy" ]] && continue
@@ -2483,6 +2759,7 @@ if [[ "${PREFLIGHT_RECOVERY_PASS:-1}" == "1" ]] && [[ "$PREFLIGHT_PHASE" == "ful
   for ex in nginx-exporter haproxy-exporter; do _scale_one "$ex"; done
   _scale_one "envoy-test" "envoy-test"
   _scale_one "caddy-h3" "ingress-nginx" 2
+  _scale_one "ollama"
   # 4a1. Re-apply hostAliases and registry images after recovery (apply -k base overwrites deployment spec and can set image to short name e.g. analytics-service:dev).
   if [[ "$ctx" == *"k3d"* ]]; then
     _apply_k3d_host_aliases
@@ -2528,6 +2805,7 @@ fi
       exec 200>&- 2>/dev/null || true
     fi
     echo "[PHASE 1B] WRITES (lock released)"
+    trap 'e=$?; _preflight_combined_exit' EXIT
   fi
 
 # 4b. Reissue already done in 3a (CA/Caddy match). Re-ensure and verify only.
@@ -2789,7 +3067,7 @@ if [[ "${PREFLIGHT_KAFKA_SUBSTRATE:-kraft}" == "kraft" ]] && [[ "${PREFLIGHT_SKI
   say "6a2c2. Kafka KRaft advertised.listeners (INTERNAL FQDN + EXTERNAL LB IP per kafka-N-external)..."
   chmod +x "$SCRIPT_DIR/verify-kafka-kraft-advertised-listeners.sh" 2>/dev/null || true
   if [[ -f "$SCRIPT_DIR/verify-kafka-kraft-advertised-listeners.sh" ]]; then
-    HOUSING_NS="$_sk_ns" KAFKA_BROKER_REPLICAS="$_sk_rep" bash "$SCRIPT_DIR/verify-kafka-kraft-advertised-listeners.sh" || fail "6a2c2 verify-kafka-kraft-advertised-listeners failed (fix StatefulSet advert, MetalLB, or KAFKA_SSL_EXTRA_IP_SANS / KAFKA_SSL_AUTO_METALLB_IPS=1 + kafka-ssl + rollout)"
+    HOUSING_NS="$_sk_ns" KAFKA_BROKER_REPLICAS="$_sk_rep" bash "$SCRIPT_DIR/verify-kafka-kraft-advertised-listeners.sh" || fail "6a2c2 verify-kafka-kraft-advertised-listeners failed (regen TLS: ./scripts/kafka-refresh-tls-from-lb.sh; kubectl rollout restart statefulset/kafka; or make kafka-sync-metallb)"
     ok "6a2c2 KRaft advertised.listeners gate passed"
   else
     fail "6a2c2 verify-kafka-kraft-advertised-listeners.sh missing"
@@ -2853,13 +3131,18 @@ if [[ "${PREFLIGHT_KAFKA_SUBSTRATE:-kraft}" == "kraft" ]] && [[ "${PREFLIGHT_SKI
       _ka_suite_mode=0
       warn "PREFLIGHT_KAFKA_ALIGNMENT_SUITE_SAFE_ONLY=1 — alignment suite: safe tests only (no simulated drift / broker churn / rollout resilience)"
     else
-      _ka_suite_mode=1
+      _ka_suite_mode="${KAFKA_ALIGNMENT_TEST_MODE:-1}"
     fi
     HOUSING_NS="$_sk_ns" KAFKA_BROKER_REPLICAS="$_sk_rep" KAFKA_ALIGNMENT_SKIP_TEST1_VERIFY=1 \
       KAFKA_ALIGNMENT_TEST_MODE="$_ka_suite_mode" \
       bash "$SCRIPT_DIR/tests/kafka-alignment-suite.sh" \
       || fail "6a2c9 Kafka alignment suite failed — fix MetalLB/TLS/advertised drift (make kafka-sync-metallb / kafka-runtime-sync --remediate) or set PREFLIGHT_SKIP_KAFKA_ALIGNMENT_SUITE=1 to opt out"
     ok "6a2c9 Kafka alignment suite passed"
+    if [[ "${PREFLIGHT_PHASE_BARRIER_POST_KAFKA:-1}" == "1" ]]; then
+      chmod +x "$SCRIPT_DIR/phase-barrier.sh" 2>/dev/null || true
+      PHASE_BARRIER_GATEWAY_ROLLOUT_TIMEOUT="${PREFLIGHT_GATEWAY_DRAIN_ROLLOUT_TIMEOUT:-180}" \
+        bash "$SCRIPT_DIR/phase-barrier.sh" "post-kafka-alignment" || fail "Phase barrier post-kafka-alignment failed"
+    fi
   fi
 elif [[ "${PREFLIGHT_KAFKA_SUBSTRATE:-kraft}" == "kraft" ]] && [[ "${PREFLIGHT_SKIP_KAFKA_ALIGNMENT_SUITE:-0}" == "1" ]]; then
   warn "PREFLIGHT_SKIP_KAFKA_ALIGNMENT_SUITE=1 — skipping 6a2c9 Kafka alignment suite"
@@ -2906,6 +3189,30 @@ else
   warn "wait-for-all-services-ready.sh not found, skipping wait"
 fi
 
+# 6b-app. DAG G.app_runtime — rollout + in-cluster /healthz before D.observability / F.kafka_alignment guard completions.
+if [[ "${PREFLIGHT_SKIP_APP_RUNTIME_GATE:-0}" != "1" ]] && command -v kubectl >/dev/null 2>&1; then
+  say "6b-app. Application runtime readiness (verify-app-runtime.sh — G.app_runtime)"
+  chmod +x "$SCRIPT_DIR/verify-app-runtime.sh" 2>/dev/null || true
+  HOUSING_NS="$_sk_ns" NAMESPACE="$_sk_ns" bash "$SCRIPT_DIR/verify-app-runtime.sh" \
+    || fail "verify-app-runtime.sh failed — fix app Deployments/healthz or set PREFLIGHT_SKIP_APP_RUNTIME_GATE=1 (emergency only)"
+  if [[ "${PREFLIGHT_SKIP_PHASE_GUARD:-0}" != "1" ]] && [[ -f "$REPO_ROOT/infra/bootstrap_invariants.graph.json" ]]; then
+    _och_preflight_phase_guard --enter G.app_runtime || fail "phase guard: cannot enter G.app_runtime (complete C.images first — run bootstrap P6b / scripts/ensure-required-images.sh; preflight-start)"
+    _och_preflight_phase_guard --complete G.app_runtime 2>/dev/null || true
+  fi
+  ok "6b-app application runtime gate OK"
+elif [[ "${PREFLIGHT_SKIP_APP_RUNTIME_GATE:-0}" == "1" ]]; then
+  warn "PREFLIGHT_SKIP_APP_RUNTIME_GATE=1 — skipping verify-app-runtime.sh (not recommended)"
+  if [[ "${PREFLIGHT_SKIP_PHASE_GUARD:-0}" != "1" ]] && [[ -f "$REPO_ROOT/infra/bootstrap_invariants.graph.json" ]]; then
+    _och_preflight_phase_guard --enter G.app_runtime || fail "phase guard: cannot enter G.app_runtime (complete C.images first — DAG infra/required_images.json)"
+    _och_preflight_phase_guard --complete G.app_runtime 2>/dev/null || true
+  fi
+fi
+if [[ "${PREFLIGHT_SKIP_PHASE_GUARD:-0}" != "1" ]] && [[ -f "$REPO_ROOT/infra/bootstrap_invariants.graph.json" ]] \
+  && [[ "${PREFLIGHT_KAFKA_SUBSTRATE:-kraft}" == "kraft" ]] && [[ "${PREFLIGHT_SKIP_KAFKA_KRAFT_HEALTH_GATES:-0}" != "1" ]]; then
+  _och_preflight_phase_guard --enter F.kafka_alignment || fail "phase guard: cannot enter F.kafka_alignment (complete G.app_runtime first — 6b-app gate)"
+  _och_preflight_phase_guard --complete F.kafka_alignment 2>/dev/null || true
+fi
+
 # 6b1–6b2. Edge routing: Ingress path parity + DNS→LoadBalancer (prevents k6 0 B when /auth misses gateway or /etc/hosts points at wrong IP).
 _edge_ns="${HOUSING_NS:-off-campus-housing-tracker}"
 _edge_host="${OCH_EDGE_HOSTNAME:-off-campus-housing.test}"
@@ -2941,7 +3248,8 @@ case "${k3d_ctx_6b3}" in
     ;;
   *) ;;
 esac
-echo "  Pod summary (off-campus-housing-tracker, ingress-nginx, envoy-test):"
+# Use printf (ASCII-only) so no shell/locale edge case misparses the label vs subshells.
+printf '%s\n' '  Pod summary (namespaces: off-campus-housing-tracker, ingress-nginx, envoy-test):'
 kubectl get pods -n off-campus-housing-tracker --no-headers 2>/dev/null | head -20
 kubectl get pods -n ingress-nginx --no-headers 2>/dev/null | head -5
 kubectl get pods -n envoy-test --no-headers 2>/dev/null | head -5
@@ -3025,7 +3333,7 @@ _phase_start "7_run_all_suites"
 say "7. Running housing test matrix (after 6b: Kafka readiness + k8s services ready) — Vitest, bash HTTP/2+3, k6 edge, Phase D, Playwright; run-k6-phases when RUN_K6=1${RUN_K6:+; RUN_K6=1}..."
 if [[ "$(uname -s)" == "Darwin" ]] && command -v k6 >/dev/null 2>&1; then
   if [[ "${SKIP_MACOS_DEV_CA_TRUST:-0}" != "1" ]] && [[ "${K6_USE_DOCKER_K6:-0}" != "1" ]]; then
-    info "macOS + host k6: TLS trust comes from the login keychain (Go ignores SSL_CERT_FILE). 7a-prep will run scripts/lib/trust-dev-root-ca-macos.sh before k6, or set SKIP_MACOS_DEV_CA_TRUST=1 / K6_USE_DOCKER_K6=1."
+    info "macOS + host k6: TLS trust comes from the login keychain (Go ignores SSL_CERT_FILE). 7a-prep searches keychains then may prompt add-trusted-cert (Touch ID); PREFLIGHT_MACOS_CA_AUTO_TRUST=1 runs trust-dev-root-ca-macos.sh; SKIP_MACOS_DEV_CA_TRUST=1 / K6_USE_DOCKER_K6=1 to bypass."
   fi
 fi
 export SUITE_LOG_DIR="${SUITE_LOG_DIR:-$PREFLIGHT_RUN_DIR/suite-logs}"
@@ -3066,6 +3374,231 @@ if [[ -n "$_lb_ip" ]]; then
     info "  Colima: Caddy has LB IP $_lb_ip → suites will use LoadBalancer only (no NodePort)"
   fi
 fi
+
+# --- Auto-wire E2E + Jaeger (strict / CI parity: no manual exports when LB + Jaeger are discoverable) ---
+# shellcheck source=lib/edge-test-url.sh
+source "$SCRIPT_DIR/lib/edge-test-url.sh" 2>/dev/null || true
+export E2E_API_BASE="${E2E_API_BASE:-https://off-campus-housing.test}"
+_edge_ip="${TARGET_IP:-${REACHABLE_LB_IP:-${_lb_ip:-}}}"
+[[ -z "$_edge_ip" ]] && _edge_ip="$(edge_hint_lb_ip_for_och 2>/dev/null || true)"
+[[ -z "$_edge_ip" ]] && _edge_ip="${OCH_EDGE_IP:-}"
+
+# Jaeger query API for host-run curl/node: edge https://…/jaeger, JAEGER_PUBLIC_URL (MetalLB), LB svc, then port-forward (ClusterIP default).
+# Stale JAEGER_QUERY_BASE (e.g. wrong loopback) is cleared and retried.
+_och_preflight_jaeger_autowire() {
+  # Prefer edge /jaeger, JAEGER_PUBLIC_URL (MetalLB), or LB svc before loopback port-forward.
+  if [[ -f "$SCRIPT_DIR/lib/jaeger-resolve-query-base.sh" ]]; then
+    # shellcheck source=lib/jaeger-resolve-query-base.sh
+    source "$SCRIPT_DIR/lib/jaeger-resolve-query-base.sh"
+    command -v och_jaeger_resolve_query_base >/dev/null 2>&1 && och_jaeger_resolve_query_base || true
+  fi
+  # Inherited JAEGER_QUERY_BASE (shell export / Make) must pass /api/services before we skip discovery — stale ClusterIP-era URLs otherwise win.
+  if [[ -n "${JAEGER_QUERY_BASE:-}" ]]; then
+    if command -v curl >/dev/null 2>&1; then
+      _jq_chk="${JAEGER_QUERY_BASE%/}/api/services"
+      _jq_ok=0
+      if [[ "${JAEGER_QUERY_BASE}" == https:* ]]; then
+        _ca_chk="${NODE_EXTRA_CA_CERTS:-$REPO_ROOT/certs/dev-root.pem}"
+        [[ -f "$_ca_chk" ]] && curl -sfS --max-time 6 --cacert "$_ca_chk" "$_jq_chk" >/dev/null 2>&1 && _jq_ok=1
+      else
+        curl -sfS --max-time 6 "$_jq_chk" >/dev/null 2>&1 && _jq_ok=1
+      fi
+      if [[ "$_jq_ok" == "1" ]]; then
+        info "  JAEGER_QUERY_BASE reachable (inherited): $JAEGER_QUERY_BASE"
+        return 0
+      fi
+      warn "  JAEGER_QUERY_BASE not reachable (${JAEGER_QUERY_BASE}) — clearing stale export; trying port-forward / LB discovery"
+    else
+      info "  JAEGER_QUERY_BASE set but curl not on PATH — cannot verify; keeping inherited value"
+      return 0
+    fi
+    if [[ -n "${PREFLIGHT_JAEGER_PF_PID:-}" ]]; then
+      kill "${PREFLIGHT_JAEGER_PF_PID}" 2>/dev/null || true
+      wait "${PREFLIGHT_JAEGER_PF_PID}" 2>/dev/null || true
+      unset PREFLIGHT_JAEGER_PF_PID
+    fi
+    unset JAEGER_QUERY_BASE
+  fi
+  if [[ "${PREFLIGHT_JAEGER_PORT_FORWARD:-1}" != "0" ]] && command -v kubectl >/dev/null 2>&1; then
+    local _pf_ns="" _pf_svc=""
+    for _try_ns in "${JAEGER_OBSERVABILITY_NS:-observability}" observability; do
+      if kubectl get svc jaeger -n "$_try_ns" --request-timeout=5s &>/dev/null; then _pf_ns="$_try_ns"; _pf_svc=jaeger; break; fi
+      if kubectl get svc jaeger-query -n "$_try_ns" --request-timeout=5s &>/dev/null; then _pf_ns="$_try_ns"; _pf_svc=jaeger-query; break; fi
+    done
+    if [[ -n "$_pf_ns" && -n "$_pf_svc" ]]; then
+      local _jp _pf_ok=0 _pid _w
+      local -a _pf_ports
+      if [[ -n "${JAEGER_PF_LOCAL_PORT:-}" ]]; then
+        _pf_ports=("${JAEGER_PF_LOCAL_PORT}")
+      else
+        _pf_ports=(16686 16687 26686 36686)
+      fi
+      for _jp in "${_pf_ports[@]}"; do
+        kubectl -n "$_pf_ns" port-forward "svc/$_pf_svc" "${_jp}:16686" --address=127.0.0.1 >/dev/null 2>&1 &
+        _pid=$!
+        export PREFLIGHT_JAEGER_PF_PID="$_pid"
+        sleep 0.25
+        if ! kill -0 "$_pid" 2>/dev/null; then
+          warn "  Jaeger port-forward exited immediately on 127.0.0.1:${_jp} (bind conflict, stale PF, or kubectl error — check: lsof -iTCP:${_jp} -sTCP:LISTEN)"
+          unset PREFLIGHT_JAEGER_PF_PID
+          continue
+        fi
+        for _w in $(seq 1 60); do
+          if curl -sfS --max-time 3 "http://127.0.0.1:${_jp}/api/services" >/dev/null 2>&1; then
+            export JAEGER_QUERY_BASE="http://127.0.0.1:${_jp}"
+            info "  Auto-set JAEGER_QUERY_BASE=$JAEGER_QUERY_BASE (kubectl port-forward $_pf_ns/svc/$_pf_svc pid=$_pid; tear down on preflight exit)"
+            _pf_ok=1
+            break 2
+          fi
+          if ! kill -0 "$_pid" 2>/dev/null; then
+            warn "  Jaeger port-forward (pid $_pid) died while waiting for /api/services on 127.0.0.1:${_jp}"
+            unset PREFLIGHT_JAEGER_PF_PID
+            break
+          fi
+          sleep 0.25
+        done
+        kill "$_pid" 2>/dev/null || true
+        wait "$_pid" 2>/dev/null || true
+        unset PREFLIGHT_JAEGER_PF_PID
+      done
+      if [[ "$_pf_ok" != "1" ]]; then
+        warn "  Jaeger port-forward never became ready for $_pf_ns/svc/$_pf_svc (tried local ports: ${_pf_ports[*]}). Install observability (e.g. infra/k8s/base/observability/), free :16686, or set JAEGER_PF_LOCAL_PORT / JAEGER_QUERY_BASE"
+      fi
+    else
+      warn "  No Jaeger query Service found for port-forward (checked namespaces: ${JAEGER_OBSERVABILITY_NS:-observability}, observability — need svc/jaeger or svc/jaeger-query)"
+    fi
+  fi
+  [[ -n "${JAEGER_QUERY_BASE:-}" ]] && return 0
+  if command -v kubectl >/dev/null 2>&1; then
+    local _jq_ip=""
+    for _jq_ns in "${JAEGER_OBSERVABILITY_NS:-observability}" observability monitoring tracing jaeger; do
+      for _jq_name in jaeger jaeger-query; do
+        _jq_ip="$(kubectl -n "$_jq_ns" get svc "$_jq_name" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
+        if [[ -n "$_jq_ip" ]]; then
+          export JAEGER_QUERY_BASE="http://${_jq_ip}:16686"
+          info "  Auto-set JAEGER_QUERY_BASE=$JAEGER_QUERY_BASE ($_jq_ns/svc/$_jq_name LoadBalancer)"
+          return 0
+        fi
+      done
+    done
+  fi
+  return 0
+}
+
+_och_preflight_jaeger_autowire
+info "  Effective JAEGER_QUERY_BASE after Jaeger autowire: ${JAEGER_QUERY_BASE:-<unset>}"
+if [[ -n "${JAEGER_QUERY_BASE:-}" ]]; then
+  mkdir -p "$REPO_ROOT/bench_logs"
+  printf '%s\n' "${JAEGER_QUERY_BASE%/}" >"$REPO_ROOT/bench_logs/.jaeger-query-base"
+  info "  Wrote JAEGER_QUERY_BASE → bench_logs/.jaeger-query-base (for make trace-contract-full / scripts)"
+fi
+if [[ -n "${JAEGER_QUERY_BASE:-}" ]] && [[ "${PREFLIGHT_SKIP_PHASE_GUARD:-0}" != "1" ]] && [[ -f "$REPO_ROOT/infra/bootstrap_invariants.graph.json" ]]; then
+  _och_preflight_phase_guard --enter D.observability || fail "phase guard: cannot enter D.observability (complete G.app_runtime first — 6b-app gate)"
+  node "$SCRIPT_DIR/bootstrap-phase-guard.mjs" --graph "$REPO_ROOT/infra/bootstrap_invariants.graph.json" --progress "$REPO_ROOT/bench_logs/bootstrap_state_progress.json" --complete D.observability 2>/dev/null || true
+fi
+if [[ "${PREFLIGHT_STRICT_EDGE_RESOLVE:-1}" == "1" ]] && [[ -n "${_edge_ip:-}" ]]; then
+  _ca="${NODE_EXTRA_CA_CERTS:-$REPO_ROOT/certs/dev-root.pem}"
+  if [[ -f "$_ca" ]]; then
+    say "7a0. Edge resolve probe: curl --resolve off-campus-housing.test:443:${_edge_ip} → /api/readyz"
+    if curl -sfS --max-time 25 --cacert "$_ca" --resolve "off-campus-housing.test:443:${_edge_ip}" \
+      -H "x-traffic-class: infra" -H "x-suite: ${OCH_X_SUITE}" "https://off-campus-housing.test/api/readyz" >/dev/null; then
+      ok "Edge resolve probe OK (TLS + SNI to MetalLB IP)"
+    else
+      if [[ "${PREFLIGHT_STRICT_EXIT:-0}" == "1" ]]; then
+        fail "Edge resolve probe failed (curl --resolve off-campus-housing.test:443:${_edge_ip} /api/readyz). Fix DNS/LB or set PREFLIGHT_STRICT_EDGE_RESOLVE=0."
+      fi
+      warn "Edge resolve probe failed (non-fatal when PREFLIGHT_STRICT_EXIT=0)"
+    fi
+  else
+    warn "7a0 skipped: missing CA at $_ca (NODE_EXTRA_CA_CERTS / certs/dev-root.pem)"
+  fi
+elif [[ -z "${_edge_ip:-}" ]]; then
+  info "  Edge resolve probe skipped (no MetalLB IP yet — set OCH_EDGE_IP or ensure caddy-h3 LoadBalancer has .status.loadBalancer.ingress[0].ip)"
+fi
+
+# 7a0b. Direct HTTP/3-only proof (strict SNI/LB path). Exports STRICT_CURL_H3_OK + CAPTURE_V2_HTTP_VERSION for packet-capture-v2 invariant.
+# One retry after 1s: transient QUIC handshake failures under suite load (UDP/contention) are environmental, not ALPN bugs.
+if [[ -n "${_edge_ip:-}" ]] && [[ -f "${NODE_EXTRA_CA_CERTS:-$REPO_ROOT/certs/dev-root.pem}" ]]; then
+  _ca="${NODE_EXTRA_CA_CERTS:-$REPO_ROOT/certs/dev-root.pem}"
+  if command -v curl >/dev/null 2>&1 && curl --version 2>/dev/null | grep -q "HTTP3"; then
+    say "7a0b. Direct HTTP/3 proof: curl --http3-only --resolve off-campus-housing.test:443:${_edge_ip} → /_caddy/healthz (retries on QUIC timing under load)"
+    _h3_probe_out=""
+    for _h3_try in 1 2 3; do
+      _ct=15
+      _mt=30
+      [[ "$_h3_try" -ge 2 ]] && _ct=20 && _mt=40
+      _h3_probe_out="$(curl -sS -o /dev/null -w "%{http_code} %{http_version}" --http3-only --connect-timeout "${_ct}" --max-time "${_mt}" \
+        --cacert "$_ca" --resolve "off-campus-housing.test:443:${_edge_ip}" -H "x-suite: ${OCH_X_SUITE}" "https://off-campus-housing.test/_caddy/healthz" 2>/dev/null || true)"
+      _h3_code="${_h3_probe_out%% *}"
+      _h3_ver="${_h3_probe_out##* }"
+      [[ "${_h3_code:-000}" == "200" && "${_h3_ver:-0}" == "3" ]] && break
+      [[ "$_h3_try" -lt 3 ]] && sleep 1
+    done
+    export CAPTURE_V2_EXPECT_HTTP_VERSION="${CAPTURE_V2_EXPECT_HTTP_VERSION:-3}"
+    export CAPTURE_V2_HTTP_VERSION="${_h3_ver:-0}"
+    export STRICT_CURL_H3_OK=0
+    [[ "${_h3_code:-000}" == "200" && "${_h3_ver:-0}" == "3" ]] && export STRICT_CURL_H3_OK=1
+    export SSLKEYLOGFILE="${SSLKEYLOGFILE:-/tmp/sslkeys.log}"
+    rm -f "$SSLKEYLOGFILE" 2>/dev/null || true
+    if [[ "${STRICT_CURL_H3_OK:-0}" == "1" ]]; then
+      ok "Direct HTTP/3 proof OK (HTTP ${_h3_code}, version ${_h3_ver})"
+    else
+      warn "Direct HTTP/3 proof failed (HTTP ${_h3_code:-000}, version ${_h3_ver:-0}); STRICT_CURL_H3_OK=0"
+      if [[ "${PREFLIGHT_STRICT_EXIT:-0}" == "1" ]]; then
+        fail "HTTP/3 direct proof failed before suites. Verify LB UDP:443 and Caddy QUIC listener."
+      fi
+    fi
+  else
+    warn "7a0b skipped: curl with HTTP3 support not available on this host."
+  fi
+fi
+
+# --- Phase 1 (quiet): controlled L1 capture + minimal H2/H3/gRPC + Jaeger seed → v6/v7 + clean pcap for 7a8b/7a8c (no suite-time capture) ---
+# PREFLIGHT_RUN_TRANSPORT_PHASE1=1 (default): run before heavy matrix. PREFLIGHT_TRANSPORT_PHASE1_STYLE=controlled|make|skip.
+# Legacy: PREFLIGHT_RUN_ISOLATED_QUIC_PROVE=0 disables this block (same as PREFLIGHT_RUN_TRANSPORT_PHASE1=0).
+export _PREFLIGHT_PHASE1_TRANSPORT_DIR=""
+if [[ "${PREFLIGHT_CLUSTER_STABILITY_GUARD:-1}" == "1" ]] && [[ -f "$SCRIPT_DIR/cluster-stability-guard.sh" ]]; then
+  chmod +x "$SCRIPT_DIR/cluster-stability-guard.sh" 2>/dev/null || true
+  "$SCRIPT_DIR/cluster-stability-guard.sh" || fail "Phase 0 cluster stability guard failed (set PREFLIGHT_CLUSTER_STABILITY_GUARD=0 to bypass)."
+fi
+[[ "${PREFLIGHT_RUN_ISOLATED_QUIC_PROVE:-}" == "0" ]] && export PREFLIGHT_RUN_TRANSPORT_PHASE1=0
+if [[ "${PREFLIGHT_RUN_TRANSPORT_PHASE1:-1}" == "1" ]] && [[ "${PREFLIGHT_STRICT_EXIT:-0}" == "1" ]] && [[ "${PREFLIGHT_RUN_QUIC_V7_FORENSIC:-1}" != "0" ]] && [[ "${PREFLIGHT_RUN_QUIC_V6_FORENSIC:-1}" != "0" ]]; then
+  _p1_style="${PREFLIGHT_TRANSPORT_PHASE1_STYLE:-controlled}"
+  if [[ "$_p1_style" == "skip" ]]; then
+    info "Phase 1 transport skipped (PREFLIGHT_TRANSPORT_PHASE1_STYLE=skip)"
+  elif [[ -z "${TARGET_IP:-}" ]] || [[ ! -f "${NODE_EXTRA_CA_CERTS:-$REPO_ROOT/certs/dev-root.pem}" ]]; then
+    fail "Phase 1 transport requires TARGET_IP and NODE_EXTRA_CA_CERTS (or certs/dev-root.pem) under PREFLIGHT_STRICT_EXIT=1"
+  else
+    say "=== Phase 1: transport + OTEL (${_p1_style}) — quiet capture before housing matrix ==="
+    if [[ "$_p1_style" == "make" ]]; then
+      command -v make >/dev/null 2>&1 || fail "Phase 1 style=make requires make on PATH"
+      ( cd "$REPO_ROOT" && "$(command -v make)" transport-quic-v6-v7-prove ) \
+        || fail "Phase 1 make transport-quic-v6-v7-prove failed"
+      [[ -f "$REPO_ROOT/bench_logs/.last-transport-quic-prove-dir" ]] || fail "Missing bench_logs/.last-transport-quic-prove-dir after make prove"
+      _PREFLIGHT_PHASE1_TRANSPORT_DIR="$(tr -d '\r\n' <"$REPO_ROOT/bench_logs/.last-transport-quic-prove-dir")"
+    elif [[ "$ctx" == *"colima"* ]] && [[ "$_p1_style" == "controlled" ]]; then
+      chmod +x "$SCRIPT_DIR/preflight-controlled-transport-otel-prove.sh" 2>/dev/null || true
+      "$SCRIPT_DIR/preflight-controlled-transport-otel-prove.sh" \
+        || fail "Phase 1 scripts/preflight-controlled-transport-otel-prove.sh failed (see log above)."
+      [[ -f "$REPO_ROOT/bench_logs/.preflight-phase1-capture-dir" ]] || fail "Missing bench_logs/.preflight-phase1-capture-dir after Phase 1"
+      _PREFLIGHT_PHASE1_TRANSPORT_DIR="$(tr -d '\r\n' <"$REPO_ROOT/bench_logs/.preflight-phase1-capture-dir")"
+    else
+      command -v make >/dev/null 2>&1 || fail "Phase 1 fallback requires make on PATH"
+      ( cd "$REPO_ROOT" && "$(command -v make)" transport-quic-v6-v7-prove ) \
+        || fail "Phase 1 make transport-quic-v6-v7-prove failed (non-Colima or STYLE!=controlled)"
+      _PREFLIGHT_PHASE1_TRANSPORT_DIR="$(tr -d '\r\n' <"$REPO_ROOT/bench_logs/.last-transport-quic-prove-dir")"
+    fi
+    [[ -n "$_PREFLIGHT_PHASE1_TRANSPORT_DIR" && -d "$_PREFLIGHT_PHASE1_TRANSPORT_DIR" ]] || fail "Phase 1 capture dir missing: ${_PREFLIGHT_PHASE1_TRANSPORT_DIR:-}"
+    export _PREFLIGHT_PHASE1_TRANSPORT_DIR
+    ok "Phase 1 artifacts ready → $_PREFLIGHT_PHASE1_TRANSPORT_DIR (7a8b/7a8c will reuse; no noisy L1 span during suites)"
+  fi
+fi
+
+if [[ "${RUN_PREFLIGHT_PLAYWRIGHT:-1}" != "0" ]] && [[ -z "${JAEGER_QUERY_BASE:-}" ]]; then
+  fail "JAEGER_QUERY_BASE is unset after auto-discovery. Set JAEGER_PUBLIC_URL (MetalLB), export JAEGER_QUERY_BASE=https://off-campus-housing.test/jaeger (edge + Caddy /jaeger), apply observability + caddy-h3 ConfigMap, kubectl port-forward svc/jaeger, or PREFLIGHT_JAEGER_PORT_FORWARD=0 with a reachable URL. See scripts/lib/jaeger-resolve-query-base.sh."
+fi
+info "  Wired for suites: E2E_API_BASE=$E2E_API_BASE JAEGER_QUERY_BASE=${JAEGER_QUERY_BASE:-<unset>}"
+
 [[ "$ctx" == *"k3d"* ]] && info "  (k3d: run-all-test-suites.sh will use NodePort 30443 if reachable for HTTP/2+HTTP/3, else port-forward 8443 for HTTP/2 only)"
 info "  SUITE_TIMEOUT=${SUITE_TIMEOUT}s per suite | DB_VERIFY_MAX_SECONDS=${DB_VERIFY_MAX_SECONDS}s | DB_VERIFY_FAST=${DB_VERIFY_FAST:-0} | CAPTURE_STOP_TIMEOUT=${CAPTURE_STOP_TIMEOUT}s (set to 0 for no suite cap)"
 info "  Suite 2/4 (rotation): packet capture; ROTATION_H2_KEYLOG=1, ROTATE_CA=1; start/end times → $SUITE_LOG_DIR/suite-timing.txt"
@@ -3091,14 +3624,58 @@ if [[ "${COLIMA_QUIC_SYSCTL:-1}" == "1" ]] && [[ "$ctx" == *"colima"* ]] && [[ -
 fi
 
 # Before any host k6 (phases or edge grid): macOS must trust dev-root in Keychain — see header "macOS + host k6".
+_preflight_macos_dev_root_ca_visible_in_keychains() {
+  # Match CN dev-root-ca (see certs/dev-root.pem). Search default list first — manual imports often land in login but
+  # security's default search is more reliable than a single keychain path.
+  security find-certificate -c "dev-root-ca" -a 2>/dev/null | grep -q . && return 0
+  local lc="$HOME/Library/Keychains/login.keychain-db"
+  [[ -f "$lc" ]] && security find-certificate -c "dev-root-ca" -a "$lc" 2>/dev/null | grep -q . && return 0
+  local sys
+  for sys in /Library/Keychains/System.keychain-db /Library/Keychains/System.keychain; do
+    [[ -r "$sys" ]] || continue
+    security find-certificate -c "dev-root-ca" -a "$sys" 2>/dev/null | grep -q . && return 0
+  done
+  return 1
+}
+
+_preflight_macos_login_keychain_has_same_dev_root_pem() {
+  # Slow path: same DER as $pem but possibly stored under a different Keychain label than CN dev-root-ca.
+  [[ "${PREFLIGHT_MACOS_K6_KEYCHAIN_FINGERPRINT_FALLBACK:-0}" == "1" ]] || return 1
+  local lc="$HOME/Library/Keychains/login.keychain-db" pem="$1"
+  [[ -f "$lc" ]] || return 1
+  command -v openssl >/dev/null 2>&1 || return 1
+  local want tmpd f h
+  want="$(openssl x509 -in "$pem" -outform DER 2>/dev/null | shasum -a 256 2>/dev/null | awk '{print $1}')"
+  [[ -n "$want" ]] || return 1
+  tmpd="$(mktemp -d 2>/dev/null)" || return 1
+  # shellcheck disable=SC2064
+  trap 'rm -rf "$tmpd"' RETURN
+  security find-certificate -a -p "$lc" 2>/dev/null | awk -v d="$tmpd" '
+    BEGIN { n = 0; f = "" }
+    /-----BEGIN CERTIFICATE-----/ {
+      if (f != "") close(f)
+      n++
+      f = sprintf("%s/c%d.pem", d, n)
+    }
+    n { print > f }
+  ' || true
+  for f in "$tmpd"/c*.pem; do
+    [[ -f "$f" ]] || continue
+    [[ -s "$f" ]] || continue
+    h="$(openssl x509 -in "$f" -outform DER 2>/dev/null | shasum -a 256 2>/dev/null | awk '{print $1}')"
+    [[ "$h" == "$want" ]] && return 0
+  done
+  return 1
+}
+
 _preflight_ensure_macos_k6_keychain_trust() {
   [[ "$(uname -s)" == "Darwin" ]] || return 0
   if [[ "${SKIP_MACOS_DEV_CA_TRUST:-0}" == "1" ]]; then
-    info "SKIP_MACOS_DEV_CA_TRUST=1 — skipping login keychain dev-root (host k6 must already trust the CA)."
+    info "SKIP_MACOS_DEV_CA_TRUST=1 — skipping login keychain dev-root check."
     return 0
   fi
   if [[ "${K6_USE_DOCKER_K6:-0}" == "1" ]] && command -v docker >/dev/null 2>&1; then
-    info "K6_USE_DOCKER_K6=1 + Docker on PATH — edge k6 smoke can use Linux k6 + SSL_CERT_FILE; skipping macOS keychain step here."
+    info "K6_USE_DOCKER_K6=1 + Docker on PATH — skipping macOS keychain check here."
     return 0
   fi
   command -v k6 >/dev/null 2>&1 || return 0
@@ -3111,22 +3688,55 @@ _preflight_ensure_macos_k6_keychain_trust() {
     warn "macOS k6 prep: CA missing at $_ca — sync certs first"
     return 0
   fi
-  if [[ ! -f "$SCRIPT_DIR/lib/trust-dev-root-ca-macos.sh" ]]; then
-    warn "macOS k6 prep: scripts/lib/trust-dev-root-ca-macos.sh missing"
+  local LOGIN_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
+  say "7a-prep (macOS). Verifying dev-root CA is trusted for host k6 (detection only; no keychain writes)."
+  info "  Cert file: $_ca — import in Keychain Access if missing, or PREFLIGHT_MACOS_CA_AUTO_TRUST=1 for full trust script (may prompt), or approve Touch ID when prompted below."
+  if [[ "${PREFLIGHT_MACOS_CA_AUTO_TRUST:-0}" == "1" ]] && [[ -f "$SCRIPT_DIR/lib/trust-dev-root-ca-macos.sh" ]]; then
+    chmod +x "$SCRIPT_DIR/lib/trust-dev-root-ca-macos.sh" 2>/dev/null || true
+    if ! "$SCRIPT_DIR/lib/trust-dev-root-ca-macos.sh" "$_ca"; then
+      if [[ "${PREFLIGHT_STRICT_MACOS_K6_TRUST:-1}" == "1" ]]; then
+        say "Preflight stopped: PREFLIGHT_MACOS_CA_AUTO_TRUST=1 but trust-dev-root-ca-macos.sh failed"
+        return 1
+      fi
+      warn "macOS auto-trust failed — host k6 may still x509"
+    fi
     return 0
   fi
-  chmod +x "$SCRIPT_DIR/lib/trust-dev-root-ca-macos.sh" 2>/dev/null || true
-  say "7a-prep (macOS). Host k6 ignores SSL_CERT_FILE for TLS — trusting dev-root in login keychain (re-run after CA rotation)."
-  info "  Same as: ./scripts/lib/trust-dev-root-ca-macos.sh \"$_ca\""
-  if ! "$SCRIPT_DIR/lib/trust-dev-root-ca-macos.sh" "$_ca"; then
-    if [[ "${PREFLIGHT_STRICT_MACOS_K6_TRUST:-1}" == "1" ]]; then
-      say "Preflight stopped: macOS keychain trust is required for host k6 → https://off-campus-housing.test"
-      say "  Fix: run ./scripts/lib/trust-dev-root-ca-macos.sh \"$_ca\""
-      say "  Or: K6_USE_DOCKER_K6=1, SKIP_MACOS_DEV_CA_TRUST=1 (already trusted), or PREFLIGHT_STRICT_MACOS_K6_TRUST=0 (not recommended)"
-      return 1
-    fi
-    warn "macOS dev CA keychain trust failed — host k6 may show x509: certificate is not trusted"
+  if _preflight_macos_dev_root_ca_visible_in_keychains; then
+    ok "Dev CA (dev-root-ca) found in keychain search — host k6 can trust https://off-campus-housing.test"
+    return 0
   fi
+  if _preflight_macos_login_keychain_has_same_dev_root_pem "$_ca"; then
+    ok "Dev CA PEM matches login keychain entry (fingerprint fallback) — host k6 can trust https://off-campus-housing.test"
+    return 0
+  fi
+  local _prompt="${PREFLIGHT_MACOS_CA_PROMPT_TRUST:-auto}"
+  if [[ "$_prompt" == "auto" ]]; then
+    if [[ -t 1 ]]; then _prompt=1; else _prompt=0; fi
+  fi
+  if [[ "$_prompt" == "1" ]] && [[ -f "$LOGIN_KEYCHAIN" ]]; then
+    say "7a-prep (macOS). dev-root-ca not found via keychain search — prompting to add trusted root to login keychain (Touch ID / password)…"
+    info "  Approve the system dialog if it appears. Set PREFLIGHT_MACOS_CA_PROMPT_TRUST=0 to skip this in CI."
+    if security add-trusted-cert -d -r trustRoot -k "$LOGIN_KEYCHAIN" "$_ca" 2>/dev/null \
+      || security add-trusted-cert -d -r trustAsRoot -k "$LOGIN_KEYCHAIN" "$_ca" 2>/dev/null; then
+      ok "Dev CA added to login keychain (user-approved) — continuing preflight"
+      return 0
+    fi
+    warn "add-trusted-cert did not succeed (dialog cancelled, duplicate, or policy). Re-checking keychain search…"
+    if _preflight_macos_dev_root_ca_visible_in_keychains || _preflight_macos_login_keychain_has_same_dev_root_pem "$_ca"; then
+      ok "Dev CA is now visible to keychain search — host k6 can trust https://off-campus-housing.test"
+      return 0
+    fi
+  fi
+  if [[ "${PREFLIGHT_STRICT_MACOS_K6_TRUST:-1}" == "1" ]]; then
+    say "Preflight stopped: dev-root-ca not in keychain search (required for host k6 on macOS)."
+    say "  Fix: Keychain Access → import $_ca → Trust → Always Trust"
+    say "  Or: security add-trusted-cert -d -r trustRoot -k \"$LOGIN_KEYCHAIN\" \"$_ca\""
+    say "  Or: PREFLIGHT_MACOS_K6_KEYCHAIN_FINGERPRINT_FALLBACK=1 if the cert is present under another label"
+    say "  Or: K6_USE_DOCKER_K6=1 | SKIP_MACOS_DEV_CA_TRUST=1 | PREFLIGHT_STRICT_MACOS_K6_TRUST=0 (not recommended)"
+    return 1
+  fi
+  warn "dev-root-ca not in keychain — host k6 may show x509: certificate is not trusted"
   return 0
 }
 
@@ -3290,6 +3900,30 @@ _preflight_export_k6_orchestration_defaults() {
 
 # Do not skip strict TLS/mTLS preflight — always run ensure-strict-tls-mtls-preflight so all tests use strict TLS/mTLS
 _run_all_suites() {
+  _run_playwright_matrix() {
+    if [[ "${RUN_PREFLIGHT_PLAYWRIGHT:-1}" != "0" ]]; then
+      if [[ "${PREFLIGHT_PLAYWRIGHT_STRICT_HTTP3:-1}" == "1" ]]; then
+        export PLAYWRIGHT_VERTICAL_STRICT=1
+        export PLAYWRIGHT_STRICT_HTTP3=1
+        info "PREFLIGHT_PLAYWRIGHT_STRICT_HTTP3=1 → PLAYWRIGHT_VERTICAL_STRICT + PLAYWRIGHT_STRICT_HTTP3 (CI parity)"
+      else
+        unset PLAYWRIGHT_VERTICAL_STRICT PLAYWRIGHT_STRICT_HTTP3 2>/dev/null || true
+      fi
+      if [[ -x "$SCRIPT_DIR/verify-jaeger-liveness.sh" ]] && [[ -n "${JAEGER_QUERY_BASE:-}" ]]; then
+        say "7a2f. Jaeger liveness contract before Playwright/trace validation"
+        "$SCRIPT_DIR/verify-jaeger-liveness.sh" || return 1
+      fi
+      say '7a3. Playwright E2E — strict verticals + system integrity (default; PLAYWRIGHT_E2E_MATRIX=full for all projects; strict HTTP3 env on unless PREFLIGHT_PLAYWRIGHT_STRICT_HTTP3=0)...'
+      chmod +x "$SCRIPT_DIR/run-playwright-e2e-preflight.sh" 2>/dev/null || true
+      export PREFLIGHT_STRICT_EXIT="${PREFLIGHT_STRICT_EXIT:-0}"
+      if ! "$SCRIPT_DIR/run-playwright-e2e-preflight.sh"; then
+        warn "Playwright E2E had failures (see log; set RUN_PREFLIGHT_PLAYWRIGHT=0 to skip)"
+        return 1
+      fi
+    fi
+    return 0
+  }
+
   _preflight_ensure_macos_k6_keychain_trust || return 1
   if [[ -z "${K6_SUITE_RESOURCE_LOG:-}" ]] && [[ "${K6_SUITE_RESOURCE_LOG_AUTO:-1}" == "1" ]]; then
     export K6_SUITE_RESOURCE_LOG="${K6_SUITE_RESOURCE_LOG:-$PREFLIGHT_RUN_DIR/k6-suite-resources.log}"
@@ -3342,6 +3976,12 @@ _run_all_suites() {
     info "Requires: Kafka externals + TLS material + analytics DB (POSTGRES_URL_ANALYTICS / port-forward). Disable: PREFLIGHT_RUN_SYSTEM_CONTRACTS=0"
     ( cd "$REPO_ROOT" && OCH_INTEGRATION_KAFKA_FROM_K8S_LB=1 ROLLUP_DISABLE_NATIVE=true pnpm run test:system ) || return 1
   fi
+  if [[ "${PREFLIGHT_PHASE_BARRIER_POST_INTEGRATION:-1}" == "1" ]]; then
+    chmod +x "$SCRIPT_DIR/phase-barrier.sh" 2>/dev/null || true
+    PHASE_BARRIER_GATEWAY_ROLLOUT_TIMEOUT="${PREFLIGHT_GATEWAY_DRAIN_ROLLOUT_TIMEOUT:-180}" \
+      PHASE_BARRIER_TRAILING_STABILIZE_SEC="${PHASE_BARRIER_POST_INTEGRATION_STABILIZE_SEC:-10}" \
+      bash "$SCRIPT_DIR/phase-barrier.sh" "post-integration" || return 1
+  fi
   say "7a. Running service Vitest suites (messaging-service + media-service tests/)..."
   pnpm -C "$REPO_ROOT/services/messaging-service" test || return 1
   pnpm -C "$REPO_ROOT/services/media-service" test || return 1
@@ -3363,6 +4003,10 @@ _run_all_suites() {
       NS="${NS:-off-campus-housing-tracker}" HOST="${HOST:-off-campus-housing.test}" \
       "$SCRIPT_DIR/protocol/full-edge-transport-validation.sh" "$PREFLIGHT_RUN_DIR/full-edge-transport-validation" || return 1
   fi
+  if [[ "${PREFLIGHT_VALIDATE_BEFORE_LOAD:-1}" == "1" ]]; then
+    _run_playwright_matrix || return 1
+  fi
+
   # k6: full per-service edge grid (health + public + messaging + media + event-layer + booking/search JWT flows).
   if [[ "${RUN_MESSAGING_LOAD:-1}" != "0" ]] && [[ "${RUN_K6_SERVICE_GRID:-1}" != "0" ]] && command -v k6 >/dev/null 2>&1; then
     _k6_ca="$REPO_ROOT/certs/dev-root.pem"
@@ -3381,7 +4025,7 @@ _run_all_suites() {
         "$SCRIPT_DIR/run-housing-k6-edge-smoke.sh" || _smoke_rc=$?
       # Exit 3 = k6_suite_check_node_cpu (node CPU% ≥ K6_SUITE_NODE_CPU_MAX) — cluster contention, not a single-service code bug.
       if [[ "$_smoke_rc" -eq 3 ]]; then
-        fail "Step 7a k6 service grid: node CPU ≥ ${K6_SUITE_NODE_CPU_MAX:-85}% after a k6 block (hooks). Second terminal: kubectl top nodes. Or K6_SUITE_FAIL_ON_NODE_CPU=0 for warn-only."
+        fail "Step 7a k6 service grid: node CPU ≥ ${K6_SUITE_NODE_CPU_MAX:-92}% after a k6 block (hooks). Second terminal: kubectl top nodes. Or K6_SUITE_FAIL_ON_NODE_CPU=0 for warn-only."
       fi
       [[ "$_smoke_rc" -ne 0 ]] && warn "k6 edge smoke had failures (rc=${_smoke_rc}; strict: K6_GRID_STRICT=1)"
       # Full grid finished: extra kubectl top + 15s cooldown (+ CAR extras already inside smoke) so pools/Envoy settle before Playwright.
@@ -3389,10 +4033,15 @@ _run_all_suites() {
         k6_suite_after_k6_block "preflight-after-k6-service-grid" 0 || {
           _grid_hook=$?
           if [[ "$_grid_hook" -eq 3 ]]; then
-            fail "After full k6 service grid: node CPU ≥ ${K6_SUITE_NODE_CPU_MAX:-85}% — treat as cluster-level contention (Colima scheduling, socket/IO). K6_SUITE_FAIL_ON_NODE_CPU=0 to continue."
+            fail "After full k6 service grid: node CPU ≥ ${K6_SUITE_NODE_CPU_MAX:-92}% — treat as cluster-level contention (Colima scheduling, socket/IO). K6_SUITE_FAIL_ON_NODE_CPU=0 to continue."
           fi
           return "$_grid_hook"
         }
+      fi
+      if [[ "${PREFLIGHT_PHASE_BARRIER_POST_K6_GRID:-1}" == "1" ]]; then
+        chmod +x "$SCRIPT_DIR/phase-barrier.sh" 2>/dev/null || true
+        PHASE_BARRIER_GATEWAY_ROLLOUT_TIMEOUT="${PREFLIGHT_GATEWAY_DRAIN_ROLLOUT_TIMEOUT:-180}" \
+          bash "$SCRIPT_DIR/phase-barrier.sh" "post-k6-service-grid" || return 1
       fi
     else
       warn "7a3 k6 grid skipped: need non-empty CA at certs/dev-root.pem (sync from preflight)"
@@ -3443,21 +4092,226 @@ _run_all_suites() {
       warn "7a7b limit-finder skipped: missing certs/dev-root.pem"
     fi
   fi
-  if [[ "${RUN_PREFLIGHT_PLAYWRIGHT:-1}" != "0" ]]; then
-    if [[ "${PREFLIGHT_PLAYWRIGHT_STRICT_HTTP3:-1}" == "1" ]]; then
-      export PLAYWRIGHT_VERTICAL_STRICT=1
-      export PLAYWRIGHT_STRICT_HTTP3=1
-      info "PREFLIGHT_PLAYWRIGHT_STRICT_HTTP3=1 → PLAYWRIGHT_VERTICAL_STRICT + PLAYWRIGHT_STRICT_HTTP3 (CI parity)"
-    else
-      unset PLAYWRIGHT_VERTICAL_STRICT PLAYWRIGHT_STRICT_HTTP3 2>/dev/null || true
-    fi
-    say '7a8. Playwright E2E — full webapp suite (all projects in playwright.config.ts; strict HTTP3 env on unless PREFLIGHT_PLAYWRIGHT_STRICT_HTTP3=0)...'
-    chmod +x "$SCRIPT_DIR/run-playwright-e2e-preflight.sh" 2>/dev/null || true
-    "$SCRIPT_DIR/run-playwright-e2e-preflight.sh" || warn "Playwright E2E had failures (see log; set RUN_PREFLIGHT_PLAYWRIGHT=0 to skip)"
+  if [[ "${PREFLIGHT_VALIDATE_BEFORE_LOAD:-1}" != "1" ]]; then
+    _run_playwright_matrix || return 1
   fi
 }
-if ! _run_all_suites; then
+
+_preflight_quic_l1_span_step7_start() {
+  export _PREFLIGHT_QUIC_L1_STEP7_STARTED=0
+  export _PREFLIGHT_QUIC_PROVE_FROM_STEP7_SPAN=0
+  [[ "${PREFLIGHT_QUIC_L1_SPAN_STEP7:-0}" != "1" ]] && return 0
+  [[ "${PREFLIGHT_STRICT_EXIT:-0}" != "1" ]] && return 0
+  command -v colima >/dev/null 2>&1 || return 0
+  [[ -z "${TARGET_IP:-}${CAPTURE_V2_LB_IP:-}" ]] && {
+    warn "PREFLIGHT_QUIC_L1_SPAN_STEP7=1 but TARGET_IP unset — skipping span capture"
+    return 0
+  }
+  mkdir -p "${PREFLIGHT_RUN_DIR:?}/transport-forensics"
+  export CAPTURE_V2_TLS_KEYLOG="${CAPTURE_V2_TLS_KEYLOG:-$PREFLIGHT_RUN_DIR/transport-forensics/preflight-step7-span.sslkeylog}"
+  : >"$CAPTURE_V2_TLS_KEYLOG"
+  export SSLKEYLOGFILE="$CAPTURE_V2_TLS_KEYLOG"
+  # shellcheck source=lib/packet-capture-v2.sh
+  source "$SCRIPT_DIR/lib/packet-capture-v2.sh"
+  export STRICT_QUIC_VALIDATION=1
+  export CAPTURE_V2_LB_IP="${CAPTURE_V2_LB_IP:-$TARGET_IP}"
+  [[ "${PREFLIGHT_QUIC_L1_UDP_BPF_HOST_MATCH:-0}" == "1" ]] && export CAPTURE_V2_L1_UDP_HOST_MATCH=1
+  init_capture_session_v2 || return 0
+  if start_capture_v2; then
+    export _PREFLIGHT_QUIC_L1_STEP7_STARTED=1
+    export _PREFLIGHT_SUITE_CAPTURE_DIR="$_CAPTURE_V2_DIR"
+    info "L1 node capture active for full step 7 matrix (QUIC/H2/H3 wire) → $_PREFLIGHT_SUITE_CAPTURE_DIR"
+  else
+    warn "L1 span capture failed to start — will use isolated make transport-quic-v6-v7-prove after suites"
+  fi
+}
+
+_preflight_quic_l1_span_step7_stop() {
+  [[ "${_PREFLIGHT_QUIC_L1_STEP7_STARTED:-0}" != "1" ]] && return 0
+  stop_and_analyze_captures_v2 || warn "L1 span capture stop/analyze had issues (see log above)"
+  export _PREFLIGHT_QUIC_PROVE_FROM_STEP7_SPAN=0
+  if [[ -n "${_PREFLIGHT_SUITE_CAPTURE_DIR:-}" ]] && [[ -f "${_PREFLIGHT_SUITE_CAPTURE_DIR}/transport-summary-v7.json" ]]; then
+    printf '%s\n' "$_PREFLIGHT_SUITE_CAPTURE_DIR" >"$REPO_ROOT/bench_logs/.last-transport-quic-prove-dir" 2>/dev/null || true
+    export _PREFLIGHT_QUIC_PROVE_FROM_STEP7_SPAN=1
+    ok "L1 span capture stopped; QUIC v6+v7 artifacts in $_PREFLIGHT_SUITE_CAPTURE_DIR"
+  else
+    warn "L1 span capture did not produce transport-summary-v7.json — 7a8b will fall back to make transport-quic-v6-v7-prove"
+  fi
+  export _PREFLIGHT_QUIC_L1_STEP7_STARTED=0
+}
+
+export _PREFLIGHT_QUIC_PROVE_FROM_STEP7_SPAN="${_PREFLIGHT_QUIC_PROVE_FROM_STEP7_SPAN:-0}"
+if [[ -z "${PREFLIGHT_QUIC_L1_SPAN_STEP7+x}" ]]; then
+  export PREFLIGHT_QUIC_L1_SPAN_STEP7=0
+fi
+
+# Phase Barrier — pre step-7: headroom, housing-namespace pods, gateway restart (shaper reset), watchdog DEL (best-effort), Jaeger (if JAEGER_QUERY_BASE).
+_preflight_skip_pre_step7_barrier=0
+[[ "${PREFLIGHT_PHASE_BARRIER_PRE_STEP7:-1}" == "0" ]] && _preflight_skip_pre_step7_barrier=1
+[[ "${PREFLIGHT_GATEWAY_DRAIN_BEFORE_STEP7:-1}" == "0" ]] && _preflight_skip_pre_step7_barrier=1
+if [[ "$_preflight_skip_pre_step7_barrier" == "0" ]] && command -v kubectl >/dev/null 2>&1 && kubectl cluster-info &>/dev/null; then
+  chmod +x "$SCRIPT_DIR/phase-barrier.sh" 2>/dev/null || true
+  say "7-prep. Phase barrier (pre-step7-suites) - see docs/preflight-phase-barrier-contract.md"
+  PHASE_BARRIER_GATEWAY_ROLLOUT_TIMEOUT="${PREFLIGHT_GATEWAY_DRAIN_ROLLOUT_TIMEOUT:-180}" \
+    bash "$SCRIPT_DIR/phase-barrier.sh" "pre-step7-suites" || fail "Phase barrier pre-step7-suites failed"
+elif [[ "$_preflight_skip_pre_step7_barrier" == "1" ]]; then
+  info "7-prep. Skipping pre-step7 phase barrier (PREFLIGHT_PHASE_BARRIER_PRE_STEP7 / PREFLIGHT_GATEWAY_DRAIN_BEFORE_STEP7)"
+else
+  info "7-prep. Skipping pre-step7 phase barrier (kubectl / cluster unreachable)"
+fi
+unset _preflight_skip_pre_step7_barrier
+
+_preflight_quic_l1_span_step7_start
+_suite_rc=0
+_run_all_suites || _suite_rc=$?
+_preflight_quic_l1_span_step7_stop
+if [[ "$_suite_rc" -ne 0 ]]; then
   warn "One or more suites failed (continuing to step 8 if RUN_PGBENCH=1)"
+  if [[ "${PREFLIGHT_STRICT_EXIT:-0}" == "1" ]]; then
+    fail "Step 7 housing test matrix failed (Vitest stack, bash HTTP suites, k6 edge, Phase D, and/or Playwright). Set PREFLIGHT_STRICT_EXIT=0 to continue and still run step 9 perf artifacts."
+  fi
+fi
+
+# 7a-obs: Jaeger span-tree + overlap (och-observability-integrity-spec-v1). Opt-out: PREFLIGHT_STEP7_OBSERVABILITY_GATES=0
+# When gates are on, Jaeger must be host-reachable (edge / MetalLB); no silent skip — run make bootstrap-trace-guarantee after align-hosts.
+if [[ "$_suite_rc" -eq 0 ]] && [[ "${RUN_SUITES:-1}" != "0" ]] && [[ "${PREFLIGHT_STEP7_OBSERVABILITY_GATES:-0}" == "1" ]] && command -v node >/dev/null 2>&1; then
+  # Step7 validators use Node HTTPS (dev CA via scripts/trace-validators/lib/jaeger-traces.mjs). Align with the same
+  # bench_logs/.jaeger-query-base bootstrap-trace-guarantee prefers, then re-discover if the current base is not host-reachable.
+  if [[ -f "$REPO_ROOT/bench_logs/.jaeger-query-base" ]]; then
+    _jb_step7="$(tr -d '\r\n' <"$REPO_ROOT/bench_logs/.jaeger-query-base" | sed 's/[[:space:]]*$//')"
+    if [[ -n "$_jb_step7" ]]; then
+      _ca_step7="${NODE_EXTRA_CA_CERTS:-$REPO_ROOT/certs/dev-root.pem}"
+      _step7_file_ok=0
+      if [[ "$_jb_step7" == https:* ]] && [[ -f "$_ca_step7" ]] && curl -sfS --max-time 6 --cacert "$_ca_step7" "${_jb_step7%/}/api/services" >/dev/null 2>&1; then
+        _step7_file_ok=1
+      elif [[ "$_jb_step7" == http:* ]] && curl -sfS --max-time 6 "${_jb_step7%/}/api/services" >/dev/null 2>&1; then
+        _step7_file_ok=1
+      fi
+      if [[ "$_step7_file_ok" == "1" ]]; then
+        export JAEGER_QUERY_BASE="$_jb_step7"
+        info "7a-obs. JAEGER_QUERY_BASE ← bench_logs/.jaeger-query-base (trace-guarantee / edge Jaeger)"
+      fi
+    fi
+  fi
+  _ca_cur="${NODE_EXTRA_CA_CERTS:-$REPO_ROOT/certs/dev-root.pem}"
+  _step7_cur_ok=0
+  if [[ -n "${JAEGER_QUERY_BASE:-}" ]]; then
+    if [[ "${JAEGER_QUERY_BASE}" == https:* ]] && [[ -f "$_ca_cur" ]] && curl -sfS --max-time 6 --cacert "$_ca_cur" "${JAEGER_QUERY_BASE%/}/api/services" >/dev/null 2>&1; then
+      _step7_cur_ok=1
+    elif [[ "${JAEGER_QUERY_BASE}" == http:* ]] && curl -sfS --max-time 6 "${JAEGER_QUERY_BASE%/}/api/services" >/dev/null 2>&1; then
+      _step7_cur_ok=1
+    fi
+  fi
+  if [[ "$_step7_cur_ok" != "1" ]] && [[ -f "$SCRIPT_DIR/lib/jaeger-resolve-query-base.sh" ]]; then
+    # shellcheck source=lib/jaeger-resolve-query-base.sh
+    source "$SCRIPT_DIR/lib/jaeger-resolve-query-base.sh"
+    command -v och_jaeger_resolve_query_base >/dev/null 2>&1 && och_jaeger_resolve_query_base || true
+    [[ -n "${JAEGER_QUERY_BASE:-}" ]] && printf '%s\n' "${JAEGER_QUERY_BASE%/}" >"$REPO_ROOT/bench_logs/.jaeger-query-base" 2>/dev/null || true
+  fi
+  if [[ -z "${JAEGER_QUERY_BASE:-}" ]]; then
+    fail "7a-obs. PREFLIGHT_STEP7_OBSERVABILITY_GATES=1 requires host-reachable Jaeger (JAEGER_QUERY_BASE). Run: make align-hosts && make bootstrap-trace-guarantee, or export JAEGER_QUERY_BASE=https://off-campus-housing.test/jaeger or JAEGER_PUBLIC_URL=http://<metallb>:16686. Opt-out: PREFLIGHT_STEP7_OBSERVABILITY_GATES=0."
+  else
+  _step7_obs_dir="${PREFLIGHT_RUN_DIR}/step7-observability"
+  say "7a-obs. Step 7 observability gates (span-tree + overlap) → $_step7_obs_dir"
+  STEP7_REPORT_DIR="$_step7_obs_dir" node "$SCRIPT_DIR/trace-validators/kafka-offset-invariant.mjs" 2>/dev/null || true
+  STEP7_REPORT_DIR="$_step7_obs_dir" node "$SCRIPT_DIR/trace-validators/db-row-invariant.mjs" 2>/dev/null || true
+  STEP7_REPORT_DIR="$_step7_obs_dir" node "$SCRIPT_DIR/trace-validators/packet-trace-correlation.mjs" 2>/dev/null || true
+  if [[ -z "${STEP7_CANONICAL_TRACE_ID:-}" ]] && [[ "${STEP7_CANONICAL_TRACE_SEED:-1}" != "0" ]] && command -v curl >/dev/null 2>&1 && command -v openssl >/dev/null 2>&1; then
+    if _step7_tid="$(cd "$REPO_ROOT" && E2E_API_BASE="${E2E_API_BASE:-https://off-campus-housing.test}" bash "$SCRIPT_DIR/step7-generate-trace.sh" 2>/dev/null)"; then
+      export STEP7_CANONICAL_TRACE_ID="${_step7_tid//$'\n'/}"
+      info "7a-obs. Seeded canonical Step7 trace (STEP7_CANONICAL_TRACE_ID=$STEP7_CANONICAL_TRACE_ID; STEP7_CANONICAL_TRACE_SEED=0 to skip)"
+    else
+      warn "7a-obs. step7-generate-trace.sh failed — Step7 gates fall back to Jaeger list mode"
+    fi
+  elif [[ -n "${STEP7_CANONICAL_TRACE_ID:-}" ]]; then
+    info "7a-obs. Using existing STEP7_CANONICAL_TRACE_ID=$STEP7_CANONICAL_TRACE_ID"
+  fi
+  for _step7_jq in $(seq 1 8); do
+    _step7_jq_ok=0
+    if [[ "${JAEGER_QUERY_BASE}" == https:* ]]; then
+      _ca_jgw="${NODE_EXTRA_CA_CERTS:-$REPO_ROOT/certs/dev-root.pem}"
+      [[ -f "$_ca_jgw" ]] && curl -sfS --max-time 4 --cacert "$_ca_jgw" "${JAEGER_QUERY_BASE%/}/api/services" >/dev/null 2>&1 && _step7_jq_ok=1
+    else
+      curl -sfS --max-time 4 "${JAEGER_QUERY_BASE%/}/api/services" >/dev/null 2>&1 && _step7_jq_ok=1
+    fi
+    [[ "$_step7_jq_ok" == "1" ]] && break
+    sleep 1
+  done
+  export STEP7_CANONICAL_CONTRACT="${STEP7_CANONICAL_CONTRACT:-1}"
+  if ! node "$SCRIPT_DIR/trace-validators/run-step7-observability-gates.mjs" --report-dir "$_step7_obs_dir"; then
+    if [[ "${PREFLIGHT_STRICT_EXIT:-0}" == "1" ]]; then
+      fail "Step 7 observability gates failed (see docs/observability/och-observability-integrity-spec-v1.md). Set PREFLIGHT_STEP7_OBSERVABILITY_GATES=0 to skip."
+    fi
+    warn "Step 7 observability gates failed (non-strict: continuing)"
+  else
+    node "$SCRIPT_DIR/observability-drift-append.mjs" --report-dir "$_step7_obs_dir" 2>/dev/null || true
+    # Optional: Jaeger proof for one trace_id + required services (+ overlap if STEP7_TRACE_PROOF_REQUIRE_OVERLAP=1)
+    if [[ "${PREFLIGHT_STEP7_TRACE_PROPAGATION_PROOF:-0}" == "1" ]]; then
+      say "7a-obs-prop. Trace propagation proof (validate-trace-propagation-under-load) → $_step7_obs_dir"
+      if ! node "$SCRIPT_DIR/trace-validators/validate-trace-propagation-under-load.mjs" --report-dir "$_step7_obs_dir"; then
+        if [[ "${PREFLIGHT_STRICT_EXIT:-0}" == "1" ]]; then
+          fail "Trace propagation proof failed (see trace-propagation-proof.json under step7 dir). Set PREFLIGHT_STEP7_TRACE_PROPAGATION_PROOF=0 to skip."
+        fi
+        warn "Trace propagation proof failed (non-strict: continuing)"
+      fi
+    fi
+  fi
+  fi
+fi
+
+# QUIC v7 transport invariant (MetalLB + pcap + ALPN/cipher/1RTT). Strict preflight only; skip: PREFLIGHT_RUN_QUIC_V7_FORENSIC=0 or PREFLIGHT_RUN_QUIC_V6_FORENSIC=0.
+if [[ "${PREFLIGHT_STRICT_EXIT:-0}" == "1" ]] && [[ "${PREFLIGHT_RUN_QUIC_V7_FORENSIC:-1}" != "0" ]] && [[ "${PREFLIGHT_RUN_QUIC_V6_FORENSIC:-1}" != "0" ]]; then
+  command -v jq >/dev/null 2>&1 || fail "QUIC v6+v7 strict gates require jq (brew install jq)"
+  _prove_dir_file="$REPO_ROOT/bench_logs/.last-transport-quic-prove-dir"
+  if [[ -n "${_PREFLIGHT_PHASE1_TRANSPORT_DIR:-}" ]] && [[ -f "${_PREFLIGHT_PHASE1_TRANSPORT_DIR}/transport-summary-v7.json" ]]; then
+    say "7a8b. QUIC v6+v7 (Phase 1 quiet capture — jq + Jaeger; no suite-time recapture)"
+    _cap_d="$_PREFLIGHT_PHASE1_TRANSPORT_DIR"
+  elif [[ "${_PREFLIGHT_QUIC_PROVE_FROM_STEP7_SPAN:-0}" == "1" ]] && [[ -n "${_PREFLIGHT_SUITE_CAPTURE_DIR:-}" ]] && [[ -f "$_PREFLIGHT_SUITE_CAPTURE_DIR/transport-summary-v7.json" ]]; then
+    say "7a8b. QUIC v6+v7 (step-7 matrix + Colima L1 background capture — same pcap as suites; jq + Jaeger)"
+    _cap_d="$_PREFLIGHT_SUITE_CAPTURE_DIR"
+  else
+    command -v make >/dev/null 2>&1 || fail "QUIC transport prove requires make (isolated capture path)"
+    say "7a8b. QUIC v6+v7 transport invariant (make transport-quic-v6-v7-prove) — standalone capture + jq + Jaeger"
+    ( cd "$REPO_ROOT" && "$(command -v make)" transport-quic-v6-v7-prove ) \
+      || fail "QUIC transport prove failed (make transport-quic-v6-v7-prove). See Makefile; set PREFLIGHT_RUN_QUIC_V7_FORENSIC=0 to skip."
+    [[ -f "$_prove_dir_file" ]] || fail "Missing $_prove_dir_file after make transport-quic-v6-v7-prove"
+    _cap_d="$(tr -d '\r\n' <"$_prove_dir_file")"
+  fi
+  [[ -n "$_cap_d" && -d "$_cap_d" ]] || fail "QUIC capture dir missing or empty: ${_cap_d:-}"
+  echo "Validating v6 artifact..."
+  jq -e '.valid == true and (.quic_frame_count > 0) and (.packet_number_spaces | length > 0) and (.tls.selected_cipher_suite != null and (.tls.selected_cipher_suite | tostring | length > 0))' "$_cap_d/transport-summary-v6.json" >/dev/null \
+    || fail "QUIC v6 jq gate failed on $_cap_d/transport-summary-v6.json"
+  echo "Validating v7 invariant..."
+  jq -e '.valid == true and (.quic.frame_count > 0) and (.quic.packet_number_spaces | length > 0) and (.tls.selected_cipher_suite != null and (.tls.selected_cipher_suite | tostring | length > 0)) and (.tls.alpn_protocol == "h3") and (.quic.version_negotiation_packets == 0) and ([.quic.packet_number_spaces[] | select(.space == "1RTT")] | length > 0)' "$_cap_d/transport-summary-v7.json" >/dev/null \
+    || fail "QUIC v7 jq gate failed on $_cap_d/transport-summary-v7.json"
+  echo ""
+  echo "--- transport-summary-v6.json ---"
+  jq . "$_cap_d/transport-summary-v6.json"
+  echo ""
+  echo "--- transport-summary-v7.json ---"
+  jq . "$_cap_d/transport-summary-v7.json"
+  echo ""
+  if [[ -n "${PREFLIGHT_RUN_DIR:-}" ]] && [[ -n "$_cap_d" ]]; then
+    _tff="$PREFLIGHT_RUN_DIR/transport-forensics/quic-transport-invariant"
+    mkdir -p "$_tff"
+    for _f in transport-summary-v6.json transport-summary-v7.json; do
+      [[ -f "$_cap_d/$_f" ]] && cp -f "$_cap_d/$_f" "$_tff/$_f" || true
+    done
+    if [[ "${PREFLIGHT_QUIC_PROVE_COPY_PCAP:-1}" != "0" ]] && [[ -f "$_cap_d/caddy-capture.pcap" ]]; then
+      cp -f "$_cap_d/caddy-capture.pcap" "$_tff/caddy-capture.pcap" || true
+    fi
+    printf '%s\n' "$_cap_d" > "$_tff/SOURCE_CAPTURE_DIR.txt" 2>/dev/null || true
+    ok "7a8b QUIC forensics archived → $_tff (json + optional pcap; set PREFLIGHT_QUIC_PROVE_COPY_PCAP=0 to skip pcap copy)"
+  fi
+  if [[ -n "${JAEGER_QUERY_BASE:-}" ]] && [[ -f "$_cap_d/transport-summary-v7.json" ]]; then
+    say "7a8c. QUIC ↔ Jaeger correlation (capture window vs traces; strict requires link)"
+    QUIC_JAEGER_CORRELATION_REQUIRE=1 node "$SCRIPT_DIR/verify-quic-jaeger-correlation.mjs" \
+      --v7-json "$_cap_d/transport-summary-v7.json" --write-back \
+      || fail "QUIC ↔ Jaeger correlation failed (set JAEGER_QUERY_BASE correctly or PREFLIGHT_STRICT_EXIT=0 for warn-only)."
+  elif [[ -f "$_cap_d/transport-summary-v7.json" ]]; then
+    warn "7a8c skipped: JAEGER_QUERY_BASE unset — QUIC v7 artifact present but trace correlation not run"
+  fi
+  ok "7a8b QUIC v6+v7 transport invariant passed"
 fi
 
 # Host k6 phase matrix (read/soak/limit/max + optional HTTP/3 phases) — same role as run-all-test-suites.sh step 2b when RUN_K6=1.
@@ -3466,6 +4320,16 @@ if [[ "${RUN_K6:-0}" == "1" ]] && [[ "${PREFLIGHT_RUN_K6_PHASES:-1}" == "1" ]] &
     say "7a9. k6 multi-phase load (run-k6-phases.sh)…"
     _ph_ca="${SSL_CERT_FILE:-$REPO_ROOT/certs/dev-root.pem}"
     chmod +x "$SCRIPT_DIR/load/run-k6-phases.sh" 2>/dev/null || true
+    if [[ "${PREFLIGHT_K6_REALISTIC_MULTI_PROTO:-1}" == "1" ]]; then
+      _kp="${K6_PHASES:-}"
+      if [[ -z "$_kp" ]]; then
+        export K6_PHASES="read,realistic"
+      elif [[ ",${_kp}," == *",realistic,"* ]]; then
+        export K6_PHASES="$_kp"
+      else
+        export K6_PHASES="${_kp},realistic"
+      fi
+    fi
     (
       export SSL_CERT_FILE="$_ph_ca" K6_TLS_CA_CERT="${K6_TLS_CA_CERT:-$_ph_ca}" K6_CA_ABSOLUTE="${K6_CA_ABSOLUTE:-$_ph_ca}"
       cd "$REPO_ROOT" && "$SCRIPT_DIR/load/run-k6-phases.sh"
@@ -3484,6 +4348,9 @@ if [[ "${PREFLIGHT_EXIT_AFTER_HOUSING_SUITES:-0}" == "1" ]]; then
     info "PREFLIGHT_EXIT_AFTER_HOUSING_SUITES=1: step 9 perf artifacts skipped (set PREFLIGHT_PERF_ARTIFACTS_ON_EARLY_EXIT=1 to run bundle + matrix here)"
   fi
   say "PREFLIGHT_EXIT_AFTER_HOUSING_SUITES=1 — stopping after step 7a (housing suites + Playwright)"
+  if [[ "${PREFLIGHT_STRICT_EXIT:-0}" == "1" ]]; then
+    _preflight_strict_seal_artifacts || fail "Strict artifact seal failed (trace-validation + trace_flow_validation.prom required for early-exit strict runs)"
+  fi
   exit 0
 fi
 
@@ -3505,7 +4372,11 @@ if [[ -f "$SCRIPT_DIR/run-transport-study-experiments.sh" ]]; then
     export WIRE_CAPTURE_DIR
   fi
   [[ "${ROTATION_UDP_STATS:-0}" != "1" ]] && info "  ROTATION_UDP_STATS=0: Experiment 1 UDP drop diff will be skipped (set 1 for Colima)"
-  ( set +e; TRANSPORT_STUDY=1 "$SCRIPT_DIR/run-transport-study-experiments.sh" ) || warn "Transport study had issues"
+  if [[ "${PREFLIGHT_STRICT_EXIT:-0}" == "1" ]]; then
+    TRANSPORT_STUDY=1 "$SCRIPT_DIR/run-transport-study-experiments.sh" || fail "Step 7b transport study failed (set PREFLIGHT_STRICT_EXIT=0 to warn-only; TRANSPORT_STUDY_PCAP=0 to skip QUIC PCAP gate)"
+  else
+    ( set +e; TRANSPORT_STUDY=1 "$SCRIPT_DIR/run-transport-study-experiments.sh" ) || warn "Transport study had issues"
+  fi
 fi
 
 # --- Step 7c: In-cluster k6 (transport isolation — Pod → Caddy ClusterIP, no host/VM in path) ---
@@ -3520,7 +4391,7 @@ if [[ "${RUN_K6:-0}" == "1" ]] && [[ "${RUN_K6_IN_CLUSTER:-1}" == "1" ]] && [[ -
     k6_suite_after_k6_block "k6-in-cluster" 0 || {
       _ick=$?
       if [[ "$_ick" -eq 3 ]]; then
-        fail "Step 7c in-cluster k6: node CPU ≥ ${K6_SUITE_NODE_CPU_MAX:-85}% after hook — same contention story as edge grid. K6_SUITE_FAIL_ON_NODE_CPU=0 for warn-only."
+        fail "Step 7c in-cluster k6: node CPU ≥ ${K6_SUITE_NODE_CPU_MAX:-92}% after hook — same contention story as edge grid. K6_SUITE_FAIL_ON_NODE_CPU=0 for warn-only."
       fi
       warn "k6 suite hook after in-cluster k6 returned ${_ick}"
     }
@@ -3692,7 +4563,21 @@ if [[ "${RUN_PGBENCH:-0}" == "1" ]]; then
   fi
 fi
 
-_preflight_run_perf_artifacts || true
+_preflight_perf_rc=0
+if [[ "${PREFLIGHT_STRICT_EXIT:-0}" == "1" ]]; then
+  _preflight_run_perf_artifacts || _preflight_perf_rc=$?
+else
+  _preflight_run_perf_artifacts || true
+fi
+if [[ "${PREFLIGHT_STRICT_EXIT:-0}" == "1" ]] && [[ "${_preflight_perf_rc:-0}" -ne 0 ]]; then
+  fail "Step 9 perf artifacts failed (exit ${_preflight_perf_rc}). Canonical bundle may be incomplete (e.g. missing Phase D k6 logs / explain when step 7 aborted early). Set PREFLIGHT_STRICT_EXIT=0 for warn-only."
+fi
+
+if [[ "${PREFLIGHT_STRICT_EXIT:-0}" == "1" ]]; then
+  _preflight_strict_seal_artifacts || fail "Strict artifact seal failed (missing trace-validation or transport-forensics files under PREFLIGHT_RUN_DIR)"
+fi
+
+_och_preflight_verify_bootstrap_state preflight-end
 
 if [[ "${RUN_PGBENCH:-0}" != "1" ]]; then
   ok "Pre-test complete (pgbench skipped; set RUN_PGBENCH=1 for full control plane). Step 9: matrix + protocol-comparison.csv + canonical bundle under PREFLIGHT_RUN_DIR when PREFLIGHT_PERF_ARTIFACTS=1."

@@ -1,10 +1,38 @@
-chore(webapp): defer analytics metrics cards UI to branch saved/feat-webapp-analytics-ui-full
+fix(observability,edge,analytics): restore subpath routing and full metrics scrape coverage
 
-The polished daily-metrics card grid and related analytics UI live on branch
-saved/feat-webapp-analytics-ui-full (snapshot of this work before this change).
-This branch keeps the simpler analytics shell from main-line history.
+Align edge and observability runtime behavior so /grafana and /prometheus are
+stable under subpaths, and ensure Prometheus scrapes all housing services/exporters.
 
-Teammate: merge or cherry-pick from saved/feat-webapp-analytics-ui-full, or
-restore the file with: git checkout saved/feat-webapp-analytics-ui-full -- webapp/app/analytics/page.tsx
+- Edge routing:
+  - Caddy / caddy-h3 ConfigMap keeps full /grafana/* and /prometheus/* paths
+    (no strip_prefix), adds explicit no-slash redirects, and forwards tracing/edge headers.
+  - rollout-caddy now restarts caddy-h3 after ConfigMap updates so runtime picks up changes.
+  - Added scripts/verify-grafana-prometheus-edge.sh for repeatable diagnostics.
 
-Made-with: Tom
+- Prometheus/Grafana:
+  - Grafana datasource uses Prometheus route-prefix URL (/prometheus).
+  - Prometheus self-scrape uses /prometheus/metrics.
+  - Added prometheus ServiceAccount + ClusterRole + ClusterRoleBinding for Kubernetes SD.
+  - Added static fallback scrape job for core housing services to avoid blind spots if SD/RBAC regresses.
+  - Fixed media-service scrape annotation to HTTP metrics port (4018 vs gRPC 50068).
+
+- Service metrics:
+  - Added /metrics + request counters to messaging-service and media-service HTTP apps.
+  - Verified targets from Prometheus API: active targets present and no down targets after rollout.
+
+- Analytics reliability hardening:
+  - Unified Ollama timeout authority, typed timeout failures/logging, and expanded generation metrics.
+  - Added health/warmup endpoints and minimal no-mask debugging paths for listing-feel.
+  - Dev-fast now defaults to CLI-like path (v2 disabled unless explicitly re-enabled).
+
+Follow-up: dashboard no-data cleanup (this commit)
+- Audited every Grafana panel expression against live Prometheus query API.
+- Repointed panels from missing metric families to available runtime metrics:
+  - tracing panels: jaeger_spans_* -> trace_service_latency_ms_*.
+  - latency panels: http_request_duration_seconds_* -> trace_service_latency_ms_* where applicable.
+  - transport ratios: missing och:gateway_* recording rules -> direct api-gateway http_requests_total formulas.
+  - kafka integrity panels: missing kafka_server_* JMX metrics -> kafka_* alignment/skew/exporter metrics.
+- Added `or on() vector(0)` fallbacks for optional CI/export-driven metrics (coverage/QA-style gauges),
+  so dashboards show zero instead of “No data” when exporters have not published in current window.
+- Applied dashboards and reloaded Grafana; expression audit now resolves for all fixed panels
+  (remaining template-variable-only expressions depend on Grafana-side `$svc` substitution).

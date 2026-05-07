@@ -1,39 +1,6 @@
 import { getApiBase } from "./config";
 
 export type ApiError = { error?: string; message?: string };
-export type SearchHistoryPayload = {
-  query?: string;
-  minPriceCents?: number;
-  maxPriceCents?: number;
-  maxDistanceKm?: number;
-  latitude?: number;
-  longitude?: number;
-};
-export type SearchHistoryRow = {
-  id?: string;
-  query?: string | null;
-  minPriceCents?: number | null;
-  maxPriceCents?: number | null;
-  maxDistanceKm?: number | null;
-  latitude?: number | null;
-  longitude?: number | null;
-  createdAt?: string;
-};
-export const LISTING_SEARCH_SORTS = [
-  "created_desc",
-  "listed_desc",
-  "price_asc",
-  "price_desc",
-] as const;
-export type ListingSearchSort = (typeof LISTING_SEARCH_SORTS)[number];
-
-export function normalizeListingSearchSort(
-  sort?: string | null,
-): ListingSearchSort {
-  return LISTING_SEARCH_SORTS.includes(sort as ListingSearchSort)
-    ? (sort as ListingSearchSort)
-    : "created_desc";
-}
 
 async function parseJson(res: Response): Promise<unknown> {
   const text = await res.text();
@@ -62,8 +29,13 @@ export async function apiFetch(
     headers.set("Content-Type", "application/json");
   }
   const { token, ...rest } = init;
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-  return fetch(url, { ...rest, headers });
+  const bearer = token == null ? "" : String(token).trim();
+  if (bearer) headers.set("Authorization", `Bearer ${bearer}`);
+  // fetch() defaults to GET; analytics listing-feel and other JSON writes must never ship as GET.
+  const method =
+    rest.method ??
+    (rest.body !== undefined && rest.body !== null ? "POST" : undefined);
+  return fetch(url, { ...rest, ...(method ? { method } : {}), headers });
 }
 
 export async function registerUser(email: string, password: string) {
@@ -100,19 +72,21 @@ export async function loginUser(email: string, password: string) {
 
 export async function postSearchHistory(
   token: string,
-  body: SearchHistoryPayload,
+  body: {
+    query?: string;
+    minPriceCents?: number;
+    maxPriceCents?: number;
+    maxDistanceKm?: number;
+    latitude?: number;
+    longitude?: number;
+  },
 ) {
   const res = await apiFetch("/api/booking/search-history", {
     method: "POST",
     token,
     body: JSON.stringify(body),
-    cache: "no-store",
-    headers: {
-      "Cache-Control": "no-store",
-      Pragma: "no-cache",
-    },
   });
-  const data = (await parseJson(res)) as SearchHistoryRow;
+  const data = await parseJson(res);
   if (!res.ok)
     throw new Error(
       (data as ApiError)?.error || `search-history ${res.status}`,
@@ -126,14 +100,9 @@ export async function listSearchHistory(token: string, limit = 25) {
     {
       method: "GET",
       token,
-      cache: "no-store",
-      headers: {
-        "Cache-Control": "no-store",
-        Pragma: "no-cache",
-      },
     },
   );
-  const data = (await parseJson(res)) as { items?: SearchHistoryRow[] };
+  const data = (await parseJson(res)) as { items?: unknown[] };
   if (!res.ok)
     throw new Error(
       (data as ApiError)?.error || `list search-history ${res.status}`,
@@ -193,108 +162,6 @@ export async function watchlistList(token: string) {
   return data.items ?? [];
 }
 
-export type BookingStatus =
-  | "created"
-  | "pending_confirmation"
-  | "confirmed"
-  | "rejected"
-  | "cancelled"
-  | "expired"
-  | "completed";
-
-export type BookingJson = {
-  id: string;
-  listingId: string;
-  tenantId: string;
-  landlordId: string;
-  status: BookingStatus;
-  startDate: string;
-  endDate: string;
-  priceCentsSnapshot: number;
-  currencyCode: string;
-  tenantNotes?: string | null;
-  cancellationReason?: string | null;
-  confirmedAt?: string | null;
-  cancelledAt?: string | null;
-  completedAt?: string | null;
-  createdAt?: string;
-  updatedAt?: string;
-};
-
-export async function createBooking(
-  token: string,
-  body: {
-    listingId: string;
-    startDate: string;
-    endDate: string;
-    landlordId?: string;
-    priceCents?: number;
-  },
-) {
-  const res = await apiFetch("/api/booking/create", {
-    method: "POST",
-    token,
-    body: JSON.stringify(body),
-  });
-  const data = (await parseJson(res)) as BookingJson & ApiError;
-  if (!res.ok) throw new Error(data?.error || `create booking ${res.status}`);
-  return data as BookingJson;
-}
-
-export async function getBooking(token: string, bookingId: string) {
-  const res = await apiFetch(`/api/booking/${encodeURIComponent(bookingId)}`, {
-    method: "GET",
-    token,
-  });
-  const data = (await parseJson(res)) as BookingJson & ApiError;
-  if (!res.ok) throw new Error(data?.error || `get booking ${res.status}`);
-  return data as BookingJson;
-}
-
-export async function confirmBooking(
-  token: string,
-  body: { bookingId: string; landlordId?: string },
-) {
-  const res = await apiFetch("/api/booking/confirm", {
-    method: "POST",
-    token,
-    body: JSON.stringify(body),
-  });
-  const data = (await parseJson(res)) as BookingJson & ApiError;
-  if (!res.ok) throw new Error(data?.error || `confirm booking ${res.status}`);
-  return data as BookingJson;
-}
-
-export async function cancelBooking(
-  token: string,
-  body: { bookingId: string; cancelledBy?: string },
-) {
-  const res = await apiFetch("/api/booking/cancel", {
-    method: "POST",
-    token,
-    body: JSON.stringify(body),
-  });
-  const data = (await parseJson(res)) as BookingJson & ApiError;
-  if (!res.ok) throw new Error(data?.error || `cancel booking ${res.status}`);
-  return data as BookingJson;
-}
-
-export async function updateBookingTenantNotes(
-  token: string,
-  bookingId: string,
-  tenantNotes: string | null,
-) {
-  const res = await apiFetch(`/api/booking/${encodeURIComponent(bookingId)}`, {
-    method: "PATCH",
-    token,
-    body: JSON.stringify({ tenantNotes }),
-  });
-  const data = (await parseJson(res)) as BookingJson & ApiError;
-  if (!res.ok)
-    throw new Error(data?.error || `update booking notes ${res.status}`);
-  return data as BookingJson;
-}
-
 export type ListingJson = {
   id: string;
   user_id: string;
@@ -314,7 +181,7 @@ export type ListingJson = {
   longitude?: number | null;
 };
 
-export type ListingsSearchParams = {
+export async function searchListings(params: {
   q?: string;
   min_price?: number;
   max_price?: number;
@@ -325,15 +192,10 @@ export type ListingsSearchParams = {
   amenities?: string;
   new_within_days?: number;
   /** created_desc | listed_desc | price_asc | price_desc */
-  sort?: ListingSearchSort | string;
-};
-
-export function buildListingsSearchParams(
-  params: ListingsSearchParams,
-): URLSearchParams {
+  sort?: string;
+}) {
   const sp = new URLSearchParams();
-  const sort = normalizeListingSearchSort(params.sort);
-  if (params.q?.trim()) sp.set("q", params.q.trim());
+  if (params.q) sp.set("q", params.q);
   if (params.min_price != null && !Number.isNaN(params.min_price))
     sp.set("min_price", String(params.min_price));
   if (params.max_price != null && !Number.isNaN(params.max_price))
@@ -345,12 +207,7 @@ export function buildListingsSearchParams(
   if (params.new_within_days != null && params.new_within_days > 0) {
     sp.set("new_within_days", String(Math.floor(params.new_within_days)));
   }
-  sp.set("sort", sort);
-  return sp;
-}
-
-export async function searchListings(params: ListingsSearchParams) {
-  const sp = buildListingsSearchParams(params);
+  if (params.sort?.trim()) sp.set("sort", params.sort.trim());
   const q = sp.toString();
   const res = await apiFetch(`/api/listings/search${q ? `?${q}` : ""}`);
   const data = (await parseJson(res)) as {
@@ -524,6 +381,7 @@ export async function getSearchSummaryInsights(token: string, userId: string) {
   return data;
 }
 
+/** Canonical edge path: POST `/api/analytics/insights/listing-feel` (gateway strips `/api/analytics` → analytics `POST /insights/listing-feel`). */
 export async function analyzeListingFeel(
   token: string | null,
   body: {
@@ -531,6 +389,7 @@ export async function analyzeListingFeel(
     description?: string;
     price_cents: number;
     audience?: "landlord" | "renter";
+    analysis_depth?: "quick" | "standard" | "deep";
   },
 ) {
   const res = await apiFetch("/api/analytics/insights/listing-feel", {
@@ -541,6 +400,9 @@ export async function analyzeListingFeel(
   const data = (await parseJson(res)) as {
     analysis_text?: string;
     model_used?: string;
+    quality_score?: number;
+    intelligence_json?: string;
+    confidence_explanation?: string;
     error?: string;
   };
   if (!res.ok) throw new Error(data?.error || `listing feel ${res.status}`);

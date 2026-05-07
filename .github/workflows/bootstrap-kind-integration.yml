@@ -1,0 +1,35 @@
+# Optional: disposable kind + static gates. workflow_dispatch only (no PR burn).
+# Extend with image load + kustomize apply + `make verify-runtime` when you want full integration smoke.
+name: Bootstrap kind integration (optional)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  kind-bootstrap-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://get.kind.sh" | sudo bash
+          KUST_VER=5.4.3
+          curl -fsSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUST_VER}/kustomize_v${KUST_VER}_linux_amd64.tar.gz" | sudo tar xz -C /usr/local/bin
+          curl -fsSL "https://dl.k8s.io/release/v1.31.0/bin/linux/amd64/kubectl" -o /tmp/kubectl && sudo install /tmp/kubectl /usr/local/bin/kubectl
+          kind version
+          kustomize version
+          kubectl version --client
+
+      - name: Static gates (no cluster required)
+        env:
+          CI: "true"
+        run: make verify-static
+
+      - name: Create kind cluster (smoke — apiserver only)
+        run: |
+          set -euo pipefail
+          kind create cluster --name och-bootstrap-smoke --wait 120s
+          kubectl cluster-info
+          echo "Next: load images, kubectl apply -k overlays/dev, then VERIFY_BOOTSTRAP_CONTEXT=post-bootstrap make verify-runtime"

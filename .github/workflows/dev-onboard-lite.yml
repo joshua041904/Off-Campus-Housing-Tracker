@@ -52,5 +52,14 @@ jobs:
           # v1.29 kustomize fails on multi-doc strategic-merge patches (e.g. overlays/dev/patches/e2e-high-cap-mode-env.yaml).
           version: "v1.31.0"
 
+      - name: Install kustomize (pure local render; CI=true requires this in Makefile)
+        run: |
+          set -euo pipefail
+          KUST_VER=5.4.3
+          curl -fsSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUST_VER}/kustomize_v${KUST_VER}_linux_amd64.tar.gz" | sudo tar xz -C /usr/local/bin
+          kustomize version
+
       - name: Run dev-onboard-lite
+        env:
+          CI: "true"
         run: make dev-onboard-lite

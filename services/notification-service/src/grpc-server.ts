@@ -17,7 +17,8 @@ const pd = protoLoader.loadSync(NOTIF_PROTO, {
 });
 const notifProto = grpc.loadPackageDefinition(pd) as any;
 
-const handlers = {
+/** gRPC `NotificationService` implementation (unit-test via direct `call` / `cb` invocation). */
+export const notificationGrpcHandlers = {
   GetUserPreferences(call: grpc.ServerUnaryCall<any, any>, cb: grpc.sendUnaryData<any>) {
     const userId = String(call.request?.user_id || "").trim();
     if (!userId) {
@@ -50,18 +51,20 @@ const handlers = {
   },
 };
 
+export async function notificationGrpcHealthCheck(): Promise<boolean> {
+  if (!pool) return true;
+  try {
+    await pool.query("SELECT 1");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function startGrpcServer(port: number): grpc.Server {
   const server = new grpc.Server();
-  server.addService(notifProto.notification.NotificationService.service, handlers);
-  registerHealthService(server, "notification.NotificationService", async () => {
-    if (!pool) return true;
-    try {
-      await pool.query("SELECT 1");
-      return true;
-    } catch {
-      return false;
-    }
-  });
+  server.addService(notifProto.notification.NotificationService.service, notificationGrpcHandlers);
+  registerHealthService(server, "notification.NotificationService", notificationGrpcHealthCheck);
 
   let credentials: grpc.ServerCredentials;
   try {

@@ -28,6 +28,9 @@ export function getRedisClient(): RedisClientType | null {
     redisClient = createClient({
       url: REDIS_URL,
       socket: { connectTimeout: 10_000 },
+      ...(process.env.VITEST === "true"
+        ? { disableOfflineQueue: true }
+        : {}),
     }) as RedisClientType;
     
     redisClient.on('error', (err) => {
@@ -241,5 +244,15 @@ export async function getCacheStats(): Promise<{
   } catch (err) {
     return { connected: false, userCacheKeys: 0 };
   }
+}
+
+/** Test-only: clear the module singleton (Vitest). */
+export function __resetRedisClientForTests(): void {
+  redisClient = null;
+}
+
+/** Test-only: inject a fake Redis client (Vitest). */
+export function __setRedisClientForTests(client: RedisClientType | null): void {
+  redisClient = client;
 }
 

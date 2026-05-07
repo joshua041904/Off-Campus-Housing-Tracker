@@ -40,7 +40,7 @@ data:
           "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
           "targets": [
             {
-              "expr": "sum(rate(http_requests_total{code=~\"5..\"}[5m])) by (service)",
+              "expr": "sum(rate(http_requests_total{code=~\"5..\"}[5m])) by (service) or on() vector(0)",
               "legendFormat": "{{service}}",
               "refId": "A"
             }
@@ -56,7 +56,7 @@ data:
           "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
           "targets": [
             {
-              "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service))",
+              "expr": "histogram_quantile(0.95, sum(rate(trace_service_latency_ms_bucket[5m])) by (le, service))",
               "legendFormat": "p95 {{service}}",
               "refId": "A"
             }
@@ -72,7 +72,7 @@ data:
           "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
           "targets": [
             {
-              "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service))",
+              "expr": "histogram_quantile(0.99, sum(rate(trace_service_latency_ms_bucket[5m])) by (le, service))",
               "legendFormat": "p99 {{service}}",
               "refId": "A"
             }
@@ -125,8 +125,8 @@ data:
           "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
           "targets": [
             {
-              "expr": "sum(rate(jaeger_spans_total[5m])) by (service_name)",
-              "legendFormat": "{{service_name}}",
+              "expr": "sum(rate(trace_service_latency_ms_count[5m])) by (service)",
+              "legendFormat": "{{service}}",
               "refId": "A"
             }
           ],
@@ -141,8 +141,8 @@ data:
           "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
           "targets": [
             {
-              "expr": "sum(rate(jaeger_spans_total{error=\"true\"}[5m])) by (service_name)",
-              "legendFormat": "{{service_name}}",
+              "expr": "sum(rate(trace_service_latency_ms_count{status=~\"5..\"}[5m])) by (service) or on() vector(0)",
+              "legendFormat": "{{service}}",
               "refId": "A"
             }
           ],

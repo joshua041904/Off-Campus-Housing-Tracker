@@ -1,0 +1,11 @@
+openapi: 3.0.3
+info:
+  title: booking-service
+  version: '0.0.0'
+paths:
+  "/api/booking/healthz":
+    get:
+      summary: "booking-service get /api/booking/healthz"
+      responses:
+        '200':
+          description: OK

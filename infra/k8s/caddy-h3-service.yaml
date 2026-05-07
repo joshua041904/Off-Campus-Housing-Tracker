@@ -1,4 +1,4 @@
-# Caddy HTTP/3 service (LoadBalancer). Use with MetalLB; nodePort 30443 for HTTP/2 and HTTP/3 (QUIC).
+# Caddy HTTP/3 service (LoadBalancer). Use with MetalLB; TCP nodePort 30443, UDP 30444 (k3s: do not share nodePort).
 # Apply when METALLB_ENABLED=1. Requires MetalLB pool + L2 (scripts/install-metallb.sh).
 apiVersion: v1
 kind: Service
@@ -23,7 +23,7 @@ spec:
     port: 443
     targetPort: 443
     protocol: UDP
-    nodePort: 30443
+    nodePort: 30444
   - name: grpc-h2c
     port: 5000
     targetPort: 5000

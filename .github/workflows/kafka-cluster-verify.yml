@@ -18,6 +18,8 @@ on:
     paths:
       - "infra/k8s/kafka-kraft-metallb/**"
       - "scripts/verify-kafka-*.sh"
+      - "scripts/verify-kafka-metallb-pin-formula.sh"
+      - "scripts/lib/kafka-metallb-pin-formula.sh"
       - "scripts/verify-preflight-edge-routing.sh"
       - "scripts/kafka-ssl-from-dev-root.sh"
       - "scripts/tests/kafka-alignment-suite.sh"
@@ -60,6 +62,11 @@ jobs:
           bash -n scripts/kafka-ssl-from-dev-root.sh
           bash -n scripts/kafka-runtime-sync.sh
           bash -n scripts/tests/kafka-alignment-suite.sh
+          bash -n scripts/verify-kafka-metallb-pin-formula.sh
+          bash -n scripts/lib/kafka-metallb-pin-formula.sh
+
+      - name: Kafka MetalLB pin formula (table tests, no cluster)
+        run: chmod +x scripts/verify-kafka-metallb-pin-formula.sh && ./scripts/verify-kafka-metallb-pin-formula.sh
 
       - name: Makefile target exists
         run: |

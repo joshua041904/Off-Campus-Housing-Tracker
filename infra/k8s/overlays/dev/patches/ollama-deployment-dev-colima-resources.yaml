@@ -1,0 +1,25 @@
+# Dev / Colima: reserve CPU closer to actual inference load so the scheduler does not
+# over-pack Ollama pods on one node; pairs with ollama-hpa-dev-colima.yaml (max 1 replica).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: off-campus-housing-tracker
+spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  template:
+    spec:
+      containers:
+        - name: ollama
+          resources:
+            # Leaner dev profile for llama3.2:1b while preserving stability.
+            requests:
+              cpu: "1500m"
+              memory: "3Gi"
+            limits:
+              cpu: "3000m"
+              memory: "6Gi"

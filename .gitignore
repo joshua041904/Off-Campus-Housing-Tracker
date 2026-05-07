@@ -7,10 +7,39 @@ node_modules/
 # webapp/ is part of the repo — do not add rules that ignore webapp/ or its contents
 # (e.g. avoid ignoring webapp/ or **/webapp). Use webapp/.gitkeep so the folder is tracked.
 
+# Docker build source-hash cache (bootstrap P6 skip rebuild when unchanged)
+.build-cache/
+
 # Build / dist
 dist/
 build/
 *.tsbuildinfo
+
+# Local Postgres / cluster dumps (never commit multi-GB trees)
+backups/
+
+# Jaeger port-forward helper PID (local)
+.jaeger-pf.pid
+
+# Benchmark logs and preflight output (scripts write at runtime)
+bench_logs/
+
+# Ad-hoc generated reports at repo root
+reports/
+
+# Diagram sources + generated assets (PlantUML/Graphviz/Make targets — regenerate locally;
+# keeps PRs and `git status` free of large PNG/SVG/JSON churn)
+diagrams/
+
+# Repo root only: ignore stray *.json exports/dumps. (Do not use repo-wide `*.json` — we keep
+# infra/**, scripts/** fixtures, package manifests, etc. under version control.)
+/*.json
+!/package.json
+!/tsconfig.base.json
+
+# Root bench / preflight artifacts (local; do not commit)
+k6-latency-report.json
+pf-final4.txt
 
 # Env and secrets
 .env
@@ -34,6 +63,10 @@ certs/**
 # CA reissue script temp dirs (secrets — never commit)
 .reissue-tmp.*/
 
+# Python bytecode (never commit)
+**/__pycache__/
+*.py[cod]
+
 # IDE / OS
 .DS_Store
 *.log
@@ -44,6 +77,9 @@ certs/**
 coverage/
 .nyc_output/
 *.tgz
+
+# Record-platform cluster verifier tarball (scripts/package-record-platform-cluster-verifier-bundle.sh → default $HOME; ignore copies dropped in repo)
+record-platform-och-cluster-verifier-bundle-*.tar.gz
 
 # Local dev only (copy from docs/PR_REVIEW_GRPC_HANDLER_PASTE.example.txt if you want this path)
 docs/PR_REVIEW_GRPC_HANDLER_PASTE.txt

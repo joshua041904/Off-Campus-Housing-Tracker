@@ -44,11 +44,11 @@ k6_diag_gateway_ulimit_only() {
   {
     echo "=== $tag @ $(date -u +%Y-%m-%dT%H:%M:%SZ) ns=$HOUSING_NS ==="
     echo "--- api-gateway container app: ulimit -n ---"
-    kubectl exec -n "$HOUSING_NS" deploy/api-gateway -c app -- sh -c 'ulimit -n' 2>/dev/null || echo "(exec failed)"
+    kubectl exec -n "$HOUSING_NS" deploy/api-gateway -c api-gateway -- sh -c 'ulimit -n' 2>/dev/null || echo "(exec failed)"
     echo "--- somaxconn ---"
     _gw_pod="$(kubectl get pods -n "$HOUSING_NS" -l app=api-gateway -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
     if [[ -n "$_gw_pod" ]]; then
-      kubectl exec -n "$HOUSING_NS" "$_gw_pod" -c app -- sh -c 'cat /proc/sys/net/core/somaxconn 2>/dev/null || true' 2>/dev/null || true
+      kubectl exec -n "$HOUSING_NS" "$_gw_pod" -c api-gateway -- sh -c 'cat /proc/sys/net/core/somaxconn 2>/dev/null || true' 2>/dev/null || true
     fi
   } | tee "$outdir/edge-ulimit-$tag.txt"
 }

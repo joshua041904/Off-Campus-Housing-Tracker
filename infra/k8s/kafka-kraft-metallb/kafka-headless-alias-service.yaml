@@ -1,0 +1,21 @@
+# Headless alias for the same broker pods as Service/kafka (kafka-kraft-metallb/headless-service.yaml).
+# DNS: kafka-0.kafka-headless, kafka-1.kafka-headless, … (short: kafka-0.kafka-headless.<ns>.svc.cluster.local)
+# Use alongside kafka-0.kafka for clusters / runbooks that expect the *-headless name.
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-headless
+  namespace: off-campus-housing-tracker
+  labels: { app: kafka }
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: kafka
+  ports:
+    - name: internal
+      port: 9093
+      targetPort: 9093
+    - name: controller
+      port: 9095
+      targetPort: 9095

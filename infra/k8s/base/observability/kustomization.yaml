@@ -3,19 +3,39 @@ kind: Kustomization
 
 namespace: observability
 
+configMapGenerator:
+  - name: grafana-dashboard-bootstrap-runtime
+    options:
+      disableNameSuffixHash: true
+      labels:
+        grafana_dashboard: "1"
+    files:
+      - och-bootstrap-runtime.json=grafana-dashboard-bootstrap-runtime.json
+
 resources:
   - namespace.yaml
+  - prometheus-rbac.yaml
   - otel-collector-deploy.yaml
   - jaeger-deploy.yaml
   - prometheus-rules-och-slo.yaml
   - prometheus-rules-kafka-health.yaml
   - prometheus-rules-auth-outbox.yaml
+  - prometheus-rules-ollama-worker.yaml
+  - prometheus-rules-analytics-ai-slo.yaml
+  - prometheus-rules-ai-health-composite.yaml
+  - prometheus-rules-coverage-integrity.yaml
   - prometheus-deploy.yaml
   - grafana-dashboard-providers.yaml
   - grafana-dashboards-transport.yaml
   - grafana-dashboard-auth-outbox.yaml
+  - grafana-dashboard-analytics-intelligence.yaml
+  - grafana-dashboard-ai-intelligence.yaml
+  - grafana-dashboard-kafka-integrity.yaml
+  - grafana-dashboard-coverage-integrity.yaml
+  - grafana-dashboard-trace-full-trace-latency.yaml
   - grafana-deploy.yaml
   - grafana-dashboards.yaml
+  # grafana-dashboard-bootstrap-runtime from configMapGenerator (infra/observability/grafana-dashboard-bootstrap-runtime.json)
   # ServiceMonitor/PodMonitor require Prometheus Operator CRDs. Excluded from default apply so
   # overlays/dev applies cleanly. After installing CRDs: kubectl apply -f infra/k8s/base/observability/servicemonitors.yaml
   # - servicemonitors.yaml
@@ -25,6 +45,10 @@ resources:
 
 # Optional (not in resources — require extra CRDs / Alertmanager):
 #   och-slo-prometheusrule.yaml     — Prometheus Operator PrometheusRule
+#   prometheus-rule-kafka-alignment-operator.yaml — PrometheusRule for kafka_alignment_test_pass (operator clusters)
+#   prometheus-rule-trace-flow-validation-operator.example.yaml — TraceFlowValidationFailure (needs trace_flow_validation_pass scrape)
+#   prometheus-rule-quic-transport-invariant.example.yaml — QUICTransportValidationFailure (needs quic_transport_invariant_pass scrape)
+#   alertmanager-route-kafka-alignment.example.yaml — Alertmanager route/receiver snippet (merge by hand)
 #   alertmanager-slo-route-example.yaml — Slack route/receiver example Secret
 #
 # Replace placeholder values for production:

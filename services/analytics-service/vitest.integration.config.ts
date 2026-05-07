@@ -24,6 +24,7 @@ export default defineConfig({
     env: {
       POSTGRES_URL_ANALYTICS: process.env.POSTGRES_URL_ANALYTICS!,
       ANALYTICS_SYNC_MODE: process.env.ANALYTICS_SYNC_MODE ?? "0",
+      ANALYTICS_LISTING_INTELLIGENCE_V2: "0",
     },
   },
 });

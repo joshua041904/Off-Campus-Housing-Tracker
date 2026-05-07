@@ -65,10 +65,12 @@ describe.skipIf(!dbReady)("listings HTTP — Postgres integration", () => {
     expect(res.body).toMatchObject({ ok: true });
   });
 
-  it("GET /metrics returns Prometheus text", async () => {
+  it("GET /metrics returns Prometheus or OpenMetrics exposition", async () => {
     const res = await request(app).get("/metrics");
     expect(res.status).toBe(200);
-    expect(String(res.headers["content-type"] || "")).toMatch(/text\/plain/);
+    expect(String(res.headers["content-type"] || "")).toMatch(
+      /(text\/plain|application\/openmetrics-text)/,
+    );
     expect(res.text.length).toBeGreaterThan(0);
   });
 

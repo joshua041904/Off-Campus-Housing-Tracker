@@ -110,89 +110,12 @@ echo "▶ Phase 0.5: Zero-trust TLS — local dev-root CA before cluster (Kafka 
 chmod +x "$SCRIPT_DIR/dev-onboard-zero-trust-preflight.sh"
 bash "$SCRIPT_DIR/dev-onboard-zero-trust-preflight.sh"
 
-echo "▶ Phase 1: Base cluster + TLS + host infra (deps already done — up-fast; no app Deployment restarts in reissue; RESTORE cleared for this make)"
-export SKIP_AUTO_RESTORE=1
-RESTORE_BACKUP_DIR= make up-fast
-
-echo "▶ Phase 2: Kafka Service reset (LB + headless)"
-make kafka-onboarding-reset
-
-echo "▶ Phase 3: Kafka Services + atomic TLS refresh (scale-0 → full JKS regen → brokers up; Parallel SS policy kept for KRaft DNS bootstrap)"
-make apply-kafka-kraft
-
-echo "▶ Phase 3.5: Housing secrets — sync och-kafka-ssl-secret (app Kafka mTLS PEMs) + verify keys"
-chmod +x "$SCRIPT_DIR/ensure-housing-cluster-secrets.sh"
-_NS="${HOUSING_NS:-off-campus-housing-tracker}"
-HOUSING_NS="$_NS" bash "$SCRIPT_DIR/ensure-housing-cluster-secrets.sh"
-if ! _verify_och_kafka_pem_secret "$_NS"; then
-  echo "▶ Phase 3.5 remediate: kafka-ssl-from-dev-root.sh + re-sync (broker PEM material → och-kafka-ssl-secret)"
-  chmod +x "$SCRIPT_DIR/kafka-ssl-from-dev-root.sh"
-  KAFKA_SSL_NS="$_NS" bash "$SCRIPT_DIR/kafka-ssl-from-dev-root.sh"
-  if kubectl get sts kafka -n "$_NS" --request-timeout=20s >/dev/null 2>&1; then
-    echo "  ▶ rollout restart statefulset/kafka (brokers remount kafka-ssl-secret)"
-    kubectl rollout restart statefulset/kafka -n "$_NS" --request-timeout=30s
-    kubectl rollout status statefulset/kafka -n "$_NS" --timeout=480s
-  fi
-  HOUSING_NS="$_NS" bash "$SCRIPT_DIR/ensure-housing-cluster-secrets.sh"
-  if ! _verify_och_kafka_pem_secret "$_NS"; then
-    echo "❌ och-kafka-ssl-secret still incomplete — check kubectl context, namespace $_NS, and certs/dev-root.{pem,key}" >&2
-    exit 1
-  fi
-fi
-
-echo "▶ Phase 4: Kafka DNS + topic preflight + bootstrap"
-make onboarding-kafka-preflight
-
-echo "▶ Phase 5: Kafka TLS guard (mounted CA + JKS uniformity, service-tls↔Kafka CA, PKIX logs) + verify-kafka-cluster — abort onboard if this fails"
-make kafka-tls-guard
-
-echo "▶ Phase 5a: Re-sync och-service-tls / och-kafka aliases (idempotent; after TLS guard churn)"
-HOUSING_NS="${HOUSING_NS:-off-campus-housing-tracker}" bash "$SCRIPT_DIR/ensure-housing-cluster-secrets.sh"
-
-echo "▶ Phase 5a1: service-tls ↔ och-service-tls CA fingerprint gate (alias drift fail-fast)"
-HOUSING_NS="${HOUSING_NS:-off-campus-housing-tracker}" bash "$SCRIPT_DIR/service-tls-alias-guard.sh"
-
-echo "▶ Phase 5a2: Kafka quorum stability gate (no QuorumController 'leader is (none)' in recent window)"
-HOUSING_NS="${HOUSING_NS:-off-campus-housing-tracker}" bash "$SCRIPT_DIR/kafka-quorum-stable.sh"
-
-echo "▶ Phase 5b: Deferred edge/service TLS rollouts (housing apps → caddy-h3) after Kafka is canonical"
-bash "$SCRIPT_DIR/rollout-deferred-after-kafka-tls.sh"
-
-echo "▶ Phase 6: Deploy workloads"
-SKIP_STRICT_ENVELOPE=1 bash "$SCRIPT_DIR/deploy-dev.sh"
-
-echo "▶ Phase 6b: Verify app Deployments mount och-kafka-ssl-secret (KafkaJS CA trust)"
-if [[ "${VERIFY_KAFKA_CHECK_CLIENT_DEPLOY_MOUNTS:-0}" == "1" ]]; then
-  VERIFY_KAFKA_CLIENT_MOUNTS_ONLY=1 bash "$SCRIPT_DIR/verify-kafka-cluster.sh"
-fi
-
-echo "▶ Phase 6.5: Rollouts again so new Deployments pick up service-tls / trust stores"
-bash "$SCRIPT_DIR/rollout-deferred-after-kafka-tls.sh"
-
-echo "▶ Phase 7: Wait for Caddy LoadBalancer IP"
-make wait-for-caddy-ip
-
-echo "▶ Phase 7b: Edge invariants (MetalLB IP + Caddy + api-gateway /healthz in-cluster)"
-NS_ING="${NS_ING:-ingress-nginx}" HOUSING_NS="${HOUSING_NS:-off-campus-housing-tracker}" bash "$SCRIPT_DIR/edge-readiness-gate.sh"
-
-echo "▶ Phase 8: /etc/hosts + resolver check"
-make ensure-edge-hosts
-
-echo "▶ Phase 9: Edge routing + HTTPS"
-make onboarding-edge
-
-# Post-edge Kafka: Makefile runs kafka-auto-heal-inter-broker-tls before alignment / verify (fixes PKIX / mixed truststore after partial restarts).
-if [[ "${SKIP_KAFKA_HEALTH_ON_ONBOARD:-0}" == "1" ]]; then
-  echo "▶ Phase 10: skipped (SKIP_KAFKA_HEALTH_ON_ONBOARD=1)"
-elif [[ "${DEV_ONBOARD_KAFKA_ALIGNMENT_SAFE_ONLY:-0}" == "1" ]]; then
-  echo "▶ Phase 10: Kafka health + runtime-sync + safe alignment slice (DEV_ONBOARD_KAFKA_ALIGNMENT_SAFE_ONLY=1 → make kafka-health)"
-  make kafka-health
-else
-  echo "▶ Phase 10: full Kafka alignment suite (KAFKA_ALIGNMENT_TEST_MODE=1 make kafka-alignment-suite; auto TLS heal via Makefile)"
-  KAFKA_ALIGNMENT_TEST_MODE=1 make kafka-alignment-suite
-fi
+export DEV_ONBOARD_T0="${DEV_ONBOARD_T0:-$_DEV_ONBOARD_T0}"
+chmod +x "$SCRIPT_DIR/dev-onboard-from-up-fast.sh"
+bash "$SCRIPT_DIR/dev-onboard-from-up-fast.sh"
 
 _DEV_ONBOARD_T1="$(date +%s)"
 _DEV_ONBOARD_SEC=$((_DEV_ONBOARD_T1 - _DEV_ONBOARD_T0))
 echo ""
 echo "✅ DEV ONBOARD COMPLETE — local cluster verified end-to-end (${_DEV_ONBOARD_SEC}s wall clock)."
+echo "   Observability: Jaeger UI (port-forward) + OTEL env — see docs/onboarding-observability.md and docs/tracing-booking-flow.md"

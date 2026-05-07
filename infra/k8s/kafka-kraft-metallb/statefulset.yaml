@@ -5,6 +5,11 @@
 # KRaft metadata: CLUSTER_ID / KAFKA_CLUSTER_ID must stay stable for the life of the PVCs. If you change
 # listeners, voters, or cluster id, wipe data PVCs (data-kafka-*) or brokers will refuse to start with
 # cluster.id mismatch. The startup script fails fast when meta.properties cluster.id ≠ env.
+#
+# EXTERNAL advertised IP is written at pod start (initContainer → emptyDir → startup sed). If MetalLB reassigns
+# kafka-N-external later, brokers may still advertise the old IP (host ETIMEDOUT while seeds look correct).
+# Fix: kubectl rollout restart statefulset/kafka -n off-campus-housing-tracker; compare LB vs properties:
+#   bash scripts/kafka-diagnose-external-advertisement.sh
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:

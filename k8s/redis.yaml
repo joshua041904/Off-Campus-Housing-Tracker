@@ -1,0 +1,57 @@
+# Redis Stack (RediSearch + JSON) for ollama-gateway semantic cache / FT index.
+# Service name ollama-gateway-redis — does not replace infra/k8s/base/redis (passworded app Redis).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama-gateway-redis
+  namespace: off-campus-housing-tracker
+  labels:
+    app: ollama-gateway-redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama-gateway-redis
+  template:
+    metadata:
+      labels:
+        app: ollama-gateway-redis
+    spec:
+      containers:
+        - name: redis
+          image: redis/redis-stack-server:7.2.0-v14
+          ports:
+            - name: redis
+              containerPort: 6379
+          readinessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "2Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-gateway-redis
+  namespace: off-campus-housing-tracker
+  labels:
+    app: ollama-gateway-redis
+spec:
+  selector:
+    app: ollama-gateway-redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379

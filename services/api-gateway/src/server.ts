@@ -9,8 +9,9 @@
  * else needs Authorization: Bearer so the gateway can set x-user-id for upstreams.
  * Unknown /api/* paths (no mounted service prefix) return 404 before the guard so clients see not-found, not 401.
  */
+import "./otel-bootstrap.js";
 import { randomUUID } from "crypto";
-import express, { type Request, type Response, type NextFunction } from "express";
+import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import type { ClientRequest } from "http";
 import * as grpc from "@grpc/grpc-js";
 import helmet from "helmet";
@@ -19,13 +20,19 @@ import cors from "cors";
 import rateLimit from "express-rate-limit";
 import { createProxyMiddleware } from "http-proxy-middleware";
 import { register, httpCounter, createHttpConcurrencyGuard } from "@common/utils";
+import {
+  inferNetProtoForSpan,
+  injectTraceContextIntoClientRequest,
+  mountDebugTraceHeaders,
+  tracingMiddleware,
+} from "@common/utils/otel";
 import { verifyJwt, type JwtPayload as TokenPayload } from "@common/utils/auth";
 import {
   createAuthClient,
   promisifyGrpcCall,
   verifyAuthGrpcUpstreamWithRetry,
 } from "@common/utils/grpc-clients";
-import { createClient } from "redis";
+import { createGatewayRedis, shouldUseNoopGatewayRedis } from "./gateway-redis.js";
 import type { ServerResponse as NodeServerResponse } from "http";
 import { Agent as HttpAgent } from "http";
 import type { Socket } from "net";
@@ -34,6 +41,8 @@ import { createE2eTestModeInflightCapMiddleware } from "./e2e-test-mode-inflight
 import { createE2eTrafficShaperMiddleware } from "./e2e-traffic-shaper.js";
 import { createClusterWeightBudgetMiddleware } from "./cluster-weight-budget.js";
 import { startWatchdogThrottlePoller } from "./watchdog-throttle-poll.js";
+import { mountFullTraceDebug } from "./full-trace-debug-handler.js";
+import { routeCoverageMiddleware } from "./route-coverage-middleware.js";
 
 /** HTTP/1.1 keep-alive to housing upstreams: high concurrency from Caddy H2/H3 multiplexing + Playwright workers. */
 const _gwMaxSockets = Number.parseInt(process.env.GATEWAY_HTTP_AGENT_MAX_SOCKETS ?? "1000", 10);
@@ -55,6 +64,14 @@ const authGrpcClient = createAuthClient(AUTH_GRPC_TARGET);
 /** K8s readiness: false until auth gRPC Health/Check succeeds (liveness uses /healthz only). */
 let authUpstreamReady = false;
 
+/** Vitest-only: flip readiness for `/readyz` branch coverage (never use outside tests). */
+export function __testSetAuthUpstreamReady(value: boolean): void {
+  if (process.env.VITEST !== "true") {
+    throw new Error("__testSetAuthUpstreamReady is only available when VITEST=true");
+  }
+  authUpstreamReady = value;
+}
+
 // HTTP base URLs for housing services (README ports)
 const AUTH_HTTP = process.env.AUTH_HTTP || "http://auth-service.off-campus-housing-tracker.svc.cluster.local:4011";
 const LISTINGS_HTTP = process.env.LISTINGS_HTTP || "http://listings-service.off-campus-housing-tracker.svc.cluster.local:4012";
@@ -62,6 +79,7 @@ const BOOKING_HTTP = process.env.BOOKING_HTTP || "http://booking-service.off-cam
 const MESSAGING_HTTP = process.env.MESSAGING_HTTP || "http://messaging-service.off-campus-housing-tracker.svc.cluster.local:4014";
 const TRUST_HTTP = process.env.TRUST_HTTP || "http://trust-service.off-campus-housing-tracker.svc.cluster.local:4016";
 const ANALYTICS_HTTP = process.env.ANALYTICS_HTTP || "http://analytics-service.off-campus-housing-tracker.svc.cluster.local:4017";
+const ANALYTICS_PROXY_TIMEOUT_MS = Number(process.env.ANALYTICS_PROXY_TIMEOUT_MS || "300000");
 /** HTTP upstream for /media/* and /api/media/* (reverse proxy). Required: gateway does not map these paths to gRPC MediaService. See ENGINEERING.md § Service Communication Patterns → MEDIA_HTTP. */
 const MEDIA_HTTP = process.env.MEDIA_HTTP || "http://media-service.off-campus-housing-tracker.svc.cluster.local:4018";
 const NOTIFICATION_HTTP =
@@ -103,14 +121,6 @@ function injectIdentityHeadersIfAny(req: AuthedRequest, _res: Response, next: Ne
   if (req.user?.sub) (req.headers as any)["x-user-id"] = req.user.sub;
   if ((req.user as any)?.email) (req.headers as any)["x-user-email"] = (req.user as any).email;
   if ((req.user as any)?.jti) (req.headers as any)["x-user-jti"] = (req.user as any).jti;
-  next();
-}
-
-function disableHistoryCaching(_req: Request, res: Response, next: NextFunction) {
-  res.setHeader("Cache-Control", "private, no-store, max-age=0");
-  res.setHeader("Pragma", "no-cache");
-  res.setHeader("Expires", "0");
-  res.vary("Authorization");
   next();
 }
 
@@ -182,9 +192,11 @@ function handleGrpcError(res: Response, err: any, routeHint?: string) {
 
 const jsonParser = express.json({ limit: "1mb" });
 
-/** Strip query string for path matching. */
+/** Strip query string for path matching; normalize duplicate slashes (some clients/proxies send `//api/...`). */
 function gatewayPathOnly(req: Request): string {
-  return (req.originalUrl || req.url || "").split("?")[0];
+  const raw = (req.originalUrl || req.url || "").split("?")[0];
+  if (!raw.startsWith("/")) return raw;
+  return raw.replace(/\/{2,}/g, "/");
 }
 
 /** GET liveness paths (gateway + upstream * /healthz) — never require JWT (avoids drift vs OPEN_ROUTES). */
@@ -193,6 +205,34 @@ function isGetHealthzBypass(req: Request): boolean {
   const p = gatewayPathOnly(req);
   if (p === "/health" || p === "/api/health") return true;
   return /\/healthz\/?$/.test(p);
+}
+
+/** Entire analytics HTTP surface is public at the gateway (no JWT). Quotas belong in rate limits / upstream, not here. */
+function isPublicAnalyticsNamespaceBypass(req: Request): boolean {
+  const p = gatewayPathOnly(req);
+  return (
+    p.startsWith("/api/analytics/") ||
+    p === "/api/analytics" ||
+    p.startsWith("/analytics/") ||
+    p === "/analytics"
+  );
+}
+
+const LISTING_INSIGHTS_UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}";
+
+/**
+ * Service-relative analytics paths (`/insights/...`) hit Caddy without `/api/analytics` prefix.
+ * Only these POSTs are public at the gateway; other `/insights/*` (e.g. search-summary) still require JWT.
+ */
+function isPublicInsightsServicePost(req: Request): boolean {
+  if (req.method !== "POST") return false;
+  const p = gatewayPathOnly(req);
+  if (!p.startsWith("/insights/")) return false;
+  const feel = /^\/insights\/listing-feel\/?$/i;
+  const feelMinimal = /^\/insights\/listing-feel-minimal\/?$/i;
+  const hybrid = /^\/insights\/hybrid-search\/?$/i;
+  const analyze = new RegExp(`^\\/insights\\/listing\\/${LISTING_INSIGHTS_UUID}\\/analyze\\/?$`, "i");
+  return feel.test(p) || feelMinimal.test(p) || hybrid.test(p) || analyze.test(p);
 }
 
 const OPEN_ROUTES = [
@@ -221,15 +261,15 @@ const OPEN_ROUTES = [
   { method: "GET", pattern: /^\/(?:api\/)?listings\/?$/ },
   { method: "GET", pattern: /^\/(?:api\/)?listings\/search\/?$/ },
   { method: "GET", pattern: /^\/(?:api\/)?listings\/listings\/[^/]+\/?$/ },
+  { method: "GET", pattern: /^\/(?:api\/)?listings\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/?$/i },
   // Public reputation lookup (trust HTTP).
   { method: "GET", pattern: /^\/(?:api\/)?trust\/reputation\/[^/]+\/?$/ },
+  // Step7 / trace-contract: multi-service fan-out under one trace id (no JWT).
+  { method: "GET", pattern: /^\/(?:api\/)?debug\/full-trace\/?$/ },
+  { method: "GET", pattern: /^\/(?:api\/)?debug\/headers\/?$/ },
   { method: "GET", pattern: /^\/(?:api\/)?booking\/healthz\/?$/ },
   { method: "GET", pattern: /^\/(?:api\/)?messaging\/healthz\/?$/ },
   { method: "GET", pattern: /^\/(?:api\/)?trust\/healthz\/?$/ },
-  { method: "GET", pattern: /^\/(?:api\/)?analytics\/healthz\/?$/ },
-  { method: "GET", pattern: /^\/(?:api\/)?analytics\/daily-metrics\/?$/ },
-  // Listing "feel" uses optional JWT upstream; allow unauthenticated for smoke/k6 when Ollama is enabled.
-  { method: "POST", pattern: /^\/(?:api\/)?analytics\/insights\/listing-feel\/?$/ },
   { method: "GET", pattern: /^\/(?:api\/)?media\/healthz\/?$/ },
   { method: "GET", pattern: /^\/(?:api\/)?notification\/healthz\/?$/ },
 ];
@@ -240,7 +280,81 @@ function isOpenRoute(req: Request): boolean {
   return OPEN_ROUTES.some((r) => r.method === method && r.pattern.test(path));
 }
 
-const app = express();
+/**
+ * POST-only analytics insight HTTP paths. GET must never reach the JWT guard (401).
+ * Browser top-level navigation gets 303 → `/analytics`; API clients get 405 JSON + Allow: POST.
+ */
+const INSIGHTS_POST_ONLY_GET_PATHS = [
+  "/insights/listing-feel",
+  "/insights/listing-feel-minimal",
+  "/insights/hybrid-search",
+  "/api/analytics/insights/listing-feel",
+  "/api/analytics/insights/listing-feel-minimal",
+  "/api/analytics/insights/hybrid-search",
+  "/analytics/insights/listing-feel",
+  "/analytics/insights/listing-feel-minimal",
+  "/analytics/insights/hybrid-search",
+] as const;
+const INSIGHTS_POST_ONLY_GET_PATH_SET = new Set<string>(INSIGHTS_POST_ONLY_GET_PATHS);
+
+const INSIGHTS_ANALYZE_GET_405_REGEXES: ReadonlyArray<RegExp> = [
+  new RegExp(`^\\/insights\\/listing\\/${LISTING_INSIGHTS_UUID}\\/analyze$`, "i"),
+  new RegExp(`^\\/api\\/analytics\\/insights\\/listing\\/${LISTING_INSIGHTS_UUID}\\/analyze$`, "i"),
+  new RegExp(`^\\/analytics\\/insights\\/listing\\/${LISTING_INSIGHTS_UUID}\\/analyze$`, "i"),
+];
+
+const INSIGHTS_POST_ONLY_GET_405_JSON = {
+  error: "method_not_allowed",
+  code: "POST_REQUIRED",
+  message:
+    "These endpoints accept POST with a JSON body only. Prefer POST /api/analytics/insights/listing-feel (or POST /insights/listing-feel through the gateway).",
+  ui: "/analytics",
+} as const;
+
+function prefersHtmlDocumentNavigation(req: Request): boolean {
+  const dest = (req.get("sec-fetch-dest") || "").toLowerCase();
+  if (dest === "document") return true;
+  const accept = (req.get("accept") || "").toLowerCase();
+  if (!accept.includes("text/html")) return false;
+  const trimmed = (req.get("accept") || "").trim();
+  if (/^application\/json\b/i.test(trimmed)) return false;
+  return true;
+}
+
+function isInsightsPostOnlyAnalyzeGetPath(normalizedPath: string): boolean {
+  const p = normalizedPath.replace(/\/{2,}/g, "/");
+  return INSIGHTS_ANALYZE_GET_405_REGEXES.some((rx) => rx.test(p));
+}
+
+function handleInsightsPostOnlyGet405(req: Request, res: Response): void {
+  if (prefersHtmlDocumentNavigation(req)) {
+    res
+      .status(303)
+      .set("Location", "/analytics")
+      .set("Cache-Control", "no-store")
+      .type("text/plain")
+      .send(
+        "Listing insights use POST with a JSON body. Redirecting to the analytics page.\n",
+      );
+    return;
+  }
+  res.status(405).set("Allow", "POST").json(INSIGHTS_POST_ONLY_GET_405_JSON);
+}
+
+function isInsightsPostOnlyGet405Path(req: Request): boolean {
+  if (req.method !== "GET") return false;
+  const p = gatewayPathOnly(req).replace(/\/{2,}/g, "/");
+  const norm = p.replace(/\/+$/, "") || "/";
+  return INSIGHTS_POST_ONLY_GET_PATH_SET.has(norm) || isInsightsPostOnlyAnalyzeGetPath(norm);
+}
+
+/** Vitest imports this module for HTTP assertions without binding a port. */
+const skipGatewayHttpListen =
+  process.env.VITEST === "true" || process.env.API_GATEWAY_TEST_IMPORT === "1";
+
+const app: Express = express();
+app.use(tracingMiddleware);
+app.use(routeCoverageMiddleware());
 app.disable("x-powered-by");
 app.set("trust proxy", 1);
 
@@ -257,8 +371,10 @@ if (FAKE_AUTH) {
 }
 
 const REDIS_URL = process.env.REDIS_URL || "redis://redis:6379";
-const redis = createClient({ url: REDIS_URL, socket: { connectTimeout: 10_000 } });
-redis.on("error", (e: unknown) => console.error("gateway redis error:", e));
+const redis = createGatewayRedis(REDIS_URL);
+if (!shouldUseNoopGatewayRedis()) {
+  redis.on("error", (e: unknown) => console.error("gateway redis error:", e));
+}
 
 const e2eTestInflightCapOn =
   process.env.GATEWAY_E2E_TEST_INFLIGHT_CAP === "1" || process.env.GATEWAY_E2E_TEST_INFLIGHT_CAP === "true";
@@ -311,6 +427,9 @@ app.use(
       "x-test-mode",
       "X-Test-Mode",
       "X-Trace-Id",
+      "traceparent",
+      "tracestate",
+      "x-suite",
     ],
     exposedHeaders: ["X-Trace-Id"],
   })
@@ -337,6 +456,15 @@ app.get("/metrics", async (_req, res) => {
   res.setHeader("Content-Type", register.contentType);
   res.end(await register.metrics());
 });
+
+// Register before limiter/E2E middleware so GET never falls through to JWT guard.
+const insightsPostOnlyGet405Handler = (req: Request, res: Response) => handleInsightsPostOnlyGet405(req, res);
+for (const p of INSIGHTS_POST_ONLY_GET_PATHS) {
+  app.get(p, insightsPostOnlyGet405Handler);
+}
+for (const rx of INSIGHTS_ANALYZE_GET_405_REGEXES) {
+  app.get(rx, insightsPostOnlyGet405Handler);
+}
 
 if (e2eTestInflightCapOn) {
   const testInflightMax = Math.max(4, Number.parseInt(process.env.GATEWAY_E2E_TEST_INFLIGHT_MAX ?? "60", 10) || 60);
@@ -372,7 +500,15 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
   next();
 });
 app.use((req: Request, res: Response, next: NextFunction) => {
-  res.on("finish", () => httpCounter.inc({ service: "gateway", route: req.path, method: req.method, code: res.statusCode }));
+  res.on("finish", () =>
+    httpCounter.inc({
+      service: "gateway",
+      route: req.path,
+      method: req.method,
+      code: res.statusCode,
+      proto: inferNetProtoForSpan(req),
+    }),
+  );
   next();
 });
 
@@ -395,6 +531,10 @@ const limiter = rateLimit({
     ) {
       return true;
     }
+    // Analytics + bare /insights public POSTs: skip global limiter so k6/preflight does not 429 healthy upstreams.
+    if (isPublicAnalyticsNamespaceBypass(req) || isPublicInsightsServicePost(req)) {
+      return true;
+    }
     return (
       e2eBypass ||
       req.path === "/healthz" ||
@@ -404,6 +544,10 @@ const limiter = rateLimit({
       req.path === "/readyz" ||
       req.path === "/api/readyz" ||
       req.path === "/metrics" ||
+      req.path === "/api/debug/full-trace" ||
+      req.path === "/debug/full-trace" ||
+      req.path === "/api/debug/headers" ||
+      req.path === "/debug/headers" ||
       req.get("x-loadtest") === "1"
     );
   },
@@ -411,16 +555,128 @@ const limiter = rateLimit({
 app.use(limiter);
 
 // ----- Health / metrics (no auth) -----
-app.use("/auth/healthz", createProxyMiddleware({ target: AUTH_HTTP, changeOrigin: true, pathRewrite: () => "/healthz", proxyTimeout: 10000, agent: keepAliveAgent }));
-app.use("/auth/metrics", createProxyMiddleware({ target: AUTH_HTTP, changeOrigin: true, pathRewrite: () => "/metrics", proxyTimeout: 10000, agent: keepAliveAgent }));
+const tracedHealthProxyOn = {
+  proxyReq(proxyReq: ClientRequest, req: Request) {
+    injectTraceContextIntoClientRequest(proxyReq, req);
+    const traceparent = req.get("traceparent");
+    const tracestate = req.get("tracestate");
+    if (traceparent) proxyReq.setHeader("traceparent", traceparent);
+    if (tracestate) proxyReq.setHeader("tracestate", tracestate);
+  },
+};
 
-app.get(["/listings/healthz", "/api/listings/healthz"], createProxyMiddleware({ target: LISTINGS_HTTP, changeOrigin: true, pathRewrite: () => "/healthz", proxyTimeout: 5000, agent: keepAliveAgent }));
-app.get(["/booking/healthz", "/api/booking/healthz"], createProxyMiddleware({ target: BOOKING_HTTP, changeOrigin: true, pathRewrite: () => "/healthz", proxyTimeout: 5000, agent: keepAliveAgent }));
-app.get(["/messaging/healthz", "/api/messaging/healthz"], createProxyMiddleware({ target: MESSAGING_HTTP, changeOrigin: true, pathRewrite: () => "/healthz", proxyTimeout: 5000, agent: keepAliveAgent }));
-app.get(["/trust/healthz", "/api/trust/healthz"], createProxyMiddleware({ target: TRUST_HTTP, changeOrigin: true, pathRewrite: () => "/healthz", proxyTimeout: 5000, agent: keepAliveAgent }));
-app.get(["/analytics/healthz", "/api/analytics/healthz"], createProxyMiddleware({ target: ANALYTICS_HTTP, changeOrigin: true, pathRewrite: () => "/healthz", proxyTimeout: 5000, agent: keepAliveAgent }));
-app.get(["/media/healthz", "/api/media/healthz"], createProxyMiddleware({ target: MEDIA_HTTP, changeOrigin: true, pathRewrite: () => "/healthz", proxyTimeout: 5000, agent: keepAliveAgent }));
-app.get(["/notification/healthz", "/api/notification/healthz"], createProxyMiddleware({ target: NOTIFICATION_HTTP, changeOrigin: true, pathRewrite: () => "/healthz", proxyTimeout: 5000, agent: keepAliveAgent }));
+app.use(
+  "/auth/healthz",
+  createProxyMiddleware({
+    target: AUTH_HTTP,
+    changeOrigin: true,
+    pathRewrite: () => "/healthz",
+    proxyTimeout: 10000,
+    agent: keepAliveAgent,
+    on: tracedHealthProxyOn,
+  }),
+);
+app.use(
+  "/auth/metrics",
+  createProxyMiddleware({
+    target: AUTH_HTTP,
+    changeOrigin: true,
+    pathRewrite: () => "/metrics",
+    proxyTimeout: 10000,
+    agent: keepAliveAgent,
+    on: tracedHealthProxyOn,
+  }),
+);
+
+app.get(
+  ["/listings/healthz", "/api/listings/healthz"],
+  createProxyMiddleware({
+    target: LISTINGS_HTTP,
+    changeOrigin: true,
+    pathRewrite: () => "/healthz",
+    proxyTimeout: 5000,
+    agent: keepAliveAgent,
+    on: tracedHealthProxyOn,
+  }),
+);
+app.get(
+  ["/booking/healthz", "/api/booking/healthz"],
+  createProxyMiddleware({
+    target: BOOKING_HTTP,
+    changeOrigin: true,
+    pathRewrite: () => "/healthz",
+    proxyTimeout: 5000,
+    agent: keepAliveAgent,
+    on: tracedHealthProxyOn,
+  }),
+);
+app.get(
+  ["/messaging/healthz", "/api/messaging/healthz"],
+  createProxyMiddleware({
+    target: MESSAGING_HTTP,
+    changeOrigin: true,
+    pathRewrite: () => "/healthz",
+    proxyTimeout: 5000,
+    agent: keepAliveAgent,
+    on: tracedHealthProxyOn,
+  }),
+);
+app.get(
+  ["/trust/healthz", "/api/trust/healthz"],
+  createProxyMiddleware({
+    target: TRUST_HTTP,
+    changeOrigin: true,
+    pathRewrite: () => "/healthz",
+    proxyTimeout: 5000,
+    agent: keepAliveAgent,
+    on: tracedHealthProxyOn,
+  }),
+);
+app.get(
+  ["/analytics/healthz", "/api/analytics/healthz"],
+  createProxyMiddleware({
+    target: ANALYTICS_HTTP,
+    changeOrigin: true,
+    pathRewrite: () => "/healthz",
+    proxyTimeout: 5000,
+    agent: keepAliveAgent,
+    on: tracedHealthProxyOn,
+  }),
+);
+app.get(
+  ["/media/healthz", "/api/media/healthz"],
+  createProxyMiddleware({
+    target: MEDIA_HTTP,
+    changeOrigin: true,
+    pathRewrite: () => "/healthz",
+    proxyTimeout: 5000,
+    agent: keepAliveAgent,
+    on: tracedHealthProxyOn,
+  }),
+);
+app.get(
+  ["/notification/healthz", "/api/notification/healthz"],
+  createProxyMiddleware({
+    target: NOTIFICATION_HTTP,
+    changeOrigin: true,
+    pathRewrite: () => "/healthz",
+    proxyTimeout: 5000,
+    agent: keepAliveAgent,
+    on: tracedHealthProxyOn,
+  }),
+);
+
+mountFullTraceDebug(app, {
+  authHttp: AUTH_HTTP,
+  listingsHttp: LISTINGS_HTTP,
+  trustHttp: TRUST_HTTP,
+  bookingHttp: BOOKING_HTTP,
+  messagingHttp: MESSAGING_HTTP,
+  mediaHttp: MEDIA_HTTP,
+  notificationHttp: NOTIFICATION_HTTP,
+  analyticsHttp: ANALYTICS_HTTP,
+});
+mountDebugTraceHeaders(app);
 
 // ----- gRPC auth (register, login, validate, refresh) -----
 app.post("/auth/register", jsonParser, async (req: Request, res: Response) => {
@@ -519,16 +775,6 @@ app.post("/api/auth/validate", jsonParser, validateTokenHandler);
 app.post("/auth/refresh", jsonParser, refreshTokenHandler);
 app.post("/api/auth/refresh", jsonParser, refreshTokenHandler);
 
-app.use(
-  [
-    "/booking/search-history",
-    "/booking/search-history/list",
-    "/api/booking/search-history",
-    "/api/booking/search-history/list",
-  ],
-  disableHistoryCaching,
-);
-
 // Unknown /api/* (no mounted service prefix) → 404 without JWT (avoids 401 on typos / missing routes).
 const KNOWN_API_FIRST_SEGMENTS = new Set([
   "healthz",
@@ -543,6 +789,7 @@ const KNOWN_API_FIRST_SEGMENTS = new Set([
   "analytics",
   "media",
   "notification",
+  "debug",
 ]);
 app.use((req: Request, res: Response, next: NextFunction) => {
   if (req.method === "OPTIONS") return next();
@@ -560,6 +807,11 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 // ----- Auth guard (after public auth + health mounts; before service proxies). Register/login stay above this; the global limiter also skips those POST paths. -----
 app.use(async (req: AuthedRequest, res: Response, next: NextFunction) => {
+  if (isInsightsPostOnlyGet405Path(req)) {
+    handleInsightsPostOnlyGet405(req, res);
+    return;
+  }
+  if (isPublicAnalyticsNamespaceBypass(req) || isPublicInsightsServicePost(req)) return next();
   if (isGetHealthzBypass(req)) return next();
   if (isOpenRoute(req)) return next();
   const token = extractBearer(req);
@@ -605,6 +857,11 @@ const proxyOpts = (target: string, pathRewrite: Record<string, string>, proxyTim
       sendJson502(res as NodeServerResponse, "upstream error");
     },
     proxyReq(proxyReq: ClientRequest, req: Request) {
+      injectTraceContextIntoClientRequest(proxyReq, req);
+      const traceparent = req.get("traceparent");
+      const tracestate = req.get("tracestate");
+      if (traceparent) proxyReq.setHeader("traceparent", traceparent);
+      if (tracestate) proxyReq.setHeader("tracestate", tracestate);
       const tid = (req as GatewayRequest).traceId;
       if (tid) proxyReq.setHeader("X-Trace-Id", tid);
     },
@@ -624,6 +881,8 @@ app.use("/api/listings", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddl
 
 app.use("/booking", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(BOOKING_HTTP, { "^/booking": "" }) as any));
 app.use("/api/booking", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(BOOKING_HTTP, { "^/api/booking": "" }) as any));
+app.use("/bookings", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(BOOKING_HTTP, { "^/bookings": "" }) as any));
+app.use("/api/bookings", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(BOOKING_HTTP, { "^/api/bookings": "" }) as any));
 
 app.use("/messaging", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(MESSAGING_HTTP, { "^/messaging": "" }) as any));
 app.use("/api/messaging", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(MESSAGING_HTTP, { "^/api/messaging": "" }) as any));
@@ -654,8 +913,26 @@ if (coalesceAnalyticsDaily) {
   app.get(["/analytics/daily-metrics", "/api/analytics/daily-metrics"], proxyLoad, dailyHandler);
 }
 
-app.use("/analytics", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(ANALYTICS_HTTP, { "^/analytics": "" }) as any));
-app.use("/api/analytics", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(ANALYTICS_HTTP, { "^/api/analytics": "" }) as any));
+app.use(
+  "/analytics",
+  injectIdentityHeadersIfAny,
+  proxyLoad,
+  createProxyMiddleware(proxyOpts(ANALYTICS_HTTP, { "^/analytics": "" }, ANALYTICS_PROXY_TIMEOUT_MS) as any)
+);
+// Strip `/api/analytics` so upstream sees analytics-service paths (e.g. `/insights/listing-feel`).
+app.use(
+  "/api/analytics",
+  injectIdentityHeadersIfAny,
+  proxyLoad,
+  createProxyMiddleware(proxyOpts(ANALYTICS_HTTP, { "^/api/analytics": "" }, ANALYTICS_PROXY_TIMEOUT_MS) as any)
+);
+// Same analytics HTTP app as /api/analytics/*, for edges that forward service-relative paths (must match Caddy @api /insights/*).
+app.use(
+  "/insights",
+  injectIdentityHeadersIfAny,
+  proxyLoad,
+  createProxyMiddleware(proxyOpts(ANALYTICS_HTTP, { "^/insights": "/insights" }, ANALYTICS_PROXY_TIMEOUT_MS) as any)
+);
 
 // Media can be slow (S3/DB); avoid 504 on healthz through edge
 app.use("/media", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(MEDIA_HTTP, { "^/media": "" }, 45000) as any));
@@ -724,6 +1001,14 @@ async function ensureAuthUpstreamBackground(): Promise<void> {
 }
 
 async function startGateway() {
+  if (skipGatewayHttpListen) {
+    if (process.env.GATEWAY_SKIP_AUTH_UPSTREAM_VERIFY === "1" || process.env.GATEWAY_SKIP_AUTH_UPSTREAM_VERIFY === "true") {
+      authUpstreamReady = true;
+    } else {
+      await ensureAuthUpstreamBackground();
+    }
+    return;
+  }
   console.log(`[gateway] AUTH_GRPC_TARGET=${AUTH_GRPC_TARGET}`);
   await new Promise<void>((resolve, reject) => {
     const srv = app.listen(gatewayPort, () => {
@@ -738,6 +1023,8 @@ async function startGateway() {
     console.error("[gateway] auth upstream verifier crashed:", e);
   });
 }
+
+export { app, statusFromGatewayError, sendJson502 };
 
 void startGateway().catch((e) => {
   console.error("[gateway] bootstrap failed:", e);
