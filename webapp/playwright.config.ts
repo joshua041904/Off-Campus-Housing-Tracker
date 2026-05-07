@@ -31,6 +31,7 @@ const suiteProjects = [
     name: "01-guest-shell",
     testMatch: [
       "guest.spec.ts",
+      "navbar.spec.ts",
       "webapp-pages.spec.ts",
       "messaging-mentioned.spec.ts",
       "trust.visual.spec.ts",
