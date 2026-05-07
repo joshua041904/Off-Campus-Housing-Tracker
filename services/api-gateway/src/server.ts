@@ -429,6 +429,7 @@ app.use(
       "X-Trace-Id",
       "traceparent",
       "tracestate",
+      "baggage",
       "x-suite",
     ],
     exposedHeaders: ["X-Trace-Id"],
@@ -558,10 +559,6 @@ app.use(limiter);
 const tracedHealthProxyOn = {
   proxyReq(proxyReq: ClientRequest, req: Request) {
     injectTraceContextIntoClientRequest(proxyReq, req);
-    const traceparent = req.get("traceparent");
-    const tracestate = req.get("tracestate");
-    if (traceparent) proxyReq.setHeader("traceparent", traceparent);
-    if (tracestate) proxyReq.setHeader("tracestate", tracestate);
   },
 };
 
@@ -688,7 +685,15 @@ app.post("/auth/register", jsonParser, async (req: Request, res: Response) => {
     });
   }
   try {
-    const response = await promisifyGrpcCall<any>(authGrpcClient, "Register", { email, password }, 30000);
+    const response = await promisifyGrpcCall<any>(
+      authGrpcClient,
+      "Register",
+      { email, password },
+      30000,
+      3,
+      1000,
+      req,
+    );
     res.status(201).json({ token: response?.token ?? "", user: response?.user ?? null });
   } catch (err: any) {
     handleGrpcError(res, err, "register");
@@ -703,7 +708,15 @@ app.post("/api/auth/register", jsonParser, async (req: Request, res: Response) =
     });
   }
   try {
-    const response = await promisifyGrpcCall<any>(authGrpcClient, "Register", { email, password }, 30000);
+    const response = await promisifyGrpcCall<any>(
+      authGrpcClient,
+      "Register",
+      { email, password },
+      30000,
+      3,
+      1000,
+      req,
+    );
     res.status(201).json({ token: response?.token ?? "", user: response?.user ?? null });
   } catch (err: any) {
     handleGrpcError(res, err, "register");
@@ -719,7 +732,15 @@ const loginHandler = async (req: Request, res: Response) => {
     });
   }
   try {
-    const response = await promisifyGrpcCall<any>(authGrpcClient, "Authenticate", { email, password, mfa_code: mfaCode }, 30000);
+    const response = await promisifyGrpcCall<any>(
+      authGrpcClient,
+      "Authenticate",
+      { email, password, mfa_code: mfaCode },
+      30000,
+      3,
+      1000,
+      req,
+    );
     const requiresMFA = response?.requires_mfa === true || (!response?.token && (response?.user_id || response?.user?.id));
     if (requiresMFA) return res.status(200).json({ requiresMFA: true, userId: response?.user_id ?? response?.user?.id ?? null, message: response?.message ?? "MFA code required" });
     res.json({ token: response?.token ?? "", refreshToken: response?.refresh_token ?? "", user: response?.user ?? null });
@@ -740,7 +761,7 @@ const validateTokenHandler = async (req: Request, res: Response) => {
     });
   }
   try {
-    const response = await promisifyGrpcCall<any>(authGrpcClient, "ValidateToken", { token }, 30000);
+    const response = await promisifyGrpcCall<any>(authGrpcClient, "ValidateToken", { token }, 30000, 3, 1000, req);
     if (response?.valid) return res.status(200).json({ valid: true, user: response.user });
     return res.status(401).json({
       code: "INVALID_TOKEN",
@@ -760,7 +781,15 @@ const refreshTokenHandler = async (req: Request, res: Response) => {
     });
   }
   try {
-    const response = await promisifyGrpcCall<any>(authGrpcClient, "RefreshToken", { refresh_token: token }, 30000);
+    const response = await promisifyGrpcCall<any>(
+      authGrpcClient,
+      "RefreshToken",
+      { refresh_token: token },
+      30000,
+      3,
+      1000,
+      req,
+    );
     if (response?.token) return res.status(200).json({ token: response.token });
     return res.status(401).json({
       code: "INVALID_TOKEN",
@@ -858,10 +887,6 @@ const proxyOpts = (target: string, pathRewrite: Record<string, string>, proxyTim
     },
     proxyReq(proxyReq: ClientRequest, req: Request) {
       injectTraceContextIntoClientRequest(proxyReq, req);
-      const traceparent = req.get("traceparent");
-      const tracestate = req.get("tracestate");
-      if (traceparent) proxyReq.setHeader("traceparent", traceparent);
-      if (tracestate) proxyReq.setHeader("tracestate", tracestate);
       const tid = (req as GatewayRequest).traceId;
       if (tid) proxyReq.setHeader("X-Trace-Id", tid);
     },

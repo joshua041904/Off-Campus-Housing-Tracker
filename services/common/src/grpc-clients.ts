@@ -1,10 +1,14 @@
 /* cspell:ignore grpc */
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
+import type { Context } from "@opentelemetry/api";
+import { context } from "@opentelemetry/api";
+import type { IncomingMessage } from "node:http";
 import * as fs from "fs";
 import * as path from "path";
 import { resolveProtoPath } from "./proto.js";
 import { tracingInterceptor } from "./otel/grpc-client-interceptor.js";
+import { getIncomingHttpOtelContext } from "./otel/outgoing-http-propagation.js";
 
 function buildCredentials() {
   const caPath =
@@ -254,16 +258,25 @@ export function createMediaClient(address: string = "media-service.off-campus-ho
   return createClientWithOptions(MediaService, address, buildCredentials());
 }
 
+function resolveGrpcCallParentContext(incomingOrContext?: IncomingMessage | Context): Context {
+  if (incomingOrContext == null) return context.active();
+  if (typeof (incomingOrContext as Context).getValue === "function") {
+    return incomingOrContext as Context;
+  }
+  return getIncomingHttpOtelContext(incomingOrContext as IncomingMessage) ?? context.active();
+}
+
 export async function promisifyGrpcCall<T>(
   client: any,
   method: string,
   request: any,
   timeoutMs: number = 10000,
   maxRetries: number = 3,
-  retryDelayMs: number = 1000
+  retryDelayMs: number = 1000,
+  /** Express `req` or explicit OTEL context — gRPC client spans parent correctly after `await` in handlers. */
+  incomingOrContext?: IncomingMessage | Context
 ): Promise<T> {
-  const serviceName = client?.constructor?.name || "UnknownService";
-  const callId = `${serviceName}.${method}.${Date.now()}.${Math.random().toString(36).substr(2, 9)}`;
+  const parentCtx = resolveGrpcCallParentContext(incomingOrContext);
 
   const attemptCall = (attempt: number): Promise<T> => {
     return new Promise((resolve, reject) => {
@@ -277,12 +290,14 @@ export async function promisifyGrpcCall<T>(
       }, timeoutMs);
 
       try {
-        client[method](request, (error: any, response: T) => {
-          if (completed) return;
-          completed = true;
-          clearTimeout(timeout);
-          if (error) reject(error);
-          else resolve(response);
+        context.with(parentCtx, () => {
+          client[method](request, (error: any, response: T) => {
+            if (completed) return;
+            completed = true;
+            clearTimeout(timeout);
+            if (error) reject(error);
+            else resolve(response);
+          });
         });
       } catch (err: any) {
         if (!completed) {

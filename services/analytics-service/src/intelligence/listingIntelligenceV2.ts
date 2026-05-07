@@ -34,6 +34,9 @@ import { renderListingIntelligenceToAnalysisText } from "./renderIntelligence.js
 import { assertValidListingIntelligenceStrict } from "./structuredValidation.js";
 import { truncateListingInput, estimateTokensFromChars } from "./inputGuard.js";
 import { detectNumericContradictionInProse, parseMonthlyUsd } from "./analysisConsistency.js";
+import { getAiControlPlaneState } from "./aiControlPlaneRuntime.js";
+import { deterministicSamplePercent, scoreArbitrationCandidates } from "./aiCanaryArbitration.js";
+import { recordArbitrationResult } from "./analyticsUnifiedObservabilityMetrics.js";
 import type {
   AnalysisDepth,
   ListingIntelligenceGenerationMeta,
@@ -42,6 +45,19 @@ import type {
 } from "./types.js";
 
 const aiTracer = trace.getTracer("och-analytics-ai");
+
+function parseModelCosts(): Record<string, number> {
+  const raw = String(process.env.ANALYTICS_MODEL_COSTS || "").trim();
+  if (!raw) return {};
+  const out: Record<string, number> = {};
+  for (const p of raw.split(",")) {
+    const [k, v] = p.split("=", 2).map((s) => s.trim());
+    if (!k) continue;
+    const n = Number(v);
+    if (Number.isFinite(n) && n >= 0) out[k] = n;
+  }
+  return out;
+}
 
 function isAbortLike(err: unknown): boolean {
   if (err instanceof Error && (err.name === "AbortError" || err.name === "TimeoutError")) return true;
@@ -446,6 +462,69 @@ export async function runListingIntelligenceV2(input: {
     merged.confidence_score = computeCalibratedConfidence(outputs);
   }
 
+  let arbitrationMode: "shadow" | "canary" | undefined;
+  let arbitrationWinnerModel: string | undefined;
+  let arbitrationCanaryModel: string | undefined;
+  let arbitrationScoreGap: number | undefined;
+  const cp = getAiControlPlaneState();
+  const canaryModel = String(process.env.ANALYTICS_CANARY_MODEL || "").trim();
+  const canaryEnabled = Boolean(canaryModel && canaryModel !== input.primaryModel);
+  const shadowMode = process.env.ANALYTICS_CANARY_SHADOW === "1";
+  const shouldSampleCanary =
+    canaryEnabled &&
+    deterministicSamplePercent(
+      `${input.listing_id || input.title}|${cp.promptVersion}|${input.primaryModel}|${canaryModel}`,
+      cp.canaryPercent,
+    );
+  if (canaryEnabled && (shadowMode || shouldSampleCanary) && !devFast) {
+    const canaryRes = await ollamaGenerateJson({
+      baseUrl: input.baseUrl,
+      model: canaryModel,
+      system,
+      prompt,
+      numPredict,
+      timeoutMs: input.timeoutMs,
+      fetchOnce: input.fetchOnce,
+    });
+    genLatencySum += canaryRes.latency_ms;
+    if (canaryRes.output) {
+      const modelCosts = parseModelCosts();
+      const weights = cp.arbitrationWeights;
+      const primaryCandidate = {
+        model: input.primaryModel,
+        output: merged,
+        latencyMs: Math.max(1, genLatencySum / Math.max(1, modelsUsed.length)),
+        costPerReq: modelCosts[input.primaryModel] ?? modelCosts["*"] ?? 0.001,
+        reliabilityScore: 0.95,
+      };
+      const canaryCandidate = {
+        model: canaryModel,
+        output: canaryRes.output,
+        latencyMs: canaryRes.latency_ms,
+        costPerReq: modelCosts[canaryModel] ?? modelCosts["*"] ?? 0.001,
+        reliabilityScore: 0.95,
+      };
+      const arbitration = scoreArbitrationCandidates([primaryCandidate, canaryCandidate], weights);
+      const top = arbitration.scored[0];
+      const second = arbitration.scored[1];
+      arbitrationWinnerModel = arbitration.winner.model;
+      arbitrationCanaryModel = canaryModel;
+      arbitrationScoreGap = top && second ? Math.max(0, top.score - second.score) : 0;
+      arbitrationMode = shadowMode ? "shadow" : "canary";
+      recordArbitrationResult({
+        mode: arbitrationMode,
+        winnerModel: arbitrationWinnerModel,
+        topScore: top?.score ?? 0,
+        secondScore: second?.score ?? 0,
+      });
+      if (!shadowMode && arbitration.winner.model === canaryModel) {
+        merged.confidence_score = canaryRes.output.confidence_score;
+        Object.assign(merged, postProcessListingIntelligence({ ...canaryRes.output }));
+        modelsUsed = [input.primaryModel, canaryModel];
+      }
+    }
+  }
+
   const latencyDegraded = latencyDegradesEnsemble();
   const confidence_explanation = buildConfidenceExplanation({
     outputs,
@@ -489,6 +568,10 @@ export async function runListingIntelligenceV2(input: {
     meta_eval_ok: metaEval?.ok,
     meta_eval_issues: metaEval?.issues,
     low_consensus,
+    arbitration_mode: arbitrationMode,
+    arbitration_winner_model: arbitrationWinnerModel,
+    arbitration_canary_model: arbitrationCanaryModel,
+    arbitration_score_gap: arbitrationScoreGap,
   };
 
   let mergedOut = merged;

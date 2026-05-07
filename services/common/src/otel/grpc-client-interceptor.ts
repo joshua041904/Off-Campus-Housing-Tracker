@@ -14,6 +14,8 @@ export function createGrpcClientTracingInterceptor(): grpc.Interceptor {
       start: (metadata, listener, next) => {
         const tracer = trace.getTracer("grpc-tracer");
         const path = options.method_definition.path;
+        // Parent must be the HTTP request context. Gateway uses promisifyGrpcCall(..., req) so
+        // context.active() here matches the stashed span after Express `await`; bare clients still use ALS.
         const parent = context.active();
         const span = tracer.startSpan(`gRPC ${path}`, {}, parent);
         const spanCtx = trace.setSpan(parent, span);

@@ -9,6 +9,7 @@ import {
 import { pool } from "./db.js";
 import { analyzeListingFeelText } from "./ollama.js";
 import { recordAnalyzeTelemetry } from "./intelligence/analyticsUnifiedObservabilityMetrics.js";
+import { getPromptVersion } from "./intelligence/aiControlPlaneRuntime.js";
 
 const aiTracer = trace.getTracer("och-analytics-ai");
 
@@ -131,6 +132,8 @@ export const analyticsGrpcHandlers = {
             httpStatus: 200,
             latencyMs: wallMs,
             modelUsed: o.model_used,
+            qualityScore: o.quality_score * 100,
+            promptVersion: getPromptVersion(),
             temperature: Number(o.generation_meta?.temperature ?? 0.3),
             tokensInput: o.generation_meta?.prompt_chars,
             tokensOutput: o.generation_meta?.token_estimate,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { maxTraceDepth } from "../../scripts/trace-validators/lib/jaeger-max-trace-depth.mjs";
 
-const MIN_DEPTH = Number(process.env.JAEGER_ANALYTICS_MIN_TRACE_DEPTH ?? "7");
+const MIN_DEPTH = Number(process.env.JAEGER_ANALYTICS_MIN_TRACE_DEPTH ?? "9");
 
 function jaegerQueryBase(): string | undefined {
   const raw =

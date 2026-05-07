@@ -19,6 +19,7 @@ import {
 } from "@opentelemetry/sdk-trace-base";
 import { Resource } from "@opentelemetry/resources";
 import { EnsureNetProtoSpanProcessor } from "./ensure-net-proto-span-processor.js";
+import { OchAiPreferentialTraceIdSampler } from "./och-ai-preferential-sampler.js";
 
 export type StartNodeTelemetryOptions = {
   serviceName: string;
@@ -139,7 +140,8 @@ const propagator = new CompositePropagator({
  * BOOTSTRAP_TRACE=1 — force AlwaysOnSampler (deterministic bootstrap / contract traces).
  * RUNTIME_HIGH_LOAD=1 — when OTEL_TRACES_SAMPLER is unset, use a capped trace-id ratio (see OTEL_TRACE_RATIO).
  * OTEL_TRACES_SAMPLER: always_on | always_off | traceidratio | parentbased_always_on |
- * parentbased_always_off | parentbased_traceidratio (default: parentbased_always_on).
+ * parentbased_always_off | parentbased_traceidratio | parentbased_och_ai_preferential (default: parentbased_always_on).
+ * parentbased_och_ai_preferential: 100% analytics / listing-feel / intelligence routes; SHA-256(traceId) ratio elsewhere.
  * OTEL_TRACES_SAMPLER_ARG: ratio for *traceidratio variants (0–1).
  */
 function buildSamplerFromEnv(): Sampler {
@@ -176,6 +178,9 @@ function buildSamplerFromEnv(): Sampler {
   }
   if (raw === "parentbased_traceidratio") {
     return new ParentBasedSampler({ root: new TraceIdRatioBasedSampler(ratio()) });
+  }
+  if (raw === "parentbased_och_ai_preferential" || raw === "och_ai_preferential") {
+    return new ParentBasedSampler({ root: new OchAiPreferentialTraceIdSampler(ratio()) });
   }
   return new ParentBasedSampler({ root: new AlwaysOnSampler() });
 }

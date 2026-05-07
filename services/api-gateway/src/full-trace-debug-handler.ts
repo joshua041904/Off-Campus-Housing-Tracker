@@ -21,6 +21,7 @@ type TraceStep = { key: string; url: string };
 type IncomingTraceHeaders = {
   traceparent?: string;
   tracestate?: string;
+  baggage?: string;
 };
 
 export type FullTraceStepResult = {
@@ -128,6 +129,7 @@ async function executeDownstreamStep(
           "x-och-edge-proto": "h3",
           ...(incomingTraceHeaders.traceparent ? { traceparent: incomingTraceHeaders.traceparent } : {}),
           ...(incomingTraceHeaders.tracestate ? { tracestate: incomingTraceHeaders.tracestate } : {}),
+          ...(incomingTraceHeaders.baggage ? { baggage: incomingTraceHeaders.baggage } : {}),
         },
         signal: AbortSignal.timeout(timeoutMs),
       });
@@ -272,6 +274,7 @@ export function mountFullTraceDebug(app: Express, bases: FullTraceBases): void {
     const incomingTraceHeaders: IncomingTraceHeaders = {
       traceparent: req.get("traceparent") ?? undefined,
       tracestate: req.get("tracestate") ?? undefined,
+      baggage: req.get("baggage") ?? undefined,
     };
 
     const root = trace.getActiveSpan();

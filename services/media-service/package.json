@@ -9,7 +9,7 @@
     "start": "node ./dist/server.js",
     "test": "ROLLUP_DISABLE_NATIVE=true vitest run",
     "test:coverage": "ROLLUP_DISABLE_NATIVE=true vitest run --coverage",
-    "test:integration": "ROLLUP_DISABLE_NATIVE=true vitest run tests/integration",
+    "test:integration": "ROLLUP_DISABLE_NATIVE=true vitest run --config vitest.integration.config.ts",
     "test:watch": "ROLLUP_DISABLE_NATIVE=true vitest"
   },
   "dependencies": {

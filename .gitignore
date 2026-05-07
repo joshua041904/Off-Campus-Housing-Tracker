@@ -23,6 +23,8 @@ backups/
 
 # Benchmark logs and preflight output (scripts write at runtime)
 bench_logs/
+# Service-local bench logs (must never be committed)
+services/**/bench_logs/
 
 # Ad-hoc generated reports at repo root
 reports/

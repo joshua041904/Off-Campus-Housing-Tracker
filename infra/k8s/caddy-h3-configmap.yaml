@@ -65,6 +65,7 @@ data:
           header_up X-Request-Id {http.request.id}
           header_up traceparent {http.request.header.traceparent}
           header_up tracestate {http.request.header.tracestate}
+          header_up baggage {http.request.header.baggage}
         }
       }
 
@@ -75,6 +76,7 @@ data:
           header_up X-Request-Id {http.request.id}
           header_up traceparent {http.request.header.traceparent}
           header_up tracestate {http.request.header.tracestate}
+          header_up baggage {http.request.header.baggage}
         }
       }
 
@@ -85,6 +87,7 @@ data:
           header_up X-Request-Id {http.request.id}
           header_up traceparent {http.request.header.traceparent}
           header_up tracestate {http.request.header.tracestate}
+          header_up baggage {http.request.header.baggage}
           transport http {
             versions h2c
             dial_timeout 10s
@@ -112,6 +115,7 @@ data:
           header_up X-Request-Id {http.request.id}
           header_up traceparent {http.request.header.traceparent}
           header_up tracestate {http.request.header.tracestate}
+          header_up baggage {http.request.header.baggage}
           header_up X-OCH-Edge-Proto {http.request.proto}
           transport http {
             versions h1 h2
@@ -140,6 +144,7 @@ data:
           header_up X-Request-Id {http.request.id}
           header_up traceparent {http.request.header.traceparent}
           header_up tracestate {http.request.header.tracestate}
+          header_up baggage {http.request.header.baggage}
           header_up X-OCH-Edge-Proto {http.request.proto}
           flush_interval -1
           transport http {
@@ -158,6 +163,9 @@ data:
           header_up X-Forwarded-Host {http.request.host}
           header_up X-Forwarded-For {http.request.remote.host}
           header_up X-Request-Id {http.request.id}
+          header_up traceparent {http.request.header.traceparent}
+          header_up tracestate {http.request.header.tracestate}
+          header_up baggage {http.request.header.baggage}
           header_up X-OCH-Edge-Proto {http.request.proto}
           transport http {
             versions h1 h2
@@ -179,6 +187,7 @@ data:
           header_up X-Request-Id {http.request.id}
           header_up traceparent {http.request.header.traceparent}
           header_up tracestate {http.request.header.tracestate}
+          header_up baggage {http.request.header.baggage}
           transport http {
             versions h1 h2
             dial_timeout 10s
@@ -209,6 +218,7 @@ data:
           header_up X-Request-Id {http.request.id}
           header_up traceparent {http.request.header.traceparent}
           header_up tracestate {http.request.header.tracestate}
+          header_up baggage {http.request.header.baggage}
           transport http {
             versions h1 h2
             dial_timeout 10s

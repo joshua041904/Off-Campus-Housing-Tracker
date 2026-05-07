@@ -103,3 +103,22 @@ data:
             annotations:
               summary: "AI latency burn (p95 > 6s)"
               description: "Unified analytics p95 latency exceeded 6 seconds for 5m."
+          # For custom-metrics HPA / scale-on-bad-health (Prometheus Adapter maps this name).
+          - record: ai_health_composite_inverse
+            expr: clamp_max(100 - ai_health_composite_score, 100)
+          # Z-style deviation vs 1h rolling mean (requires ~1h history on the composite series).
+          - alert: AICompositeStatisticalAnomaly
+            expr: |
+              (
+                (ai_health_composite_score - avg_over_time(ai_health_composite_score[1h]))
+                /
+                clamp_min(stddev_over_time(ai_health_composite_score[1h]), 1e-6)
+              ) < -2.5
+            for: 3m
+            labels:
+              severity: warning
+              service: analytics
+              slo: ai-composite-anomaly
+            annotations:
+              summary: "AI composite dropped vs recent baseline"
+              description: "ai_health_composite_score more than ~2.5 stddev below its 1h average (self-adjusting; needs stable history)."

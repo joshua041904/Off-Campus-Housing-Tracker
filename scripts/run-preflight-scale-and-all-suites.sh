@@ -3968,7 +3968,7 @@ _run_all_suites() {
   info "Vitest toolchain: node=$(command -v node 2>/dev/null || echo '?') $(node -v 2>/dev/null || echo '?') | pnpm=$(command -v pnpm 2>/dev/null || echo '?') $(pnpm -v 2>/dev/null || echo '?') | ROLLUP_DISABLE_NATIVE=1 for event-layer"
   ( cd "$REPO_ROOT/services/event-layer-verification" && ROLLUP_DISABLE_NATIVE=true pnpm test ) || return 1
   if [[ "${PREFLIGHT_RUN_REPO_VITEST_STACK:-1}" == "1" ]] || [[ "${PREFLIGHT_RUN_REPO_VITEST_STACK:-1}" == "true" ]]; then
-    say "7a0c. Repo Vitest stack (integration:all → system → units; Kafka policy in integration:all; docs/vitest-per-service-requirements.md)…"
+    say "7a0c. Repo Vitest stack (ALL suites: integration:all → system → workspace units; Kafka policy in integration:all; docs/vitest-per-service-requirements.md)…"
     info "Requires: all integration DBs + MetalLB Kafka TLS + analytics DB for system; services/common build for Kafka assert. Skip: PREFLIGHT_RUN_REPO_VITEST_STACK=0"
     ( cd "$REPO_ROOT" && pnpm -C services/common run build && ROLLUP_DISABLE_NATIVE=true pnpm run test:vitest-stack ) || return 1
   elif [[ "${PREFLIGHT_RUN_SYSTEM_CONTRACTS:-0}" == "1" ]]; then
@@ -3982,9 +3982,14 @@ _run_all_suites() {
       PHASE_BARRIER_TRAILING_STABILIZE_SEC="${PHASE_BARRIER_POST_INTEGRATION_STABILIZE_SEC:-10}" \
       bash "$SCRIPT_DIR/phase-barrier.sh" "post-integration" || return 1
   fi
-  say "7a. Running service Vitest suites (messaging-service + media-service tests/)..."
-  pnpm -C "$REPO_ROOT/services/messaging-service" test || return 1
-  pnpm -C "$REPO_ROOT/services/media-service" test || return 1
+  if [[ "${PREFLIGHT_RUN_REPO_VITEST_STACK:-1}" == "1" ]] || [[ "${PREFLIGHT_RUN_REPO_VITEST_STACK:-1}" == "true" ]]; then
+    info "7a. Service-local Vitest subset skipped: covered by 7a0c full stack (integration:all + system + workspace units)."
+  else
+    say "7a. Running fallback service Vitest subset (messaging-service + media-service tests/)..."
+    pnpm -C "$REPO_ROOT/services/messaging-service" test || return 1
+    pnpm -C "$REPO_ROOT/services/media-service" test || return 1
+    warn "7a fallback subset is not full Vitest coverage. Set PREFLIGHT_RUN_REPO_VITEST_STACK=1 for canonical all-suite preflight."
+  fi
   # Housing + messaging edge suites: by default skip redundant banner + ensure-messaging-schema (psql spam every preflight).
   if [[ "${PREFLIGHT_VERBOSE_HOUSING_MESSAGING_SUITE:-0}" == "1" ]]; then
     "$SCRIPT_DIR/test-microservices-http2-http3-housing.sh" || return 1

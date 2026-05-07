@@ -9,6 +9,7 @@ import { pool } from "./db.js";
 import { startGrpcServer } from "./grpc-server.js";
 import { startAnalyticsHttpServer } from "./http-server.js";
 import { startSkewGaugePoller } from "./intelligence/analyticsUnifiedObservabilityMetrics.js";
+import { startAiControlPlaneController } from "./intelligence/aiControlPlaneController.js";
 
 const HTTP_PORT = Number(process.env.HTTP_PORT || "4017");
 const GRPC_PORT = Number(process.env.GRPC_PORT || "50067");
@@ -23,6 +24,7 @@ async function main() {
     );
   }
   startSkewGaugePoller();
+  startAiControlPlaneController();
   startAnalyticsHttpServer(HTTP_PORT);
   startGrpcServer(GRPC_PORT);
   // Ollama Deployment already warms the model; a second /api/generate here can abort mid-load if timed out.

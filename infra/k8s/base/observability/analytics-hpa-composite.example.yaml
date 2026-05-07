@@ -1,0 +1,37 @@
+# Example only — requires Prometheus Adapter (custom.metrics.k8s.io) exposing
+# `ai_health_composite_inverse` (recording rule in prometheus-rules-ai-health-composite.yaml).
+# Higher inverse = worse health → HPA increases replicas when average inverse rises above target.
+#
+# Adapter rule sketch (cluster-specific):
+#   - seriesQuery: 'ai_health_composite_inverse{namespace!="",pod!=""}'
+#     resources:
+#       overrides:
+#         namespace: { resource: "namespace" }
+#         pod: { resource: "pod" }
+#     name:
+#       matches: "^(ai_health_composite_inverse)$"
+#       as: "ai_health_composite_inverse"
+#     metricsQuery: 'avg(<<.Series>>{<<.LabelMatchers>>}) by (<<.GroupBy>>)'
+#
+# Apply in the workload namespace (not observability); set scaleTargetRef to your analytics Deployment.
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: analytics-hpa-composite-inverse
+  namespace: off-campus-housing-tracker
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: analytics-service
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Pods
+      pods:
+        metric:
+          name: ai_health_composite_inverse
+        target:
+          type: AverageValue
+          averageValue: "30"

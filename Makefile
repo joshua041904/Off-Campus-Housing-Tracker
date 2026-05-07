@@ -1334,6 +1334,7 @@ preflight-strict: ensure-node20 ## Strict preflight: Colima+MetalLB+Jaeger+OTel+
 	  export METALLB_ENABLED=1 METALLB_USE_K3D=0 REQUIRE_COLIMA=1 K6_USE_METALLB=1 && \
 	  export OTEL_PREFLIGHT_TRACE_SAMPLE=1 RUN_K6=1 && \
 	  export PREFLIGHT_SKIP_KAFKA_ALIGNMENT_SUITE=0 KAFKA_ALIGNMENT_TEST_MODE=1 && \
+	  export PREFLIGHT_RUN_REPO_VITEST_STACK=1 && \
 	  if [ -n "$(PREFLIGHT_STRICT_JAEGER_QUERY_BASE)" ]; then export JAEGER_QUERY_BASE="$(PREFLIGHT_STRICT_JAEGER_QUERY_BASE)"; fi && \
 	  bash "$(SCRIPTS)/cluster-stability-guard.sh" && \
 	  $(MAKE) transport-quic-v6-v7-prove && \

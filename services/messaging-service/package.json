@@ -10,7 +10,7 @@
     "test": "ROLLUP_DISABLE_NATIVE=true vitest run",
     "test:coverage": "ROLLUP_DISABLE_NATIVE=true vitest run --coverage",
     "test:watch": "ROLLUP_DISABLE_NATIVE=true vitest",
-    "test:integration": "ROLLUP_DISABLE_NATIVE=true vitest run tests/integration",
+    "test:integration": "ROLLUP_DISABLE_NATIVE=true vitest run --config vitest.integration.config.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio"

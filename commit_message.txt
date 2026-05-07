@@ -1,38 +1,70 @@
-fix(observability,edge,analytics): restore subpath routing and full metrics scrape coverage
+feat(ai-control-plane,observability): add phased control-loop + canary arbitration scaffolding
 
-Align edge and observability runtime behavior so /grafana and /prometheus are
-stable under subpaths, and ensure Prometheus scrapes all housing services/exporters.
+Introduce Phase A/B/C control-plane foundations so analytics can move from passive
+observability to guarded autonomous governance without unsafe flapping.
 
-- Edge routing:
-  - Caddy / caddy-h3 ConfigMap keeps full /grafana/* and /prometheus/* paths
-    (no strip_prefix), adds explicit no-slash redirects, and forwards tracing/edge headers.
-  - rollout-caddy now restarts caddy-h3 after ConfigMap updates so runtime picks up changes.
-  - Added scripts/verify-grafana-prometheus-edge.sh for repeatable diagnostics.
+- Phase A (runtime + safe actuation):
+  - Added in-process control-plane state/runtime for mode, active model, prompt version,
+    canary percent, and arbitration weights.
+  - Added controller loop (`off|observe|enforce`) with cooldown/hysteresis and
+    deterministic decision logging before enforcement.
+  - Wired runtime controls into listing generation path:
+    - degraded mode token throttling
+    - legacy mode short-circuit fallback
+    - runtime-selected active model + prompt version envelope.
+  - Added authenticated internal endpoints for control-plane state read/patch.
 
-- Prometheus/Grafana:
-  - Grafana datasource uses Prometheus route-prefix URL (/prometheus).
-  - Prometheus self-scrape uses /prometheus/metrics.
-  - Added prometheus ServiceAccount + ClusterRole + ClusterRoleBinding for Kubernetes SD.
-  - Added static fallback scrape job for core housing services to avoid blind spots if SD/RBAC regresses.
-  - Fixed media-service scrape annotation to HTTP metrics port (4018 vs gRPC 50068).
+- Phase B (signal plane + Prometheus integration):
+  - Added model/prompt/drift metrics:
+    - analytics_model_{quality,reliability,latency,cost}_*
+    - analytics_prompt_quality_score / analytics_prompt_requests_total
+    - analytics_embedding_drift_score
+  - Added control-plane rule pack with recordings/alerts for:
+    - ai_model_health_score
+    - analytics_embedding_drift_zscore
+    - analytics_prompt_quality_delta_10m
+    - embedding drift and prompt regression alerts.
+  - Controller can now query Prometheus-derived composite/drift/prompt signals
+    while retaining local fallback behavior.
 
-- Service metrics:
-  - Added /metrics + request counters to messaging-service and media-service HTTP apps.
-  - Verified targets from Prometheus API: active targets present and no down targets after rollout.
+- Phase C starter (canary + active-active hooks):
+  - Added deterministic canary sampling and weighted arbitration helper.
+  - Added shadow/canary arbitration instrumentation:
+    - analytics_model_arbitration_runs_total
+    - analytics_model_wins_total
+    - analytics_model_arbitration_disagreement_ratio
+  - Added cluster health gauge + Prometheus rule pack for
+    ai_cluster_route_weight (health × inverse latency × inverse cost).
+  - Added rollout runbook: docs/ai-control-plane-phase-c-runbook.md
 
-- Analytics reliability hardening:
-  - Unified Ollama timeout authority, typed timeout failures/logging, and expanded generation metrics.
-  - Added health/warmup endpoints and minimal no-mask debugging paths for listing-feel.
-  - Dev-fast now defaults to CLI-like path (v2 disabled unless explicitly re-enabled).
+- Observability plumbing:
+  - Wired new rule ConfigMaps into kustomization and Prometheus projected mounts.
+  - Added app-config defaults for control-plane mode, Prometheus queries,
+    model cost book, canary model/shadow flags, and cluster id.
 
-Follow-up: dashboard no-data cleanup (this commit)
-- Audited every Grafana panel expression against live Prometheus query API.
-- Repointed panels from missing metric families to available runtime metrics:
-  - tracing panels: jaeger_spans_* -> trace_service_latency_ms_*.
-  - latency panels: http_request_duration_seconds_* -> trace_service_latency_ms_* where applicable.
-  - transport ratios: missing och:gateway_* recording rules -> direct api-gateway http_requests_total formulas.
-  - kafka integrity panels: missing kafka_server_* JMX metrics -> kafka_* alignment/skew/exporter metrics.
-- Added `or on() vector(0)` fallbacks for optional CI/export-driven metrics (coverage/QA-style gauges),
-  so dashboards show zero instead of “No data” when exporters have not published in current window.
-- Applied dashboards and reloaded Grafana; expression audit now resolves for all fixed panels
-  (remaining template-variable-only expressions depend on Grafana-side `$svc` substitution).
+Net effect:
+- deterministic, auditable control decisions in observe mode
+- conservative autonomous actions when promoted to enforce mode
+- canary/arbitration and multi-cluster routing signals ready for progressive rollout
+
+Preflight/Vitest contract alignment (follow-up in this patch set):
+- Fixed integration Vitest glob/config mismatch that caused false preflight failures:
+  - messaging-service and media-service now use dedicated
+    `vitest.integration.config.ts` files for `test:integration`.
+  - `test:integration` scripts now run with explicit integration configs.
+- Added root aliases:
+  - `test:workspace` for workspace unit suite contract
+  - `test:workspace:integration` for workspace integration contract
+  - `test:vitest-stack` now composes integration + system + workspace units through these aliases.
+- Hardened preflight Step 7 contract:
+  - `make preflight-lab` / `preflight-strict` now explicitly export
+    `PREFLIGHT_RUN_REPO_VITEST_STACK=1`.
+  - preflight script treats repo Vitest stack as canonical "all suites" path and
+    skips redundant messaging/media-only subset when full stack is enabled.
+
+Reviewer reliability concerns resolved in this patch set:
+- gRPC parent-context stability after Express await gaps (`promisifyGrpcCall(..., req)` + context.with parent capture)
+- W3C baggage forwarded end-to-end (Caddy/Caddy H3 + gateway CORS/proxy paths)
+- Single trace-header injection mechanism in gateway (helper-only; no manual duplicate headers)
+- bench_logs runtime artifact hygiene (`services/**/bench_logs/` ignored; diagnostics artifact removed)
+- Prometheus image pinned (`prom/prometheus:v2.52.0`)

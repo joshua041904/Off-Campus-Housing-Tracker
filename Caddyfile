@@ -64,6 +64,7 @@ https://off-campus-housing.test {
 			header_up X-Request-Id {http.request.id}
 			header_up traceparent {http.request.header.traceparent}
 			header_up tracestate {http.request.header.tracestate}
+			header_up baggage {http.request.header.baggage}
 			header_up X-OCH-Edge-Proto {http.request.proto}
 		}
 	}
@@ -75,6 +76,7 @@ https://off-campus-housing.test {
 			header_up X-Request-Id {http.request.id}
 			header_up traceparent {http.request.header.traceparent}
 			header_up tracestate {http.request.header.tracestate}
+			header_up baggage {http.request.header.baggage}
 			header_up X-OCH-Edge-Proto {http.request.proto}
 		}
 	}
@@ -87,6 +89,7 @@ https://off-campus-housing.test {
 			header_up X-Request-Id {http.request.id}
 			header_up traceparent {http.request.header.traceparent}
 			header_up tracestate {http.request.header.tracestate}
+			header_up baggage {http.request.header.baggage}
 			header_up X-OCH-Edge-Proto {http.request.proto}
 			transport http {
 				versions h2c
@@ -118,6 +121,7 @@ https://off-campus-housing.test {
 			header_up X-Request-Id {http.request.id}
 			header_up traceparent {http.request.header.traceparent}
 			header_up tracestate {http.request.header.tracestate}
+			header_up baggage {http.request.header.baggage}
 			header_up X-OCH-Edge-Proto {http.request.proto}
 			transport http {
 				versions h1 h2
@@ -147,6 +151,7 @@ https://off-campus-housing.test {
 			header_up X-Request-Id {http.request.id}
 			header_up traceparent {http.request.header.traceparent}
 			header_up tracestate {http.request.header.tracestate}
+			header_up baggage {http.request.header.baggage}
 			header_up X-OCH-Edge-Proto {http.request.proto}
 			flush_interval -1
 			transport http {
@@ -165,6 +170,9 @@ https://off-campus-housing.test {
 			header_up X-Forwarded-Host {http.request.host}
 			header_up X-Forwarded-For {http.request.remote.host}
 			header_up X-Request-Id {http.request.id}
+			header_up traceparent {http.request.header.traceparent}
+			header_up tracestate {http.request.header.tracestate}
+			header_up baggage {http.request.header.baggage}
 			header_up X-OCH-Edge-Proto {http.request.proto}
 			transport http {
 				versions h1 h2
@@ -188,6 +196,7 @@ https://off-campus-housing.test {
 			header_up X-Request-Id {http.request.id}
 			header_up traceparent {http.request.header.traceparent}
 			header_up tracestate {http.request.header.tracestate}
+			header_up baggage {http.request.header.baggage}
 			header_up X-OCH-Edge-Proto {http.request.proto}
 			# h1 + h2 to gateway: clients still use HTTP/2 and HTTP/3 to Caddy; upstream can speak ALPN h2 where supported.
 			transport http {
@@ -218,6 +227,7 @@ https://off-campus-housing.test {
 			header_up X-Request-Id {http.request.id}
 			header_up traceparent {http.request.header.traceparent}
 			header_up tracestate {http.request.header.tracestate}
+			header_up baggage {http.request.header.baggage}
 			header_up X-OCH-Edge-Proto {http.request.proto}
 			transport http {
 				versions h1 h2

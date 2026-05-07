@@ -38,6 +38,11 @@ export interface ListingIntelligenceMeta {
   meta_eval_issues?: string;
   /** Dual-pass agreement heuristic when ANALYTICS_LI_DUAL_PASS=1 */
   low_consensus?: boolean;
+  /** Canary/shadow arbitration details (Phase C). */
+  arbitration_mode?: "shadow" | "canary";
+  arbitration_winner_model?: string;
+  arbitration_canary_model?: string;
+  arbitration_score_gap?: number;
 }
 
 /** Diagnostics for clients (_meta / intelligence_json.generation_meta). */

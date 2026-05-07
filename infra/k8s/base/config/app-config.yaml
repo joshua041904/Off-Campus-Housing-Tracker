@@ -95,6 +95,32 @@ data:
   ANALYTICS_OLLAMA_RETRIES: "1"
   # Structured JSON listing intelligence (modes, depth, optional ensemble). Legacy bullet path when unset/0.
   ANALYTICS_LISTING_INTELLIGENCE_V2: "1"
+  # Phase-A AI control plane defaults: observe-only until runbooks and confidence gates are validated.
+  ANALYTICS_CONTROL_PLANE_MODE: "observe"   # off | observe | enforce
+  ANALYTICS_CONTROL_PLANE_INTERVAL_MS: "30000"
+  ANALYTICS_CONTROL_PLANE_COOLDOWN_MS: "120000"
+  ANALYTICS_CONTROL_PLANE_PROM_ENABLED: "1"
+  ANALYTICS_CONTROL_PLANE_PROM_QUERY_URL: "http://prometheus.observability.svc.cluster.local:9090/prometheus/api/v1/query"
+  ANALYTICS_CONTROL_PLANE_COMPOSITE_QUERY: "ai_health_composite_score"
+  ANALYTICS_CONTROL_PLANE_DRIFT_QUERY: "analytics_embedding_drift_zscore"
+  ANALYTICS_CONTROL_PLANE_PROMPT_DELTA_QUERY: "analytics_prompt_quality_delta_10m"
+  ANALYTICS_CONTROL_PLANE_MODELS: "llama3.2:1b,llama3.2:3b"
+  ANALYTICS_RUNTIME_MODE: "normal"          # normal | degraded | legacy
+  ANALYTICS_ACTIVE_MODEL: "llama3.2:1b"
+  ANALYTICS_PROMPT_VERSION: "2026-05-07-v1"
+  ANALYTICS_PROMPT_PREVIOUS_VERSION: "2026-04-30-v0"
+  ANALYTICS_PROMPT_ROLLBACK_MIN_QUALITY: "45"
+  ANALYTICS_CANARY_PERCENT: "0"
+  ANALYTICS_CANARY_MODEL: "llama3.2:3b"
+  ANALYTICS_CANARY_SHADOW: "1"
+  ANALYTICS_ARBITRATION_WEIGHT_QUALITY: "0.4"
+  ANALYTICS_ARBITRATION_WEIGHT_LATENCY: "0.2"
+  ANALYTICS_ARBITRATION_WEIGHT_RELIABILITY: "0.2"
+  ANALYTICS_ARBITRATION_WEIGHT_COST: "0.2"
+  ANALYTICS_MODEL_COSTS: "llama3.2:1b=0.0010,llama3.2:3b=0.0028,mixtral=0.0042,*=0.0015"
+  # Set in Secret for write endpoints (/internal/control-plane/*); empty disables remote patching.
+  ANALYTICS_CONTROL_PLANE_TOKEN: ""
+  AI_CLUSTER_ID: "cluster-a"
   # Listing Intelligence v2 sampling (listed-feel legacy ANALYTICS_LISTING_FEEL_* applies to bullet path only).
   # Lower default for stabler JSON (override per env); legacy bullet path uses ANALYTICS_LISTING_FEEL_*.
   ANALYTICS_LI_V2_TEMPERATURE: "0.48"

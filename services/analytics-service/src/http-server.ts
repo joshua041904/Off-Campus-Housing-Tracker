@@ -19,6 +19,7 @@ import { detectNumericContradictionInProse } from "./intelligence/analysisConsis
 import { isAIFailure } from "./aiFailure.js";
 import { classifyListingFeelHttpFailure } from "./listingFeelFailure.js";
 import { warmupOllamaFromEnv } from "./ollamaWarmup.js";
+import { getAiControlPlaneState, getPromptVersion, patchAiControlPlaneState } from "./intelligence/aiControlPlaneRuntime.js";
 
 const aiTracer = trace.getTracer("och-analytics-ai");
 
@@ -489,6 +490,8 @@ export function createAnalyticsHttpApp(): Application {
           httpStatus: 200,
           latencyMs: wallMs,
           modelUsed: out.model_used,
+          qualityScore: out.quality_score * 100,
+          promptVersion: getPromptVersion(),
           temperature: Number(out.generation_meta?.temperature ?? listingFeelTelemetryTemperature()),
           tokensInput: out.generation_meta?.prompt_chars,
           tokensOutput: out.generation_meta?.token_estimate,
@@ -564,6 +567,8 @@ export function createAnalyticsHttpApp(): Application {
           httpStatus: 200,
           latencyMs: wallMs,
           modelUsed: degraded.model_used,
+          qualityScore: degraded.quality_score * 100,
+          promptVersion: getPromptVersion(),
           temperature: listingFeelTelemetryTemperature(),
           fallback: true,
         });
@@ -721,6 +726,8 @@ export function createAnalyticsHttpApp(): Application {
           httpStatus: 200,
           latencyMs: wallMs,
           modelUsed: o.model_used,
+          qualityScore: o.quality_score * 100,
+          promptVersion: getPromptVersion(),
           temperature: Number(o.generation_meta?.temperature ?? listingFeelTelemetryTemperature()),
           tokensInput: o.generation_meta?.prompt_chars,
           tokensOutput: o.generation_meta?.token_estimate,
@@ -813,6 +820,31 @@ export function createAnalyticsHttpApp(): Application {
     }
     recordTelemetryIngest((req.body || {}) as Record<string, unknown>);
     res.json({ ok: true });
+  });
+
+  app.get("/internal/control-plane/state", (_req: Request, res: Response) => {
+    const token = (process.env.ANALYTICS_CONTROL_PLANE_TOKEN || "").trim();
+    const got = (_req.get("x-control-plane-token") || "").trim();
+    if (token && got !== token) {
+      res.status(403).json({ error: "forbidden" });
+      return;
+    }
+    res.json({ ok: true, state: getAiControlPlaneState() });
+  });
+
+  app.post("/internal/control-plane/patch", (req: Request, res: Response) => {
+    const token = (process.env.ANALYTICS_CONTROL_PLANE_TOKEN || "").trim();
+    const got = (req.get("x-control-plane-token") || "").trim();
+    if (!token || got !== token) {
+      res.status(403).json({ error: "forbidden" });
+      return;
+    }
+    const body = (req.body || {}) as Parameters<typeof patchAiControlPlaneState>[0];
+    const next = patchAiControlPlaneState({
+      ...body,
+      updatedBy: `http:${req.ip || "unknown"}`,
+    });
+    res.json({ ok: true, state: next });
   });
 
   app.post("/insights/hybrid-search", optionalUser, async (req: Request, res: Response) => {

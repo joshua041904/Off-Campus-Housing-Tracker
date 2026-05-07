@@ -85,6 +85,152 @@ export const analyticsQualityScore = new client.Gauge({
   registers: [register],
 });
 
+export const analyticsControlPlaneMode = new client.Gauge({
+  name: "analytics_control_plane_mode",
+  help: "Control-plane runtime mode (0=normal, 1=degraded, 2=legacy)",
+  registers: [register],
+});
+
+export const analyticsControlPlaneActionsTotal = new client.Counter({
+  name: "analytics_control_plane_actions_total",
+  help: "Total control-plane actions applied by action type",
+  labelNames: ["action"] as const,
+  registers: [register],
+});
+
+export const analyticsModelQualityScore = new client.Gauge({
+  name: "analytics_model_quality_score",
+  help: "Rolling model quality score (0-100) per model",
+  labelNames: ["model"] as const,
+  registers: [register],
+});
+
+export const analyticsModelReliabilityScore = new client.Gauge({
+  name: "analytics_model_reliability_score",
+  help: "Rolling model reliability score (0-100) from fallback behavior",
+  labelNames: ["model"] as const,
+  registers: [register],
+});
+
+export const analyticsModelLatencyMs = new client.Gauge({
+  name: "analytics_model_latency_ms",
+  help: "Rolling model latency estimate (ms) per model",
+  labelNames: ["model"] as const,
+  registers: [register],
+});
+
+export const analyticsModelCostPerReq = new client.Gauge({
+  name: "analytics_model_cost_per_req",
+  help: "Estimated cost per request for a model (USD, static policy value)",
+  labelNames: ["model"] as const,
+  registers: [register],
+});
+
+export const analyticsEmbeddingDriftScore = new client.Gauge({
+  name: "analytics_embedding_drift_score",
+  help: "Proxy embedding drift score (0-1) from rolling quality/entropy divergence",
+  registers: [register],
+});
+
+export const analyticsPromptQualityScore = new client.Gauge({
+  name: "analytics_prompt_quality_score",
+  help: "Rolling quality score per prompt version (0-100)",
+  labelNames: ["version"] as const,
+  registers: [register],
+});
+
+export const analyticsPromptRequestsTotal = new client.Counter({
+  name: "analytics_prompt_requests_total",
+  help: "Total analyzed requests attributed to prompt version",
+  labelNames: ["version"] as const,
+  registers: [register],
+});
+
+export const analyticsPromptQualityCurrent = new client.Gauge({
+  name: "analytics_prompt_quality_current",
+  help: "Rolling quality score (0-100) for ANALYTICS_PROMPT_VERSION",
+  registers: [register],
+});
+
+export const analyticsPromptQualityPrevious = new client.Gauge({
+  name: "analytics_prompt_quality_previous",
+  help: "Rolling quality score (0-100) for ANALYTICS_PROMPT_PREVIOUS_VERSION",
+  registers: [register],
+});
+
+export const analyticsPromptCurrentRequestsTotal = new client.Counter({
+  name: "analytics_prompt_current_requests_total",
+  help: "Request count for current prompt version",
+  registers: [register],
+});
+
+export const analyticsPromptPreviousRequestsTotal = new client.Counter({
+  name: "analytics_prompt_previous_requests_total",
+  help: "Request count for previous prompt version",
+  registers: [register],
+});
+
+export const analyticsModelArbitrationRunsTotal = new client.Counter({
+  name: "analytics_model_arbitration_runs_total",
+  help: "Total arbitration comparisons between primary/canary outputs",
+  labelNames: ["mode"] as const,
+  registers: [register],
+});
+
+export const analyticsModelWinsTotal = new client.Counter({
+  name: "analytics_model_wins_total",
+  help: "Total arbitration wins by model",
+  labelNames: ["model", "mode"] as const,
+  registers: [register],
+});
+
+export const analyticsModelArbitrationDisagreementRatio = new client.Gauge({
+  name: "analytics_model_arbitration_disagreement_ratio",
+  help: "Last observed disagreement ratio between top two model scores",
+  registers: [register],
+});
+
+export const aiClusterHealthScore = new client.Gauge({
+  name: "ai_cluster_health_score",
+  help: "Cluster-local AI health score (0-100) for active-active routing",
+  labelNames: ["cluster"] as const,
+  registers: [register],
+});
+
+type RunningModelStats = {
+  requests: number;
+  fallback: number;
+  latencyMsSum: number;
+  qualityScoreSum: number;
+};
+
+type RunningPromptStats = {
+  requests: number;
+  qualityScoreSum: number;
+};
+
+type RuntimeSnapshot = {
+  totalRequests: number;
+  fallbackRequests: number;
+  latencyMsSum: number;
+  qualityScoreSum: number;
+  lastQualityScore: number;
+  lastUpdatedAt: number;
+  byModel: Record<string, RunningModelStats>;
+  byPromptVersion: Record<string, RunningPromptStats>;
+};
+
+const runtimeSnapshot: RuntimeSnapshot = {
+  totalRequests: 0,
+  fallbackRequests: 0,
+  latencyMsSum: 0,
+  qualityScoreSum: 0,
+  lastQualityScore: 0,
+  lastUpdatedAt: Date.now(),
+  byModel: {},
+  byPromptVersion: {},
+};
+
 export type AnalysisQualityGateInput = {
   analysisTextLen: number;
   entropy?: number;
@@ -129,6 +275,8 @@ export type AnalyzeTelemetryInput = {
   fallback: boolean;
   entropy?: number;
   confidence?: number;
+  qualityScore?: number;
+  promptVersion?: string;
 };
 
 export function recordAnalyzeTelemetry(input: AnalyzeTelemetryInput): void {
@@ -147,6 +295,61 @@ export function recordAnalyzeTelemetry(input: AnalyzeTelemetryInput): void {
   if (input.confidence != null && Number.isFinite(input.confidence)) {
     analyticsConfidenceScore.set(input.confidence);
   }
+  runtimeSnapshot.totalRequests += 1;
+  runtimeSnapshot.latencyMsSum += Math.max(0, input.latencyMs);
+  if (input.fallback) runtimeSnapshot.fallbackRequests += 1;
+  if (input.qualityScore != null && Number.isFinite(input.qualityScore)) {
+    runtimeSnapshot.qualityScoreSum += Math.max(0, Math.min(100, input.qualityScore));
+    runtimeSnapshot.lastQualityScore = Math.max(0, Math.min(100, input.qualityScore));
+  }
+  const key = (input.modelUsed || "unknown").trim() || "unknown";
+  const stats = (runtimeSnapshot.byModel[key] ??= {
+    requests: 0,
+    fallback: 0,
+    latencyMsSum: 0,
+    qualityScoreSum: 0,
+  });
+  stats.requests += 1;
+  if (input.fallback) stats.fallback += 1;
+  stats.latencyMsSum += Math.max(0, input.latencyMs);
+  if (input.qualityScore != null && Number.isFinite(input.qualityScore)) {
+    stats.qualityScoreSum += Math.max(0, Math.min(100, input.qualityScore));
+  }
+  const avgLatencyMs = stats.requests > 0 ? stats.latencyMsSum / stats.requests : 0;
+  const fallbackRate = stats.requests > 0 ? stats.fallback / stats.requests : 0;
+  const avgQuality = stats.requests > 0 ? stats.qualityScoreSum / stats.requests : 0;
+  analyticsModelLatencyMs.set({ model: key }, avgLatencyMs);
+  analyticsModelReliabilityScore.set({ model: key }, Math.max(0, Math.min(100, (1 - fallbackRate) * 100)));
+  analyticsModelQualityScore.set({ model: key }, Math.max(0, Math.min(100, avgQuality)));
+  // Static price book from env: ANALYTICS_MODEL_COSTS="llama3.2:1b=0.001,mixtral=0.0042"
+  const modelCosts = parseModelCostsEnv();
+  analyticsModelCostPerReq.set({ model: key }, modelCosts[key] ?? modelCosts["*"] ?? 0);
+
+  const pv = String(input.promptVersion || "unversioned").trim() || "unversioned";
+  const ps = (runtimeSnapshot.byPromptVersion[pv] ??= { requests: 0, qualityScoreSum: 0 });
+  ps.requests += 1;
+  if (input.qualityScore != null && Number.isFinite(input.qualityScore)) {
+    ps.qualityScoreSum += Math.max(0, Math.min(100, input.qualityScore));
+  }
+  analyticsPromptRequestsTotal.inc({ version: pv });
+  const avgPromptQuality = ps.requests > 0 ? ps.qualityScoreSum / ps.requests : 0;
+  analyticsPromptQualityScore.set({ version: pv }, avgPromptQuality);
+  const currentPrompt = String(process.env.ANALYTICS_PROMPT_VERSION || "").trim();
+  const previousPrompt = String(process.env.ANALYTICS_PROMPT_PREVIOUS_VERSION || "").trim();
+  if (pv === currentPrompt) {
+    analyticsPromptQualityCurrent.set(avgPromptQuality);
+    analyticsPromptCurrentRequestsTotal.inc();
+  } else if (pv === previousPrompt) {
+    analyticsPromptQualityPrevious.set(avgPromptQuality);
+    analyticsPromptPreviousRequestsTotal.inc();
+  }
+
+  const globalTotal = runtimeSnapshot.totalRequests;
+  const globalQuality = globalTotal > 0 ? runtimeSnapshot.qualityScoreSum / globalTotal : 0;
+  const globalEntropy = input.entropy != null && Number.isFinite(input.entropy) ? input.entropy : 0.5;
+  const driftProxy = Math.max(0, Math.min(1, Math.abs(globalQuality / 100 - globalEntropy)));
+  analyticsEmbeddingDriftScore.set(driftProxy);
+  runtimeSnapshot.lastUpdatedAt = Date.now();
 }
 
 export function recordTelemetryIngest(body: Record<string, unknown>): void {
@@ -162,6 +365,84 @@ export function recordTelemetryIngest(body: Record<string, unknown>): void {
   if (typeof pass === "boolean") {
     kafkaSkewPass.set(pass ? 1 : 0);
   }
+}
+
+export function updateControlPlaneModeGauge(mode: "normal" | "degraded" | "legacy"): void {
+  if (mode === "legacy") analyticsControlPlaneMode.set(2);
+  else if (mode === "degraded") analyticsControlPlaneMode.set(1);
+  else analyticsControlPlaneMode.set(0);
+}
+
+export function recordControlPlaneAction(action: string): void {
+  analyticsControlPlaneActionsTotal.inc({ action: (action || "unknown").slice(0, 64) });
+}
+
+export type AnalyticsRuntimeSnapshot = {
+  totalRequests: number;
+  fallbackRate: number;
+  avgLatencyMs: number;
+  avgQualityScore: number;
+  lastQualityScore: number;
+  byModel: Array<{
+    model: string;
+    requests: number;
+    fallbackRate: number;
+    avgLatencyMs: number;
+    avgQualityScore: number;
+  }>;
+};
+
+export function getAnalyticsRuntimeSnapshot(): AnalyticsRuntimeSnapshot {
+  const total = Math.max(0, runtimeSnapshot.totalRequests);
+  const byModel = Object.entries(runtimeSnapshot.byModel).map(([model, s]) => ({
+    model,
+    requests: s.requests,
+    fallbackRate: s.requests > 0 ? s.fallback / s.requests : 0,
+    avgLatencyMs: s.requests > 0 ? s.latencyMsSum / s.requests : 0,
+    avgQualityScore: s.requests > 0 ? s.qualityScoreSum / s.requests : 0,
+  }));
+  return {
+    totalRequests: total,
+    fallbackRate: total > 0 ? runtimeSnapshot.fallbackRequests / total : 0,
+    avgLatencyMs: total > 0 ? runtimeSnapshot.latencyMsSum / total : 0,
+    avgQualityScore: total > 0 ? runtimeSnapshot.qualityScoreSum / total : runtimeSnapshot.lastQualityScore,
+    lastQualityScore: runtimeSnapshot.lastQualityScore,
+    byModel,
+  };
+}
+
+export function recordArbitrationResult(input: {
+  mode: "shadow" | "canary";
+  winnerModel: string;
+  topScore: number;
+  secondScore?: number;
+}): void {
+  const mode = input.mode;
+  const winner = (input.winnerModel || "unknown").trim() || "unknown";
+  analyticsModelArbitrationRunsTotal.inc({ mode });
+  analyticsModelWinsTotal.inc({ model: winner, mode });
+  const second = input.secondScore ?? input.topScore;
+  const denom = Math.max(Math.abs(input.topScore), 1e-6);
+  const ratio = Math.max(0, Math.min(1, Math.abs(input.topScore - second) / denom));
+  analyticsModelArbitrationDisagreementRatio.set(ratio);
+}
+
+export function updateClusterHealthGauge(score: number): void {
+  const cluster = (process.env.AI_CLUSTER_ID || "cluster-a").trim() || "cluster-a";
+  aiClusterHealthScore.set({ cluster }, Math.max(0, Math.min(100, score)));
+}
+
+function parseModelCostsEnv(): Record<string, number> {
+  const raw = String(process.env.ANALYTICS_MODEL_COSTS || "").trim();
+  if (!raw) return {};
+  const out: Record<string, number> = {};
+  for (const pair of raw.split(",")) {
+    const [k, v] = pair.split("=", 2).map((s) => s.trim());
+    if (!k) continue;
+    const n = Number(v);
+    if (Number.isFinite(n) && n >= 0) out[k] = n;
+  }
+  return out;
 }
 
 /** Best-effort: read repo bench_logs skew JSON (host dev) when OCH_COVERAGE_KAFKA_SKEW_JSON is set. */

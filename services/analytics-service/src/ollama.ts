@@ -11,12 +11,14 @@ import {
 } from "./intelligence/analyticsGenerationMetrics.js";
 import { appendAnalyticsDiagnostic } from "./intelligence/diagnostics.js";
 import { isListingIntelligenceV2Enabled, runListingIntelligenceV2 } from "./intelligence/listingIntelligenceV2.js";
+import { listingFeelShortCircuitTail, runStage, stageSkipped } from "./intelligence/pipeline-tracing.js";
 import { isAIFailure } from "./aiFailure.js";
 import { applyDevFastTokenCap, clampNumPredict } from "./intelligence/generationLimits.js";
 import { getOllamaGenerateTimeoutMs } from "./intelligence/ollamaTimeoutBudget.js";
 import { maybeInjectAiChaos } from "./aiChaos.js";
 import { ollamaKeepAliveRequestField } from "./intelligence/ollamaKeepAlive.js";
 import type { ListingIntelligenceGenerationMeta } from "./intelligence/types.js";
+import { getPromptVersion, getRuntimeMode, getRuntimeModel } from "./intelligence/aiControlPlaneRuntime.js";
 
 function ollamaBaseUrl(): string {
   return (process.env.OLLAMA_BASE_URL || "").replace(/\/$/, "");
@@ -24,7 +26,7 @@ function ollamaBaseUrl(): string {
 
 function ollamaModel(): string {
   // Keep default aligned with infra/k8s/base/config/app-config.yaml (tag matters — bare "llama3.2" often missing locally).
-  return process.env.OLLAMA_MODEL || "llama3.2:1b";
+  return getRuntimeModel() || process.env.OLLAMA_MODEL || "llama3.2:1b";
 }
 
 /** Cache rows from older builds or manual DB edits should not permanently mask a working Ollama. */
@@ -52,6 +54,8 @@ function ollamaMaxRetries(): number {
 function listingFeelNumPredict(): number {
   const n = Number(process.env.ANALYTICS_LISTING_FEEL_NUM_PREDICT || "700");
   const base = clampNumPredict(Number.isFinite(n) ? n : 700);
+  const runtimeMode = getRuntimeMode();
+  if (runtimeMode === "degraded") return Math.min(240, applyDevFastTokenCap(base));
   return applyDevFastTokenCap(base);
 }
 
@@ -324,8 +328,37 @@ export async function analyzeListingFeelText(input: {
   const audience = (input.audience || "renter").toLowerCase() === "landlord" ? "landlord" : "renter";
   const variant = listingFeelCacheVariant(input);
   const hash = contentKey(input.title, input.description, input.price_cents, audience, variant);
+  return runStage("analytics.intelligence.pipeline", async () => analyzeListingFeelTextPipeline(input, audience, variant, hash));
+}
 
-  if (!listingFeelSkipCache()) {
+type ListingFeelResult = {
+  analysis_text: string;
+  model_used: string;
+  quality_score: number;
+  intelligence_json?: string;
+  confidence_explanation?: string;
+  generation_meta?: ListingIntelligenceGenerationMeta;
+};
+
+async function analyzeListingFeelTextPipeline(
+  input: {
+    title: string;
+    description: string;
+    price_cents: number;
+    audience: string;
+    analysis_depth?: unknown;
+    listing_facts?: Record<string, unknown>;
+    listing_id?: string | null;
+  },
+  audience: "landlord" | "renter",
+  variant: string,
+  hash: string,
+): Promise<ListingFeelResult> {
+  const cacheLookup = await runStage("analytics.cache.lookup", async (span) => {
+    if (listingFeelSkipCache()) {
+      span.setAttribute("och.cache", "policy_skip");
+      return { kind: "miss" as const };
+    }
     try {
       const cached = await pool.query(
         `SELECT analysis_text, model FROM analytics.listing_feel_cache WHERE content_hash = $1 AND audience = $2 ORDER BY created_at DESC LIMIT 1`,
@@ -333,15 +366,24 @@ export async function analyzeListingFeelText(input: {
       );
       if (cached.rows[0] && !isNonLlmListingFeelCacheModel(cached.rows[0].model)) {
         const analysis_text = String(cached.rows[0].analysis_text);
-        return {
-          analysis_text,
-          model_used: String(cached.rows[0].model),
-          quality_score: computeListingFeelQualityScore(analysis_text),
-        };
+        const model_used = String(cached.rows[0].model);
+        span.setAttribute("och.cache", "hit");
+        const quality_score = computeListingFeelQualityScore(analysis_text);
+        return { kind: "hit" as const, analysis_text, model_used, quality_score };
       }
+      span.setAttribute("och.cache", "miss");
     } catch (e) {
       console.error("[listing-feel] cache read failed (continuing without cache)", e);
     }
+    return { kind: "miss" as const };
+  });
+
+  if (cacheLookup.kind === "hit") {
+    return listingFeelShortCircuitTail("cache_hit", {
+      analysis_text: cacheLookup.analysis_text,
+      model_used: cacheLookup.model_used,
+      quality_score: cacheLookup.quality_score,
+    });
   }
 
   if (!ollamaBaseUrl()) {
@@ -360,40 +402,49 @@ export async function analyzeListingFeelText(input: {
       audience === "landlord"
         ? "LLM disabled (set OLLAMA_BASE_URL). Summarize: highlight price vs market, condition, and lease terms."
         : "LLM disabled (set OLLAMA_BASE_URL). Summarize: value, commute fit, and questions to ask the landlord.";
-    return {
-      analysis_text,
-      model_used: "none",
-      quality_score: computeListingFeelQualityScore(analysis_text),
-    };
+    const quality_score = computeListingFeelQualityScore(analysis_text);
+    return listingFeelShortCircuitTail("no_ollama", { analysis_text, model_used: "none", quality_score });
   }
 
-  const lockKey = `och:listing-feel:${hash}:${audience}`;
-  const token = randomUUID();
-  let gotLock = await acquireLockWithToken(lockKey, token, 45_000);
-  if (!gotLock) {
-    await new Promise((r) => setTimeout(r, 400));
-    if (!listingFeelSkipCache()) {
-      try {
-        const retry = await pool.query(
-          `SELECT analysis_text, model FROM analytics.listing_feel_cache WHERE content_hash = $1 AND audience = $2 ORDER BY created_at DESC LIMIT 1`,
-          [hash, audience],
-        );
-        if (retry.rows[0] && !isNonLlmListingFeelCacheModel(retry.rows[0].model)) {
-          const analysis_text = String(retry.rows[0].analysis_text);
-          return {
-            analysis_text,
-            model_used: String(retry.rows[0].model),
-            quality_score: computeListingFeelQualityScore(analysis_text),
-          };
+  if (getRuntimeMode() === "legacy") {
+    const legacy = ruleBasedListingFeel(audience);
+    return listingFeelShortCircuitTail("runtime_legacy_mode", legacy);
+  }
+
+  return runStage("analytics.session.lock", async (lockSpan) => {
+    const lockKey = `och:listing-feel:${hash}:${audience}`;
+    const token = randomUUID();
+    let gotLock = await acquireLockWithToken(lockKey, token, 45_000);
+    lockSpan.setAttribute("och.lock_acquired", gotLock);
+    if (!gotLock) {
+      await new Promise((r) => setTimeout(r, 400));
+      if (!listingFeelSkipCache()) {
+        try {
+          const retry = await pool.query(
+            `SELECT analysis_text, model FROM analytics.listing_feel_cache WHERE content_hash = $1 AND audience = $2 ORDER BY created_at DESC LIMIT 1`,
+            [hash, audience],
+          );
+          if (retry.rows[0] && !isNonLlmListingFeelCacheModel(retry.rows[0].model)) {
+            const analysis_text = String(retry.rows[0].analysis_text);
+            const model_used = String(retry.rows[0].model);
+            const quality_score = computeListingFeelQualityScore(analysis_text);
+            return listingFeelShortCircuitTail("cache_hit_after_lock_miss", {
+              analysis_text,
+              model_used,
+              quality_score,
+            });
+          }
+        } catch (e) {
+          console.error("[listing-feel] cache retry read failed after lock miss", e);
         }
-      } catch (e) {
-        console.error("[listing-feel] cache retry read failed after lock miss", e);
       }
     }
-  }
 
-  try {
-    const priceUsd = (input.price_cents / 100).toFixed(2);
+    try {
+      return await runStage("analytics.routing.model_path", async (routeSpan) => {
+        routeSpan.setAttribute("och.li_v2_enabled", isListingIntelligenceV2Enabled());
+        return await runStage("analytics.model.generate", async () => {
+          const priceUsd = (input.price_cents / 100).toFixed(2);
     const titleRaw = String(input.title || "");
     const descRaw = String(input.description || "");
     const title = titleRaw.slice(0, 1200);
@@ -402,23 +453,30 @@ export async function analyzeListingFeelText(input: {
 
     if (isListingIntelligenceV2Enabled()) {
       try {
-        const v2 = await runListingIntelligenceV2({
-          baseUrl: ollamaBaseUrl(),
-          primaryModel: ollamaModel(),
-          audience,
-          title,
-          description: descriptionForV2,
-          priceUsd,
-          analysis_depth: input.analysis_depth,
-          listingFacts: input.listing_facts,
-          listing_id: input.listing_id ?? null,
-          timeoutMs: ollamaRequestTimeoutMs(),
-          fetchOnce: (inputUrl, init) => withOllamaSerial(() => fetch(inputUrl, init)),
-        });
+        const v2 = await runStage("analytics.upstream.ollama_http", async () =>
+          runListingIntelligenceV2({
+            baseUrl: ollamaBaseUrl(),
+            primaryModel: ollamaModel(),
+            audience,
+            title,
+            description: descriptionForV2,
+            priceUsd,
+            analysis_depth: input.analysis_depth,
+            listingFacts: input.listing_facts,
+            listing_id: input.listing_id ?? null,
+            timeoutMs: ollamaRequestTimeoutMs(),
+            fetchOnce: (inputUrl, init) => withOllamaSerial(() => fetch(inputUrl, init)),
+          }),
+        );
         if (v2) {
-          const quality_score = computeListingFeelQualityScore(v2.analysis_text);
           observeWithTraceExemplar(ollamaLatencyMs, v2.duration_ms);
-          observeWithTraceExemplar(listingFeelQualityHist, quality_score);
+          observeWithTraceExemplar(listingFeelQualityHist, computeListingFeelQualityScore(v2.analysis_text));
+          await runStage("analytics.model.postprocess", async (pp) => {
+            stageSkipped(pp, "li_v2");
+          });
+          const quality_score = await runStage("analytics.quality.compute", async () =>
+            computeListingFeelQualityScore(v2.analysis_text),
+          );
           let intelligence_json: string;
           try {
             intelligence_json = JSON.stringify({
@@ -434,17 +492,19 @@ export async function analyzeListingFeelText(input: {
               generation_meta: v2.generation_meta,
             });
           }
-          if (!listingFeelSkipCache()) {
-            try {
-              await pool.query(
-                `INSERT INTO analytics.listing_feel_cache (content_hash, audience, model, analysis_text) VALUES ($1, $2, $3, $4)
+          await runStage("analytics.persistence.cache_write", async () => {
+            if (!listingFeelSkipCache()) {
+              try {
+                await pool.query(
+                  `INSERT INTO analytics.listing_feel_cache (content_hash, audience, model, analysis_text) VALUES ($1, $2, $3, $4)
            ON CONFLICT (content_hash, audience) DO NOTHING`,
-                [hash, audience, `${ollamaModel()}+li-v2`, v2.analysis_text],
-              );
-            } catch (dbErr) {
-              console.warn("[listing-feel] li-v2 cache insert skipped", (dbErr as Error)?.message || dbErr);
+                  [hash, audience, `${ollamaModel()}+li-v2`, v2.analysis_text],
+                );
+              } catch (dbErr) {
+                console.warn("[listing-feel] li-v2 cache insert skipped", (dbErr as Error)?.message || dbErr);
+              }
             }
-          }
+          });
           return {
             analysis_text: v2.analysis_text,
             model_used: `${ollamaModel()}+li-v2`,
@@ -500,7 +560,12 @@ ${listingFeelFormatRules}`;
 Description: ${description}
 Asking (USD / month): ${priceUsd}`;
 
-    const prompt = audience === "landlord" ? `${landlordBlock}\n\n${facts}` : `${renterBlock}\n\n${facts}`;
+    const promptVersion = getPromptVersion();
+    const promptEnvelope = `Prompt version: ${promptVersion}\nRuntime mode: ${getRuntimeMode()}`;
+    const prompt =
+      audience === "landlord"
+        ? `${promptEnvelope}\n\n${landlordBlock}\n\n${facts}`
+        : `${promptEnvelope}\n\n${renterBlock}\n\n${facts}`;
 
     const t0 = Date.now();
     analyticsGenerationRequestsTotal.inc({ path: "listing_feel_generate" });
@@ -544,7 +609,7 @@ Asking (USD / month): ${priceUsd}`;
         if (!fetchNoAbort) {
           init.signal = AbortSignal.timeout(timeoutMs);
         }
-        res = await withOllamaSerial(() => fetch(genUrl, init));
+        res = await runStage("analytics.upstream.ollama_http", async () => withOllamaSerial(() => fetch(genUrl, init)));
       } catch (e) {
         const name = e instanceof Error ? e.name : "";
         const msg = e instanceof Error ? e.message : String(e);
@@ -613,24 +678,31 @@ Asking (USD / month): ${priceUsd}`;
       ollamaFailuresTotal.inc();
       return ruleBasedListingFeel(audience);
     }
-    const text = normalizeListingFeelOutput(String(body.response || ""));
-    const quality_score = computeListingFeelQualityScore(text);
+    const text = await runStage("analytics.model.postprocess", async () =>
+      normalizeListingFeelOutput(String(body.response || "")),
+    );
+    const quality_score = await runStage("analytics.quality.compute", async () => computeListingFeelQualityScore(text));
     const genMs = Date.now() - t0;
     observeWithTraceExemplar(ollamaLatencyMs, genMs);
     observeWithTraceExemplar(listingFeelQualityHist, quality_score);
     observeWithTraceExemplar(analyticsGenerationLatencyMs, genMs, { path: "listing_feel_generate" });
     observeWithTraceExemplar(analyticsGenerationTokensEstimated, Math.ceil(prompt.length / 4));
-    try {
-      await pool.query(
-        `INSERT INTO analytics.listing_feel_cache (content_hash, audience, model, analysis_text) VALUES ($1, $2, $3, $4)
+    await runStage("analytics.persistence.cache_write", async () => {
+      try {
+        await pool.query(
+          `INSERT INTO analytics.listing_feel_cache (content_hash, audience, model, analysis_text) VALUES ($1, $2, $3, $4)
        ON CONFLICT (content_hash, audience) DO NOTHING`,
-        [hash, audience, ollamaModel(), text],
-      );
-    } catch (e) {
-      console.error("[listing-feel] legacy cache insert failed (non-fatal; response still returned)", e);
-    }
+          [hash, audience, ollamaModel(), text],
+        );
+      } catch (e) {
+        console.error("[listing-feel] legacy cache insert failed (non-fatal; response still returned)", e);
+      }
+    });
     return { analysis_text: text, model_used: ollamaModel(), quality_score };
-  } finally {
-    if (gotLock) await releaseLockWithToken(lockKey, token);
-  }
+        });
+      });
+    } finally {
+      if (gotLock) await releaseLockWithToken(lockKey, token);
+    }
+  });
 }

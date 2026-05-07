@@ -23,8 +23,11 @@ resources:
   - prometheus-rules-ollama-worker.yaml
   - prometheus-rules-analytics-ai-slo.yaml
   - prometheus-rules-ai-health-composite.yaml
+  - prometheus-rules-ai-control-plane.yaml
+  - prometheus-rules-ai-cluster-arbitration.yaml
   - prometheus-rules-coverage-integrity.yaml
   - prometheus-deploy.yaml
+  - pushgateway-deploy.yaml
   - grafana-dashboard-providers.yaml
   - grafana-dashboards-transport.yaml
   - grafana-dashboard-auth-outbox.yaml
