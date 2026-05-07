@@ -129,6 +129,7 @@ function ReportAbuseSection({
   setAbuseDetails: React.Dispatch<React.SetStateAction<string>>;
   onReport: (e: React.FormEvent) => Promise<void>;
   loading: boolean;
+  abuseError: string | null;
 }) {
   return (
     <section className="mt-10 rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
@@ -410,6 +411,7 @@ export default function TrustPage() {
   const [repError, setRepError] = useState<string | null>(null);
 
   const [abuseType, setAbuseType] = useState<"listing" | "user">("listing");
+  const [abuseError, setAbuseError] = useState<string | null>(null);
   const [abuseTarget, setAbuseTarget] = useState("");
   const [abuseCategory, setAbuseCategory] = useState("spam");
   const [abuseDetails, setAbuseDetails] = useState("");
@@ -482,6 +484,11 @@ export default function TrustPage() {
     e.preventDefault();
     if (loading) return;
     if (!token) return;
+    if (!abuseTarget.trim()) {
+      setAbuseError("Please enter a target UUID.");
+      return;
+    }
+    setAbuseError(null);
     setFeedback({ type: null, message: "" });
     setLoading(true);
     try {
@@ -564,6 +571,7 @@ export default function TrustPage() {
               setAbuseDetails={setAbuseDetails}
               onReport={onReport}
               loading={loading}
+              abuseError={abuseError}
             />
             <PeerReviewSection
               bookingId={bookingId}
