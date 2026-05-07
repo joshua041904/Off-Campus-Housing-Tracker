@@ -234,6 +234,7 @@ function PeerReviewSection({
   setComment,
   onPeerReview,
   loading,
+  reviewError,
 }: {
   bookingId: string;
   setBookingId: React.Dispatch<React.SetStateAction<string>>;
@@ -247,6 +248,7 @@ function PeerReviewSection({
   setComment: React.Dispatch<React.SetStateAction<string>>;
   onPeerReview: (e: React.FormEvent) => Promise<void>;
   loading: boolean;
+  reviewError: string | null;
 }) {
   return (
     <section className="mt-10 rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
@@ -276,9 +278,16 @@ function PeerReviewSection({
           value={bookingId}
           onChange={(e) => setBookingId(e.target.value)}
           placeholder="booking UUID"
-          className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 shadow-sm"
+          aria-describedby={reviewError ? "review-error" : undefined}
+          aria-invalid={reviewError ? true : undefined}
+          className={"w-full rounded-md border px-3 py-2 font-mono text-sm text-slate-900 shadow-sm bg-white " + (reviewError ? "border-red-400" : "border-slate-300")}
           required
         />
+        {reviewError && (
+          <p id="review-error" role="alert" aria-live="assertive" className="text-xs text-red-600">
+            {reviewError}
+          </p>
+        )}
         <label
           htmlFor="trust-reviewee-id"
           className="sr-only"
@@ -417,6 +426,7 @@ export default function TrustPage() {
   const [abuseDetails, setAbuseDetails] = useState("");
 
   const [bookingId, setBookingId] = useState("");
+  const [reviewError, setReviewError] = useState<string | null>(null);
   const [revieweeId, setRevieweeId] = useState("");
   const [side, setSide] = useState("guest");
   const [rating, setRating] = useState(5);
@@ -517,6 +527,11 @@ export default function TrustPage() {
     e.preventDefault();
     if (loading) return;
     if (!token) return;
+    if (!bookingId.trim() || !revieweeId.trim()) {
+      setReviewError("Please enter both booking UUID and reviewee UUID.");
+      return;
+    }
+    setReviewError(null);
     setFeedback({ type: null, message: "" });
     setLoading(true);
     try {
@@ -586,6 +601,7 @@ export default function TrustPage() {
               setComment={setComment}
               onPeerReview={onPeerReview}
               loading={loading}
+              reviewError={reviewError}
             />
           </>
         ) : (
