@@ -158,7 +158,6 @@ function ReportAbuseSection({
       <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
         Report abuse
       </h2>
-<<<<<<< HEAD
       <form
         onSubmit={onReport}
         aria-busy={loading}
@@ -166,11 +165,6 @@ function ReportAbuseSection({
       >
         <fieldset className="flex gap-4 text-sm text-slate-700">
           <legend className="sr-only">Abuse target type</legend>
-
-=======
-      <form onSubmit={onReport} aria-busy={loading} className="mt-4 space-y-3">
-        <div className="flex gap-4 text-sm text-slate-700">
->>>>>>> c022107 (feat(webapp): add trust reputation loading skeleton)
           <label className="flex items-center gap-2">
             <input
               type="radio"
