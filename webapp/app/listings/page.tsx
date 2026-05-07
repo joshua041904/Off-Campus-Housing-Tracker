@@ -13,8 +13,7 @@ import {
 } from "@/lib/api";
 import { getStoredEmail, getStoredToken } from "@/lib/auth-storage";
 import { Nav } from "@/components/Nav";
-import { GoogleMapEmbed } from "@/components/GoogleMapEmbed";
-
+import { ListingCard } from "@/components/listings/ListingCard";
 
 // ---------------------------------------------------------------------------
 // Filter state — single source of truth for all search/filter fields
@@ -35,9 +34,9 @@ type ListingFilters = {
 };
 
 const DEFAULT_FILTERS: ListingFilters = {
-  q: '',
-  minPrice: '',
-  maxPrice: '',
+  q: "",
+  minPrice: "",
+  maxPrice: "",
   smokeFree: false,
   petFriendly: false,
   furnishedOnly: false,
@@ -45,19 +44,25 @@ const DEFAULT_FILTERS: ListingFilters = {
   filterParking: false,
   filterLaundry: false,
   filterDishwasher: false,
-  sortBy: 'created_desc',
-  newWithin: '',
+  sortBy: "created_desc",
+  newWithin: "",
 };
 
 type FilterAction =
-  | { type: 'SET'; payload: Partial<ListingFilters> }
-  | { type: 'RESET' };
+  | { type: "SET"; payload: Partial<ListingFilters> }
+  | { type: "RESET" };
 
-function filtersReducer(state: ListingFilters, action: FilterAction): ListingFilters {
+function filtersReducer(
+  state: ListingFilters,
+  action: FilterAction,
+): ListingFilters {
   switch (action.type) {
-    case 'SET': return { ...state, ...action.payload };
-    case 'RESET': return DEFAULT_FILTERS;
-    default: return state;
+    case "SET":
+      return { ...state, ...action.payload };
+    case "RESET":
+      return DEFAULT_FILTERS;
+    default:
+      return state;
   }
 }
 
@@ -66,45 +71,51 @@ function filtersReducer(state: ListingFilters, action: FilterAction): ListingFil
 // ---------------------------------------------------------------------------
 function filtersToParams(f: ListingFilters): URLSearchParams {
   const p = new URLSearchParams();
-  if (f.q) p.set('q', f.q);
-  if (f.minPrice) p.set('min_price', f.minPrice);
-  if (f.maxPrice) p.set('max_price', f.maxPrice);
-  if (f.smokeFree) p.set('smoke_free', '1');
-  if (f.petFriendly) p.set('pet_friendly', '1');
-  if (f.furnishedOnly) p.set('furnished', '1');
+  if (f.q) p.set("q", f.q);
+  if (f.minPrice) p.set("min_price", f.minPrice);
+  if (f.maxPrice) p.set("max_price", f.maxPrice);
+  if (f.smokeFree) p.set("smoke_free", "1");
+  if (f.petFriendly) p.set("pet_friendly", "1");
+  if (f.furnishedOnly) p.set("furnished", "1");
   const amenities: string[] = [];
-  if (f.filterGarage) amenities.push('garage');
-  if (f.filterParking) amenities.push('parking');
-  if (f.filterLaundry) amenities.push('in_unit_laundry');
-  if (f.filterDishwasher) amenities.push('dishwasher');
-  if (amenities.length) p.set('amenities', amenities.join('|'));
-  if (f.newWithin) p.set('new_within', f.newWithin);
-  if (f.sortBy && f.sortBy !== 'created_desc') p.set('sort', f.sortBy);
+  if (f.filterGarage) amenities.push("garage");
+  if (f.filterParking) amenities.push("parking");
+  if (f.filterLaundry) amenities.push("in_unit_laundry");
+  if (f.filterDishwasher) amenities.push("dishwasher");
+  if (amenities.length) p.set("amenities", amenities.join("|"));
+  if (f.newWithin) p.set("new_within", f.newWithin);
+  if (f.sortBy && f.sortBy !== "created_desc") p.set("sort", f.sortBy);
   return p;
 }
 
-function safeStr(v: string | null): string { return v?.trim() || ""; }
-function safeBool(v: string | null): boolean { return v === "1"; }
+function safeStr(v: string | null): string {
+  return v?.trim() || "";
+}
+function safeBool(v: string | null): boolean {
+  return v === "1";
+}
 function safeSort(v: string | null): ListingFilters["sortBy"] {
   const safe = ["created_desc", "listed_desc", "price_asc", "price_desc"];
-  return safe.includes(v ?? "") ? (v as ListingFilters["sortBy"]) : "created_desc";
+  return safe.includes(v ?? "")
+    ? (v as ListingFilters["sortBy"])
+    : "created_desc";
 }
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function paramsToFilters(p: URLSearchParams): Partial<ListingFilters> {
-  const amenities = (p.get('amenities') || '').split('|').filter(Boolean);
+  const amenities = (p.get("amenities") || "").split("|").filter(Boolean);
   return {
-    q: p.get('q') || '',
-    minPrice: p.get('min_price') || '',
-    maxPrice: p.get('max_price') || '',
-    smokeFree: safeBool(p.get('smoke_free')),
-    petFriendly: safeBool(p.get('pet_friendly')),
-    furnishedOnly: safeBool(p.get('furnished')),
-    filterGarage: amenities.includes('garage'),
-    filterParking: amenities.includes('parking'),
-    filterLaundry: amenities.includes('in_unit_laundry'),
-    filterDishwasher: amenities.includes('dishwasher'),
-    newWithin: safeStr(p.get('new_within')),
-    sortBy: safeSort(p.get('sort')),
+    q: p.get("q") || "",
+    minPrice: p.get("min_price") || "",
+    maxPrice: p.get("max_price") || "",
+    smokeFree: safeBool(p.get("smoke_free")),
+    petFriendly: safeBool(p.get("pet_friendly")),
+    furnishedOnly: safeBool(p.get("furnished")),
+    filterGarage: amenities.includes("garage"),
+    filterParking: amenities.includes("parking"),
+    filterLaundry: amenities.includes("in_unit_laundry"),
+    filterDishwasher: amenities.includes("dishwasher"),
+    newWithin: safeStr(p.get("new_within")),
+    sortBy: safeSort(p.get("sort")),
   };
 }
 
@@ -164,7 +175,12 @@ function ListingsResultsSection({
             Available listings
           </h2>
         </div>
-        <p className="text-sm text-slate-500" role="status" aria-live="polite" aria-atomic="true">
+        <p
+          className="text-sm text-slate-500"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
           {searchLoading
             ? "Updating results…"
             : searchError
@@ -205,77 +221,10 @@ function ListingsResultsSection({
         ) : (
           <div className="grid gap-6 lg:grid-cols-2">
             {items.map((row) => (
-              <article
+              <ListingCard
                 key={row.id}
-                className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-xl font-semibold text-slate-900">
-                      {row.title}
-                    </p>
-                    <p className="mt-2 text-sm text-slate-500">
-                      Listing ID{" "}
-                      <span className="font-mono text-xs text-slate-500">
-                        {row.id}
-                      </span>
-                    </p>
-                  </div>
-                  <div className="rounded-full bg-teal-50 px-3 py-1 text-sm font-semibold text-teal-700">
-                    ${(row.price_cents / 100).toFixed(2)}
-                  </div>
-                </div>
-
-                <div className="mt-4 flex flex-wrap gap-2 text-xs text-slate-600">
-                  {row.smoke_free && (
-                    <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
-                      Smoke-free
-                    </span>
-                  )}
-                  {row.pet_friendly && (
-                    <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
-                      Pet-friendly
-                    </span>
-                  )}
-                  {row.furnished && (
-                    <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
-                      Furnished
-                    </span>
-                  )}
-                  {row.amenities?.map((amenity) => (
-                    <span
-                      key={amenity}
-                      className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1"
-                    >
-                      {amenity.replaceAll("_", " ")}
-                    </span>
-                  ))}
-                </div>
-
-                <div className="mt-4 flex flex-wrap gap-4 text-sm text-slate-500">
-                  {row.listed_at && <span>Listed {row.listed_at}</span>}
-                  {row.latitude != null && row.longitude != null ? (
-                    <span>Map preview available</span>
-                  ) : (
-                    <span>No coordinates provided</span>
-                  )}
-                </div>
-
-                <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
-                  {row.latitude != null && row.longitude != null ? (
-                    <GoogleMapEmbed
-                      latitude={row.latitude}
-                      longitude={row.longitude}
-                      height={180}
-                      zoom={15}
-                    />
-                  ) : (
-                    <div className="flex h-[180px] items-center justify-center px-6 text-center text-sm text-slate-500">
-                      This listing does not include map coordinates yet.
-                    </div>
-                  )}
-                </div>
-              </article>
+                listing={row}
+              />
             ))}
           </div>
         )}
@@ -395,7 +344,10 @@ function ListingsSearchSection({
         </p>
         <div className="mt-3 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <div className="md:col-span-2">
-            <label htmlFor="listings-q" className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            <label
+              htmlFor="listings-q"
+              className="text-xs font-medium uppercase tracking-wide text-slate-500"
+            >
               Keywords
             </label>
             <input
@@ -408,7 +360,10 @@ function ListingsSearchSection({
             />
           </div>
           <div>
-            <label htmlFor="listings-min-price" className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            <label
+              htmlFor="listings-min-price"
+              className="text-xs font-medium uppercase tracking-wide text-slate-500"
+            >
               Min price (USD)
             </label>
             <input
@@ -421,7 +376,10 @@ function ListingsSearchSection({
             />
           </div>
           <div>
-            <label htmlFor="listings-max-price" className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            <label
+              htmlFor="listings-max-price"
+              className="text-xs font-medium uppercase tracking-wide text-slate-500"
+            >
               Max price (USD)
             </label>
             <input
@@ -511,7 +469,10 @@ function ListingsSearchSection({
         </p>
         <div className="mt-3 flex flex-wrap items-end gap-4">
           <div>
-            <label htmlFor="listings-sort" className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            <label
+              htmlFor="listings-sort"
+              className="text-xs font-medium uppercase tracking-wide text-slate-500"
+            >
               Sort by
             </label>
             <select
@@ -528,7 +489,10 @@ function ListingsSearchSection({
             </select>
           </div>
           <div>
-            <label htmlFor="listings-new-within" className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            <label
+              htmlFor="listings-new-within"
+              className="text-xs font-medium uppercase tracking-wide text-slate-500"
+            >
               Listed recently
             </label>
             <select
@@ -845,22 +809,48 @@ function ListingsPageInner() {
   const [email, setEmail] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
 
-  const [filters, dispatchFilters] = useReducer(filtersReducer, DEFAULT_FILTERS);
-  const { q, minPrice, maxPrice, smokeFree, petFriendly, furnishedOnly,
-    filterGarage, filterParking, filterLaundry, filterDishwasher,
-    sortBy, newWithin } = filters;
-  const setQ = (v: string) => dispatchFilters({ type: 'SET', payload: { q: v } });
-  const setMinPrice = (v: string) => dispatchFilters({ type: 'SET', payload: { minPrice: v } });
-  const setMaxPrice = (v: string) => dispatchFilters({ type: 'SET', payload: { maxPrice: v } });
-  const setSmokeFree = (v: boolean) => dispatchFilters({ type: 'SET', payload: { smokeFree: v } });
-  const setPetFriendly = (v: boolean) => dispatchFilters({ type: 'SET', payload: { petFriendly: v } });
-  const setFurnishedOnly = (v: boolean) => dispatchFilters({ type: 'SET', payload: { furnishedOnly: v } });
-  const setFilterGarage = (v: boolean) => dispatchFilters({ type: 'SET', payload: { filterGarage: v } });
-  const setFilterParking = (v: boolean) => dispatchFilters({ type: 'SET', payload: { filterParking: v } });
-  const setFilterLaundry = (v: boolean) => dispatchFilters({ type: 'SET', payload: { filterLaundry: v } });
-  const setFilterDishwasher = (v: boolean) => dispatchFilters({ type: 'SET', payload: { filterDishwasher: v } });
-  const setSortBy = (v: ListingSearchSort) => dispatchFilters({ type: 'SET', payload: { sortBy: v } });
-  const setNewWithin = (v: string) => dispatchFilters({ type: 'SET', payload: { newWithin: v } });
+  const [filters, dispatchFilters] = useReducer(
+    filtersReducer,
+    DEFAULT_FILTERS,
+  );
+  const {
+    q,
+    minPrice,
+    maxPrice,
+    smokeFree,
+    petFriendly,
+    furnishedOnly,
+    filterGarage,
+    filterParking,
+    filterLaundry,
+    filterDishwasher,
+    sortBy,
+    newWithin,
+  } = filters;
+  const setQ = (v: string) =>
+    dispatchFilters({ type: "SET", payload: { q: v } });
+  const setMinPrice = (v: string) =>
+    dispatchFilters({ type: "SET", payload: { minPrice: v } });
+  const setMaxPrice = (v: string) =>
+    dispatchFilters({ type: "SET", payload: { maxPrice: v } });
+  const setSmokeFree = (v: boolean) =>
+    dispatchFilters({ type: "SET", payload: { smokeFree: v } });
+  const setPetFriendly = (v: boolean) =>
+    dispatchFilters({ type: "SET", payload: { petFriendly: v } });
+  const setFurnishedOnly = (v: boolean) =>
+    dispatchFilters({ type: "SET", payload: { furnishedOnly: v } });
+  const setFilterGarage = (v: boolean) =>
+    dispatchFilters({ type: "SET", payload: { filterGarage: v } });
+  const setFilterParking = (v: boolean) =>
+    dispatchFilters({ type: "SET", payload: { filterParking: v } });
+  const setFilterLaundry = (v: boolean) =>
+    dispatchFilters({ type: "SET", payload: { filterLaundry: v } });
+  const setFilterDishwasher = (v: boolean) =>
+    dispatchFilters({ type: "SET", payload: { filterDishwasher: v } });
+  const setSortBy = (v: ListingSearchSort) =>
+    dispatchFilters({ type: "SET", payload: { sortBy: v } });
+  const setNewWithin = (v: string) =>
+    dispatchFilters({ type: "SET", payload: { newWithin: v } });
 
   const [items, setItems] = useState<ListingJson[]>([]);
   const [detail, setDetail] = useState<ListingJson | null>(null);
@@ -901,7 +891,7 @@ function ListingsPageInner() {
   useEffect(() => {
     const params = filtersToParams(debouncedFilters);
     const qs = params.toString();
-    router.replace(qs ? `/listings?${qs}` : '/listings', { scroll: false });
+    router.replace(qs ? `/listings?${qs}` : "/listings", { scroll: false });
   }, [debouncedFilters]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const buildCreateAmenities = (): string[] => {
@@ -1051,7 +1041,12 @@ function ListingsPageInner() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-teal-50/30 text-slate-900">
-      <a href="#listings-results" className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:rounded-lg focus:bg-teal-700 focus:px-4 focus:py-2 focus:text-white focus:text-sm focus:font-semibold">Skip to listings</a>
+      <a
+        href="#listings-results"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:rounded-lg focus:bg-teal-700 focus:px-4 focus:py-2 focus:text-white focus:text-sm focus:font-semibold"
+      >
+        Skip to listings
+      </a>
       <Nav email={email} />
       <main className="mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-12">
         <ListingsHeaderSection />
