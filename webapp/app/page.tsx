@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { Nav } from "@/components/Nav";
 
 function HeroSection() {
   return (
@@ -325,8 +324,7 @@ function ClosingCtaSection() {
 export default function Home() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#f8faf8] via-[#fcfcfb] to-[#eefaf6] text-slate-900">
-      <Nav />
-
+      
       <main>
         <HeroSection />
         <HowItWorksSection />

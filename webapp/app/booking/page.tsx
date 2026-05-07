@@ -14,7 +14,6 @@ import {
   updateBookingTenantNotes,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { Nav } from "@/components/Nav";
 
 const TERMINAL_STATUSES = new Set(["cancelled", "completed", "expired"]);
 
@@ -121,7 +120,7 @@ function FeedbackBanner({
 
 export default function BookingPage() {
   const router = useRouter();
-  const { authReady, token, email, isAuthenticated } = useAuth();
+  const { authReady, token, isAuthenticated } = useAuth();
 
   const [listingId, setListingId] = useState("");
   const [startDate, setStartDate] = useState(() =>
@@ -343,8 +342,7 @@ export default function BookingPage() {
       className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(45,212,191,0.14),_transparent_28%),linear-gradient(180deg,_#f8fffd_0%,_#ffffff_34%,_#f8fafc_100%)] text-slate-900"
       data-testid="booking-root"
     >
-      <Nav email={email} />
-
+      
       <main className="mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-14">
         <section className="grid gap-8 lg:grid-cols-[1.05fr_0.95fr] lg:items-start">
           <div>

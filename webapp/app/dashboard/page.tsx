@@ -11,7 +11,6 @@ import {
   watchlistRemove,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { Nav } from "@/components/Nav";
 import { GoogleMapEmbed } from "@/components/GoogleMapEmbed";
 
 type SearchRow = SearchHistoryRow;
@@ -24,7 +23,7 @@ type WatchRow = {
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { authReady, token, email, isAuthenticated } = useAuth();
+  const { authReady, token, isAuthenticated } = useAuth();
 
   const [query, setQuery] = useState("near campus");
   const [minPrice, setMinPrice] = useState("");
@@ -155,8 +154,7 @@ export default function DashboardPage() {
       className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-emerald-50/50 text-slate-900"
       data-testid="dashboard-root"
     >
-      <Nav email={email} />
-      <main className="mx-auto max-w-5xl px-4 py-10">
+            <main className="mx-auto max-w-5xl px-4 py-10">
         <h1 className="font-serif text-3xl text-slate-900">Housing search</h1>
         <p className="mt-2 max-w-2xl text-sm text-slate-600">
           Search preferences are stored as{" "}

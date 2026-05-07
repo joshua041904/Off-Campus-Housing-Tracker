@@ -10,12 +10,10 @@ import {
   type DailyMetricsJson,
   type SearchSummaryItem,
 } from "@/lib/api";
-import { getStoredEmail, getStoredToken } from "@/lib/auth-storage";
+import { getStoredToken } from "@/lib/auth-storage";
 import { getSubFromJwt } from "@/lib/jwt-sub";
-import { Nav } from "@/components/Nav";
 
 export default function AnalyticsPage() {
-  const [email, setEmail] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [sub, setSub] = useState<string | null>(null);
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -37,7 +35,6 @@ export default function AnalyticsPage() {
   useEffect(() => {
     const t = getStoredToken();
     setToken(t);
-    setEmail(getStoredEmail());
     setSub(getSubFromJwt(t));
   }, []);
 
@@ -127,8 +124,7 @@ export default function AnalyticsPage() {
 
   return (
     <div data-testid="analytics-page" className="min-h-screen bg-gradient-to-br from-[#f8faf8] via-[#fcfcfb] to-[#eefaf6] text-slate-900">
-      <Nav email={email} />
-      <main className="mx-auto max-w-4xl px-4 py-12 sm:px-6 sm:py-16">
+            <main className="mx-auto max-w-4xl px-4 py-12 sm:px-6 sm:py-16">
 
         <div className="mb-10">
           <p className="text-sm font-semibold uppercase tracking-[0.22em] text-teal-700">Analytics</p>

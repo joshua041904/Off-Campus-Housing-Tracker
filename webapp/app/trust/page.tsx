@@ -3,9 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { getReputation, reportAbuse, submitPeerReview } from "@/lib/api";
-import { getStoredEmail, getStoredToken } from "@/lib/auth-storage";
+import { getStoredToken } from "@/lib/auth-storage";
 import { getSubFromJwt } from "@/lib/jwt-sub";
-import { Nav } from "@/components/Nav";
 
 function TrustHeaderSection() {
   return (
@@ -392,7 +391,6 @@ function TrustFeedback({
 }
 
 export default function TrustPage() {
-  const [email, setEmail] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [mySub, setMySub] = useState<string | null>(null);
 
@@ -426,7 +424,6 @@ export default function TrustPage() {
   useEffect(() => {
     const t = getStoredToken();
     setToken(t);
-    setEmail(getStoredEmail());
     const sub = getSubFromJwt(t);
     setMySub(sub);
     if (sub) setRepUserId(sub);
@@ -520,8 +517,7 @@ export default function TrustPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-teal-50/30 text-slate-900">
-      <Nav email={email} />
-      <main className="mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-12">
+            <main className="mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-12">
         <TrustHeaderSection />
 
         <ReputationSection

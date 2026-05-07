@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { Nav } from "@/components/Nav";
 
 const COMMUNITY_PILLARS = [
   {
@@ -79,8 +78,7 @@ const COMMUNITY_GUIDES = [
 export default function CommunityPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#f7fbfa] via-white to-[#eef8f5] text-slate-900">
-      <Nav />
-
+      
       <main>
         <section className="relative overflow-hidden border-b border-slate-200/70">
           <div className="absolute inset-x-0 top-0 h-[28rem] bg-[radial-gradient(circle_at_top_left,_rgba(45,212,191,0.18),_transparent_34%),radial-gradient(circle_at_top_right,_rgba(14,165,233,0.12),_transparent_30%)]" />

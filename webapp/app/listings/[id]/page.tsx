@@ -10,8 +10,7 @@ import {
   watchlistRemove,
   type ListingJson,
 } from "@/lib/api";
-import { getStoredEmail, getStoredToken } from "@/lib/auth-storage";
-import { Nav } from "@/components/Nav";
+import { getStoredToken } from "@/lib/auth-storage";
 import { GoogleMapEmbed } from "@/components/GoogleMapEmbed";
 
 function formatPrice(cents: number) {
@@ -25,8 +24,7 @@ function formatAmenity(amenity: string) {
 function ListingDetailSkeleton() {
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(45,212,191,0.14),_transparent_28%),linear-gradient(180deg,_#f8fffd_0%,_#ffffff_34%,_#f8fafc_100%)] text-slate-900">
-      <Nav email={getStoredEmail()} />
-
+      
       <main className="mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-14">
         <div className="rounded-[2rem] border border-slate-200 bg-white p-8 shadow-sm">
           <p className="text-sm font-medium text-slate-500">
@@ -105,8 +103,7 @@ function ListingDetailPageContent({ listing }: { listing: ListingJson }) {
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(45,212,191,0.14),_transparent_28%),linear-gradient(180deg,_#f8fffd_0%,_#ffffff_34%,_#f8fafc_100%)] text-slate-900">
-      <Nav email={getStoredEmail()} />
-
+      
       <main className="mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-14">
         <Link
           href="/listings"
