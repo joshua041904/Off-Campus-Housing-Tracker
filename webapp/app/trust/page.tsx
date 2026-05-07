@@ -31,6 +31,7 @@ function ReputationSection({
   loading,
   mySub,
   repScore,
+  repError,
 }: {
   repUserId: string;
   setRepUserId: React.Dispatch<React.SetStateAction<string>>;
@@ -38,6 +39,7 @@ function ReputationSection({
   loading: boolean;
   mySub: string | null;
   repScore: number | null;
+  repError: string | null;
 }) {
   return (
     <section className="mt-10 rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
@@ -65,7 +67,9 @@ function ReputationSection({
           value={repUserId}
           onChange={(e) => setRepUserId(e.target.value)}
           placeholder="user UUID"
-          className="flex-1 rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 shadow-sm"
+          aria-describedby={repError ? "rep-error" : undefined}
+          aria-invalid={repError ? true : undefined}
+          className={"flex-1 rounded-md border px-3 py-2 font-mono text-sm text-slate-900 shadow-sm bg-white " + (repError ? "border-red-400" : "border-slate-300")}
         />
         <button
           type="submit"
@@ -77,6 +81,11 @@ function ReputationSection({
           {loading ? "Looking up…" : "Look up"}
         </button>
       </form>
+      {repError && (
+        <p id="rep-error" role="alert" aria-live="assertive" className="mt-2 text-xs text-red-600">
+          {repError}
+        </p>
+      )}
       {mySub && (
         <button
           type="button"
@@ -398,6 +407,7 @@ export default function TrustPage() {
 
   const [repUserId, setRepUserId] = useState("");
   const [repScore, setRepScore] = useState<number | null>(null);
+  const [repError, setRepError] = useState<string | null>(null);
 
   const [abuseType, setAbuseType] = useState<"listing" | "user">("listing");
   const [abuseTarget, setAbuseTarget] = useState("");
@@ -441,17 +451,24 @@ export default function TrustPage() {
   async function onReputation(e: React.FormEvent) {
     e.preventDefault();
     if (loading) return;
+    if (!repUserId.trim()) {
+      setRepError("Please enter a user UUID.");
+      return;
+    }
+    setRepError(null);
     setFeedback({ type: null, message: "" });
     setLoading(true);
     try {
       const r = await getReputation(repUserId.trim());
       setRepScore(r.score);
+      setRepError(null);
       setFeedback({
         type: "success",
         message: `Reputation for ${r.user_id}: ${r.score}`,
       });
     } catch (e: unknown) {
       setRepScore(null);
+      setRepError(e instanceof Error ? e.message : "Lookup failed");
       setFeedback({
         type: "error",
         message: e instanceof Error ? e.message : "Lookup failed",
@@ -531,6 +548,7 @@ export default function TrustPage() {
           loading={loading}
           mySub={mySub}
           repScore={repScore}
+          repError={repError}
         />
 
         {token ? (
