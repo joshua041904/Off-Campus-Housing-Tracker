@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { getReputation, reportAbuse, submitPeerReview } from "@/lib/api";
 import { getStoredEmail, getStoredToken } from "@/lib/auth-storage";
 import { getSubFromJwt } from "@/lib/jwt-sub";
 import { Nav } from "@/components/Nav";
 
-function TrustHeaderSection() {
+const TrustHeaderSection = memo(function TrustHeaderSection() {
   return (
     <section className="max-w-3xl">
       <p className="text-sm font-semibold uppercase tracking-[0.22em] text-teal-700">
@@ -22,9 +22,10 @@ function TrustHeaderSection() {
       </p>
     </section>
   );
-}
+});
+TrustHeaderSection.displayName = "TrustHeaderSection";
 
-function ReputationSection({
+const ReputationSection = memo(function ReputationSection({
   repUserId,
   setRepUserId,
   onReputation,
@@ -96,9 +97,10 @@ function ReputationSection({
       )}
     </section>
   );
-}
+});
+ReputationSection.displayName = "ReputationSection";
 
-function ReportAbuseSection({
+const ReportAbuseSection = memo(function ReportAbuseSection({
   abuseType,
   setAbuseType,
   abuseTarget,
@@ -209,9 +211,10 @@ function ReportAbuseSection({
       </form>
     </section>
   );
-}
+});
+ReportAbuseSection.displayName = "ReportAbuseSection";
 
-function PeerReviewSection({
+const PeerReviewSection = memo(function PeerReviewSection({
   bookingId,
   setBookingId,
   revieweeId,
@@ -338,9 +341,10 @@ function PeerReviewSection({
       </form>
     </section>
   );
-}
+});
+PeerReviewSection.displayName = "PeerReviewSection";
 
-function TrustLoginPrompt() {
+const TrustLoginPrompt = memo(function TrustLoginPrompt() {
   return (
     <div className="mt-10 rounded-[1.25rem] border border-slate-200 bg-white px-5 py-4 text-sm text-slate-600 shadow-sm">
       <Link
@@ -352,9 +356,10 @@ function TrustLoginPrompt() {
       to report abuse or submit peer reviews.
     </div>
   );
-}
+});
+TrustLoginPrompt.displayName = "TrustLoginPrompt";
 
-function TrustFeedback({
+const TrustFeedback = memo(function TrustFeedback({
   feedback,
   feedbackRef,
 }: {
@@ -389,7 +394,8 @@ function TrustFeedback({
       {feedback.message}
     </div>
   );
-}
+});
+TrustFeedback.displayName = "TrustFeedback";
 
 export default function TrustPage() {
   const [email, setEmail] = useState<string | null>(null);
@@ -438,7 +444,7 @@ export default function TrustPage() {
     feedbackRef.current?.focus();
   }, [feedback.type]);
 
-  async function onReputation(e: React.FormEvent) {
+  const onReputation = useCallback(async function onReputation(e: React.FormEvent) {
     e.preventDefault();
     if (loading) return;
     setFeedback({ type: null, message: "" });
@@ -459,9 +465,9 @@ export default function TrustPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [repUserId, loading]);
 
-  async function onReport(e: React.FormEvent) {
+  const onReport = useCallback(async function onReport(e: React.FormEvent) {
     e.preventDefault();
     if (loading) return;
     if (!token) return;
@@ -487,9 +493,9 @@ export default function TrustPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [token, abuseType, abuseTarget, abuseCategory, abuseDetails, loading]);
 
-  async function onPeerReview(e: React.FormEvent) {
+  const onPeerReview = useCallback(async function onPeerReview(e: React.FormEvent) {
     e.preventDefault();
     if (loading) return;
     if (!token) return;
@@ -516,7 +522,7 @@ export default function TrustPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [token, bookingId, revieweeId, side, rating, comment, loading]);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-teal-50/30 text-slate-900">
