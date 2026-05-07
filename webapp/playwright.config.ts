@@ -32,6 +32,7 @@ const suiteProjects = [
     testMatch: [
       "guest.spec.ts",
       "webapp-pages.spec.ts",
+      "accessibility.spec.ts",
       "messaging-mentioned.spec.ts",
       "trust.visual.spec.ts",
     ],
