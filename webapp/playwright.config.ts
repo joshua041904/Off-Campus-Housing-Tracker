@@ -47,6 +47,7 @@ const suiteProjects = [
       "listings-filters-maps.spec.ts",
       "search-filters.spec.ts",
       "listings.visual.spec.ts",
+      "listings-detail.spec.ts",
     ],
   },
   {
