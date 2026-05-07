@@ -3,8 +3,14 @@
 import Link from "next/link";
 import { notFound, useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { getListing, type ListingJson } from "@/lib/api";
-import { getStoredEmail } from "@/lib/auth-storage";
+import {
+  analyzeListingFeel,
+  getListing,
+  watchlistAdd,
+  watchlistRemove,
+  type ListingJson,
+} from "@/lib/api";
+import { getStoredEmail, getStoredToken } from "@/lib/auth-storage";
 import { Nav } from "@/components/Nav";
 import { GoogleMapEmbed } from "@/components/GoogleMapEmbed";
 
@@ -33,6 +39,70 @@ function ListingDetailSkeleton() {
 }
 
 function ListingDetailPageContent({ listing }: { listing: ListingJson }) {
+  const [saved, setSaved] = useState(false);
+  const [saveLoading, setSaveLoading] = useState(false);
+
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisText, setAnalysisText] = useState<string | null>(null);
+
+  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
+
+  const token = getStoredToken();
+
+  async function handleToggleSave() {
+    if (!token) {
+      setFeedbackError("You must be logged in to save listings.");
+      return;
+    }
+
+    setSaveLoading(true);
+    setFeedbackError(null);
+    setFeedbackMessage(null);
+
+    try {
+      if (saved) {
+        await watchlistRemove(token, listing.id);
+        setSaved(false);
+        setFeedbackMessage("Listing removed from watchlist.");
+      } else {
+        await watchlistAdd(token, listing.id);
+        setSaved(true);
+        setFeedbackMessage("Listing saved to watchlist.");
+      }
+    } catch (err: unknown) {
+      setFeedbackError(
+        err instanceof Error ? err.message : "Could not update watchlist.",
+      );
+    } finally {
+      setSaveLoading(false);
+    }
+  }
+
+  async function handleAnalyzeListing() {
+    setAnalysisLoading(true);
+    setFeedbackError(null);
+    setFeedbackMessage(null);
+
+    try {
+      const result = await analyzeListingFeel(token, {
+        title: listing.title,
+        description: listing.description ?? "",
+        price_cents: listing.price_cents,
+        audience: "renter",
+      });
+
+      setAnalysisText(result.analysis_text ?? "No analysis available.");
+      setFeedbackMessage("Listing analysis generated.");
+    } catch (err: unknown) {
+      setFeedbackError(
+        err instanceof Error ? err.message : "Could not analyze listing.",
+      );
+    } finally {
+      setAnalysisLoading(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(45,212,191,0.14),_transparent_28%),linear-gradient(180deg,_#f8fffd_0%,_#ffffff_34%,_#f8fafc_100%)] text-slate-900">
       <Nav email={getStoredEmail()} />
@@ -134,36 +204,93 @@ function ListingDetailPageContent({ listing }: { listing: ListingJson }) {
             </p>
 
             <div className="mt-6 space-y-3">
-              <button
-                type="button"
-                disabled
-                className="w-full rounded-full bg-teal-700 px-5 py-3 text-sm font-semibold text-white opacity-60"
-              >
-                Save listing
-              </button>
-              <button
-                type="button"
-                disabled
-                className="w-full rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-medium text-slate-800 opacity-60"
-              >
-                Analyze listing
-              </button>
-              <Link
-                href={`/booking?listingId=${encodeURIComponent(listing.id)}`}
-                className="block w-full rounded-full border border-slate-300 bg-white px-5 py-3 text-center text-sm font-medium text-slate-800 transition hover:border-slate-400 hover:bg-slate-50"
-              >
-                Start booking
-              </Link>
-              <button
-                type="button"
-                disabled
-                className="w-full rounded-full border border-slate-200 bg-slate-50 px-5 py-3 text-sm font-medium text-slate-500"
-              >
-                Message landlord — coming soon
-              </button>
+              {feedbackMessage ? (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800"
+                >
+                  {feedbackMessage}
+                </div>
+              ) : null}
+
+              {feedbackError ? (
+                <div
+                  role="alert"
+                  className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700"
+                >
+                  {feedbackError}
+                </div>
+              ) : null}
+
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={handleToggleSave}
+                  disabled={saveLoading}
+                  className="w-full rounded-full bg-teal-700 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-teal-700/20 transition hover:bg-teal-600 disabled:opacity-60"
+                >
+                  {saveLoading
+                    ? "Updating..."
+                    : saved
+                      ? "Saved to watchlist"
+                      : "Save listing"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAnalyzeListing}
+                  disabled={analysisLoading}
+                  className="w-full rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-medium text-slate-800 transition hover:border-slate-400 hover:bg-slate-50 disabled:opacity-60"
+                >
+                  {analysisLoading ? "Analyzing..." : "Analyze listing"}
+                </button>
+                <Link
+                  href={`/booking?listingId=${encodeURIComponent(listing.id)}`}
+                  className="block w-full rounded-full bg-teal-700 px-5 py-3 text-center text-sm font-semibold text-white shadow-lg shadow-teal-700/20 transition hover:bg-teal-600"
+                >
+                  Start booking
+                </Link>
+                <button
+                  type="button"
+                  disabled
+                  className="w-full rounded-full border border-slate-200 bg-slate-50 px-5 py-3 text-sm font-medium text-slate-500"
+                >
+                  Message landlord — coming soon
+                </button>
+              </div>
+              {analysisText ? (
+                <div className="mt-4 rounded-[1.5rem] border border-teal-100 bg-teal-50 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-teal-700">
+                    Listing analysis
+                  </p>
+
+                  <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                    {analysisText}
+                  </p>
+                </div>
+              ) : null}
             </div>
           </aside>
         </section>
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 p-4 backdrop-blur lg:hidden">
+          <div className="mx-auto flex max-w-6xl gap-3">
+            <button
+              type="button"
+              onClick={handleToggleSave}
+              disabled={saveLoading}
+              className="flex-1 rounded-full border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-800"
+            >
+              {saved ? "Saved" : "Save"}
+            </button>
+
+            <Link
+              href={`/booking?listingId=${encodeURIComponent(listing.id)}`}
+              className="flex-1 rounded-full bg-teal-700 px-4 py-3 text-center text-sm font-semibold text-white"
+            >
+              Book
+            </Link>
+          </div>
+        </div>
       </main>
     </div>
   );
