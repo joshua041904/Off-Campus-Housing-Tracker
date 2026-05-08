@@ -1,0 +1,124 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules-ai-health-composite
+  namespace: observability
+  labels:
+    app: prometheus
+    och.dev/role: ai-health-composite
+data:
+  ai-health-composite.yml: |
+    groups:
+      - name: ai-health-composite
+        interval: 30s
+        rules:
+          # Single operational score (0–100). Sub-terms are clamped so missing traffic does not explode ratios.
+          - record: ai_health_composite_score
+            expr: |
+              (
+                0.2 * (100 * clamp(1 - (
+                  histogram_quantile(
+                    0.95,
+                    sum(rate(analytics_latency_seconds_bucket[5m])) by (le)
+                  ) / 10
+                ), 0, 1))
+              + 0.2 * (100 * clamp(1 - (
+                  (
+                    sum(rate(analytics_fallback_total[5m]))
+                    /
+                    clamp_min(sum(rate(analytics_requests_total[5m])), 1e-9)
+                  ) / 0.2
+                ), 0, 1))
+              + 0.15 * (100 * clamp(
+                  (avg(avg_over_time(analytics_entropy_value[5m])) or vector(0)) / 0.5
+                , 0, 1))
+              + 0.2 * (avg(avg_over_time(analytics_quality_score[5m])) or vector(0))
+              + 0.1 * (100 * clamp(1 - ((max(kafka_skew_max_share) or vector(0)) / 0.5), 0, 1))
+              + 0.15 * (100 * clamp(1 - (
+                  (
+                    sum(rate(analytics_hallucination_total[5m]))
+                    /
+                    clamp_min(sum(rate(analytics_requests_total[5m])), 1e-9)
+                  ) / 0.1
+                ), 0, 1))
+              )
+          - alert: AICompositeCritical
+            expr: ai_health_composite_score < 60
+            for: 5m
+            labels:
+              severity: critical
+              service: analytics
+              slo: ai-composite
+            annotations:
+              summary: "AI composite health critical"
+              description: "Composite AI health score below 60 for 5m (recording rule ai_health_composite_score)."
+          - alert: AICompositeWarning
+            expr: ai_health_composite_score < 75
+            for: 10m
+            labels:
+              severity: warning
+              service: analytics
+              slo: ai-composite
+            annotations:
+              summary: "AI composite health degraded"
+              description: "Composite AI health score below 75 for 10m."
+          # Severe fallback (distinct from analytics-ai-slo AIFallbackSpikeUnified at 10% / 5m).
+          - alert: AIFallbackSpikeSevere
+            expr: |
+              (
+                sum(rate(analytics_fallback_total[5m]))
+                /
+                clamp_min(sum(rate(analytics_requests_total[5m])), 1e-9)
+              ) > 0.20
+            for: 3m
+            labels:
+              severity: critical
+              service: analytics
+              slo: ai-fallback
+            annotations:
+              summary: "AI fallback spike (severe)"
+              description: "Unified fallback rate exceeded 20% of analytics_requests_total for 3m."
+          # Sustained low entropy on the unified gauge (warning, 10m window).
+          - alert: AIEntropyCollapseSustained
+            expr: avg_over_time(analytics_entropy_value[10m]) < 0.2
+            for: 10m
+            labels:
+              severity: warning
+              service: analytics
+              slo: ai-entropy
+            annotations:
+              summary: "AI entropy collapsed (sustained)"
+              description: "avg_over_time(analytics_entropy_value[10m]) below 0.2 for 10m."
+          - alert: AILatencyBurnSevere
+            expr: |
+              histogram_quantile(
+                0.95,
+                sum(rate(analytics_latency_seconds_bucket[5m])) by (le)
+              ) > 6
+            for: 5m
+            labels:
+              severity: critical
+              service: analytics
+              slo: ai-latency
+            annotations:
+              summary: "AI latency burn (p95 > 6s)"
+              description: "Unified analytics p95 latency exceeded 6 seconds for 5m."
+          # For custom-metrics HPA / scale-on-bad-health (Prometheus Adapter maps this name).
+          - record: ai_health_composite_inverse
+            expr: clamp_max(100 - ai_health_composite_score, 100)
+          # Z-style deviation vs 1h rolling mean (requires ~1h history on the composite series).
+          - alert: AICompositeStatisticalAnomaly
+            expr: |
+              (
+                (ai_health_composite_score - avg_over_time(ai_health_composite_score[1h]))
+                /
+                clamp_min(stddev_over_time(ai_health_composite_score[1h]), 1e-6)
+              ) < -2.5
+            for: 3m
+            labels:
+              severity: warning
+              service: analytics
+              slo: ai-composite-anomaly
+            annotations:
+              summary: "AI composite dropped vs recent baseline"
+              description: "ai_health_composite_score more than ~2.5 stddev below its 1h average (self-adjusting; needs stable history)."

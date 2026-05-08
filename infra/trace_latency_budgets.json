@@ -1,0 +1,7 @@
+{
+  "*": 8000,
+  "/api/debug/full-trace": 30000,
+  "/api/trust/reputation/00000000-0000-4000-8000-000000000001": 3000,
+  "/api/auth/login": 800,
+  "/api/listings/search": 1500
+}

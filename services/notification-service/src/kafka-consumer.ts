@@ -1,7 +1,9 @@
 /**
  * Consume domain event topics; insert pending in-app notifications (idempotent via processed_events).
  */
+import { trace } from "@opentelemetry/api";
 import { kafka, ochKafkaTopicIsolationSuffix } from "@common/utils/kafka";
+import { withKafkaConsumerSpan } from "@common/utils/otel";
 import { Consumer } from "kafkajs";
 import type { Pool } from "pg";
 import { randomUUID } from "node:crypto";
@@ -9,7 +11,7 @@ import { randomUUID } from "node:crypto";
 const PREFIX = process.env.ENV_PREFIX || "dev";
 
 const DEFAULT_TOPIC_CSV = [
-  `${PREFIX}.booking.events`,
+  `${PREFIX}.booking.events.v1`,
   `${PREFIX}.listing.events`,
   `${PREFIX}.notification.events`,
   "messaging.events.v1",
@@ -34,6 +36,24 @@ async function ensureProcessed(pool: Pool, eventId: string): Promise<boolean> {
     return (ins.rowCount ?? 0) > 0;
   } catch {
     return false;
+  }
+}
+
+/** Booking-service envelope: `{ metadata: { event_id, event_type, aggregate_id }, payload }` */
+function applyBookingEnvelopeTraceAttrs(buf: Buffer): void {
+  const span = trace.getActiveSpan();
+  if (!span) return;
+  try {
+    const j = JSON.parse(buf.toString("utf8")) as Record<string, unknown>;
+    const md = (j.metadata as Record<string, unknown>) || {};
+    const eid = md.event_id ?? j.event_id;
+    const et = md.event_type ?? j.event_type;
+    const aid = md.aggregate_id ?? j.aggregate_id;
+    if (eid) span.setAttribute("booking.event_id", String(eid));
+    if (et) span.setAttribute("booking.event_type", String(et));
+    if (aid) span.setAttribute("booking.aggregate_id", String(aid));
+  } catch {
+    /* ignore */
   }
 }
 
@@ -84,22 +104,34 @@ export async function startNotificationConsumer(pool: Pool | null): Promise<Cons
     console.log("[notification-kafka] subscribed:", t.join(", "));
 
     await consumer.run({
-      eachMessage: async ({ message }) => {
+      eachMessage: async ({ topic, message }) => {
         const v = message.value;
         if (!v) return;
-        const meta = extractMeta(v);
-        if (!meta?.userId) return;
-        const ok = await ensureProcessed(pool, meta.eventId);
-        if (!ok) return;
-        try {
-          await pool.query(
-            `INSERT INTO notification.notifications (user_id, event_type, channel, status, payload)
+        await withKafkaConsumerSpan(
+          message.headers,
+          `kafka consume ${topic}`,
+          async () => {
+            applyBookingEnvelopeTraceAttrs(v);
+            const meta = extractMeta(v);
+            if (!meta?.userId) return;
+            const ok = await ensureProcessed(pool, meta.eventId);
+            if (!ok) return;
+            try {
+              await pool.query(
+                `INSERT INTO notification.notifications (user_id, event_type, channel, status, payload)
              VALUES ($1::uuid, $2, 'push'::notification.notification_channel, 'pending', $3::jsonb)`,
-            [meta.userId, meta.eventType, JSON.stringify({ source: "kafka", raw_preview: v.toString("utf8").slice(0, 2000) })]
-          );
-        } catch (e) {
-          console.error("[notification-kafka] insert failed", e);
-        }
+                [
+                  meta.userId,
+                  meta.eventType,
+                  JSON.stringify({ source: "kafka", raw_preview: v.toString("utf8").slice(0, 2000) }),
+                ],
+              );
+            } catch (e) {
+              console.error("[notification-kafka] insert failed", e);
+            }
+          },
+          { "messaging.system": "kafka", "messaging.destination.name": topic },
+        );
       },
     });
     return consumer;

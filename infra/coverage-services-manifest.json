@@ -1,0 +1,15 @@
+{
+  "specVersion": "och-coverage-services-manifest-v1",
+  "description": "Housing services that run Vitest coverage in test:coverage:all / coverage-hard-gate. Excludes cron-jobs, common, ollama-gateway, event-layer-verification, transport-watchdog (tooling/infra-only).",
+  "services": [
+    "api-gateway",
+    "auth-service",
+    "listings-service",
+    "booking-service",
+    "messaging-service",
+    "media-service",
+    "notification-service",
+    "trust-service",
+    "analytics-service"
+  ]
+}

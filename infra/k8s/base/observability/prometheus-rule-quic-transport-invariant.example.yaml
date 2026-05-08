@@ -1,0 +1,20 @@
+# Example PrometheusRule (operator): QUIC PCAP / curl forensics gauge from textfile or Pushgateway.
+# Scrape quic-transport.prom from the host or job that runs preflight forensics.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: och-quic-transport-invariant
+  labels:
+    role: alert-rules
+    app.kubernetes.io/part-of: off-campus-housing-tracker
+spec:
+  groups:
+    - name: och-quic-transport
+      rules:
+        - alert: QUICTransportValidationFailure
+          expr: quic_transport_invariant_pass == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: QUIC transport forensic invariants failed (PCAP / ALPN / curl HTTP3 gate).

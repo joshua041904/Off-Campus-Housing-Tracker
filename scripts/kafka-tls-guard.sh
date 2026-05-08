@@ -248,8 +248,9 @@ fi
 
 if [[ "${KAFKA_TLS_GUARD_SKIP_VERIFY:-0}" != "1" ]]; then
   say "8) verify-kafka-cluster"
-  # Default 0: guard often runs before app Deployments exist (dev-onboard).
-  VERIFY_KAFKA_CHECK_CLIENT_DEPLOY_MOUNTS="${VERIFY_KAFKA_CHECK_CLIENT_DEPLOY_MOUNTS:-0}" \
+  # Always skip Deployment mount checks here: dev-onboard runs this guard *before* deploy-dev.sh.
+  # Phase 6b runs VERIFY_KAFKA_CLIENT_MOUNTS_ONLY=1 verify-kafka-cluster after workloads exist.
+  VERIFY_KAFKA_CHECK_CLIENT_DEPLOY_MOUNTS="${KAFKA_TLS_GUARD_VERIFY_WITH_DEPLOY_MOUNTS:-0}" \
     make -C "$REPO_ROOT" verify-kafka-cluster
 fi
 

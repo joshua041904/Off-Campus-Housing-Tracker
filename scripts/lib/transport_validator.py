@@ -182,16 +182,17 @@ def main():
     if transport_confidence_score is None:
         transport_confidence_score = 0
 
-    # Valid: QUIC + no HTTP/2; CI gate: require sustained data phase (≥10 1-RTT)
+    # Valid: QUIC + no HTTP/2; 1-RTT gate: default ≥10 (sustained data); set MIN_1RTT_PACKETS=1 for short PCAP forensics.
+    min_1rtt = int(os.environ.get("MIN_1RTT_PACKETS", "10"))
     valid = bool(quic_detected and not http2_detected)
     error = None
     if not quic_detected:
         error = "no QUIC packets"
     elif http2_detected:
         error = "HTTP/2 frames detected"
-    elif quic_1rtt_packets is not None and quic_1rtt_packets < 10:
+    elif min_1rtt > 0 and quic_1rtt_packets is not None and quic_1rtt_packets < min_1rtt:
         valid = False
-        error = "Insufficient 1-RTT packets (no sustained data phase)"
+        error = f"Insufficient 1-RTT packets (need ≥{min_1rtt}, got {quic_1rtt_packets})"
         if transport_confidence_score > 0:
             transport_confidence_score = max(0, transport_confidence_score - 20)
             confidence_breakdown["1rtt_data_phase"] = 0

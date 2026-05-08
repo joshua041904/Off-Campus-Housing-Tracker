@@ -4,6 +4,7 @@
  */
 import type { Consumer } from "kafkajs";
 import { kafka } from "./kafka.js";
+import { withKafkaConsumerSpan } from "./otel/kafka-propagation.js";
 
 /** Portable alias for services that wrap `startUserLifecycleConsumer` (avoid kafkajs in every package.json). */
 export type UserLifecycleKafkaConsumer = Consumer;
@@ -77,18 +78,25 @@ export async function startUserLifecycleConsumer(
     console.log(`[${opts.serviceLabel}] user lifecycle consumer subscribed: ${topic} group=${opts.groupId}`);
 
     await consumer.run({
-      eachMessage: async ({ message }) => {
+      eachMessage: async ({ topic, message }) => {
         const v = message.value;
         if (!v) return;
-        const decoded = tryDecodeUserAccountDeletedEnvelope(Buffer.from(v));
-        if (!decoded) return;
-        const claimed = await opts.claimEvent(decoded.eventId);
-        if (!claimed) return;
-        try {
-          await opts.onUserAccountDeleted(decoded.userId, decoded.eventId);
-        } catch (e) {
-          console.error(`[${opts.serviceLabel}] user lifecycle handler failed`, e);
-        }
+        await withKafkaConsumerSpan(
+          message.headers,
+          `kafka consume ${topic}`,
+          async () => {
+            const decoded = tryDecodeUserAccountDeletedEnvelope(Buffer.from(v));
+            if (!decoded) return;
+            const claimed = await opts.claimEvent(decoded.eventId);
+            if (!claimed) return;
+            try {
+              await opts.onUserAccountDeleted(decoded.userId, decoded.eventId);
+            } catch (e) {
+              console.error(`[${opts.serviceLabel}] user lifecycle handler failed`, e);
+            }
+          },
+          { "messaging.system": "kafka", "messaging.destination.name": topic },
+        );
       },
     });
     return consumer;

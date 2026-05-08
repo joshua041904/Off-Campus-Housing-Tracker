@@ -87,8 +87,10 @@ _run_preflight() {
     exit 1
   ) & vpid=$!
   ( sleep 15; kill -9 $vpid 2>/dev/null ) & kpid=$!
-  wait $vpid 2>/dev/null || true
-  local r=$?
+  # Do not use `wait ... || true` then `r=$?`: when the child fails, `|| true` makes `$?` 0 and preflight
+  # falsely reports "Cluster reachable" while reissue (real kubectl, no shim-first) fails at step 0b.
+  local r=0
+  wait $vpid 2>/dev/null || r=$?
   kill $kpid 2>/dev/null || true
   wait $kpid 2>/dev/null || true
   return $r

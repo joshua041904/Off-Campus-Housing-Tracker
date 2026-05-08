@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules-ai-cluster-arbitration
+  namespace: observability
+  labels:
+    app: prometheus
+    och.dev/role: ai-cluster-arbitration
+data:
+  ai-cluster-arbitration.yml: |
+    groups:
+      - name: ai-cluster-arbitration
+        interval: 30s
+        rules:
+          # Per-cluster route pressure score (higher means route more traffic there).
+          - record: ai_cluster_route_weight
+            expr: |
+              clamp_min(ai_cluster_health_score, 0)
+              *
+              clamp_min(1 / clamp_min(ai_cluster_p95_latency_seconds, 0.05), 0)
+              *
+              clamp_min(1 / clamp_min(ai_cluster_cost_factor, 0.05), 0)
+          - alert: AIClusterHealthCritical
+            expr: ai_cluster_health_score < 55
+            for: 5m
+            labels:
+              severity: warning
+              slo: ai-cluster
+            annotations:
+              summary: "AI cluster health degraded"
+              description: "One cluster reported ai_cluster_health_score below 55 for 5m."
+          - alert: AIClusterRouteWeightCollapse
+            expr: ai_cluster_route_weight < 0.3
+            for: 3m
+            labels:
+              severity: warning
+              slo: ai-cluster-routing
+            annotations:
+              summary: "Cluster route weight collapsed"
+              description: "Computed ai_cluster_route_weight dropped below 0.3 for 3m."

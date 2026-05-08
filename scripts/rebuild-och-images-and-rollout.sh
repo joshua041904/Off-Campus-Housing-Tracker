@@ -4,7 +4,8 @@
 #
 # Usage (repo root):
 #   ./scripts/rebuild-och-images-and-rollout.sh
-#   SERVICES=api-gateway ./scripts/rebuild-och-images-and-rollout.sh   # gateway only
+#     Default SERVICES = all HTTP/gRPC app images (see scripts/lib/och-housing-docker-services-default.sh), same as build-housing-images-k3s.sh.
+#   SERVICES=api-gateway ./scripts/rebuild-och-images-and-rollout.sh   # one service
 #   SERVICES=listings-service ./scripts/rebuild-och-images-and-rollout.sh
 #   SERVICES=trust-service ./scripts/rebuild-och-images-and-rollout.sh
 #   SERVICES="auth-service analytics-service" ./scripts/rebuild-och-images-and-rollout.sh
@@ -15,7 +16,7 @@
 #   WAIT_ROLLOUT=0 ./scripts/rebuild-och-images-and-rollout.sh   # skip rollout status wait
 #
 # Env:
-#   SERVICES   — space-separated (default: api-gateway media-service)
+#   SERVICES   — space- or comma-separated subset (default: HOUSING_DOCKER_SERVICES_DEFAULT — all backends + transport-watchdog)
 #   IMAGE_TAG  — default dev
 #   HOUSING_NS — default off-campus-housing-tracker
 #   SKIP_LOAD  — passed to build-housing-images-k3s (1 = do not colima docker load)
@@ -25,14 +26,19 @@
 #   ROLLOUT_TIMEOUT — default 180s per deployment
 #   SCALE_DEPLOY_REPLICAS — if set (e.g. 1), kubectl scale deploy/<name> after rollout (dev: wake replicas=0 workloads)
 #   APPLY_APP_CONFIG — set 1 to kubectl apply infra/k8s/base/config/app-config.yaml before rollout (refreshes KAFKA_BROKER etc.)
+#   OCH_KUBECTL_PREFIX — optional; if set, rollouts use "${OCH_KUBECTL_PREFIX} kubectl …" instead of auto-detect.
+#     Otherwise: host kubectl when cluster-info works; else `colima ssh -- kubectl` when Colima is running.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
+# shellcheck source=lib/och-housing-docker-services-default.sh
+source "$SCRIPT_DIR/lib/och-housing-docker-services-default.sh"
+
 HOUSING_NS="${HOUSING_NS:-off-campus-housing-tracker}"
-SERVICES="${SERVICES:-api-gateway media-service}"
+SERVICES="${SERVICES:-$HOUSING_DOCKER_SERVICES_DEFAULT}"
 # Allow SERVICES=api-gateway,listings-service (commas → spaces)
 SERVICES="${SERVICES//,/ }"
 IMAGE_TAG="${IMAGE_TAG:-dev}"
@@ -43,6 +49,19 @@ ROLLOUT_TIMEOUT="${ROLLOUT_TIMEOUT:-180s}"
 say() { printf "\n\033[1m%s\033[0m\n" "$*"; }
 ok() { echo "✅ $*"; }
 warn() { echo "⚠️  $*"; }
+
+och_kubectl() {
+  if [[ -n "${OCH_KUBECTL_PREFIX:-}" ]]; then
+    # shellcheck disable=SC2086
+    ${OCH_KUBECTL_PREFIX} kubectl "$@"
+  elif kubectl cluster-info --request-timeout=5s >/dev/null 2>&1; then
+    kubectl "$@"
+  elif command -v colima >/dev/null 2>&1 && colima status 2>/dev/null | grep -q "colima is running"; then
+    colima ssh -- kubectl "$@"
+  else
+    kubectl "$@"
+  fi
+}
 
 say "Rebuilding: $SERVICES (tag=$IMAGE_TAG)"
 export SERVICES
@@ -61,7 +80,7 @@ fi
 
 if [[ "${APPLY_APP_CONFIG:-0}" == "1" ]] && [[ -f "$REPO_ROOT/infra/k8s/base/config/app-config.yaml" ]]; then
   say "Applying ConfigMap app-config (KAFKA_BROKER three-broker bootstrap, etc.)"
-  kubectl apply -f "$REPO_ROOT/infra/k8s/base/config/app-config.yaml" -n "$HOUSING_NS"
+  och_kubectl apply -f "$REPO_ROOT/infra/k8s/base/config/app-config.yaml" -n "$HOUSING_NS"
   ok "app-config applied"
 fi
 
@@ -90,17 +109,17 @@ fi
 rollout_targets="$(printf '%s\n' "$rollout_targets" | sed '/^$/d' | sort -u)"
 
 for s in $rollout_targets; do
-  if kubectl -n "$HOUSING_NS" get deploy "$s" -o name &>/dev/null; then
-    kubectl -n "$HOUSING_NS" rollout restart "deploy/$s" --request-timeout=30s
+  if och_kubectl -n "$HOUSING_NS" get deploy "$s" -o name &>/dev/null; then
+    och_kubectl -n "$HOUSING_NS" rollout restart "deploy/$s" --request-timeout=30s
     ok "rollout restart deploy/$s"
     if [[ "$WAIT_ROLLOUT" == "1" ]]; then
-      kubectl -n "$HOUSING_NS" rollout status "deploy/$s" --timeout="$ROLLOUT_TIMEOUT" || warn "rollout status timeout for deploy/$s"
+      och_kubectl -n "$HOUSING_NS" rollout status "deploy/$s" --timeout="$ROLLOUT_TIMEOUT" || warn "rollout status timeout for deploy/$s"
     fi
     if [[ -n "${SCALE_DEPLOY_REPLICAS:-}" ]]; then
-      kubectl -n "$HOUSING_NS" scale "deploy/$s" --replicas="$SCALE_DEPLOY_REPLICAS"
+      och_kubectl -n "$HOUSING_NS" scale "deploy/$s" --replicas="$SCALE_DEPLOY_REPLICAS"
       ok "scale deploy/$s --replicas=$SCALE_DEPLOY_REPLICAS"
       if [[ "$WAIT_ROLLOUT" == "1" ]]; then
-        kubectl -n "$HOUSING_NS" rollout status "deploy/$s" --timeout="$ROLLOUT_TIMEOUT" || warn "rollout status after scale for deploy/$s"
+        och_kubectl -n "$HOUSING_NS" rollout status "deploy/$s" --timeout="$ROLLOUT_TIMEOUT" || warn "rollout status after scale for deploy/$s"
       fi
     fi
   else

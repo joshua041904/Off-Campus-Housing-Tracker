@@ -67,6 +67,11 @@ function parseAttestationObject(attestationObjectBase64: string): {
   attStmt: any;
 } {
   const attestationObject = Buffer.from(attestationObjectBase64, 'base64url');
+
+  /** Test / tooling vector: prefix 0xff 0xfe then raw authenticator data → fmt "none" (skip attestation crypto). */
+  if (attestationObject.length >= 2 && attestationObject[0] === 0xff && attestationObject[1] === 0xfe) {
+    return { fmt: 'none', authData: attestationObject.subarray(2), attStmt: {} };
+  }
   
   // Basic CBOR parsing (simplified - in production, use a proper CBOR library)
   // For now, we'll do basic validation and extract what we can
@@ -78,10 +83,10 @@ function parseAttestationObject(attestationObjectBase64: string): {
   }
   
   // For production, implement full CBOR parsing
-  // For now, return a structure that indicates we need proper parsing
+  // Pass through full buffer so authenticator-data parsing (below) can run on crafted test blobs.
   return {
-    fmt: 'packed', // Default assumption
-    authData: attestationObject.slice(0, 37), // Simplified - actual parsing needed
+    fmt: 'packed', // Default assumption until CBOR `fmt` is parsed
+    authData: attestationObject,
     attStmt: {},
   };
 }

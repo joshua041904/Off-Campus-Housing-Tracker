@@ -1,0 +1,200 @@
+# In-cluster Ollama for analytics-service (listing-feel / LLM). Models live on emptyDir; initContainer pulls once per new volume.
+# Main container has no kube probes (ollama image may lack tooling); health-proxy sidecar GET /healthz checks /api/version + /api/tags
+# and (when OLLAMA_WARM_MARKER_PATH is set) a warm marker written only after a successful ollama run warm-up so Ready ≠ cold pod.
+# Service still targets port 11434 for API traffic.
+# CPU guardrail: default llama3.2:1b uses requests 250m / limit 2 CPU. For OLLAMA_MODEL=llama3.2:3b in app-config,
+# raise requests to ~1–2 CPU and limits to ~4 CPU in an overlay so Colima does not thrash.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: off-campus-housing-tracker
+  labels:
+    app: ollama
+spec:
+  replicas: 1
+  progressDeadlineSeconds: 2400
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+    spec:
+      terminationGracePeriodSeconds: 30
+      initContainers:
+        - name: pull-model
+          image: ollama/ollama:0.22.0
+          env:
+            - name: OLLAMA_MODEL
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: OLLAMA_MODEL
+          volumeMounts:
+            - name: ollama-data
+              mountPath: /root/.ollama
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              ollama serve &
+              PID=$!
+              echo "waiting for HTTP API (/api/version or ollama list)…"
+              for i in $(seq 1 180); do
+                if command -v wget >/dev/null 2>&1 && wget -qO- --timeout=3 http://127.0.0.1:11434/api/version >/dev/null 2>&1; then
+                  break
+                fi
+                if ollama list >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 1
+              done
+              echo "pulling model ${OLLAMA_MODEL}…"
+              ollama pull "${OLLAMA_MODEL}"
+              kill "$PID" 2>/dev/null || true
+              wait "$PID" 2>/dev/null || true
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "2Gi"
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+      containers:
+        - name: ollama
+          image: ollama/ollama:0.22.0
+          env:
+            - name: OLLAMA_MODEL
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: OLLAMA_MODEL
+            # One in-flight generation avoids llama.cpp overload + 5xx under local dev CPU limits (tune in app-config).
+            - name: OLLAMA_NUM_PARALLEL
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: OLLAMA_NUM_PARALLEL
+            - name: OLLAMA_MAX_QUEUE
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: OLLAMA_MAX_QUEUE
+            - name: OLLAMA_KEEP_ALIVE
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: OLLAMA_KEEP_ALIVE
+            - name: OLLAMA_LOAD_TIMEOUT
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: OLLAMA_LOAD_TIMEOUT
+          ports:
+            - name: http
+              containerPort: 11434
+          volumeMounts:
+            - name: ollama-data
+              mountPath: /root/.ollama
+            - name: ollama-warm
+              mountPath: /var/ollama-warm
+          # Warm model into RAM before marking ready (health-proxy waits on warm marker file).
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              rm -f /var/ollama-warm/model-warmed
+              ollama serve &
+              SRV=$!
+              cleanup() {
+                kill -TERM "$SRV" 2>/dev/null || true
+                wait "$SRV" 2>/dev/null || true
+                exit 0
+              }
+              trap cleanup TERM INT
+
+              echo "ollama: waiting for HTTP API…"
+              for i in $(seq 1 300); do
+                if ollama list >/dev/null 2>&1; then break; fi
+                if ! kill -0 "$SRV" 2>/dev/null; then echo "ollama serve exited early"; exit 1; fi
+                sleep 1
+              done
+
+              echo "ollama: warming model ${OLLAMA_MODEL} into memory…"
+              # `wget` is not present in this image; use CLI warm-up and force session exit with /bye.
+              if ! printf 'ping\n/bye\n' | ollama run "${OLLAMA_MODEL}" >/tmp/ollama-warm.log 2>&1; then
+                cat /tmp/ollama-warm.log 2>/dev/null || true
+                kill "$SRV" 2>/dev/null || true
+                wait "$SRV" 2>/dev/null || true
+                exit 1
+              fi
+              touch /var/ollama-warm/model-warmed
+              wait "$SRV"
+          resources:
+            requests:
+              cpu: "1500m"
+              memory: "6Gi"
+            limits:
+              cpu: "3"
+              memory: "8Gi"
+        - name: health-proxy
+          image: node:20-alpine
+          command: ["node", "/app/server.js"]
+          env:
+            - name: OLLAMA_URL
+              value: "http://127.0.0.1:11434"
+            - name: OLLAMA_HEALTH_TIMEOUT_MS
+              value: "12000"
+            - name: OLLAMA_MODEL
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: OLLAMA_MODEL
+            - name: OLLAMA_WARM_MARKER_PATH
+              value: ""
+          ports:
+            - name: health
+              containerPort: 8080
+          volumeMounts:
+            - name: ollama-health-proxy-code
+              mountPath: /app
+            - name: ollama-warm
+              mountPath: /var/ollama-warm
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 15
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "25m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+      volumes:
+        - name: ollama-data
+          emptyDir: {}
+        - name: ollama-warm
+          emptyDir: {}
+        - name: ollama-health-proxy-code
+          configMap:
+            name: ollama-health-proxy

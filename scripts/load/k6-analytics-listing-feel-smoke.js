@@ -6,6 +6,11 @@ import http from "k6/http";
 import { check } from "k6";
 
 const base = (__ENV.BASE_URL || "https://off-campus-housing.test").replace(/\/$/, "");
+const edgeHeaders = {
+  "x-loadtest": "1",
+  "Content-Type": "application/json",
+  "x-suite": typeof __ENV.K6_X_SUITE === "string" && __ENV.K6_X_SUITE.trim() ? __ENV.K6_X_SUITE.trim() : "k6",
+};
 
 export const options = {
   vus: Number(__ENV.VUS || 3),
@@ -20,7 +25,7 @@ export default function () {
     audience: "renter",
   });
   const res = http.post(`${base}/api/analytics/insights/listing-feel`, payload, {
-    headers: { "Content-Type": "application/json" },
+    headers: edgeHeaders,
   });
   check(res, {
     "status 200": (r) => r.status === 200,

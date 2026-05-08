@@ -9,6 +9,7 @@ import {
   register,
   createHttpConcurrencyGuard,
 } from "@common/utils";
+import { inferNetProtoForSpan, mountDebugTraceHeaders, tracingMiddleware } from "@common/utils/otel";
 import { pool } from "./db.js";
 import { publishListingEventForCreateResponse } from "./listing-kafka.js";
 import { syncListingCreatedToAnalytics } from "./analytics-sync.js";
@@ -117,25 +118,118 @@ function amenitySlugsFromBooleanQuery(q: Request["query"]): string[] {
   return out;
 }
 
-function firstQueryValue(value: unknown): string | undefined {
-  if (Array.isArray(value)) return firstQueryValue(value[0]);
-  if (value == null) return undefined;
-  return String(value);
+function formatLocation(row: Record<string, unknown>): string | null {
+  const lat = row.latitude != null && Number.isFinite(Number(row.latitude)) ? Number(row.latitude) : null;
+  const lng = row.longitude != null && Number.isFinite(Number(row.longitude)) ? Number(row.longitude) : null;
+  if (lat != null && lng != null) return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+  return null;
 }
 
+const LISTINGS_DETAIL_SQL = `
+SELECT l.id, l.user_id, l.title, l.description, l.price_cents, l.amenities,
+       l.smoke_free, l.pet_friendly, l.furnished, l.status::text AS status,
+       l.created_at, l.updated_at, l.listed_at, l.latitude, l.longitude,
+       l.effective_from, l.effective_until, l.lease_length_months,
+       COALESCE(
+         (SELECT json_agg(m.url_or_path ORDER BY m.sort_order ASC, m.created_at ASC)
+          FROM listings.listing_media m
+          WHERE m.listing_id = l.id AND m.media_type = 'image'),
+         '[]'::json
+       ) AS images_json
+FROM listings.listings l
+WHERE l.id = $1::uuid AND (l.deleted_at IS NULL)
+`;
+
+/** Compact marketplace detail for GET /listings/:id and GET /:uuid (gateway alias). */
+function listingDetailMarketplace(row: Record<string, unknown>) {
+  const amenities = amenitiesToStrings(row.amenities);
+  let images: string[] = [];
+  const ij = row.images_json;
+  if (Array.isArray(ij)) images = ij.map(String);
+  else if (typeof ij === "string") {
+    try {
+      const p = JSON.parse(ij) as unknown;
+      if (Array.isArray(p)) images = p.map(String);
+    } catch {
+      images = [];
+    }
+  }
+  const price_cents = Number(row.price_cents);
+  const price = Number.isFinite(price_cents) ? Math.round(price_cents) / 100 : null;
+  return {
+    id: row.id,
+    landlord_id: row.user_id,
+    title: row.title,
+    description: row.description ?? "",
+    price,
+    location: formatLocation(row),
+    amenities,
+    images,
+    lease_terms: {
+      effective_from: row.effective_from ?? null,
+      effective_until: row.effective_until ?? null,
+      lease_length_months: row.lease_length_months ?? null,
+    },
+    availability_status: String(row.status ?? "unknown"),
+  };
+}
+
+async function proxyBookingWatchlist(
+  userId: string,
+  listingId: string,
+  remove: boolean,
+): Promise<{ ok: boolean; status: number; body: unknown }> {
+  const base = (process.env.BOOKING_HTTP || "http://127.0.0.1:4013").replace(
+    /\/$/,
+    "",
+  );
+  const path = remove ? "/watchlist/remove" : "/watchlist/add";
+  const url = `${base}${path}`;
+  const upstream = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-user-id": userId },
+    body: JSON.stringify(
+      remove ? { listingId } : { listingId, source: "listings-save" },
+    ),
+  });
+  const text = await upstream.text();
+  let body: unknown = {};
+  try {
+    body = text ? (JSON.parse(text) as unknown) : {};
+  } catch {
+    body = { raw: text };
+  }
+  return { ok: upstream.ok, status: upstream.status, body };
+}
+
+/** Marketplace-oriented JSON (additive fields; keeps existing keys). */
 function rowToJson(row: Record<string, unknown>) {
+  const price_cents = Number(row.price_cents);
+  const price_usd =
+    Number.isFinite(price_cents) ? Math.round(price_cents) / 100 : null;
   return {
     id: row.id,
     user_id: row.user_id,
+    landlord_id: row.user_id,
     title: row.title,
     description: row.description,
     price_cents: row.price_cents,
+    /** Monthly rent in USD (derived from price_cents). */
+    price: price_usd,
+    price_usd_monthly: price_usd,
     amenities: amenitiesToStrings(row.amenities),
     smoke_free: row.smoke_free,
     pet_friendly: row.pet_friendly,
     furnished: row.furnished,
     status: row.status,
     created_at: row.created_at,
+    updated_at: row.updated_at ?? null,
+    listed_at: formatListedAt(row),
+    effective_from: row.effective_from ?? null,
+    effective_until: row.effective_until ?? null,
+    lease_length_months: row.lease_length_months ?? null,
+    size_sqft: row.size_sqft ?? null,
+    username_display: row.username_display ?? null,
     latitude:
       row.latitude != null && Number.isFinite(Number(row.latitude))
         ? Number(row.latitude)
@@ -144,7 +238,14 @@ function rowToJson(row: Record<string, unknown>) {
       row.longitude != null && Number.isFinite(Number(row.longitude))
         ? Number(row.longitude)
         : null,
-    listed_at: formatListedAt(row),
+    location: formatLocation(row),
+    lease_terms: {
+      effective_from: row.effective_from ?? null,
+      effective_until: row.effective_until ?? null,
+      lease_length_months: row.lease_length_months ?? null,
+    },
+    images: [] as string[],
+    availability_status: String(row.status || "unknown"),
   };
 }
 
@@ -164,6 +265,8 @@ function dedupeListingsById(
 
 export function createListingsHttpApp() {
   const app = express();
+  app.use(tracingMiddleware);
+  mountDebugTraceHeaders(app);
   app.use(express.json({ limit: "1mb" }));
   attachListingsHttpDiagnostics(app);
   app.use((req, res, next) => {
@@ -173,6 +276,7 @@ export function createListingsHttpApp() {
         route: req.path,
         method: req.method,
         code: res.statusCode,
+        proto: inferNetProtoForSpan(req),
       }),
     );
     next();
@@ -208,18 +312,14 @@ export function createListingsHttpApp() {
   const searchListingsPublic = async (req: Request, res: Response) => {
     try {
       const searchT0 = Date.now();
-      const priceFilters = validateSearchFilters({
-        min_price: firstQueryValue(req.query.min_price),
-        max_price: firstQueryValue(req.query.max_price),
-      });
-      if (!priceFilters.ok) {
-        res.status(400).json({ error: priceFilters.message });
-        return;
-      }
-      const { min_price: minP, max_price: maxP } = priceFilters.value;
-      const newWithinValue = firstQueryValue(req.query.new_within_days);
+      const minP =
+        req.query.min_price != null ? Number(req.query.min_price) : null;
+      const maxP =
+        req.query.max_price != null ? Number(req.query.max_price) : null;
       const newWithinRaw =
-        newWithinValue != null ? Number(newWithinValue) : null;
+        req.query.new_within_days != null
+          ? Number(req.query.new_within_days)
+          : null;
       const newWithin =
         newWithinRaw != null &&
         Number.isFinite(newWithinRaw) &&
@@ -228,10 +328,9 @@ export function createListingsHttpApp() {
           ? Math.floor(newWithinRaw)
           : null;
       // Parse pagination params; invalid values fall back to builder defaults.
-      const limitValue = firstQueryValue(req.query.limit);
-      const offsetValue = firstQueryValue(req.query.offset);
-      const limitRaw = limitValue != null ? Number(limitValue) : null;
-      const offsetRaw = offsetValue != null ? Number(offsetValue) : null;
+      const limitRaw = req.query.limit != null ? Number(req.query.limit) : null;
+      const offsetRaw =
+        req.query.offset != null ? Number(req.query.offset) : null;
 
       const limit =
         limitRaw != null && Number.isFinite(limitRaw) && limitRaw > 0
@@ -254,17 +353,21 @@ export function createListingsHttpApp() {
           ...amenitySlugsFromBooleanQuery(req.query),
         ]),
       ];
-      const qStr = (firstQueryValue(req.query.q) ?? "").trim();
+      const qStr = String(req.query.q || "").trim();
       const { sql, params } = buildListingsSearchQuery({
         q: qStr,
-        minP,
-        maxP,
-        smoke: truthyQuery(req.query.smoke_free),
-        pets: truthyQuery(req.query.pet_friendly),
-        furnished: truthyQuery(req.query.furnished),
+        minP: minP != null && !Number.isNaN(minP) ? minP : null,
+        maxP: maxP != null && !Number.isNaN(maxP) ? maxP : null,
+        smoke: req.query.smoke_free === "1" || req.query.smoke_free === "true",
+        pets:
+          req.query.pet_friendly === "1" || req.query.pet_friendly === "true",
+        furnished:
+          req.query.furnished === "1" ||
+          req.query.furnished === "true" ||
+          req.query.furnished === "yes",
         amenitySlugs,
         newWithin,
-        sort: firstQueryValue(req.query.sort) ?? "created_desc",
+        sort: String(req.query.sort || "created_desc").trim(),
         limit,
         offset,
       });
@@ -304,22 +407,87 @@ export function createListingsHttpApp() {
     }
 
     try {
-      const result = await pool.query(
-        `SELECT id, user_id, title, description, price_cents, amenities, smoke_free, pet_friendly, furnished,
-                status::text AS status, created_at, listed_at, latitude, longitude
-         FROM listings.listings WHERE id = $1::uuid AND (deleted_at IS NULL)`,
-        [validation.value],
-      );
+      const result = await pool.query(LISTINGS_DETAIL_SQL, [validation.value]);
       if (!result.rows[0]) {
         res.status(404).json({ error: "not found" });
         return;
       }
-      res.json(rowToJson(result.rows[0]));
+      res.json(listingDetailMarketplace(result.rows[0]));
     } catch (e) {
       console.error("[listings HTTP get]", e);
       res.status(500).json({ error: "internal" });
     }
   });
+
+  app.post(
+    "/listings/:id/save",
+    requireUser,
+    async (req: AuthedRequest, res: Response) => {
+      const validation = validateListingId(req.params.id);
+      if (!validation.ok) {
+        res.status(400).json({ error: validation.message });
+        return;
+      }
+      try {
+        const out = await proxyBookingWatchlist(
+          req.userId!,
+          validation.value,
+          false,
+        );
+        if (out.status === 401) {
+          res.status(401).json({ error: "booking upstream rejected auth" });
+          return;
+        }
+        if (!out.ok && out.status >= 500) {
+          res.status(502).json({ error: "booking upstream failed", detail: out.body });
+          return;
+        }
+        res.status(201).json({
+          listing_id: validation.value,
+          saved: true,
+          watchlist: out.body,
+        });
+      } catch (e) {
+        console.error("[listings HTTP save]", e);
+        res.status(502).json({ error: "booking unreachable" });
+      }
+    },
+  );
+
+  app.delete(
+    "/listings/:id/save",
+    requireUser,
+    async (req: AuthedRequest, res: Response) => {
+      const validation = validateListingId(req.params.id);
+      if (!validation.ok) {
+        res.status(400).json({ error: validation.message });
+        return;
+      }
+      try {
+        const out = await proxyBookingWatchlist(
+          req.userId!,
+          validation.value,
+          true,
+        );
+        if (out.status === 401) {
+          res.status(401).json({ error: "booking upstream rejected auth" });
+          return;
+        }
+        if (!out.ok && out.status >= 500) {
+          res.status(502).json({ error: "booking upstream failed", detail: out.body });
+          return;
+        }
+        res.json({
+          listing_id: validation.value,
+          saved: false,
+          watchlist: out.body,
+        });
+      } catch (e) {
+        console.error("[listings HTTP unsave]", e);
+        res.status(502).json({ error: "booking unreachable" });
+      }
+    },
+  );
 
   app.post(
     "/create",
@@ -424,6 +592,31 @@ $11, $12
       }
     },
   );
+
+  /** Gateway alias: GET /api/listings/:uuid → upstream GET /:uuid */
+  app.get("/:id", async (req, res) => {
+    const id = req.params.id;
+    if (!LISTING_ID_UUID_RX.test(id)) {
+      res.status(404).json({ error: "not found" });
+      return;
+    }
+    const validation = validateListingId(id);
+    if (!validation.ok) {
+      res.status(400).json({ error: validation.message });
+      return;
+    }
+    try {
+      const result = await pool.query(LISTINGS_DETAIL_SQL, [validation.value]);
+      if (!result.rows[0]) {
+        res.status(404).json({ error: "not found" });
+        return;
+      }
+      res.json(listingDetailMarketplace(result.rows[0]));
+    } catch (e) {
+      console.error("[listings HTTP get by uuid alias]", e);
+      res.status(500).json({ error: "internal" });
+    }
+  });
 
   return app;
 }

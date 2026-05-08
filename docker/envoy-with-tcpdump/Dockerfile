@@ -2,9 +2,13 @@
 # Base: envoyproxy/envoy (Ubuntu). Same entrypoint as upstream; tcpdump for capture on port 10000.
 # Build: docker build -t envoy-with-tcpdump:dev -f docker/envoy-with-tcpdump/Dockerfile .
 # k3d: k3d image import envoy-with-tcpdump:dev -c off-campus-housing-tracker
+#
+# Default base uses mirror.gcr.io (Docker Hub pull-through) to reduce anonymous hub 429s.
+# Override: --build-arg ENVOY_IMAGE=docker.io/envoyproxy/envoy:v1.28-latest
 
 # Use default (non-distroless) tag so we have a package manager for tcpdump.
-FROM envoyproxy/envoy:v1.28-latest
+ARG ENVOY_IMAGE=mirror.gcr.io/envoyproxy/envoy:v1.28-latest
+FROM ${ENVOY_IMAGE}
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends tcpdump \
   && rm -rf /var/lib/apt/lists/*

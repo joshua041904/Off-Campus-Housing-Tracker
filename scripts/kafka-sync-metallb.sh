@@ -4,6 +4,7 @@
 #
 # If there is no drift (LB ↔ advertised + TLS SAN vs LB), skips TLS regen and rollout and only runs
 # verify-kafka-cluster.sh. Force full remediation: KAFKA_SYNC_METALLB_FORCE=1 or ./scripts/kafka-sync-metallb.sh --force
+# MetalLB assigns kafka-*-external IPs; TLS SANs follow live LB IPs (kafka-refresh-tls-from-lb.sh).
 #
 # Env: HOUSING_NS, KAFKA_BROKER_REPLICAS, KAFKA_SSL_* (see scripts/kafka-ssl-from-dev-root.sh)
 set -euo pipefail

@@ -4,6 +4,9 @@ def nattr($id):
   elif $id == "gateway" then "shape=box, style=\"rounded,filled\", fillcolor=\"#99ccff\""
   elif $id == "caddy" then "shape=ellipse, style=filled, fillcolor=\"#cce6ff\""
   elif $id == "event_layer" then "shape=box, style=\"rounded,filled\", fillcolor=\"#c8e6c9\""
+  elif $id == "prometheus" then "shape=box, style=\"rounded,filled\", fillcolor=\"#eceff1\""
+  elif $id == "jaeger" then "shape=box, style=\"rounded,filled\", fillcolor=\"#fff3e0\""
+  elif $id == "ollama" then "shape=box, style=\"rounded,filled\", fillcolor=\"#e8eaf6\""
   else "shape=box, style=\"rounded,filled\", fillcolor=\"#ccffcc\""
   end;
 
@@ -42,6 +45,8 @@ def kafka_nattr($b):
     end
   ),
   (.edges[]
-   | (if (.style // "solid") == "dashed" then "style=dashed, " else "" end) as $st
+   | (if (.style // "solid") == "dashed" then "style=dashed, "
+      elif (.style // "solid") == "dotted" then "style=dotted, color=\"#666666\", "
+      else "" end) as $st
    | "  \(.from) -> \(.to) [\($st)label=\"\(.label)\"];"
   )

@@ -4,6 +4,10 @@
 #
 # Usage: ./scripts/ensure-caddy-envoy-tcpdump.sh
 # Optional: SKIP_BUILD=1 to only patch (images must already exist). SKIP_PATCH=1 to only build.
+# Base images default to mirror.gcr.io in Dockerfiles (avoids Docker Hub anonymous 429). Override:
+#   docker build --build-arg GOLANG_IMAGE=... --build-arg ALPINE_IMAGE=...  (caddy)
+#   docker build --build-arg ENVOY_IMAGE=...  (envoy)
+# Or `docker login` at hub.docker.com for higher pull limits.
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,13 +34,17 @@ fi
 if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
   say "Building caddy-with-tcpdump and envoy-with-tcpdump"
   if [[ -f docker/caddy-with-tcpdump/Dockerfile ]]; then
-    docker build -t caddy-with-tcpdump:dev -f docker/caddy-with-tcpdump/Dockerfile . 2>&1 | tail -5
+    # shellcheck disable=SC2086  # optional extra --build-arg … from env
+    docker build -t caddy-with-tcpdump:dev -f docker/caddy-with-tcpdump/Dockerfile . \
+      ${OCH_CADDY_TCPDUMP_BUILD_ARGS:-}
     ok "Built caddy-with-tcpdump:dev"
   else
     warn "docker/caddy-with-tcpdump/Dockerfile not found"
   fi
   if [[ -f docker/envoy-with-tcpdump/Dockerfile ]]; then
-    docker build -t envoy-with-tcpdump:dev -f docker/envoy-with-tcpdump/Dockerfile . 2>&1 | tail -5
+    # shellcheck disable=SC2086
+    docker build -t envoy-with-tcpdump:dev -f docker/envoy-with-tcpdump/Dockerfile . \
+      ${OCH_ENVOY_TCPDUMP_BUILD_ARGS:-}
     ok "Built envoy-with-tcpdump:dev"
   else
     warn "docker/envoy-with-tcpdump/Dockerfile not found"

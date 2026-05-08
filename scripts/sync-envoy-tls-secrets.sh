@@ -14,6 +14,7 @@ NS_ING="${NS_ING:-ingress-nginx}"
 say() { printf "\n\033[1m%s\033[0m\n" "$*"; }
 ok() { echo "  ✅ $*"; }
 warn() { echo "  ⚠️  $*"; }
+info() { echo "  ℹ️  $*"; }
 
 _k() {
   kubectl --request-timeout=25s "$@"
@@ -34,8 +35,9 @@ _find_dev_root_source_ns() {
 say "=== Sync dev-root-ca → $NS_ENVOY ==="
 
 if ! _k get ns "$NS_ENVOY" -o name &>/dev/null; then
-  warn "Namespace $NS_ENVOY not found; skip Envoy TLS sync"
-  exit 0
+  info "Namespace $NS_ENVOY missing — creating (substrate applies later; dev-root sync is safe)"
+  _k create namespace "$NS_ENVOY" --dry-run=client -o yaml | _k apply -f - --request-timeout=20s
+  ok "namespace $NS_ENVOY ensured"
 fi
 
 SRC_NS="$(_find_dev_root_source_ns)" || {

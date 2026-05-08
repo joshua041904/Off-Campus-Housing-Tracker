@@ -20,6 +20,31 @@ async function getKafkaProducer() {
   return kafkaProducer
 }
 
+const THREAD_LISTING_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+async function fetchListingForMessagingStart(
+  listingId: string,
+): Promise<{ landlord_id: string; title: string } | null> {
+  const base = (process.env.LISTINGS_HTTP || 'http://127.0.0.1:4012').replace(/\/$/, '')
+  const url = `${base}/listings/${listingId}`
+  let upstream: globalThis.Response
+  try {
+    const ms = Number(process.env.MESSAGING_LISTING_FETCH_TIMEOUT_MS ?? '12000')
+    const timeout = Number.isFinite(ms) ? Math.min(120000, Math.max(1000, ms)) : 12000
+    upstream = await fetch(url, { signal: AbortSignal.timeout(timeout) })
+  } catch {
+    throw new Error('listings_fetch_failed')
+  }
+  if (upstream.status === 404) return null
+  if (!upstream.ok) throw new Error(`listings_${upstream.status}`)
+  const j = (await upstream.json()) as Record<string, unknown>
+  const landlord_id = String(j.landlord_id ?? j.user_id ?? '').trim()
+  const title = String(j.title ?? 'Listing')
+  if (!THREAD_LISTING_UUID_RE.test(landlord_id)) return null
+  return { landlord_id, title }
+}
+
 export default function messagesRouter(redis: Redis | null, cpuCores: number) {
   const router: Router = Router()
 
@@ -29,9 +54,10 @@ export default function messagesRouter(redis: Redis | null, cpuCores: number) {
     const page = parseInt(req.query.page as string) || 1
     const limit = parseInt(req.query.limit as string) || 20
     const type = req.query.type as string | undefined
+    const includeArchived = req.query.includeArchived === 'true'
     const offset = (page - 1) * limit
 
-    const cacheKey = makeMessagesKey(userId!, page, limit, type)
+    const cacheKey = makeMessagesKey(userId!, page, limit, type, includeArchived)
     const result = await cached(
       redis,
       cacheKey,
@@ -50,6 +76,10 @@ export default function messagesRouter(redis: Redis | null, cpuCores: number) {
           let query: string
           let params: any[]
           
+          const hideArchivedSql = includeArchived
+            ? ''
+            : `AND (thread_id IS NULL OR thread_id NOT IN (SELECT thread_id FROM messages.user_archived_threads WHERE user_id = $1))`
+
           if (groupIds.length > 0) {
             // User has groups - use UNION ALL for both direct and group messages
             query = `
@@ -83,6 +113,7 @@ export default function messagesRouter(redis: Redis | null, cpuCores: number) {
                 SELECT * FROM messages.messages 
                 WHERE recipient_id = $1
                 AND (thread_id IS NULL OR thread_id NOT IN (SELECT thread_id FROM messages.user_deleted_threads WHERE user_id = $1))
+                ${hideArchivedSql}
                 ${type ? 'AND message_type = $2' : ''}
                 
                 UNION ALL
@@ -90,6 +121,7 @@ export default function messagesRouter(redis: Redis | null, cpuCores: number) {
                 SELECT * FROM messages.messages 
                 WHERE group_id = ANY($${type ? '3' : '2'}::uuid[])
                 AND (thread_id IS NULL OR thread_id NOT IN (SELECT thread_id FROM messages.user_deleted_threads WHERE user_id = $1))
+                ${hideArchivedSql}
                 ${type ? 'AND message_type = $2' : ''}
               ) m
               LEFT JOIN messages.groups g ON m.group_id = g.id
@@ -134,6 +166,11 @@ export default function messagesRouter(redis: Redis | null, cpuCores: number) {
               LEFT JOIN messages.messages pm ON m.parent_message_id = pm.id
               WHERE m.recipient_id = $1
               AND (m.thread_id IS NULL OR m.thread_id NOT IN (SELECT thread_id FROM messages.user_deleted_threads WHERE user_id = $1))
+              ${
+                includeArchived
+                  ? ''
+                  : `AND (m.thread_id IS NULL OR m.thread_id NOT IN (SELECT thread_id FROM messages.user_archived_threads WHERE user_id = $1))`
+              }
               ${type ? 'AND m.message_type = $2' : ''}
               ORDER BY m.created_at DESC
               LIMIT $${type ? '3' : '2'} OFFSET $${type ? '4' : '3'}
@@ -153,12 +190,16 @@ export default function messagesRouter(redis: Redis | null, cpuCores: number) {
               FROM (
                 SELECT id FROM messages.messages 
                 WHERE recipient_id = $1
+                AND (thread_id IS NULL OR thread_id NOT IN (SELECT thread_id FROM messages.user_deleted_threads WHERE user_id = $1))
+                ${hideArchivedSql}
                 ${type ? 'AND message_type = $2' : ''}
                 
                 UNION ALL
                 
                 SELECT id FROM messages.messages 
                 WHERE group_id = ANY($${type ? '3' : '2'}::uuid[])
+                AND (thread_id IS NULL OR thread_id NOT IN (SELECT thread_id FROM messages.user_deleted_threads WHERE user_id = $1))
+                ${hideArchivedSql}
                 ${type ? 'AND message_type = $2' : ''}
               ) m
             `
@@ -168,6 +209,12 @@ export default function messagesRouter(redis: Redis | null, cpuCores: number) {
               SELECT COUNT(*) as total
               FROM messages.messages m
               WHERE m.recipient_id = $1
+              AND (m.thread_id IS NULL OR m.thread_id NOT IN (SELECT thread_id FROM messages.user_deleted_threads WHERE user_id = $1))
+              ${
+                includeArchived
+                  ? ''
+                  : `AND (m.thread_id IS NULL OR m.thread_id NOT IN (SELECT thread_id FROM messages.user_archived_threads WHERE user_id = $1))`
+              }
               ${type ? 'AND m.message_type = $2' : ''}
             `
             countParams = type ? [userId, type] : [userId]
@@ -193,6 +240,89 @@ export default function messagesRouter(redis: Redis | null, cpuCores: number) {
     )
 
     res.json(result)
+  })
+
+  // POST /messages/start — begin landlord DM from a listing (renter → lister's user_id)
+  router.post('/start', async (req: AuthedRequest, res: Response) => {
+    const { listing_id, renter_id, initial_message } = req.body as {
+      listing_id?: string
+      renter_id?: string
+      initial_message?: string
+    }
+    if (!listing_id || !renter_id || !(initial_message && String(initial_message).trim())) {
+      return res.status(400).json({
+        error: 'listing_id, renter_id, initial_message required',
+      })
+    }
+    if (!THREAD_LISTING_UUID_RE.test(listing_id)) {
+      return res.status(400).json({ error: 'invalid listing_id' })
+    }
+    if (renter_id !== req.userId) {
+      return res.status(403).json({ error: 'renter_id must match authenticated user' })
+    }
+    let lj: { landlord_id: string; title: string } | null
+    try {
+      lj = await fetchListingForMessagingStart(listing_id)
+    } catch {
+      return res.status(502).json({ error: 'listing fetch failed' })
+    }
+    if (!lj) {
+      return res.status(404).json({ error: 'listing not found' })
+    }
+
+    const subject = `[listing:${listing_id}] ${lj.title}`.slice(0, 500)
+
+    try {
+      const insertQuery = `
+        INSERT INTO messages.messages (
+          sender_id, recipient_id, group_id, parent_message_id,
+          message_type, subject, content, is_read
+        ) VALUES ($1, $2, NULL, NULL, $3, $4, $5, FALSE)
+        RETURNING id, sender_id, recipient_id, group_id, parent_message_id, thread_id,
+                  message_type, subject, content, is_read, created_at, updated_at
+      `
+      const { rows } = await pool.query(insertQuery, [
+        renter_id,
+        lj.landlord_id,
+        'ListingInquiry',
+        subject,
+        String(initial_message).slice(0, 8000),
+      ])
+      const message = rows[0]
+
+      const producer = await getKafkaProducer()
+      const kafkaKey = lj.landlord_id
+      const createdAt =
+        message.created_at instanceof Date
+          ? message.created_at.toISOString()
+          : String(message.created_at)
+      await sendMessagingEvent(producer, kafkaKey, {
+        metadata: buildMetadata({
+          event_type: 'MessageSent',
+          aggregate_id: message.id,
+          aggregate_type: 'message',
+        }),
+        message_id: message.id,
+        sender_id: renter_id,
+        recipient_id: lj.landlord_id,
+        thread_id: message.thread_id || '',
+        message_type: 'ListingInquiry',
+        subject,
+        content: String(initial_message),
+        listing_id,
+        created_at: createdAt,
+      })
+
+      return res.status(201).json({
+        listing_id,
+        landlord_id: lj.landlord_id,
+        thread_id: message.thread_id,
+        message,
+      })
+    } catch (err: unknown) {
+      console.error('[messaging] Error starting listing thread:', err)
+      return res.status(500).json({ error: 'Failed to start conversation' })
+    }
   })
 
   // POST /messages - Send new message (direct or group)
@@ -300,35 +430,97 @@ export default function messagesRouter(redis: Redis | null, cpuCores: number) {
     }
   })
 
-  // POST /messages/thread/:threadId/archive - Archive chat (hide from inbox, still accessible)
+  async function bustThreadCache(threadId: string): Promise<void> {
+    if (!redis) return
+    try {
+      await redis.del(makeThreadKey(threadId, false), makeThreadKey(threadId, true))
+    } catch {
+      /* ignore cache errors */
+    }
+  }
+
+  // POST /messages/thread/:threadId/archive - Archive chat (hide from inbox; GET thread needs includeArchived=true)
   router.post('/thread/:threadId/archive', async (req: AuthedRequest, res: Response) => {
     const { threadId } = req.params
     const userId = req.userId
+    const client = await pool.connect()
     try {
-      // Verify user has access to this thread
-      const access = await pool.query(
+      await client.query('BEGIN')
+      const access = await client.query(
         `SELECT 1 FROM messages.messages WHERE thread_id = $1
          AND (recipient_id = $2 OR sender_id = $2 OR group_id IN (SELECT group_id FROM messages.group_members WHERE user_id = $2))
          LIMIT 1`,
-        [threadId, userId]
+        [threadId, userId],
       )
       if (access.rows.length === 0) {
-        return res.status(404).json({ error: 'Thread not found' })
+        const exists = await client.query(
+          `SELECT 1 FROM messages.messages WHERE thread_id = $1 LIMIT 1`,
+          [threadId],
+        )
+        await client.query('ROLLBACK')
+        if (exists.rows.length === 0) {
+          return res.status(404).json({ error: 'Thread not found' })
+        }
+        return res.status(403).json({ error: 'You are not a participant in this thread' })
       }
-      await pool.query(
+      await client.query(
         `INSERT INTO messages.user_archived_threads (user_id, thread_id)
          VALUES ($1, $2) ON CONFLICT (user_id, thread_id) DO NOTHING`,
-        [userId, threadId]
+        [userId, threadId],
       )
-      res.status(201).json({ thread_id: threadId, archived: true })
-    } catch (err: any) {
+      await client.query('COMMIT')
+      await bustThreadCache(threadId)
+      return res.status(204).end()
+    } catch (err: unknown) {
+      try {
+        await client.query('ROLLBACK')
+      } catch {
+        /* ignore */
+      }
       const code = (err as { code?: string })?.code
       if (code === '42P01') {
         console.error('[messaging] Archive thread: missing table user_archived_threads (501)', { code })
-        return res.status(501).json({ error: 'user_archived_threads table not found; run migration 04-social-schema-archive-recall-kickban.sql' })
+        return res.status(501).json({
+          error:
+            'user_archived_threads table not found; run migration 04-social-schema-archive-recall-kickban.sql',
+        })
       }
-      console.error('[messaging] Error archiving thread:', { code, message: err?.message, status: 500 })
-      res.status(500).json({ error: 'Failed to archive thread' })
+      if (code === '23505') {
+        await bustThreadCache(threadId)
+        return res.status(204).end()
+      }
+      console.error('[messaging] Error archiving thread:', {
+        code,
+        message: (err as { message?: string })?.message,
+        status: 500,
+      })
+      return res.status(500).json({ error: 'Failed to archive thread' })
+    } finally {
+      client.release()
+    }
+  })
+
+  // DELETE /messages/thread/:threadId/archive - Unarchive (idempotent)
+  router.delete('/thread/:threadId/archive', async (req: AuthedRequest, res: Response) => {
+    const { threadId } = req.params
+    const userId = req.userId
+    try {
+      await pool.query(
+        `DELETE FROM messages.user_archived_threads WHERE user_id = $1 AND thread_id = $2`,
+        [userId, threadId],
+      )
+      await bustThreadCache(threadId)
+      return res.status(204).end()
+    } catch (err: unknown) {
+      const code = (err as { code?: string })?.code
+      if (code === '42P01') {
+        return res.status(501).json({
+          error:
+            'user_archived_threads table not found; run migration 04-social-schema-archive-recall-kickban.sql',
+        })
+      }
+      console.error('[messaging] Error unarchiving thread:', err)
+      return res.status(500).json({ error: 'Failed to unarchive thread' })
     }
   })
 
@@ -1121,8 +1313,29 @@ export default function messagesRouter(redis: Redis | null, cpuCores: number) {
   router.get('/thread/:threadId', async (req: AuthedRequest, res: Response) => {
     const { threadId } = req.params
     const userId = req.userId
+    const includeArchived = req.query.includeArchived === 'true'
 
-    const cacheKey = makeThreadKey(threadId)
+    if (!includeArchived) {
+      try {
+        const { rows: archRows } = await pool.query(
+          `SELECT 1 FROM messages.user_archived_threads WHERE user_id = $1 AND thread_id = $2 LIMIT 1`,
+          [userId, threadId],
+        )
+        if (archRows.length > 0) {
+          return res.status(404).json({
+            error: 'Thread archived for you; pass includeArchived=true to load',
+          })
+        }
+      } catch (e: unknown) {
+        const code = (e as { code?: string })?.code
+        if (code !== '42P01') {
+          console.error('[messaging] archived-thread gate failed:', e)
+          return res.status(500).json({ error: 'Failed to load thread' })
+        }
+      }
+    }
+
+    const cacheKey = makeThreadKey(threadId, includeArchived)
     const result = await cached(
       redis,
       cacheKey,

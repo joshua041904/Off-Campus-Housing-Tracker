@@ -18,7 +18,10 @@ function abortAfter(ms: number): AbortSignal {
 async function tick(redis: ReturnType<typeof createClient>): Promise<void> {
   let bad = false;
   try {
-    const r = await fetch(GATEWAY_READY_URL, { signal: abortAfter(8000) });
+    const r = await fetch(GATEWAY_READY_URL, {
+      signal: abortAfter(8000),
+      headers: { "x-traffic-class": "internal" },
+    });
     bad = !r.ok;
   } catch {
     bad = true;

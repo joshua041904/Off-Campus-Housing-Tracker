@@ -49,6 +49,12 @@ fi
 # Apply Caddy ConfigMap from repo root Caddyfile (api-gateway:4020, auth:4011 per README; gRPC h2c://envoy-test:10000)
 kubectl -n "$NS" create configmap caddy-h3 --from-file=Caddyfile=./Caddyfile -o yaml --dry-run=client | kubectl apply -f -
 
+# ConfigMap alone does not restart pods — they keep the old mounted Caddyfile until rollout.
+if kubectl -n "$NS" get deploy caddy-h3 &>/dev/null; then
+  echo "🔄 Restarting caddy-h3 so pods reload Caddyfile from ConfigMap..."
+  kubectl -n "$NS" rollout restart deployment/caddy-h3
+fi
+
 # Apply Caddy Deployment: substitute TLS secret name so deploy matches project (default off-campus-housing-local-tls in YAML)
 _apply_deploy() {
   local file="$1"
@@ -97,20 +103,22 @@ elif [ -f "infra/k8s/caddy-h3-svc.yaml" ]; then
   echo "✅ Applied Caddy service (NodePort ${_np})"
 elif [ -f "infra/k8s/caddy-h3-service-nodeport.yaml" ]; then
   _np="${CADDY_NODEPORT:-30443}"
-  if [[ "$_np" != "30443" ]]; then
-    sed "s/nodePort: 30443/nodePort: $_np/g" infra/k8s/caddy-h3-service-nodeport.yaml | kubectl -n "$NS" apply -f -
+  _unp="${CADDY_UDP_NODEPORT:-30444}"
+  if [[ "$_np" != "30443" ]] || [[ "$_unp" != "30444" ]]; then
+    sed -e "s/nodePort: 30443/nodePort: $_np/g" -e "s/nodePort: 30444/nodePort: $_unp/g" infra/k8s/caddy-h3-service-nodeport.yaml | kubectl -n "$NS" apply -f -
   else
     kubectl -n "$NS" apply -f infra/k8s/caddy-h3-service-nodeport.yaml
   fi
-  echo "✅ Applied Caddy service (NodePort ${_np})"
+  echo "✅ Applied Caddy service (NodePort TCP=${_np} UDP=${_unp})"
 elif [ -f "infra/k8s/caddy-h3-service.yaml" ]; then
   _np="${CADDY_NODEPORT:-30443}"
-  if [[ "$_np" != "30443" ]]; then
-    sed "s/nodePort: 30443/nodePort: $_np/g" infra/k8s/caddy-h3-service.yaml | kubectl -n "$NS" apply -f -
+  _unp="${CADDY_UDP_NODEPORT:-30444}"
+  if [[ "$_np" != "30443" ]] || [[ "$_unp" != "30444" ]]; then
+    sed -e "s/nodePort: 30443/nodePort: $_np/g" -e "s/nodePort: 30444/nodePort: $_unp/g" infra/k8s/caddy-h3-service.yaml | kubectl -n "$NS" apply -f -
   else
     kubectl -n "$NS" apply -f infra/k8s/caddy-h3-service.yaml
   fi
-  echo "✅ Applied Caddy service (NodePort ${_np})"
+  echo "✅ Applied Caddy service (NodePort TCP=${_np} UDP=${_unp})"
 else
   echo "⚠️  No Caddy service file found!"
   echo "   For Colima+MetalLB: CADDY_USE_LOADBALANCER=1 (infra/k8s/loadbalancer.yaml)"
@@ -136,6 +144,10 @@ if ! kubectl -n "$NS" rollout status deploy/caddy-h3 --timeout=120s 2>&1; then
   done
   exit 1
 fi
+
+kubectl wait --for=condition=available deployment/caddy-h3 -n "$NS" --timeout=120s 2>/dev/null || true
+# Brief settle: Caddy's active health checker can hit api-gateway before cluster DNS has the Service.
+sleep "${CADDY_POST_ROLLOUT_DNS_SETTLE_SEC:-5}"
 
 # Restart Envoy so listener 10000 stays plaintext (h2c); Caddy→Envoy no TLS. TLS/mTLS at edge (Caddy) and backend (Envoy→backends).
 if kubectl get namespace envoy-test &>/dev/null && kubectl -n envoy-test get deployment envoy-test &>/dev/null; then

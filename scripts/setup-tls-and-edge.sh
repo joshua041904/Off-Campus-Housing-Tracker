@@ -65,11 +65,15 @@ ok "TLS secrets in ingress-nginx, off-campus-housing-tracker, envoy-test"
 say "Step 4/7: Build caddy-with-tcpdump and envoy-with-tcpdump (for packet capture)"
 if [[ "${SKIP_BUILD_TCPDUMP:-0}" != "1" ]]; then
   if [[ -f "$REPO_ROOT/docker/caddy-with-tcpdump/Dockerfile" ]]; then
-    docker build -t caddy-with-tcpdump:dev -f docker/caddy-with-tcpdump/Dockerfile . 2>&1 | tail -3
+    # shellcheck disable=SC2086
+    docker build -t caddy-with-tcpdump:dev -f docker/caddy-with-tcpdump/Dockerfile . \
+      ${OCH_CADDY_TCPDUMP_BUILD_ARGS:-}
     ok "Built caddy-with-tcpdump:dev (xcaddy, HTTP/3, tcpdump)"
   fi
   if [[ -f "$REPO_ROOT/docker/envoy-with-tcpdump/Dockerfile" ]]; then
-    docker build -t envoy-with-tcpdump:dev -f docker/envoy-with-tcpdump/Dockerfile . 2>&1 | tail -3
+    # shellcheck disable=SC2086
+    docker build -t envoy-with-tcpdump:dev -f docker/envoy-with-tcpdump/Dockerfile . \
+      ${OCH_ENVOY_TCPDUMP_BUILD_ARGS:-}
     ok "Built envoy-with-tcpdump:dev"
   fi
 else

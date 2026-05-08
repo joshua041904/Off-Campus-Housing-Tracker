@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Single source of truth for Kafka broker leaf cert Subject Alternative Names (DNS + fixed/static IPs).
+# Includes headless Service `kafka` FQDNs (kafka.<ns>.svc.cluster.local) for in-cluster bootstrap hostnames.
 # Used by kafka-ssl-from-dev-root.sh (generation) and verify-kafka-tls-sans.sh (validation).
 #
 # Cluster access: uses kctl() if the sourcing script defined it (e.g. Colima), else kubectl.
@@ -47,13 +48,24 @@ och_kafka_subject_alt_name_openssl_value() {
   parts+=("DNS:kafka")
   parts+=("DNS:localhost")
   parts+=("DNS:host.docker.internal")
+  # Headless bootstrap Service name=kafka → in-cluster clients using kafka:9093 resolve to these FQDNs.
+  parts+=("DNS:kafka.${ns}.svc")
+  parts+=("DNS:kafka.${ns}.svc.cluster.local")
   parts+=("DNS:kafka-external.${ns}.svc.cluster.local")
+  # Alias headless Service kafka-headless (same pods as kafka headless).
+  parts+=("DNS:kafka-headless")
+  parts+=("DNS:kafka-headless.${ns}.svc")
+  parts+=("DNS:kafka-headless.${ns}.svc.cluster.local")
   local i
   for ((i = 0; i < replicas; i++)); do
     parts+=("DNS:kafka-${i}")
     parts+=("DNS:kafka-${i}.kafka")
     parts+=("DNS:kafka-${i}.kafka.${ns}.svc")
     parts+=("DNS:kafka-${i}.kafka.${ns}.svc.cluster.local")
+    parts+=("DNS:kafka-${i}.kafka-headless")
+    parts+=("DNS:kafka-${i}.kafka-headless.${ns}.svc")
+    parts+=("DNS:kafka-${i}.kafka-headless.${ns}.svc.cluster.local")
+    parts+=("DNS:kafka-${i}-external.${ns}.svc")
     parts+=("DNS:kafka-${i}-external.${ns}.svc.cluster.local")
   done
   parts+=("IP:127.0.0.1")
@@ -76,11 +88,19 @@ och_kafka_emit_san_verify_dns_specs() {
   local ns="$1" replicas="$2" i
   for ((i = 0; i < replicas; i++)); do
     echo "simple|kafka-${i}.kafka.${ns}.svc.cluster.local"
+    echo "simple|kafka-${i}.kafka-headless.${ns}.svc.cluster.local"
     echo "simple|kafka-${i}-external.${ns}.svc.cluster.local"
+    echo "simple|kafka-${i}-external.${ns}.svc"
     echo "simple|kafka-${i}"
     echo "simple|kafka-${i}.kafka"
     echo "simple|kafka-${i}.kafka.${ns}.svc"
+    echo "simple|kafka-${i}.kafka-headless"
+    echo "simple|kafka-${i}.kafka-headless.${ns}.svc"
   done
+  echo "simple|kafka.${ns}.svc.cluster.local"
+  echo "simple|kafka.${ns}.svc"
+  echo "simple|kafka-headless.${ns}.svc.cluster.local"
+  echo "simple|kafka-headless.${ns}.svc"
   echo "exact|kafka"
   echo "exact|localhost"
   echo "simple|host.docker.internal"
