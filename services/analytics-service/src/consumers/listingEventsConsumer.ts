@@ -2,6 +2,7 @@
  * Consume ${ENV_PREFIX}.listing.events — project ListingCreatedV1 into analytics.daily_metrics (idempotent).
  */
 import { kafka, ochKafkaTopicIsolationSuffix } from "@common/utils";
+import { withKafkaConsumerSpan } from "@common/utils/otel";
 import type { Consumer } from "kafkajs";
 import type { Pool } from "pg";
 import { applyListingCreatedForAnalytics } from "../listing-metrics-projection.js";
@@ -66,50 +67,57 @@ export async function startListingEventsConsumer(pool: Pool | null): Promise<Con
 
     await consumer.run({
       eachMessage: async ({ topic, partition, message }) => {
-        const v = message.value;
-        if (!v) return;
-        const env = parseEnvelope(v);
-        if (!env) return;
-        const meta = env.metadata;
-        const eventId = String(meta?.event_id || "").trim();
-        const eventType = String(meta?.event_type || "").trim();
-        if (!eventId || !/^[0-9a-f-]{36}$/i.test(eventId)) return;
-        if (eventType !== "ListingCreatedV1") return;
+        await withKafkaConsumerSpan(
+          message.headers,
+          `kafka consume ${topic}`,
+          async () => {
+            const v = message.value;
+            if (!v) return;
+            const env = parseEnvelope(v);
+            if (!env) return;
+            const meta = env.metadata;
+            const eventId = String(meta?.event_id || "").trim();
+            const eventType = String(meta?.event_type || "").trim();
+            if (!eventId || !/^[0-9a-f-]{36}$/i.test(eventId)) return;
+            if (eventType !== "ListingCreatedV1") return;
 
-        const payload = (env.payload || {}) as Record<string, unknown>;
-        const listedDay = String(payload.listed_at_day || "").trim().slice(0, 10);
-        const day = /^\d{4}-\d{2}-\d{2}$/.test(listedDay)
-          ? listedDay
-          : dayFromOccurredAt(String(meta?.occurred_at || ""));
-        if (logConsume) {
-          const off = message.offset;
-          console.log(
-            JSON.stringify({
-              msg: "analytics_listing_event_consumed",
-              groupId: GROUP_ID,
-              topic,
-              partition,
-              offset: off,
-              event_id: eventId,
-              event_type: eventType,
-              listed_at_day: day,
-            }),
-          );
-        }
-        try {
-          await applyListingCreatedForAnalytics(pool, eventId, day);
-          if (logConsume) {
-            console.log(
-              JSON.stringify({
-                msg: "analytics_listing_projection_ok",
-                event_id: eventId,
-                listed_at_day: day,
-              }),
-            );
-          }
-        } catch (e) {
-          console.error("[analytics-listing-kafka] projection failed", e);
-        }
+            const payload = (env.payload || {}) as Record<string, unknown>;
+            const listedDay = String(payload.listed_at_day || "").trim().slice(0, 10);
+            const day = /^\d{4}-\d{2}-\d{2}$/.test(listedDay)
+              ? listedDay
+              : dayFromOccurredAt(String(meta?.occurred_at || ""));
+            if (logConsume) {
+              const off = message.offset;
+              console.log(
+                JSON.stringify({
+                  msg: "analytics_listing_event_consumed",
+                  groupId: GROUP_ID,
+                  topic,
+                  partition,
+                  offset: off,
+                  event_id: eventId,
+                  event_type: eventType,
+                  listed_at_day: day,
+                }),
+              );
+            }
+            try {
+              await applyListingCreatedForAnalytics(pool, eventId, day);
+              if (logConsume) {
+                console.log(
+                  JSON.stringify({
+                    msg: "analytics_listing_projection_ok",
+                    event_id: eventId,
+                    listed_at_day: day,
+                  }),
+                );
+              }
+            } catch (e) {
+              console.error("[analytics-listing-kafka] projection failed", e);
+            }
+          },
+          { "messaging.system": "kafka", "messaging.destination.name": topic },
+        );
       },
     });
     return consumer;

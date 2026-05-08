@@ -31,14 +31,20 @@ spec:
         - name: otlp-http
           containerPort: 4318
         env:
+        - name: QUERY_BASE_PATH
+          value: "/jaeger"
         - name: COLLECTOR_OTLP_ENABLED
           value: "true"
+        - name: COLLECTOR_QUEUE_SIZE
+          value: "20000"
+        - name: COLLECTOR_NUM_WORKERS
+          value: "50"
         resources:
           requests:
-            memory: "256Mi"
-            cpu: "100m"
-          limits:
             memory: "512Mi"
+            cpu: "200m"
+          limits:
+            memory: "1Gi"
             cpu: "500m"
 ---
 apiVersion: v1

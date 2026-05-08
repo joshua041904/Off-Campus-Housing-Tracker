@@ -66,8 +66,8 @@ function withLogging(handler: any, methodName: string) {
   }
 }
 
-// Implement MessagingService (same handler implementations as social; RPC names match proto)
-const handlers = {
+/** Raw gRPC method implementations (unit-test via direct `call`/`callback`; server wraps with logging). */
+export const messagingGrpcHandlers = {
   async ListPosts(call: any, callback: any) {
     const { user_id, page = 1, limit = 20, flair } = call.request
     const cacheKey = makePostsListKey(page, limit, flair)
@@ -510,9 +510,20 @@ const handlers = {
   },
 }
 
+/** K8s grpc-health-probe (same logic as `registerHealthService` callback on the server). */
+export async function messagingGrpcHealthProbe(): Promise<boolean> {
+  try {
+    await pool.query('SELECT 1')
+    return true
+  } catch (err) {
+    console.error('[messaging] Health check failed:', err)
+    return false
+  }
+}
+
 // Wrap all handlers with logging
 const wrappedHandlers: any = {}
-for (const [method, handler] of Object.entries(handlers)) {
+for (const [method, handler] of Object.entries(messagingGrpcHandlers)) {
   wrappedHandlers[method] = withLogging(handler, method)
 }
 
@@ -527,15 +538,7 @@ export function startGrpcServer(port: number) {
   })
   server.addService(service, wrappedHandlers)
 
-  registerHealthService(server, 'messaging.v1.MessagingService', async () => {
-    try {
-      await pool.query('SELECT 1')
-      return true
-    } catch (err) {
-      console.error('[messaging] Health check failed:', err)
-      return false
-    }
-  })
+  registerHealthService(server, 'messaging.v1.MessagingService', messagingGrpcHealthProbe)
 
   // Enable gRPC reflection for tooling (grpcurl, etc.)
   if (process.env.ENABLE_GRPC_REFLECTION !== 'false') {

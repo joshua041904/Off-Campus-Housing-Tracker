@@ -208,6 +208,7 @@ _reissue_main() {
   cat > "$TMP/ext.conf" <<EXT
 [v3_req]
 subjectAltName=$SANS
+extendedKeyUsage=serverAuth, clientAuth
 EXT
   openssl x509 -req -in "$TMP/leaf.csr" -CA "$CA_CRT" -CAkey "$CA_KEY" \
     -CAcreateserial -out "$LEAF_CRT" -days 365 \
@@ -573,17 +574,29 @@ data:
   # api-gateway mounts service-tls; auth and most services mount och-service-tls — must match or gRPC mTLS /readyz fails (wrong CA).
   log_progress "step 2c: syncing och-service-tls from service-tls…"
   _ochd=$(mktemp -d)
-  if _kubectl_step2 -n "$NS_APP" get secret service-tls -o jsonpath='{.data.ca\.crt}' 2>/dev/null | base64 -d >"$_ochd/ca.crt" \
-    && _kubectl_step2 -n "$NS_APP" get secret service-tls -o jsonpath='{.data.tls\.crt}' 2>/dev/null | base64 -d >"$_ochd/tls.crt" \
-    && _kubectl_step2 -n "$NS_APP" get secret service-tls -o jsonpath='{.data.tls\.key}' 2>/dev/null | base64 -d >"$_ochd/tls.key"; then
-    _kubectl_step2 -n "$NS_APP" create secret generic och-service-tls \
+  # Use the same on-disk material as service-tls (not a read-back from apiserver — avoids empty jsonpath races).
+  # When step 2 uses colima ssh, _kubectl_step2 runs kubectl *inside the VM*; --from-file=HOST paths break (ENOENT on VM).
+  # Fix: build the Secret manifest with host kubectl --dry-run=client (reads host files only), then apply YAML via stdin.
+  if [[ -n "$SSH_DIR" ]]; then
+    cp -f "$SSH_DIR/ca.crt" "$_ochd/ca.crt"
+    cp -f "$SSH_DIR/tls.crt" "$_ochd/tls.crt"
+    cp -f "$SSH_DIR/tls.key" "$_ochd/tls.key"
+  else
+    cp -f "$CA_CRT" "$_ochd/ca.crt"
+    cp -f "$LEAF_CRT" "$_ochd/tls.crt"
+    cp -f "$LEAF_KEY" "$_ochd/tls.key"
+  fi
+  if [[ -s "$_ochd/ca.crt" && -s "$_ochd/tls.crt" && -s "$_ochd/tls.key" ]]; then
+    kubectl --request-timeout=30s -n "$NS_APP" create secret generic och-service-tls \
       --from-file=ca.crt="$_ochd/ca.crt" \
       --from-file=tls.crt="$_ochd/tls.crt" \
       --from-file=tls.key="$_ochd/tls.key" \
-      --dry-run=client -o yaml | _kubectl_step2 apply -f - --request-timeout=45s
+      --dry-run=client -o yaml | _kubectl_step2 apply -f - --request-timeout=45s --validate=false
     ok "och-service-tls synced from service-tls (alias)"
   else
-    warn "Could not read service-tls to sync och-service-tls"
+    warn "Could not stage CA/leaf material for och-service-tls"
+    rm -rf "$_ochd"
+    return 1
   fi
   rm -rf "$_ochd"
   [[ -n "$SSH_DIR" ]] && rm -rf "$SSH_DIR"

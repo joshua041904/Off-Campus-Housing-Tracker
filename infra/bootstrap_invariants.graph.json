@@ -1,0 +1,71 @@
+{
+  "version": "v1.3",
+  "description": "Canonical DAG for bootstrap / preflight invariant phases. C.metrics installs metrics-server (metrics.k8s.io) after C.infra; C.images gates Colima VM Docker image availability for ingress (caddy/envoy tcpdump) before G.app_runtime; G gates workload HTTP readiness before D and F; E follows D and F.",
+  "nodes": {
+    "A.workspace": {
+      "description": "Workspace determinism (lockfile, build artifacts, alignment venv / matplotlib)",
+      "script": "scripts/verify-bootstrap-state.mjs",
+      "verifyPhase": "workspace",
+      "context": ["ci", "post-bootstrap", "preflight-start", "preflight-end", "drift"]
+    },
+    "B.crypto": {
+      "description": "Cryptographic root integrity on disk (dev CA + edge leaf + Kafka material)",
+      "script": "scripts/verify-bootstrap-state.mjs",
+      "verifyPhase": "crypto",
+      "context": ["ci", "post-bootstrap", "preflight-start", "preflight-end", "drift"]
+    },
+    "C.infra": {
+      "description": "Cluster substrate (nodes, kube-system, MetalLB CRDs, ingress namespaces — before metrics-server)",
+      "script": "scripts/verify-bootstrap-state.mjs",
+      "verifyPhase": "infra",
+      "context": ["post-bootstrap", "preflight-start", "preflight-end", "drift"]
+    },
+    "C.metrics": {
+      "description": "metrics-server in kube-system (kubectl apply -k infra/k8s/base/metrics-server; k3s/Colima patch; rollout + kubectl top + bench_logs/bootstrap.prom headroom)",
+      "script": "scripts/bootstrap-metrics-server.sh",
+      "verifyPhase": "metrics",
+      "context": ["post-bootstrap", "preflight-start", "preflight-end", "drift"]
+    },
+    "C.images": {
+      "description": "Colima/k3s runtime image availability (infra/required_images.json — docker save | colima ssh docker load before edge rollouts)",
+      "script": "scripts/verify-required-images.sh",
+      "verifyPhase": "images",
+      "context": ["post-bootstrap", "preflight-start", "preflight-end", "drift"]
+    },
+    "G.app_runtime": {
+      "description": "Application readiness (scripts/verify-app-runtime.sh + infra/app_runtime_services.json — parallel rollout + /healthz, retries + exponential backoff, VERIFY_APP_RUNTIME_MODE=ci fail-fast, Prometheus gauges + histogram _bucket lines + JSONL history for cold/warm deltas; see docs/APP_RUNTIME_READINESS_BOUNDARY.md)",
+      "script": "scripts/verify-app-runtime.sh",
+      "verifyPhase": "app_runtime",
+      "context": ["post-bootstrap", "preflight-end", "drift"]
+    },
+    "D.observability": {
+      "description": "Jaeger query Service reachable (in-cluster / port-forward contract)",
+      "script": "scripts/verify-bootstrap-state.mjs",
+      "verifyPhase": "observability",
+      "context": ["post-bootstrap", "preflight-start", "preflight-end", "drift"]
+    },
+    "F.kafka_alignment": {
+      "description": "Kafka topics / alignment artifacts",
+      "script": "scripts/verify-bootstrap-state.mjs",
+      "verifyPhase": "kafka_alignment",
+      "context": ["preflight-end", "drift", "post-bootstrap"]
+    },
+    "E.transport": {
+      "description": "Strict QUIC / ALPN / transport-summary-v7 proof",
+      "script": "scripts/verify-bootstrap-state.mjs",
+      "verifyPhase": "transport",
+      "context": ["preflight-end"]
+    }
+  },
+  "edges": [
+    ["A.workspace", "B.crypto"],
+    ["B.crypto", "C.infra"],
+    ["C.infra", "C.metrics"],
+    ["C.metrics", "C.images"],
+    ["C.images", "G.app_runtime"],
+    ["G.app_runtime", "D.observability"],
+    ["G.app_runtime", "F.kafka_alignment"],
+    ["D.observability", "E.transport"],
+    ["F.kafka_alignment", "E.transport"]
+  ]
+}

@@ -120,15 +120,20 @@ if [[ -n "${TARGET_IP:-}" ]] && [[ "${PORT:-}" == "443" ]] && [[ "$ctx" == *"col
   export CAPTURE_V2_LB_IP="$TARGET_IP"
   export CAPTURE_DRAIN_SECONDS=5
   export CAPTURE_RUN_TYPE="standalone"
-  info "Using packet-capture-v2 (BPF dst host $TARGET_IP:443; STRICT uses tcpdump L2/L1 UDP 443, optional tshark stray); STRICT_QUIC_VALIDATION=${STRICT_QUIC_VALIDATION:-0}"
+  info "Using packet-capture-v2 (Colima L1 + optional pod L2; STRICT=tshark QUIC/ALPN + curl HTTP/3); STRICT_QUIC_VALIDATION=${STRICT_QUIC_VALIDATION:-0}"
 fi
 
 if [[ "${USE_CAPTURE_V2}" == "1" ]]; then
-  # Decode-aware tshark: pick up key log for -o tls.keylog_file (ALPN block uses CAPTURE_V2_TLS_KEYLOG / SSLKEYLOGFILE)
-  if [[ -n "${SSLKEYLOGFILE:-}" ]] && [[ -f "${SSLKEYLOGFILE}" ]] && [[ -s "${SSLKEYLOGFILE}" ]]; then
+  # Decode-aware tshark: ensure key log exists before traffic so curl writes secrets for the same capture window.
+  if [[ -n "${SSLKEYLOGFILE:-}" ]]; then
+    mkdir -p "$(dirname "$SSLKEYLOGFILE")" 2>/dev/null || true
+    : >>"$SSLKEYLOGFILE" 2>/dev/null || touch "$SSLKEYLOGFILE" 2>/dev/null || true
     export CAPTURE_V2_TLS_KEYLOG="${CAPTURE_V2_TLS_KEYLOG:-$SSLKEYLOGFILE}"
-  elif [[ -z "${CAPTURE_V2_TLS_KEYLOG:-}" ]] && [[ -f /tmp/sslkeys.log ]] && [[ -s /tmp/sslkeys.log ]]; then
+    export SSLKEYLOGFILE
+  elif [[ -z "${CAPTURE_V2_TLS_KEYLOG:-}" ]] && [[ -f /tmp/sslkeys.log ]]; then
     export CAPTURE_V2_TLS_KEYLOG="/tmp/sslkeys.log"
+    export SSLKEYLOGFILE="${SSLKEYLOGFILE:-/tmp/sslkeys.log}"
+    : >>"$SSLKEYLOGFILE" 2>/dev/null || true
   fi
   if [[ -n "${CAPTURE_V2_TLS_KEYLOG:-}" ]]; then
     export SSLKEYLOGFILE="${SSLKEYLOGFILE:-$CAPTURE_V2_TLS_KEYLOG}"
@@ -196,6 +201,22 @@ for i in 1 2 3 4 5 6; do
   strict_http3_curl -s --connect-timeout 5 --resolve "${HOST}:${_h3_port}:${CURL_RESOLVE_IP}" -H "Host: $HOST" "${_h3_url}/api/trust/healthz" >/dev/null 2>&1 || true
 done
 
+# Optional burst (QUIC_FORENSIC_TRAFFIC_MODE=strict|full) to grow ACK / in-flight signal; not required for strict transport proof.
+_och_burst_n=0
+case "${QUIC_FORENSIC_TRAFFIC_MODE:-minimal}" in
+  strict) _och_burst_n=24 ;;
+  full) _och_burst_n=120 ;;
+esac
+if [[ "$_och_burst_n" -gt 0 ]]; then
+  ok "QUIC_FORENSIC_TRAFFIC_MODE=${QUIC_FORENSIC_TRAFFIC_MODE:-minimal}: HTTP/3 burst ($_och_burst_n requests, listings search)…"
+  for ((_och_bi = 1; _och_bi <= _och_burst_n; _och_bi++)); do
+    strict_http3_curl -s --connect-timeout 6 --resolve "${HOST}:${_h3_port}:${CURL_RESOLVE_IP}" -H "Host: $HOST" \
+      "${_h3_url}/api/listings/search?q=test${_och_bi}" >/dev/null 2>&1 &
+    if ((_och_bi % 40 == 0)); then wait || true; fi
+  done
+  wait || true
+fi
+
 ok "Generating gRPC traffic (grpcurl)…"
 if command -v grpcurl >/dev/null 2>&1; then
   REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -237,7 +258,7 @@ if [[ "${USE_CAPTURE_V2:-0}" == "1" ]]; then
     warn "Packet capture v2: analysis failed (STRICT_QUIC_VALIDATION transport gate, verify_caddy stray, or copy errors). See log above."
     [[ "${STRICT_QUIC_VALIDATION:-0}" == "1" ]] && exit 1
   fi
-  ok "Capture v2: BPF dst host ${CAPTURE_V2_LB_IP:-}:443; STRICT transport checks passed (ALPN/tshark decode is informational)."
+  ok "Capture v2: Colima L1 BPF (udp port 443 or tcp port 443 to/from ${CAPTURE_V2_LB_IP:-<LB>}); STRICT transport checks passed (ALPN/tshark decode is informational)."
 else
   stop_and_analyze_captures 1 2>&1 | tee "$LOG"
   if ! verify_protocol_counts "$LOG" 2>/dev/null; then

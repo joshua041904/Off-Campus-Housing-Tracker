@@ -1,12 +1,23 @@
+# Dev overlay: `../../base` pulls api-gateway + all housing Deployments/Services. Do not remove it —
+# otherwise the build drops gateway/auth/etc. and Caddy returns 502 (Service with no Endpoints).
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - ../../base
   - hpa-api-gateway.yaml
+  # HTTP(S) + gRPC + privacy/terms routes (not under base/ — must be listed here for `kubectl kustomize overlays/dev`).
+  - ingress.yaml
+  - ingress-grpc.yaml
+  - ingress-privacy-terms.yaml
 patches:
   - path: patches/hpa-api-gateway-single-replica.yaml
   - path: patches/listings-analytics-sync-env.yaml
   - path: patches/analytics-analytics-sync-env.yaml
   - path: patches/e2e-high-cap-mode-env.yaml
   - path: patches/gateway-traffic-shaper-cluster-weight.yaml
+  - path: patches/ollama-service-loadbalancer.yaml
+  - path: patches/ollama-hpa-dev-colima.yaml
+  - path: patches/ollama-deployment-dev-colima-resources.yaml
+  - path: patches/app-config-ollama-dev-lab.yaml
+  - path: patches/analytics-service-ollama-host-metal.yaml
   - path: patches/webapp-local-image-pull.yaml

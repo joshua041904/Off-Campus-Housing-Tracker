@@ -9,6 +9,7 @@ resources:
   - kafka-ca-exporter
   - envoy-test
   - redis
+  - ollama
   - haproxy
   - nginx
   - observability

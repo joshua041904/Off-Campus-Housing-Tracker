@@ -1,5 +1,5 @@
-# Static + fixture gates (no cluster). Playwright job always runs: strict verticals when
-# RUN_STRICT_PLAYWRIGHT=true, otherwise install + `playwright test --list` smoke on ubuntu-latest.
+# Static + fixture gates (no cluster). Playwright job: strict-verticals-and-integrity when
+# PLAYWRIGHT_OFFLINE_LIST_ONLY=0 (or non-GHA without offline=1); on github-hosted default is --list.
 name: Protocol validation (static + fixtures)
 
 on:
@@ -134,18 +134,33 @@ jobs:
           cache: "pnpm"
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Strict verticals (RUN_STRICT_PLAYWRIGHT) or Playwright smoke
+      - name: Playwright strict verticals + integrity (or offline toolchain only)
         env:
-          RUN_STRICT_PLAYWRIGHT: ${{ vars.RUN_STRICT_PLAYWRIGHT }}
+          PLAYWRIGHT_OFFLINE_LIST_ONLY: ${{ vars.PLAYWRIGHT_OFFLINE_LIST_ONLY }}
+          JAEGER_QUERY_BASE: ${{ vars.JAEGER_QUERY_BASE }}
         run: |
           set -euo pipefail
           cd "$GITHUB_WORKSPACE/webapp"
           pnpm exec playwright install chromium --with-deps
-          if [ "${RUN_STRICT_PLAYWRIGHT:-}" = "true" ]; then
-            bash "$GITHUB_WORKSPACE/scripts/dev-generate-certs.sh"
-            export NODE_EXTRA_CA_CERTS="$GITHUB_WORKSPACE/certs/dev-root.pem"
-            PLAYWRIGHT_VERTICAL_STRICT=1 PLAYWRIGHT_STRICT_HTTP3=1 pnpm run test:e2e:strict-verticals-and-integrity
-          else
-            echo "RUN_STRICT_PLAYWRIGHT not true — Playwright smoke (test --list)"
+          _offline="${PLAYWRIGHT_OFFLINE_LIST_ONLY:-}"
+          if [ "${GITHUB_ACTIONS:-}" = "true" ] && [ "${_offline:-1}" = "1" ]; then
+            echo "Playwright offline (default on GHA): playwright test --list"
             pnpm exec playwright test --list
+            exit 0
           fi
+          if [ "${_offline:-0}" = "1" ] && [ "${GITHUB_ACTIONS:-}" != "true" ]; then
+            pnpm exec playwright test --list
+            exit 0
+          fi
+          if [ -z "${JAEGER_QUERY_BASE:-}" ]; then
+            echo "::error::Strict Playwright requires JAEGER_QUERY_BASE (Jaeger query UI :16686)."
+            exit 1
+          fi
+          bash "$GITHUB_WORKSPACE/scripts/dev-generate-certs.sh"
+          export NODE_EXTRA_CA_CERTS="$GITHUB_WORKSPACE/certs/dev-root.pem"
+          PLAYWRIGHT_VERTICAL_STRICT=1 PLAYWRIGHT_STRICT_HTTP3=1 pnpm run test:e2e:strict-verticals-and-integrity
+          chmod +x "$GITHUB_WORKSPACE/scripts/verify-jaeger-tracing-services.sh" "$GITHUB_WORKSPACE/scripts/verify-jaeger-trace-structure.sh" "$GITHUB_WORKSPACE/scripts/verify-jaeger-trace-all-verticals.sh"
+          JAEGER_QUERY_BASE="$JAEGER_QUERY_BASE" "$GITHUB_WORKSPACE/scripts/verify-jaeger-tracing-services.sh"
+          JAEGER_QUERY_BASE="$JAEGER_QUERY_BASE" "$GITHUB_WORKSPACE/scripts/verify-jaeger-trace-all-verticals.sh"
+          cd "$GITHUB_WORKSPACE"
+          JAEGER_QUERY_BASE="$JAEGER_QUERY_BASE" pnpm run test:observability

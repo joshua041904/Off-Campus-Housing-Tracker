@@ -52,11 +52,17 @@ message AnalyzeListingFeelRequest {
   string description = 2;
   int64 price_cents = 3;
   string audience = 4;
+  // Optional: quick | standard | deep (structured Listing Intelligence v2 when enabled server-side)
+  string analysis_depth = 5;
 }
 
 message AnalyzeListingFeelResponse {
   string analysis_text = 1;
   string model_used = 2;
+  double quality_score = 3;
+  // JSON: { intelligence: {...}, meta: {...} } when ANALYTICS_LISTING_INTELLIGENCE_V2=1
+  string intelligence_json = 4;
+  string confidence_explanation = 5;
 }
 
 // Recommendation API

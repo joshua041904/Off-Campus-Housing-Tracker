@@ -1,0 +1,19 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "packageManager": "pnpm",
+  "testRunner": "vitest",
+  "vitest": {
+    "configFile": "vitest.config.ts"
+  },
+  "mutate": [
+    "src/lib/bcrypt-queue.ts",
+    "src/lib/redis-cache.ts",
+    "!**/generated/**",
+    "!**/*.test.ts",
+    "!**/otel-bootstrap.ts"
+  ],
+  "thresholds": { "high": 90, "low": 80, "break": 85 },
+  "concurrency": 2,
+  "incremental": false,
+  "tempDirName": "stryker-tmp"
+}

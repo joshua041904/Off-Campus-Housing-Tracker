@@ -4,6 +4,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { kafka, ochKafkaTopicIsolationSuffix } from "@common/utils";
+import { buildKafkaMessageHeaders, withKafkaProduceSpan } from "@common/utils/otel";
 
 const ENV_PREFIX = process.env.ENV_PREFIX || "dev";
 export const LISTING_EVENTS_TOPIC =
@@ -61,24 +62,36 @@ export async function publishListingEvent(
       ? eventIdOverride.trim()
       : randomUUID();
   await ensureProducer();
-  await producer.send({
-    topic: LISTING_EVENTS_TOPIC,
-    messages: [
-      {
-        key: aggregateId,
-        value: JSON.stringify({
-          metadata: {
-            event_id,
-            event_type: eventType,
-            aggregate_id: aggregateId,
-            aggregate_type: "listing",
-            occurred_at: new Date().toISOString(),
-            producer: SERVICE_NAME,
-            version: "1",
+  await withKafkaProduceSpan(
+    `kafka produce ${LISTING_EVENTS_TOPIC}`,
+    {
+      "messaging.system": "kafka",
+      "messaging.destination.name": LISTING_EVENTS_TOPIC,
+      "listing.event_type": eventType,
+      "listing.aggregate_id": aggregateId,
+    },
+    async () => {
+      await producer.send({
+        topic: LISTING_EVENTS_TOPIC,
+        messages: [
+          {
+            key: aggregateId,
+            headers: buildKafkaMessageHeaders(),
+            value: JSON.stringify({
+              metadata: {
+                event_id,
+                event_type: eventType,
+                aggregate_id: aggregateId,
+                aggregate_type: "listing",
+                occurred_at: new Date().toISOString(),
+                producer: SERVICE_NAME,
+                version: "1",
+              },
+              payload,
+            }),
           },
-          payload,
-        }),
-      },
-    ],
-  });
+        ],
+      });
+    },
+  );
 }

@@ -13,7 +13,9 @@ const RAW_BASE = defaultRawBase();
 const BASE = RAW_BASE;
 const DUR = __ENV.DURATION || "25s";
 const VUS = Number(__ENV.VUS || 6);
-const SAMPLE_USER = __ENV.TRUST_SAMPLE_USER || "00000000-0000-0000-0000-000000000001";
+// Must satisfy trust-service isValidUuid (RFC variant/version nibbles). All-zero "nil" UUID is rejected → 400 → k6 http_req_failed.
+const SAMPLE_USER =
+  __ENV.TRUST_SAMPLE_USER || "00000000-0000-4000-8000-000000000001";
 
 export const options = Object.assign(strictEdgeTlsOptions(RAW_BASE), {
   vus: VUS,

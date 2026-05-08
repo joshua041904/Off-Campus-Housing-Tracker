@@ -26,7 +26,7 @@ spec:
         prometheus.io/path: "/metrics"
     spec:
       containers:
-        - name: app
+        - name: api-gateway
           image: api-gateway:dev
           imagePullPolicy: IfNotPresent
           ports:
@@ -38,6 +38,8 @@ spec:
           env:
             - name: NODE_ENV
               value: "development"
+            - name: OTEL_SERVICE_NAME
+              value: "api-gateway"
             - name: NODE_OPTIONS
               value: "--max-http-header-size=32768"
             - name: GATEWAY_PORT
@@ -53,6 +55,17 @@ spec:
             # 1 = coalesce concurrent GET /daily-metrics with identical query (one upstream fetch).
             - name: GATEWAY_COALESCE_ANALYTICS_DAILY
               value: "0"
+            # OCH Coverage v1: JSONL route hits in pod; run-full-matrix-local-report.sh merges into host report via kubectl-fetch-route-log.sh.
+            - name: GATEWAY_ROUTE_COVERAGE_LOG
+              value: "1"
+            - name: GATEWAY_ROUTE_COVERAGE_FILE
+              value: "/tmp/och-routes-hit.jsonl"
+            # Strict policy flag for suite-labeled traffic only; unlabeled browser/user traffic is never blocked.
+            - name: OCH_ENFORCE_X_SUITE
+              value: "1"
+            # Must exceed analytics Ollama path (listing-feel) on cold CPU-only inference.
+            - name: ANALYTICS_PROXY_TIMEOUT_MS
+              value: "300000"
             # Strict TLS/mTLS for gRPC to auth-service — internal leaf + CA only (secret service-tls; sync alias och-service-tls is optional).
             - name: GRPC_CA_CERT
               value: "/etc/certs/ca.crt"
@@ -77,6 +90,9 @@ spec:
             httpGet:
               path: /readyz
               port: 4020
+              httpHeaders:
+                - name: x-traffic-class
+                  value: infra
             initialDelaySeconds: 20
             periodSeconds: 10
             timeoutSeconds: 5
@@ -86,18 +102,22 @@ spec:
             httpGet:
               path: /healthz
               port: 4020
+              httpHeaders:
+                - name: x-traffic-class
+                  value: infra
             periodSeconds: 15
             initialDelaySeconds: 20
             timeoutSeconds: 10
             failureThreshold: 6
-
         # Probes gateway /readyz; writes Redis key read by gateway (watchdog-throttle-poll) to tighten E2E shaper under stress.
         - name: transport-watchdog
           image: transport-watchdog:dev
           imagePullPolicy: IfNotPresent
-          envFrom:
-            - configMapRef: { name: app-config }
+          # Do not envFrom the full app-config here — hundreds of keys blow Node heap and OOM at 64Mi.
           env:
+            - name: REDIS_URL
+              valueFrom:
+                configMapKeyRef: { name: app-config, key: REDIS_URL }
             - name: TRANSPORT_WATCHDOG_GATEWAY_URL
               value: "http://127.0.0.1:4020/readyz"
             - name: TRANSPORT_WATCHDOG_INTERVAL_MS
@@ -107,10 +127,9 @@ spec:
           resources:
             requests:
               cpu: "10m"
-              memory: "64Mi"
+              memory: "48Mi"
             limits:
               memory: "128Mi"
-
       volumes:
         - name: service-tls
           secret:

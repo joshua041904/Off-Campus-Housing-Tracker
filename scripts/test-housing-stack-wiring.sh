@@ -14,7 +14,7 @@ grep -q "LISTINGS_DB_PORT" services/listings-service/src/db.ts || fail "listings
 grep -q "5446" services/trust-service/src/db.ts || fail "trust db.ts must default to port 5446"
 grep -q "TRUST_DB_PORT" services/trust-service/src/db.ts || fail "trust db.ts must honor TRUST_DB_PORT"
 
-grep -q "listing\.events" services/listings-service/src/grpc-server.ts || fail "listings grpc must publish to *.listing.events (see create-kafka-event-topics.sh)"
+grep -q "listing\.events" services/listings-service/src/listing-kafka.ts || fail "listings Kafka topic must include listing.events (see create-kafka-event-topics.sh)"
 
 "$SCRIPT_DIR/verify-proto-events-topics.sh"
 

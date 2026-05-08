@@ -42,6 +42,7 @@ const SEGMENT_WEIGHT: Record<string, number> = {
   media: 1,
   notification: 1,
   booking: 2,
+  bookings: 2,
   analytics: 2,
   auth: 2,
   messaging: 5,

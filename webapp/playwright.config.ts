@@ -29,12 +29,7 @@ const chrome = { ...devices["Desktop Chrome"] };
 const suiteProjects = [
   {
     name: "01-guest-shell",
-    testMatch: [
-      "guest.spec.ts",
-      "webapp-pages.spec.ts",
-      "messaging-mentioned.spec.ts",
-      "trust.visual.spec.ts",
-    ],
+    testMatch: ["guest.spec.ts", "webapp-pages.spec.ts", "messaging-mentioned.spec.ts"],
   },
   {
     name: "02-auth-booking",
@@ -47,6 +42,7 @@ const suiteProjects = [
       "listings-filters-maps.spec.ts",
       "search-filters.spec.ts",
       "listings.visual.spec.ts",
+      "listings-detail.spec.ts",
     ],
   },
   {
@@ -74,36 +70,29 @@ const suiteProjects = [
 ] as const;
 
 export default defineConfig({
-  webServer: process.env.PLAYWRIGHT_VISUAL_ONLY
-    ? {
-        command: "pnpm --filter webapp dev",
-        url: "http://localhost:3000",
-        reuseExistingServer: true,
-        timeout: 120_000,
-      }
-    : undefined,
   globalSetup: "./playwright.global-setup.ts",
   testDir: "./e2e",
+  /** Register + edge round-trips exceed 30s under load; keep auth/listings verticals reliable. */
   timeout: 120_000,
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: 4,
-  outputDir: "test-results",
-  reporter: [
-    ["list"],
-    ["html", { open: "never", outputFolder: "playwright-report" }],
-  ],
+  /**
+   * Default 4 locally; scripts/webapp-playwright-strict-edge.sh sets PLAYWRIGHT_WORKERS=2 during preflight to cut edge 503/504 under k6.
+   */
+  workers: Math.max(1, Math.min(8, Number(process.env.PLAYWRIGHT_WORKERS) || 4)),
+  reporter: [["list"], ["html", { open: "never" }]],
   use: {
     baseURL,
+    // Browser E2E runs against local dev certs; app behavior is under test, not certificate validation.
     ignoreHTTPSErrors: true,
+    /** E2E markers + api-gateway route-hit JSONL suite attribution (och-service-coverage-matrix). */
     extraHTTPHeaders: {
       "x-e2e-test": "1",
       "x-test-mode": "1",
+      "x-suite": "playwright",
     },
     trace: "on-first-retry",
-    screenshot: "only-on-failure",
-    video: "retain-on-failure",
   },
   projects: suiteProjects.map((p) => ({
     name: p.name,

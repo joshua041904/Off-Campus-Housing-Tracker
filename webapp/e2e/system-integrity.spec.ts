@@ -5,12 +5,9 @@ function authHeaders(token: string): Record<string, string> {
   return { Authorization: `Bearer ${token}` };
 }
 
-/** Local calendar YYYY-MM-DD — matches browser date inputs and analytics listed_at_day from listing create. */
-function calendarDateYmd(d = new Date()): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+/** UTC calendar YYYY-MM-DD — matches listings-service `formatListedAt` (ISO slice) used for analytics `listed_at_day`. */
+function utcDateYmd(d = new Date()): string {
+  return d.toISOString().slice(0, 10);
 }
 
 test.describe("system integrity (multi-service vertical)", () => {
@@ -34,7 +31,7 @@ test.describe("system integrity (multi-service vertical)", () => {
     expect(token, "och_token after register").toBeTruthy();
     const h = authHeaders(token!);
 
-    const today = calendarDateYmd();
+    const today = utcDateYmd();
     const base = e2eApiBase();
     const dailyUrl = `${base}/api/analytics/daily-metrics?date=${encodeURIComponent(today)}`;
     const beforeRes = await request.get(dailyUrl);
@@ -49,12 +46,18 @@ test.describe("system integrity (multi-service vertical)", () => {
     await post.locator("textarea").fill("Cross-service E2E path.");
     await post.locator('input[type="number"]').fill("1200");
     await post.locator('input[type="date"]').fill(today);
-    await Promise.all([
-      page.waitForResponse(
-        (resp) => resp.url().includes("/api/listings/create") && resp.status() === 201,
-      ),
-      post.getByRole("button", { name: /Create listing/i }).click(),
-    ]);
+    const createRespPromise = page.waitForResponse(
+      (resp) => resp.url().includes("/api/listings/create") && resp.status() === 201,
+    );
+    await Promise.all([createRespPromise, post.getByRole("button", { name: /Create listing/i }).click()]);
+    const createRes = await createRespPromise;
+    const created = (await createRes.json()) as { listed_at?: string };
+    const listedDay = String(created.listed_at ?? "").trim().slice(0, 10);
+    expect(
+      listedDay === today,
+      `listing listed_at day (${listedDay}) must match UTC probe day (${today}) — analytics daily_metrics URL`,
+    ).toBeTruthy();
+
     await expect(page.getByTestId("listing-created-banner")).toBeVisible({ timeout: 60_000 });
 
     await expect
@@ -65,7 +68,11 @@ test.describe("system integrity (multi-service vertical)", () => {
           const j = (await r.json()) as { new_listings?: number };
           return Number(j.new_listings) || 0;
         },
-        { timeout: 180_000, intervals: [2_000, 3_000, 5_000] },
+        {
+          // Listing → Kafka → analytics projection can lag behind UI success.
+          timeout: 280_000,
+          intervals: [2_000, 3_000, 5_000, 8_000],
+        },
       )
       .toBeGreaterThan(newListingsBefore);
 

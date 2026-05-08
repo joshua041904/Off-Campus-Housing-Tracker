@@ -12,10 +12,47 @@ data:
       - /etc/prometheus/rules/och-slo.yml
       - /etc/prometheus/rules/kafka-health.yml
       - /etc/prometheus/rules/auth-outbox.yml
+      - /etc/prometheus/rules/ollama-worker.yml
+      - /etc/prometheus/rules/analytics-ai-slo.yml
+      - /etc/prometheus/rules/ai-health-composite.yml
+      - /etc/prometheus/rules/ai-control-plane.yml
+      - /etc/prometheus/rules/ai-cluster-arbitration.yml
     scrape_configs:
       - job_name: 'prometheus'
+        metrics_path: /prometheus/metrics
         static_configs:
           - targets: ['localhost:9090']
+      - job_name: 'ollama'
+        static_configs:
+          - targets: ['ollama-gateway.off-campus-housing-tracker.svc.cluster.local:8081']
+        metrics_path: /metrics
+      # Static core-service scrapes (fast visibility even if Kubernetes SD/RBAC regresses).
+      - job_name: 'housing-services-static'
+        metrics_path: /metrics
+        static_configs:
+          - targets:
+              - api-gateway.off-campus-housing-tracker.svc.cluster.local:4020
+              - analytics-service.off-campus-housing-tracker.svc.cluster.local:4017
+              - auth-service.off-campus-housing-tracker.svc.cluster.local:4011
+              - listings-service.off-campus-housing-tracker.svc.cluster.local:4012
+              - booking-service.off-campus-housing-tracker.svc.cluster.local:4013
+              - messaging-service.off-campus-housing-tracker.svc.cluster.local:4014
+              - notification-service.off-campus-housing-tracker.svc.cluster.local:4015
+              - trust-service.off-campus-housing-tracker.svc.cluster.local:4016
+              - media-service.off-campus-housing-tracker.svc.cluster.local:4018
+      # Pushgateway: run scripts/coverage/push-och-metrics.sh after matrix (deploy Pushgateway in observability NS).
+      - job_name: 'pushgateway'
+        honor_labels: true
+        static_configs:
+          - targets: ['pushgateway.observability.svc.cluster.local:9091']
+      # Dev fallback: HTTP exporter on host (node scripts/coverage/serve-coverage-integrity-prom.mjs).
+      - job_name: 'och-coverage-integrity-host'
+        scrape_interval: 60s
+        metrics_path: /metrics
+        static_configs:
+          - targets: ['host.docker.internal:9464']
+            labels:
+              exporter: 'och-coverage-integrity'
       # All pods in the housing namespace that opt in via prometheus.io/* annotations
       # (correct HTTP/metrics port per deployment — avoids stale single-job ports).
       - job_name: 'housing-pods'
@@ -94,14 +131,20 @@ spec:
       labels:
         app: prometheus
     spec:
+      serviceAccountName: prometheus
       containers:
       - name: prometheus
-        image: prom/prometheus:latest
+        image: prom/prometheus:v2.52.0
         ports:
         - containerPort: 9090
         args:
           - '--config.file=/etc/prometheus/prometheus.yml'
           - '--storage.tsdb.path=/prometheus'
+          # Caddy forwards /prometheus/* unchanged; Prometheus serves UI under this prefix.
+          - '--web.external-url=https://off-campus-housing.test/prometheus/'
+          - '--web.route-prefix=/prometheus/'
+          # Store histogram exemplars (trace_id) from OpenMetrics scrapes (e.g. api-gateway).
+          - '--enable-feature=exemplar-storage'
         volumeMounts:
         - name: config
           mountPath: /etc/prometheus
@@ -136,6 +179,36 @@ spec:
                 items:
                   - key: auth-outbox.yml
                     path: rules/auth-outbox.yml
+            - configMap:
+                name: prometheus-rules-ollama-worker
+                items:
+                  - key: ollama-worker.yml
+                    path: rules/ollama-worker.yml
+            - configMap:
+                name: prometheus-rules-analytics-ai-slo
+                items:
+                  - key: analytics-ai-slo.yml
+                    path: rules/analytics-ai-slo.yml
+            - configMap:
+                name: prometheus-rules-ai-health-composite
+                items:
+                  - key: ai-health-composite.yml
+                    path: rules/ai-health-composite.yml
+            - configMap:
+                name: prometheus-rules-ai-control-plane
+                items:
+                  - key: ai-control-plane.yml
+                    path: rules/ai-control-plane.yml
+            - configMap:
+                name: prometheus-rules-ai-cluster-arbitration
+                items:
+                  - key: ai-cluster-arbitration.yml
+                    path: rules/ai-cluster-arbitration.yml
+            - configMap:
+                name: prometheus-rules-coverage-integrity
+                items:
+                  - key: coverage-integrity.yml
+                    path: rules/coverage-integrity.yml
 ---
 apiVersion: v1
 kind: Service

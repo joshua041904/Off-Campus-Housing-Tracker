@@ -48,35 +48,27 @@ step() {
   say "Step ${_step_n}: $*"
 }
 
-# Docker / Colima
+# Docker / Colima — realign CLI (context + clear stale DOCKER_HOST) before compose; see scripts/lib/ensure-colima-docker-context.sh
 if ! command -v docker >/dev/null 2>&1; then
   warn "docker not found. Install Docker or start Colima."
   exit 1
 fi
+# shellcheck source=lib/ensure-colima-docker-context.sh
+source "$SCRIPT_DIR/lib/ensure-colima-docker-context.sh"
+_colima_running=""
 if command -v colima >/dev/null 2>&1; then
   _colima_running=$(colima list 2>/dev/null | awk '/default/ && /Running/ { print "1" }')
-  if [[ "$_colima_running" == "1" ]]; then
-    docker context use colima 2>/dev/null || true
-    for sock in "$HOME/.colima/default/docker.sock" "$HOME/.colima/docker.sock"; do
-      if [[ -S "$sock" ]] || [[ -f "$sock" ]]; then
-        export DOCKER_HOST="unix://$sock"
-        break
-      fi
-    done
-  fi
-  if [[ -z "${DOCKER_HOST:-}" ]] && colima status 2>/dev/null | grep -q "colima is running"; then
-    docker context use colima 2>/dev/null || true
-    for sock in "$HOME/.colima/default/docker.sock" "$HOME/.colima/docker.sock"; do
-      if [[ -S "$sock" ]] || [[ -f "$sock" ]]; then
-        export DOCKER_HOST="unix://$sock"
-        break
-      fi
-    done
+fi
+if [[ "$_colima_running" == "1" ]] || { command -v colima >/dev/null 2>&1 && colima status 2>/dev/null | grep -qiE 'colima is running|running'; }; then
+  if ! OCH_FORCE_COLIMA_DOCKER=1 OCH_KUBE_CONTEXT=colima och_ensure_colima_docker_context; then
+    warn "Colima Docker CLI alignment failed; compose may still work if docker info succeeds below."
+  else
+    info "Docker aligned for Colima (context=$(docker context show 2>/dev/null || echo ?))"
   fi
 fi
 if ! docker info >/dev/null 2>&1; then
   warn "Docker daemon not reachable. Start Colima: colima start --with-kubernetes"
-  info "If Colima is already running, try: docker context use colima"
+  info "If Colima is already running: unset DOCKER_HOST DOCKER_CONTEXT; docker context use colima; docker info"
   exit 1
 fi
 
@@ -141,6 +133,39 @@ if ! (nc -z 127.0.0.1 5441 2>/dev/null && nc -z 127.0.0.1 5448 2>/dev/null); the
   warn "Not all Postgres ports became ready within ${MAX_WAIT}s. Run: docker compose up -d ${POSTGRES_SERVICES[*]}"
 fi
 
+# TCP listen can return before Postgres finishes crash recovery / init; restores then fail with
+# "server closed the connection unexpectedly". Wait until each instance accepts queries.
+step "Waiting for Postgres to accept connections (beyond TCP listen)"
+_pg_user="${PGUSER:-postgres}"
+_pg_one_ready() {
+  local port="$1"
+  if command -v pg_isready >/dev/null 2>&1; then
+    pg_isready -h 127.0.0.1 -p "$port" -U "$_pg_user" -q 2>/dev/null
+  else
+    PGPASSWORD="${PGPASSWORD:-postgres}" psql -h 127.0.0.1 -p "$port" -U "$_pg_user" -d postgres -t -A -c "select 1" >/dev/null 2>&1
+  fi
+}
+_all_pg_ready() {
+  local port
+  for port in $PORTS; do
+    _pg_one_ready "$port" || return 1
+  done
+  return 0
+}
+_pg_elapsed=0
+while [[ $_pg_elapsed -lt $MAX_WAIT ]]; do
+  if _all_pg_ready; then
+    ok "All 8 Postgres instances accept connections."
+    break
+  fi
+  sleep 3
+  _pg_elapsed=$((_pg_elapsed + 3))
+done
+if ! _all_pg_ready; then
+  echo "ERROR: Postgres not accepting connections after ${MAX_WAIT}s; fix compose health or increase MAX_WAIT before restore." >&2
+  exit 1
+fi
+
 if [[ "$ENFORCE_DB_TUNING" == "1" ]]; then
   if [[ -x "$SCRIPT_DIR/enforce-external-db-schemas-and-tuning.sh" ]]; then
     step "Enforcing DB schemas and tuning (ENFORCE_DB_TUNING=1)"
@@ -154,7 +179,6 @@ step "Summary — container status"
 say "=== External infra status ==="
 docker compose ps redis minio "${POSTGRES_SERVICES[@]}" 2>/dev/null || true
 info "Kafka: in-cluster KRaft only — ./scripts/create-kafka-event-topics-k8s.sh"
-say "✅ bring-up-external-infra finished. See docs/RUN_PIPELINE_ORDER.md"
 
 RESTORE_BACKUP_DIR="${RESTORE_BACKUP_DIR:-}"
 if [[ -n "$RESTORE_BACKUP_DIR" ]] && [[ "${SKIP_AUTO_RESTORE:-0}" == "1" ]]; then
@@ -177,3 +201,5 @@ fi
 if [[ -z "${RESTORE_BACKUP_DIR:-}" ]]; then
   info "Heads-up: No DB restore was run. To restore all 8 DBs from backup, re-run with RESTORE_BACKUP_DIR=latest  or  RESTORE_BACKUP_DIR=backups/all-8-<timestamp>"
 fi
+
+say "✅ bring-up-external-infra finished (Compose + optional dump restore). See docs/RUN_PIPELINE_ORDER.md"

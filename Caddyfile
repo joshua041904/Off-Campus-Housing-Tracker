@@ -62,8 +62,10 @@ https://off-campus-housing.test {
 		reverse_proxy http://auth-service.off-campus-housing-tracker.svc.cluster.local:4011 {
 			header_up Host {http.request.host}
 			header_up X-Request-Id {http.request.id}
-			header_up Traceparent {http.request.header.Traceparent}
-			header_up Tracestate {http.request.header.Tracestate}
+			header_up traceparent {http.request.header.traceparent}
+			header_up tracestate {http.request.header.tracestate}
+			header_up baggage {http.request.header.baggage}
+			header_up X-OCH-Edge-Proto {http.request.proto}
 		}
 	}
 
@@ -72,8 +74,10 @@ https://off-campus-housing.test {
 		reverse_proxy http://auth-service.off-campus-housing-tracker.svc.cluster.local:4011 {
 			header_up Host {http.request.host}
 			header_up X-Request-Id {http.request.id}
-			header_up Traceparent {http.request.header.Traceparent}
-			header_up Tracestate {http.request.header.Tracestate}
+			header_up traceparent {http.request.header.traceparent}
+			header_up tracestate {http.request.header.tracestate}
+			header_up baggage {http.request.header.baggage}
+			header_up X-OCH-Edge-Proto {http.request.proto}
 		}
 	}
 
@@ -83,8 +87,10 @@ https://off-campus-housing.test {
 		reverse_proxy envoy-test.envoy-test.svc.cluster.local:10000 {
 			header_up Host {http.request.host}
 			header_up X-Request-Id {http.request.id}
-			header_up Traceparent {http.request.header.Traceparent}
-			header_up Tracestate {http.request.header.Tracestate}
+			header_up traceparent {http.request.header.traceparent}
+			header_up tracestate {http.request.header.tracestate}
+			header_up baggage {http.request.header.baggage}
+			header_up X-OCH-Edge-Proto {http.request.proto}
 			transport http {
 				versions h2c
 				dial_timeout 10s
@@ -99,23 +105,86 @@ https://off-campus-housing.test {
 		}
 	}
 
-	# Grafana — same edge hostname (subpath); set GF_SERVER_ROOT_URL + GF_SERVER_SERVE_FROM_SUB_PATH on the Grafana deploy.
-	handle_path /grafana/* {
-		reverse_proxy http://grafana.observability.svc.cluster.local:3000 {
+	# Observability UIs — single MetalLB IP (Caddy); otel-collector stays ClusterIP only.
+	# Jaeger: forward full /jaeger/* (QUERY_BASE_PATH=/jaeger).
+	# Grafana: forward full /grafana/* — NO strip. grafana-deploy sets GF_SERVER_ROOT_URL=.../grafana/ and
+	#   GF_SERVER_SERVE_FROM_SUB_PATH=true; stripping made upstream see "/" and broke assets / redirect loops.
+	# Prometheus: forward full /prometheus/* — NO strip. prometheus-deploy sets --web.route-prefix=/prometheus/;
+	#   stripping broke the UI and API under the edge path.
+	@jaeger path /jaeger /jaeger/*
+	handle @jaeger {
+		reverse_proxy http://jaeger.observability.svc.cluster.local:16686 {
 			header_up Host {http.request.host}
 			header_up X-Forwarded-Proto https
+			header_up X-Forwarded-Host {http.request.host}
+			header_up X-Forwarded-For {http.request.remote.host}
 			header_up X-Request-Id {http.request.id}
+			header_up traceparent {http.request.header.traceparent}
+			header_up tracestate {http.request.header.tracestate}
+			header_up baggage {http.request.header.baggage}
+			header_up X-OCH-Edge-Proto {http.request.proto}
 			transport http {
 				versions h1 h2
 				dial_timeout 10s
-				response_header_timeout 60s
+				response_header_timeout 120s
+			}
+		}
+	}
+
+	# Exact path without trailing slash → 308 to slash URL (avoids broken relative assets / API base).
+	@grafana_noslash path /grafana
+	handle @grafana_noslash {
+		redir /grafana/ 308
+	}
+	@prometheus_noslash path /prometheus
+	handle @prometheus_noslash {
+		redir /prometheus/ 308
+	}
+
+	@grafana path /grafana /grafana/*
+	handle @grafana {
+		reverse_proxy http://grafana.observability.svc.cluster.local:3000 {
+			header_up Host {http.request.host}
+			header_up X-Forwarded-Proto https
+			header_up X-Forwarded-Host {http.request.host}
+			header_up X-Forwarded-For {http.request.remote.host}
+			header_up X-Request-Id {http.request.id}
+			header_up traceparent {http.request.header.traceparent}
+			header_up tracestate {http.request.header.tracestate}
+			header_up baggage {http.request.header.baggage}
+			header_up X-OCH-Edge-Proto {http.request.proto}
+			flush_interval -1
+			transport http {
+				versions h1 h2
+				dial_timeout 10s
+				response_header_timeout 180s
+			}
+		}
+	}
+
+	@prometheus path /prometheus /prometheus/*
+	handle @prometheus {
+		reverse_proxy http://prometheus.observability.svc.cluster.local:9090 {
+			header_up Host {http.request.host}
+			header_up X-Forwarded-Proto https
+			header_up X-Forwarded-Host {http.request.host}
+			header_up X-Forwarded-For {http.request.remote.host}
+			header_up X-Request-Id {http.request.id}
+			header_up traceparent {http.request.header.traceparent}
+			header_up tracestate {http.request.header.tracestate}
+			header_up baggage {http.request.header.baggage}
+			header_up X-OCH-Edge-Proto {http.request.proto}
+			transport http {
+				versions h1 h2
+				dial_timeout 10s
+				response_header_timeout 120s
 			}
 		}
 	}
 
 	# REST API: explicit path list (no regex). Exclude gRPC by Content-Type.
 	@api {
-		path /api/* /auth/* /listings/* /booking/* /messaging/* /analytics/* /trust/* /media/* /notification/*
+		path /api/* /auth/* /listings/* /booking/* /messaging/* /analytics/* /insights/* /trust/* /media/* /notification/*
 		not header Content-Type application/grpc*
 	}
 	handle @api {
@@ -125,13 +194,16 @@ https://off-campus-housing.test {
 			header_up Host {http.request.host}
 			header_up X-Forwarded-Proto https
 			header_up X-Request-Id {http.request.id}
-			header_up Traceparent {http.request.header.Traceparent}
-			header_up Tracestate {http.request.header.Tracestate}
+			header_up traceparent {http.request.header.traceparent}
+			header_up tracestate {http.request.header.tracestate}
+			header_up baggage {http.request.header.baggage}
+			header_up X-OCH-Edge-Proto {http.request.proto}
 			# h1 + h2 to gateway: clients still use HTTP/2 and HTTP/3 to Caddy; upstream can speak ALPN h2 where supported.
 			transport http {
 				versions h1 h2
 				dial_timeout 10s
-				response_header_timeout 60s
+				# listing-feel can wait on CPU-bound Ollama; avoid edge 504 before upstream responds
+				response_header_timeout 300s
 				expect_continue_timeout 5s
 				read_buffer 32MiB
 				write_buffer 32MiB
@@ -141,11 +213,8 @@ https://off-campus-housing.test {
 				keepalive_idle_conns_per_host 64
 			}
 			lb_policy round_robin
-			health_uri /healthz
-			health_interval 30s
-			health_timeout 5s
-			fail_duration 30s
-			max_fails 3
+			# No active upstream health checks: Caddy starts before api-gateway is ready and logs
+			# "connection refused" until K8s readiness converges; rely on kube readiness + passive retries.
 		}
 	}
 
@@ -156,8 +225,10 @@ https://off-campus-housing.test {
 			header_up Host {http.request.host}
 			header_up X-Forwarded-Proto https
 			header_up X-Request-Id {http.request.id}
-			header_up Traceparent {http.request.header.Traceparent}
-			header_up Tracestate {http.request.header.Tracestate}
+			header_up traceparent {http.request.header.traceparent}
+			header_up tracestate {http.request.header.tracestate}
+			header_up baggage {http.request.header.baggage}
+			header_up X-OCH-Edge-Proto {http.request.proto}
 			transport http {
 				versions h1 h2
 				dial_timeout 10s

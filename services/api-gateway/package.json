@@ -5,11 +5,14 @@
   "scripts": {
     "build": "tsc -b",
     "dev": "tsx watch src/server.ts",
-    "start": "node dist/server.js",
+    "start": "node ./dist/server.js",
     "test": "ROLLUP_DISABLE_NATIVE=true vitest run",
+    "test:coverage": "ROLLUP_DISABLE_NATIVE=true OCH_DISABLE_EXTERNALS=1 vitest run --coverage",
+    "mutation:test": "stryker run",
     "test:watch": "ROLLUP_DISABLE_NATIVE=true vitest"
   },
   "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
     "@common/utils": "workspace:*",
     "@grpc/grpc-js": "^1.9.0",
     "compression": "^1.7.4",
@@ -22,7 +25,11 @@
     "redis": "^4.7.1"
   },
   "devDependencies": {
+    "@stryker-mutator/core": "^8.6.0",
+    "@stryker-mutator/vitest-runner": "^8.6.0",
+    "@types/supertest": "^6.0.2",
     "@vitest/coverage-v8": "2.1.9",
+    "supertest": "^7.0.0",
     "tsx": "^4.16.2",
     "typescript": "^5.5.4",
     "vitest": "^2.1.0"
