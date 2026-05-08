@@ -17,11 +17,11 @@
     "test:e2e:06-verticals:strict": "PLAYWRIGHT_VERTICAL_STRICT=1 PLAYWRIGHT_STRICT_HTTP3=1 NODE_EXTRA_CA_CERTS=$PWD/../certs/dev-root.pem playwright test --project=06-service-verticals",
     "test:e2e:07-system-integrity": "NODE_EXTRA_CA_CERTS=$PWD/../certs/dev-root.pem playwright test --project=07-system-integrity",
     "test:e2e:strict-verticals-and-integrity": "PLAYWRIGHT_VERTICAL_STRICT=1 PLAYWRIGHT_STRICT_HTTP3=1 NODE_EXTRA_CA_CERTS=$PWD/../certs/dev-root.pem playwright test --project=06-service-verticals --project=07-system-integrity",
+    "test:e2e:full-matrix-strict": "PLAYWRIGHT_VERTICAL_STRICT=1 PLAYWRIGHT_STRICT_HTTP3=1 NODE_EXTRA_CA_CERTS=$PWD/../certs/dev-root.pem playwright test",
     "test:e2e:smoke": "NODE_EXTRA_CA_CERTS=$PWD/../certs/dev-root.pem playwright test --project=01-guest-shell --project=04-analytics",
     "test:e2e:strict-edge": "sh ../scripts/webapp-playwright-strict-edge.sh",
     "test:e2e:ui": "NODE_EXTRA_CA_CERTS=$PWD/../certs/dev-root.pem playwright test --ui",
-    "test:e2e:headed": "NODE_EXTRA_CA_CERTS=$PWD/../certs/dev-root.pem playwright test --headed",
-    "test:e2e:visual": "PLAYWRIGHT_VISUAL_ONLY=1 VISUAL_TEST_BASE_URL=http://localhost:3000 playwright test --project=03-listings --grep listings.visual"
+    "test:e2e:headed": "NODE_EXTRA_CA_CERTS=$PWD/../certs/dev-root.pem playwright test --headed"
   },
   "dependencies": {
     "next": "14.2.35",

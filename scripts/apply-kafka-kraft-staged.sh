@@ -26,10 +26,23 @@ if kubectl get sts kafka -n "$NS" --request-timeout=15s >/dev/null 2>&1; then
   [[ -z "$_replicas" || "$_replicas" == "null" ]] && _replicas="$R"
 fi
 
-echo "▶ apply stage1-services (headless + kafka-*-external + RBAC)"
+echo "▶ apply stage1-services (headless kafka + kafka-headless alias + kafka-*-external + RBAC)"
 kubectl apply -f "$REPO_ROOT/infra/k8s/kafka-kraft-metallb/headless-service.yaml" \
+  -f "$REPO_ROOT/infra/k8s/kafka-kraft-metallb/kafka-headless-alias-service.yaml" \
   -f "$REPO_ROOT/infra/k8s/kafka-kraft-metallb/external-services.yaml" \
   -f "$REPO_ROOT/infra/k8s/kafka-kraft-metallb/rbac-kafka-svc-reader.yaml"
+
+# Clear spec.loadBalancerIP / legacy MetalLB annotations so allocator can assign (avoids sharing-key
+# conflicts after older pinned flows). No-op when fields absent. Opt out: KAFKA_SKIP_STRIP_LEGACY_LB_IP_REQUEST=1
+if [[ "${KAFKA_SKIP_STRIP_LEGACY_LB_IP_REQUEST:-0}" != "1" ]]; then
+  echo "▶ strip legacy requested LB IP on kafka-*-external (MetalLB allocator mode)"
+  chmod +x "$SCRIPT_DIR/patch-kafka-external-metallb-pinned-ips.sh" 2>/dev/null || true
+  STRIP_KAFKA_EXTERNAL_REQUESTED_LB_IP=1 HOUSING_NS="$NS" KAFKA_BROKER_REPLICAS="$R" bash "$SCRIPT_DIR/patch-kafka-external-metallb-pinned-ips.sh"
+fi
+
+echo "▶ wait for kafka-*-external LoadBalancer IPs (allocator; no manual pinning)"
+chmod +x "$SCRIPT_DIR/wait-for-kafka-external-lb-ips.sh" 2>/dev/null || true
+HOUSING_NS="$NS" KAFKA_BROKER_REPLICAS="$R" bash "$SCRIPT_DIR/wait-for-kafka-external-lb-ips.sh"
 
 if [[ "$ATOMIC" == "1" ]] && [[ "$_had_sts" -eq 1 ]]; then
   echo "▶ KAFKA_TLS_ATOMIC_BEFORE_REFRESH=1 — scale Kafka to 0 before TLS refresh"

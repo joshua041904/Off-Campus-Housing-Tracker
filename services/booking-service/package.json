@@ -7,8 +7,9 @@
   "scripts": {
     "build": "prisma generate && tsc -p tsconfig.json",
     "dev": "tsx watch src/server.ts",
-    "start": "node dist/server.js",
+    "start": "node ./dist/server.js",
     "test": "ROLLUP_DISABLE_NATIVE=true vitest run",
+    "test:coverage": "ROLLUP_DISABLE_NATIVE=true vitest run --coverage",
     "test:integration": "OCH_INTEGRATION_KAFKA_FROM_K8S_LB=1 ROLLUP_DISABLE_NATIVE=true vitest run --config vitest.integration.config.mts",
     "test:all": "pnpm run test && pnpm run test:integration",
     "test:watch": "ROLLUP_DISABLE_NATIVE=true vitest",

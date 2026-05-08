@@ -11,6 +11,18 @@
 #   NODE_EXTRA_CA_CERTS    — default REPO_ROOT/certs/dev-root.pem (for curl --cacert + Node TLS)
 #   PLAYWRIGHT_VERTICAL_STRICT / PLAYWRIGHT_STRICT_HTTP3 — set by run-preflight-scale-and-all-suites.sh by default
 #     (PREFLIGHT_PLAYWRIGHT_STRICT_HTTP3=1) for CI parity with webapp `test:e2e:strict-verticals-and-integrity`.
+#   webapp-playwright-strict-edge.sh default (no args) runs that strict matrix (projects 06+07). PLAYWRIGHT_E2E_MATRIX=full → all projects.
+#   JAEGER_QUERY_BASE — optional if discoverable: edge https://off-campus-housing.test/jaeger, JAEGER_PUBLIC_URL (MetalLB), or LB svc.
+#     Probed before Playwright; observability
+#     verification after tests: seed-jaeger-via-edge-health.sh + verify-jaeger-tracing-services.sh + verify-jaeger-trace-all-verticals.sh
+#     + verify-jaeger-async-verticals.sh (Kafka flows from infra/observability/trace-flows.json; set JAEGER_VERIFY_ASYNC_VERTICALS=0 to skip).
+#     Jaeger steps run even when Playwright fails unless SKIP_JAEGER_AFTER_PLAYWRIGHT_FAIL=1 (ignored when PREFLIGHT_STRICT_EXIT=1).
+#   TRACE_VALIDATION_REPORT_DIR — output dir for trace-validation-report.json, .md, alerts, trace_flow_validation.prom
+#     (default: $PREFLIGHT_RUN_DIR/trace-validation or bench_logs/trace-validation-<timestamp>).
+#   TRACE_VALIDATION_REPORT_DISABLED=1 — skip writing machine-readable trace reports.
+#   PREFLIGHT_STRICT_EXIT=1 — seed-jaeger-via-edge-health.sh failure exits immediately (fatal); final exit is non-zero if Playwright OR any Jaeger step failed.
+#   OTEL_PREFLIGHT_TRACE_SAMPLE=1 — after seed, curl Jaeger /api/traces for api-gateway and booking-service and print traceID + span counts (needs jq).
+#   PLAYWRIGHT_WORKERS — webapp-playwright-strict-edge.sh defaults to 2 (override e.g. 4 for faster local runs when edge is quiet).
 #   Kafka readiness (optional; set when E2E stack includes a broker):
 #     PLAYWRIGHT_WAIT_KAFKA_CONTAINER — docker container name/id with State.Health (e.g. compose kafka-1)
 #     PLAYWRIGHT_WAIT_KAFKA_DEPLOYMENT — kubectl deployment name; runs kubectl wait --for=condition=available
@@ -50,6 +62,61 @@ unset API_GATEWAY_INTERNAL
 
 export NODE_EXTRA_CA_CERTS="$CA"
 export E2E_API_BASE
+export OCH_X_SUITE="${OCH_X_SUITE:-bash}"
+
+export REPO_ROOT="$REPO_ROOT"
+# shellcheck source=/dev/null
+[[ -f "$SCRIPT_DIR/lib/jaeger-resolve-query-base.sh" ]] && source "$SCRIPT_DIR/lib/jaeger-resolve-query-base.sh"
+if command -v och_jaeger_resolve_query_base >/dev/null 2>&1; then
+  och_jaeger_resolve_query_base || true
+fi
+if [[ -z "${JAEGER_QUERY_BASE:-}" ]]; then
+  echo "[preflight] JAEGER_QUERY_BASE unset after discovery — set JAEGER_PUBLIC_URL, export JAEGER_QUERY_BASE, or apply Caddy /jaeger + Jaeger QUERY_BASE_PATH (see scripts/lib/jaeger-resolve-query-base.sh)" >&2
+  exit 1
+fi
+export TRACE_LOOKBACK_SECONDS=180
+export JAEGER_VERIFY_TRACE_STRUCTURE=1
+
+_stability_timeout="${PREFLIGHT_STABILITY_WAIT_TIMEOUT_SEC:-90s}"
+_ensure_cluster_stability() {
+  if [[ "${PREFLIGHT_RUN_CLUSTER_STABILITY_GUARD:-1}" == "1" ]] && [[ -x "$SCRIPT_DIR/cluster-stability-guard.sh" ]]; then
+    "$SCRIPT_DIR/cluster-stability-guard.sh"
+  fi
+
+  if [[ "${PREFLIGHT_ENSURE_METRICS_SERVER:-1}" == "1" ]] && [[ -x "$SCRIPT_DIR/ensure-metrics-server-ready.sh" ]]; then
+    say "Cluster stability: metrics-server readiness"
+    if ! "$SCRIPT_DIR/ensure-metrics-server-ready.sh"; then
+      if [[ "${PREFLIGHT_STRICT_EXIT:-0}" == "1" ]]; then
+        echo "[preflight] metrics-server readiness failed (strict mode)." >&2
+        exit 1
+      fi
+      warn "metrics-server readiness failed; continuing (set PREFLIGHT_STRICT_EXIT=1 to hard fail)"
+    fi
+  fi
+
+  say "Cluster stability: waiting for api-gateway and jaeger pods Ready"
+  kubectl wait --for=condition=ready pod -l app=api-gateway -n off-campus-housing-tracker --timeout="${_stability_timeout}"
+  kubectl wait --for=condition=ready pod -l app=auth-service -n off-campus-housing-tracker --timeout="${_stability_timeout}"
+  kubectl wait --for=condition=ready pod -l app=jaeger -n observability --timeout="${_stability_timeout}"
+  ok "Cluster stability barrier passed (api-gateway + auth-service + jaeger Ready)"
+}
+
+_ensure_cluster_stability
+
+if [[ "${TRACE_VALIDATION_REPORT_DISABLED:-0}" != "1" ]]; then
+  if [[ -z "${TRACE_VALIDATION_REPORT_DIR:-}" ]]; then
+    if [[ -n "${PREFLIGHT_RUN_DIR:-}" ]]; then
+      TRACE_VALIDATION_REPORT_DIR="${PREFLIGHT_RUN_DIR}/trace-validation"
+    else
+      TRACE_VALIDATION_REPORT_DIR="$REPO_ROOT/bench_logs/trace-validation-$(date +%Y%m%d-%H%M%S)"
+    fi
+  fi
+  export TRACE_VALIDATION_REPORT_DIR
+  mkdir -p "$TRACE_VALIDATION_REPORT_DIR"
+  info "Trace validation report dir: $TRACE_VALIDATION_REPORT_DIR"
+else
+  unset TRACE_VALIDATION_REPORT_DIR 2>/dev/null || true
+fi
 
 if [[ -n "${PLAYWRIGHT_EDGE_RECOVERY_EXTRA_URL:-}" ]]; then
   :
@@ -93,7 +160,9 @@ fi
 
 _curl_ok() {
   local u="$1"
-  curl -sf --cacert "$CA" --max-time 5 "$u" >/dev/null 2>&1
+  curl -sf --cacert "$CA" --max-time 5 \
+    -H "x-traffic-class: infra" -H "x-suite: ${OCH_X_SUITE}" \
+    "$u" >/dev/null 2>&1
 }
 
 _all_probes_ok() {
@@ -148,8 +217,98 @@ else
   info "PLAYWRIGHT_EDGE_RECOVERY_STABLE_SEC=0 — skipping sustained recovery barrier (first OK only)"
 fi
 
-# Same suite as `pnpm --filter webapp test:e2e` — all Playwright projects in webapp/playwright.config.ts (10 spec files, 22 runnable tests + 1 skipped screenshot test unless E2E_SCREENSHOTS=1).
-say "Running: webapp-playwright-strict-edge.sh → playwright test (full edge suite)"
+# Default: strict verticals + system integrity (06+07). PLAYWRIGHT_E2E_MATRIX=full → all projects via strict-edge script.
+say "Running: webapp-playwright-strict-edge.sh → strict-verticals-and-integrity (or PLAYWRIGHT_E2E_MATRIX=full)"
 chmod +x "$SCRIPT_DIR/webapp-playwright-strict-edge.sh" 2>/dev/null || true
-"$SCRIPT_DIR/webapp-playwright-strict-edge.sh"
-ok "Playwright E2E finished"
+chmod +x "$SCRIPT_DIR/verify-jaeger-tracing-services.sh" 2>/dev/null || true
+chmod +x "$SCRIPT_DIR/verify-jaeger-trace-structure.sh" "$SCRIPT_DIR/verify-jaeger-trace-all-verticals.sh" 2>/dev/null || true
+chmod +x "$SCRIPT_DIR/verify-jaeger-async-verticals.sh" 2>/dev/null || true
+chmod +x "$SCRIPT_DIR/seed-jaeger-via-edge-health.sh" 2>/dev/null || true
+
+_pw_rc=0
+"$SCRIPT_DIR/webapp-playwright-strict-edge.sh" || _pw_rc=$?
+if [[ "$_pw_rc" != "0" ]]; then
+  warn "Playwright E2E exited $_pw_rc — still running Jaeger seed + verification (set SKIP_JAEGER_AFTER_PLAYWRIGHT_FAIL=1 to opt out)"
+fi
+
+# Strict runs always aggregate Playwright + Jaeger + async (no early exit that hides Jaeger failures).
+if [[ "${SKIP_JAEGER_AFTER_PLAYWRIGHT_FAIL:-0}" == "1" ]] && [[ "$_pw_rc" != "0" ]] && [[ "${PREFLIGHT_STRICT_EXIT:-0}" != "1" ]]; then
+  warn "SKIP_JAEGER_AFTER_PLAYWRIGHT_FAIL=1 — skipping Jaeger seed/verify"
+  exit "$_pw_rc"
+fi
+
+say "OTEL seed: gateway health fan-out (seed-jaeger-via-edge-health.sh)"
+_seed_rc=0
+"$SCRIPT_DIR/seed-jaeger-via-edge-health.sh" || _seed_rc=$?
+if [[ "$_seed_rc" != "0" ]]; then
+  warn "seed-jaeger-via-edge-health.sh exited $_seed_rc"
+  if [[ "${PREFLIGHT_STRICT_EXIT:-0}" == "1" ]]; then
+    echo "[preflight] PREFLIGHT_STRICT_EXIT=1 — seed failure is fatal" >&2
+    exit "$_seed_rc"
+  fi
+fi
+
+if [[ "${OTEL_PREFLIGHT_TRACE_SAMPLE:-0}" == "1" ]]; then
+  say "DEBUG TRACE SAMPLE (OTEL_PREFLIGHT_TRACE_SAMPLE=1)"
+  _jq_base="${JAEGER_QUERY_BASE%/}"
+  if command -v jq >/dev/null 2>&1; then
+    echo "=== api-gateway (limit=5): traceID + span count ==="
+    curl -sS "${_jq_base}/api/traces?service=api-gateway&limit=5" | jq -r '.data[]? | "traceID=\(.traceID) spans=\(.spans | length)"' || true
+    echo "=== booking-service (limit=5): traceID + span count ==="
+    curl -sS "${_jq_base}/api/traces?service=booking-service&limit=5" | jq -r '.data[]? | "traceID=\(.traceID) spans=\(.spans | length)"' || true
+  else
+    warn "jq not found — raw trace JSON snippets (truncated)"
+    curl -sS "${_jq_base}/api/traces?service=api-gateway&limit=5" | head -c 4000 || true
+    echo ""
+    curl -sS "${_jq_base}/api/traces?service=booking-service&limit=5" | head -c 4000 || true
+  fi
+fi
+
+say "Jaeger observability contract: verify-jaeger-tracing-services.sh"
+_jaeger_svc_rc=0
+if [[ -x "$SCRIPT_DIR/verify-jaeger-liveness.sh" ]]; then
+  "$SCRIPT_DIR/verify-jaeger-liveness.sh" || _jaeger_svc_rc=$?
+fi
+JAEGER_QUERY_BASE="$JAEGER_QUERY_BASE" "$SCRIPT_DIR/verify-jaeger-tracing-services.sh" || _jaeger_svc_rc=$?
+if [[ -n "${TRACE_VALIDATION_REPORT_DIR:-}" ]]; then
+  _reg_msg="verify-jaeger-tracing-services.sh exit ${_jaeger_svc_rc}"
+  JAEGER_QUERY_BASE="$JAEGER_QUERY_BASE" node "$SCRIPT_DIR/verify-jaeger-trace-flows.mjs" \
+    --report-dir "$TRACE_VALIDATION_REPORT_DIR" \
+    --record-registry "${_jaeger_svc_rc}" \
+    --registry-message "${_reg_msg}" || true
+fi
+if [[ "$_jaeger_svc_rc" != "0" ]]; then
+  warn "verify-jaeger-tracing-services.sh failed"
+fi
+
+say "Jaeger structural traces — deterministic strict-suite verticals (verify-jaeger-trace-all-verticals.sh)"
+_jaeger_struct_rc=0
+JAEGER_QUERY_BASE="$JAEGER_QUERY_BASE" "$SCRIPT_DIR/verify-jaeger-trace-all-verticals.sh" || _jaeger_struct_rc=$?
+if [[ "$_jaeger_struct_rc" != "0" ]]; then
+  warn "verify-jaeger-trace-all-verticals.sh failed"
+fi
+
+_jaeger_async_rc=0
+if [[ "${JAEGER_VERIFY_ASYNC_VERTICALS:-1}" != "0" ]]; then
+  say "Jaeger async verticals — Kafka producer/consumer flows (verify-jaeger-async-verticals.sh)"
+  JAEGER_QUERY_BASE="$JAEGER_QUERY_BASE" "$SCRIPT_DIR/verify-jaeger-async-verticals.sh" || _jaeger_async_rc=$?
+  if [[ "$_jaeger_async_rc" != "0" ]]; then
+    warn "verify-jaeger-async-verticals.sh failed"
+  fi
+else
+  info "JAEGER_VERIFY_ASYNC_VERTICALS=0 — skipping async Jaeger flows"
+fi
+
+_final=0
+[[ "${_seed_rc:-0}" != "0" ]] && _final=1
+[[ "$_jaeger_svc_rc" != "0" ]] && _final=1
+[[ "$_jaeger_struct_rc" != "0" ]] && _final=1
+[[ "$_jaeger_async_rc" != "0" ]] && _final=1
+[[ "$_pw_rc" != "0" ]] && _final=1
+
+if [[ "$_final" == "0" ]]; then
+  ok "Playwright E2E + Jaeger verification finished"
+else
+  warn "Finished with failures: playwright_rc=$_pw_rc seed_rc=${_seed_rc:-0} jaeger_services_rc=$_jaeger_svc_rc jaeger_struct_rc=$_jaeger_struct_rc jaeger_async_rc=$_jaeger_async_rc"
+  exit 1
+fi

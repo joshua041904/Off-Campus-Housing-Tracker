@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # After topic create: verify each domain topic has EXPECTED partition count (default 6).
 # Targets:
-#   KAFKA_PARTITION_VERIFY_TARGET=k8s — kubectl exec into kafka-0 (TLS to kafka-0.kafka:9093)
+#   KAFKA_PARTITION_VERIFY_TARGET=k8s — kubectl exec into kafka-0 (TLS; default bootstrap 127.0.0.1:9093)
 #   default / compose — docker compose exec kafka (removed from repo; use k8s)
 #
 # Usage: ./scripts/verify-kafka-event-topic-partitions.sh
@@ -49,7 +49,7 @@ KP_PASS=$(cat /etc/kafka/secrets/kafka.key-password 2>/dev/null || echo "$KS_PAS
   echo "ssl.key.password=${KP_PASS}"
 } > /tmp/och-kafka-verify.props'
   kubectl exec -n "$_ns" "$_pod" -- bash -ec "$_inner_props" || fail "Could not write TLS props in $_pod"
-  _bs="kafka-0.kafka:9093"
+  _bs="${KAFKA_BOOTSTRAP_SERVER:-127.0.0.1:9093}"
   for t in "${TOPICS[@]}"; do
     out="$(kubectl exec -n "$_ns" "$_pod" -- kafka-topics --bootstrap-server "$_bs" --command-config /tmp/och-kafka-verify.props --describe --topic "$t" 2>/dev/null | head -8 || true)"
     if echo "$out" | grep -q "PartitionCount: $EXPECTED"; then

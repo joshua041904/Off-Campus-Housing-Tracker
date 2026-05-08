@@ -1,0 +1,35 @@
+{
+  "specVersion": "preflight-state-machine-v1",
+  "description": "Declarative guard/transition map for run-preflight-scale-and-all-suites.sh (documentation + future automation). Implementation remains in bash; this file is the contract.",
+  "states": [
+    { "id": "S0_INIT", "description": "Tools, kubeconfig, Node 20 gate" },
+    { "id": "S1_CLUSTER_READY", "description": "API server reachable; Colima/k3d context" },
+    { "id": "S2_KAFKA_ALIGNED", "description": "KRaft brokers Ready; alignment suite when enabled" },
+    { "id": "S3_TLS_VALID", "description": "Kafka SSL secrets; SAN gates; service mTLS" },
+    { "id": "S4_EDGE_READY", "description": "MetalLB; Caddy; edge routing gates" },
+    { "id": "S5_TRANSPORT_PROVEN", "description": "QUIC/H2 capture + jq invariants" },
+    { "id": "S6_SERVICES_READY", "description": "App pods 1/1; DB/Redis reachability" },
+    { "id": "S7_OBSERVABILITY_VALID", "description": "Jaeger reachable; housing matrix; Step7B+O gates when PREFLIGHT_STEP7_OBSERVABILITY_GATES=1" },
+    { "id": "S8_LOAD_VALIDATED", "description": "k6 phases / optional pgbench" },
+    { "id": "S9_COMPLETE", "description": "Perf artifacts; telemetry sealed" }
+  ],
+  "transitions": [
+    {
+      "from": "S0_INIT",
+      "to": "S1_CLUSTER_READY",
+      "guards": ["node_major_20", "cluster_info_ok"]
+    },
+    {
+      "from": "S6_SERVICES_READY",
+      "to": "S7_OBSERVABILITY_VALID",
+      "guards": ["kafka_strict_path", "pods_ready", "jaeger_query_or_pf"],
+      "optional_gates": ["step7_span_tree_overlap", "quic_jaeger_correlation"]
+    },
+    {
+      "from": "S7_OBSERVABILITY_VALID",
+      "to": "S8_LOAD_VALIDATED",
+      "guards": ["housing_matrix_ok_when_RUN_SUITES"],
+      "on_fail": ["emit_telemetry", "exit_non_zero_when_PREFLIGHT_STRICT_EXIT"]
+    }
+  ]
+}

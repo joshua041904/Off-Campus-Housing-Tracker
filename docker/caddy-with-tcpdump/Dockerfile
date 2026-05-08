@@ -3,9 +3,14 @@
 # TLS/mTLS at edge; use with LoadBalancer (infra/k8s/loadbalancer.yaml) to avoid hostPort and anti-affinity.
 # Build: docker build -t caddy-with-tcpdump:dev -f docker/caddy-with-tcpdump/Dockerfile .
 # k3d: k3d image import caddy-with-tcpdump:dev -c off-campus-housing-tracker
+#
+# Base images default to mirror.gcr.io (Docker Hub pull-through) to avoid anonymous Docker Hub 429 rate limits.
+# Override if needed: --build-arg GOLANG_IMAGE=docker.io/library/golang:1.22-alpine --build-arg ALPINE_IMAGE=docker.io/library/alpine:3.19
 
 # --- builder: xcaddy builds Caddy with default modules (includes HTTP/3 / QUIC) ---
-FROM golang:1.22-alpine AS builder
+ARG GOLANG_IMAGE=mirror.gcr.io/library/golang:1.22-alpine
+ARG ALPINE_IMAGE=mirror.gcr.io/library/alpine:3.19
+FROM ${GOLANG_IMAGE} AS builder
 RUN apk add --no-cache git ca-certificates
 RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
 WORKDIR /build
@@ -14,7 +19,7 @@ ENV CADDY_VERSION=v2.8.4
 RUN xcaddy build "${CADDY_VERSION}" --output /usr/bin/caddy
 
 # --- runtime: Caddy + tcpdump ---
-FROM alpine:3.19
+FROM ${ALPINE_IMAGE}
 RUN apk add --no-cache ca-certificates tcpdump libcap
 RUN setcap cap_net_bind_service=+ep /usr/bin/true 2>/dev/null || true
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy

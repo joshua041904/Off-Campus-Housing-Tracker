@@ -1,0 +1,65 @@
+openapi: 3.0.3
+info:
+  title: api-gateway
+  version: '0.0.0'
+paths:
+  "/healthz":
+    get:
+      summary: "api-gateway get /healthz"
+      responses:
+        '200':
+          description: OK
+  "/api/healthz":
+    get:
+      summary: "api-gateway get /api/healthz"
+      responses:
+        '200':
+          description: OK
+  "/health":
+    get:
+      summary: "api-gateway get /health"
+      responses:
+        '200':
+          description: OK
+  "/api/health":
+    get:
+      summary: "api-gateway get /api/health"
+      responses:
+        '200':
+          description: OK
+  "/readyz":
+    get:
+      summary: "api-gateway get /readyz"
+      responses:
+        '200':
+          description: OK
+  "/api/readyz":
+    get:
+      summary: "api-gateway get /api/readyz"
+      responses:
+        '200':
+          description: OK
+  "/metrics":
+    get:
+      summary: "api-gateway get /metrics"
+      responses:
+        '200':
+          description: OK
+  "/whoami":
+    get:
+      summary: "api-gateway get /whoami"
+      responses:
+        '200':
+          description: OK
+  "/api/debug/full-trace":
+    get:
+      summary: "api-gateway get /api/debug/full-trace"
+      responses:
+        '200':
+          description: OK
+  "/api/debug/headers":
+    get:
+      summary: "api-gateway get /api/debug/headers"
+      responses:
+        '200':
+          description: OK

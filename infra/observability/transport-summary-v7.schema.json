@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://off-campus-housing-tracker.local/schemas/transport-summary-v7.json",
+  "title": "Transport invariant v7 (QUIC + TLS + optional Jaeger correlation)",
+  "type": "object",
+  "required": ["valid", "quic", "handshake", "tls", "transport_behavior", "connection", "correlation", "ci_metadata"],
+  "properties": {
+    "valid": { "type": "boolean" },
+    "quic": {
+      "type": "object",
+      "required": ["frame_count", "versions", "packet_number_spaces", "version_negotiation_packets"],
+      "properties": {
+        "frame_count": { "type": "integer", "minimum": 0 },
+        "versions": { "type": "array", "items": { "type": "string" } },
+        "packet_number_spaces": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["space", "count"],
+            "properties": {
+              "space": { "type": "string" },
+              "count": { "type": "integer", "minimum": 0 }
+            }
+          }
+        },
+        "version_negotiation_packets": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "handshake": {
+      "type": "object",
+      "properties": {
+        "initial_packet_time": { "type": ["string", "null"] },
+        "first_handshake_packet_time": { "type": ["string", "null"] },
+        "first_1rtt_packet_time": { "type": ["string", "null"] },
+        "handshake_duration_seconds": { "type": ["number", "null"] }
+      }
+    },
+    "tls": {
+      "type": "object",
+      "properties": {
+        "selected_cipher_suite": { "type": ["string", "null"] },
+        "certificate_sha256": { "type": ["string", "null"] },
+        "alpn_protocol": { "type": ["string", "null"] }
+      }
+    },
+    "transport_behavior": {
+      "type": "object",
+      "properties": {
+        "zero_rtt_detected": { "type": "boolean" },
+        "spin_bit": {
+          "type": "object",
+          "properties": {
+            "supported": { "type": "boolean" },
+            "observed": { "type": "boolean" },
+            "transitions": { "type": "integer", "minimum": 0 },
+            "estimated_rtt_seconds": { "type": ["number", "null"] }
+          }
+        },
+        "loss_estimate": { "type": "integer", "minimum": 0 },
+        "congestion_estimate_packets_in_flight": { "type": "integer", "minimum": 0 },
+        "congestion_estimate_heuristic": {
+          "type": "string",
+          "description": "Passive burst heuristic label (informational; not a CI invariant)"
+        }
+      }
+    },
+    "connection": {
+      "type": "object",
+      "properties": {
+        "unique_destination_cids": { "type": "integer", "minimum": 0 },
+        "cid_rotation_detected": { "type": "boolean" },
+        "key_phase_transitions": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "correlation": {
+      "type": "object",
+      "properties": {
+        "trace_ids_seen": { "type": "array", "items": { "type": "string" } },
+        "jaeger_trace_linked": { "type": "boolean" }
+      }
+    },
+    "capture_window": {
+      "type": "object",
+      "properties": {
+        "start_epoch": { "type": ["number", "null"] },
+        "end_epoch": { "type": ["number", "null"] }
+      }
+    },
+    "protocol_proof": {
+      "type": "object",
+      "description": "Optional curl-level H2/H3 witnesses during a controlled capture window (informational)",
+      "properties": {
+        "http2_seen": { "type": "boolean" },
+        "http3_seen": { "type": "boolean" },
+        "curl_http_version_h2": { "type": "string" },
+        "curl_http_version_h3": { "type": "string" },
+        "alpn_values": { "type": "array", "items": { "type": "string" } },
+        "capture_mode": { "type": "string" }
+      }
+    },
+    "ci_metadata": {
+      "type": "object",
+      "properties": {
+        "transport_invariant_version": { "const": "v7" },
+        "generated_at": { "type": "string" },
+        "forensic_upstream": { "type": "string" }
+      }
+    }
+  }
+}

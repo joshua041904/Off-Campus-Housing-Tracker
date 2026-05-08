@@ -1,0 +1,11 @@
+{
+  "name": "ollama-worker",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "dependencies": {
+    "ioredis": "^5.4.2",
+    "kafkajs": "^2.2.4",
+    "prom-client": "^15.1.3"
+  }
+}

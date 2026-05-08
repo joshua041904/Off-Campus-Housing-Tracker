@@ -4,6 +4,7 @@
  * Payloads are JSON matching the proto field names (immutable, versioned schemas).
  */
 import { randomUUID } from 'node:crypto'
+import { buildKafkaMessageHeaders, withKafkaProduceSpan } from '@common/utils/otel'
 
 export const MESSAGING_EVENTS_TOPIC = 'messaging.events.v1'
 
@@ -42,14 +43,36 @@ export function buildMetadata(params: {
   }
 }
 
+type MessagingProducer = {
+  send: (args: {
+    topic: string
+    messages: Array<{ key: string; value: string; headers?: Record<string, Buffer> }>
+  }) => Promise<unknown>
+}
+
 /** Send one JSON event to messaging.events.v1. Key = partition key (e.g. aggregate_id). */
 export async function sendMessagingEvent(
-  producer: { send: (args: { topic: string; messages: Array<{ key: string; value: string }> }) => Promise<unknown> },
+  producer: MessagingProducer,
   partitionKey: string,
   payload: Record<string, unknown>
 ): Promise<void> {
-  await producer.send({
-    topic: MESSAGING_EVENTS_TOPIC,
-    messages: [{ key: partitionKey, value: JSON.stringify(payload) }],
-  })
+  await withKafkaProduceSpan(
+    `kafka produce ${MESSAGING_EVENTS_TOPIC}`,
+    {
+      'messaging.system': 'kafka',
+      'messaging.destination.name': MESSAGING_EVENTS_TOPIC,
+    },
+    async () => {
+      await producer.send({
+        topic: MESSAGING_EVENTS_TOPIC,
+        messages: [
+          {
+            key: partitionKey,
+            value: JSON.stringify(payload),
+            headers: buildKafkaMessageHeaders(),
+          },
+        ],
+      })
+    },
+  )
 }

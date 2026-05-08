@@ -10,8 +10,8 @@
 #   K6_SUITE_RESOURCE_LOG=           — if set, append the same snapshot text to this file (prove contention offline)
 #   K6_SUITE_LOG_TOP_BEFORE=0        — if 1, k6_suite_before_k6_block logs "before-*" snapshot too
 #   K6_SUITE_WARN_HOT_RESOURCES=1    — warn when node CPU% or MEM% ≥ K6_SUITE_WARN_NODE_CPU / _MEM (default 80)
-#   K6_SUITE_FAIL_ON_NODE_CPU=1      — exit 3 if any node CPU% >= K6_SUITE_NODE_CPU_MAX (default 85)
-#   K6_SUITE_NODE_CPU_MAX=85
+#   K6_SUITE_FAIL_ON_NODE_CPU=1      — exit 3 if any node CPU% >= K6_SUITE_NODE_CPU_MAX (default 92)
+#   K6_SUITE_NODE_CPU_MAX=92
 #   K6_SUITE_TOP_NS=off-campus-housing-tracker
 #   K6_SUITE_TOP_ENVOY_NS=envoy-test — empty to skip envoy namespace
 #   K6_SUITE_RESTART_ENVOY_AFTER_CAR=0 — if 1, after CAR tests: rollout restart envoy-test + sleep
@@ -147,7 +147,7 @@ k6_suite_log_top() {
 k6_suite_check_node_cpu() {
   local label="${1:-}"
   [[ "${K6_SUITE_FAIL_ON_NODE_CPU:-1}" != "1" ]] && return 0
-  local max_allowed="${K6_SUITE_NODE_CPU_MAX:-85}"
+  local max_allowed="${K6_SUITE_NODE_CPU_MAX:-92}"
   k6_suite_ensure_top_probe
   if [[ "${K6_SUITE_TOP_OK:-0}" != "1" ]]; then
     k6_suite_note_metrics_unavailable

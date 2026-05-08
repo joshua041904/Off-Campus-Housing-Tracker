@@ -6,5 +6,5 @@ auth	healthz	/auth/healthz
 booking	healthz	/api/booking/healthz
 messaging	healthz	/api/messaging/healthz
 trust	healthz	/api/trust/healthz
-trust	reputation-sample	/api/trust/reputation/00000000-0000-0000-0000-000000000001
+trust	reputation-sample	/api/trust/reputation/00000000-0000-4000-8000-000000000001
 notification	healthz	/api/notification/healthz

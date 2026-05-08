@@ -24,6 +24,41 @@ spec:
         prometheus.io/port: "4017"
         prometheus.io/path: "/metrics"
     spec:
+      initContainers:
+        - name: wait-kafka-tcp
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: KAFKA_BROKER
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: KAFKA_BROKER
+                  optional: true
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              targets="${KAFKA_BROKER:-kafka-0.kafka-headless:9093,kafka-1.kafka-headless:9093,kafka-2.kafka-headless:9093}"
+              targets="${targets},kafka-0.kafka:9093,kafka-1.kafka:9093,kafka-2.kafka:9093,kafka-0:9093,kafka-0:9092"
+              echo "[wait-kafka-tcp] probing Kafka endpoints: $targets"
+              i=0
+              while [ "$i" -lt 360 ]; do
+                IFS=','; for endpoint in $targets; do
+                  host="${endpoint%%:*}"
+                  port="${endpoint##*:}"
+                  if [ "$port" = "$host" ]; then port=9093; fi
+                  if nc -z "$host" "$port" 2>/dev/null; then
+                    echo "[wait-kafka-tcp] ok via $host:$port"
+                    exit 0
+                  fi
+                done
+                unset IFS
+                i=$((i+1))
+                sleep 5
+              done
+              echo "[wait-kafka-tcp] timeout after probing: $targets"
+              exit 1
       containers:
         - name: app
           image: analytics-service:dev
@@ -41,6 +76,8 @@ spec:
           env:
             - name: NODE_ENV
               value: "development"
+            - name: OTEL_SERVICE_NAME
+              value: "analytics-service"
             - name: HTTP_PORT
               value: "4017"
             - name: GRPC_PORT
@@ -68,6 +105,16 @@ spec:
               value: "/etc/kafka/secrets/tls.crt"
             - name: KAFKA_CLIENT_KEY
               value: "/etc/kafka/secrets/tls.key"
+            - name: ANALYTICS_OLLAMA_TIMEOUT_MS
+              value: "180000"
+            - name: ANALYTICS_OLLAMA_RETRIES
+              value: "1"
+            - name: ANALYTICS_QA_FAST_MODE
+              value: "0"
+            # Overrides app-config if stale; must be in-cluster DNS (not MetalLB / localhost).
+            # ollama-gateway proxies /api/generate with batching + cache → ollama:11434.
+            - name: OLLAMA_BASE_URL
+              value: "http://ollama.off-campus-housing-tracker.svc.cluster.local:11434"
           volumeMounts:
             - name: service-tls
               mountPath: /etc/certs

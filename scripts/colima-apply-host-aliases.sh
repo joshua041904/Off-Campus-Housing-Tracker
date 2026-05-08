@@ -40,8 +40,9 @@ if [[ -z "$_host_ip" ]] || ! [[ "$_host_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ 
   _host_ip="${_host_ip:-192.168.5.2}"
 fi
 
+# Keep in sync with APP_DEPLOYS_FULL in scripts/run-preflight-scale-and-all-suites.sh (all services that use host Postgres/Redis).
 say "Patching host.docker.internal -> $_host_ip for app deployments..."
-for _d in auth-service api-gateway listings-service booking-service messaging-service trust-service analytics-service; do
+for _d in auth-service api-gateway listings-service booking-service messaging-service trust-service analytics-service media-service notification-service; do
   if kubectl get deployment "$_d" -n "$NS" --request-timeout=5s >/dev/null 2>&1; then
     kubectl patch deployment "$_d" -n "$NS" --type=merge \
       -p "{\"spec\":{\"template\":{\"spec\":{\"hostAliases\":[{\"ip\":\"$_host_ip\",\"hostnames\":[\"host.docker.internal\",\"host.lima.internal\"]}]}}}}" \

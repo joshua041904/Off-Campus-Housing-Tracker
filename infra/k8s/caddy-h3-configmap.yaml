@@ -63,8 +63,9 @@ data:
         reverse_proxy http://auth-service.off-campus-housing-tracker.svc.cluster.local:4011 {
           header_up Host {http.request.host}
           header_up X-Request-Id {http.request.id}
-          header_up Traceparent {http.request.header.Traceparent}
-          header_up Tracestate {http.request.header.Tracestate}
+          header_up traceparent {http.request.header.traceparent}
+          header_up tracestate {http.request.header.tracestate}
+          header_up baggage {http.request.header.baggage}
         }
       }
 
@@ -73,8 +74,9 @@ data:
         reverse_proxy http://auth-service.off-campus-housing-tracker.svc.cluster.local:4011 {
           header_up Host {http.request.host}
           header_up X-Request-Id {http.request.id}
-          header_up Traceparent {http.request.header.Traceparent}
-          header_up Tracestate {http.request.header.Tracestate}
+          header_up traceparent {http.request.header.traceparent}
+          header_up tracestate {http.request.header.tracestate}
+          header_up baggage {http.request.header.baggage}
         }
       }
 
@@ -83,8 +85,9 @@ data:
         reverse_proxy envoy-test.envoy-test.svc.cluster.local:10000 {
           header_up Host {http.request.host}
           header_up X-Request-Id {http.request.id}
-          header_up Traceparent {http.request.header.Traceparent}
-          header_up Tracestate {http.request.header.Tracestate}
+          header_up traceparent {http.request.header.traceparent}
+          header_up tracestate {http.request.header.tracestate}
+          header_up baggage {http.request.header.baggage}
           transport http {
             versions h2c
             dial_timeout 10s
@@ -99,21 +102,81 @@ data:
         }
       }
 
-      handle_path /grafana/* {
-        reverse_proxy http://grafana.observability.svc.cluster.local:3000 {
+      # Observability: Jaeger keeps /jaeger prefix (QUERY_BASE_PATH).
+      # Grafana: do NOT strip /grafana — with GF_SERVER_SERVE_FROM_SUB_PATH=true, stripping caused 301→/grafana/ loops (upstream always saw "/").
+      # Prometheus: forward full /prometheus/*; use --web.route-prefix=/prometheus/ on the Deployment (no strip here).
+      @jaeger path /jaeger /jaeger/*
+      handle @jaeger {
+        reverse_proxy http://jaeger.observability.svc.cluster.local:16686 {
           header_up Host {http.request.host}
           header_up X-Forwarded-Proto https
+          header_up X-Forwarded-Host {http.request.host}
+          header_up X-Forwarded-For {http.request.remote.host}
           header_up X-Request-Id {http.request.id}
+          header_up traceparent {http.request.header.traceparent}
+          header_up tracestate {http.request.header.tracestate}
+          header_up baggage {http.request.header.baggage}
+          header_up X-OCH-Edge-Proto {http.request.proto}
           transport http {
             versions h1 h2
             dial_timeout 10s
-            response_header_timeout 60s
+            response_header_timeout 120s
+          }
+        }
+      }
+
+      @grafana_noslash path /grafana
+      handle @grafana_noslash {
+        redir /grafana/ 308
+      }
+      @prometheus_noslash path /prometheus
+      handle @prometheus_noslash {
+        redir /prometheus/ 308
+      }
+
+      @grafana path /grafana /grafana/*
+      handle @grafana {
+        reverse_proxy http://grafana.observability.svc.cluster.local:3000 {
+          header_up Host {http.request.host}
+          header_up X-Forwarded-Proto https
+          header_up X-Forwarded-Host {http.request.host}
+          header_up X-Forwarded-For {http.request.remote.host}
+          header_up X-Request-Id {http.request.id}
+          header_up traceparent {http.request.header.traceparent}
+          header_up tracestate {http.request.header.tracestate}
+          header_up baggage {http.request.header.baggage}
+          header_up X-OCH-Edge-Proto {http.request.proto}
+          flush_interval -1
+          transport http {
+            versions h1 h2
+            dial_timeout 10s
+            response_header_timeout 180s
+          }
+        }
+      }
+
+      @prometheus path /prometheus /prometheus/*
+      handle @prometheus {
+        reverse_proxy http://prometheus.observability.svc.cluster.local:9090 {
+          header_up Host {http.request.host}
+          header_up X-Forwarded-Proto https
+          header_up X-Forwarded-Host {http.request.host}
+          header_up X-Forwarded-For {http.request.remote.host}
+          header_up X-Request-Id {http.request.id}
+          header_up traceparent {http.request.header.traceparent}
+          header_up tracestate {http.request.header.tracestate}
+          header_up baggage {http.request.header.baggage}
+          header_up X-OCH-Edge-Proto {http.request.proto}
+          transport http {
+            versions h1 h2
+            dial_timeout 10s
+            response_header_timeout 120s
           }
         }
       }
 
       @api {
-        path /api/* /auth/* /listings/* /booking/* /messaging/* /analytics/* /trust/* /media/* /notification/*
+        path /api/* /auth/* /listings/* /booking/* /messaging/* /analytics/* /insights/* /trust/* /media/* /notification/*
         not header Content-Type application/grpc*
       }
       handle @api {
@@ -122,12 +185,13 @@ data:
           header_up Host {http.request.host}
           header_up X-Forwarded-Proto https
           header_up X-Request-Id {http.request.id}
-          header_up Traceparent {http.request.header.Traceparent}
-          header_up Tracestate {http.request.header.Tracestate}
+          header_up traceparent {http.request.header.traceparent}
+          header_up tracestate {http.request.header.tracestate}
+          header_up baggage {http.request.header.baggage}
           transport http {
             versions h1 h2
             dial_timeout 10s
-            response_header_timeout 60s
+            response_header_timeout 300s
             expect_continue_timeout 5s
             read_buffer 32MiB
             write_buffer 32MiB
@@ -152,8 +216,9 @@ data:
           header_up Host {http.request.host}
           header_up X-Forwarded-Proto https
           header_up X-Request-Id {http.request.id}
-          header_up Traceparent {http.request.header.Traceparent}
-          header_up Tracestate {http.request.header.Tracestate}
+          header_up traceparent {http.request.header.traceparent}
+          header_up tracestate {http.request.header.tracestate}
+          header_up baggage {http.request.header.baggage}
           transport http {
             versions h1 h2
             dial_timeout 10s

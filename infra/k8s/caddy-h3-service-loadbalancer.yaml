@@ -15,10 +15,13 @@ spec:
     port: 443
     targetPort: 443
     protocol: TCP
+    nodePort: 30443
   - name: https-udp
     port: 443
     targetPort: 443
     protocol: UDP
+    # k3s/klipper-lb: UDP nodePort must differ from TCP 30443 for QUIC.
+    nodePort: 30444
   - name: grpc-h2c
     port: 5000
     targetPort: 5000
