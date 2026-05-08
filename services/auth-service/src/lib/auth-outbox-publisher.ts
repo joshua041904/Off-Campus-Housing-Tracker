@@ -4,6 +4,7 @@
  */
 import type { PrismaClient } from "../../prisma/generated/client";
 import { kafka } from "@common/utils";
+import { buildKafkaMessageHeaders } from "@common/utils/otel";
 import { setAuthOutboxUnpublishedCount } from "./auth-outbox-metrics.js";
 
 const producer = kafka.producer();
@@ -94,7 +95,7 @@ export async function runAuthOutboxPublisherTick(prisma: PrismaClient): Promise<
     try {
       await producer.send({
         topic: row.topic,
-        messages: [{ key: row.aggregate_id, value: buf }],
+        messages: [{ key: row.aggregate_id, value: buf, headers: buildKafkaMessageHeaders() }],
       });
       await prisma.$executeRaw`
         UPDATE auth.auth_outbox SET published_at = NOW() WHERE id = ${row.id}::uuid

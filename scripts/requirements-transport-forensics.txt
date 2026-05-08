@@ -1,0 +1,3 @@
+# Optional: QUIC PCAP passive parse when tshark is unavailable (dpkt path).
+# pip install -r scripts/requirements-transport-forensics.txt
+dpkt>=1.9.8

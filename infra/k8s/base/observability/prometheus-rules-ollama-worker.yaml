@@ -1,0 +1,55 @@
+# Ollama async worker (ollama-worker Deployment, :9100 /metrics). Requires housing-pods scrape with
+# prometheus.io/scrape on worker pods (see k8s/ollama-worker.yaml). If not scraped, rules are inert.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules-ollama-worker
+  namespace: observability
+  labels:
+    app: prometheus
+    och.dev/role: ollama-worker-rules
+data:
+  ollama-worker.yml: |
+    groups:
+    - name: ollama-worker
+      interval: 30s
+      rules:
+      - alert: OllamaWorkerDLQSpike
+        expr: sum(increase(ollama_worker_jobs_dlq_total[1m])) > 10
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Ollama worker DLQ spike
+          description: More than 10 jobs sent to DLQ in 1 minute (sum across instances).
+
+      - alert: OllamaWorkerFailureRateHigh
+        expr: sum(rate(ollama_worker_jobs_failed_total[2m])) > 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Ollama worker failure rate high
+          description: Worker is failing jobs rapidly — check Ollama, Kafka, and Redis.
+
+      - alert: OllamaWorkerJobLatencyHigh
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(ollama_worker_job_latency_ms_bucket[5m])) by (le)
+          ) > 2000
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: Ollama worker job latency high
+          description: p95 job processing latency exceeds 2s.
+
+      - alert: OllamaWorkerKafkaBrokerUnreachable
+        expr: ollama_worker_kafka_broker_reachable == 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: Ollama worker cannot reach Kafka bootstrap
+          description: >
+            Admin connect probe failing — check KAFKA_BROKER / TLS mounts / kafka-headless Service and broker pods.

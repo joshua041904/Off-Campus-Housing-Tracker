@@ -48,7 +48,7 @@ test.describe("Analytics API (gateway)", () => {
     if (r.status() === 401 && raw.includes("auth required")) {
       test.skip(
         true,
-        "Gateway image is old: POST /api/analytics/insights/listing-feel still requires JWT. Rebuild/redeploy api-gateway with OPEN_ROUTES for listing-feel."
+        "Gateway image or Caddy config is old: POST /api/analytics/insights/listing-feel still requires JWT or never reaches the gateway. Rebuild/redeploy api-gateway + edge (listing-feel is POST-only)."
       );
     }
     expect(r.ok(), raw).toBeTruthy();

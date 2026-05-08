@@ -10,9 +10,13 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+export OCH_X_SUITE="${OCH_X_SUITE:-bash}"
 HOUSING_NS="${HOUSING_NS:-off-campus-housing-tracker}"
 HOST="${EDGE_HOST:-off-campus-housing.test}"
 CA="${CA:-$REPO_ROOT/certs/dev-root.pem}"
+
+# shellcheck source=lib/curl-with-suite.sh
+source "$SCRIPT_DIR/lib/curl-with-suite.sh"
 
 say() { printf "\n\033[1m%s\033[0m\n" "$*"; }
 ok() { echo "✅ $*"; }
@@ -42,20 +46,20 @@ else
     echo | openssl s_client -connect "${HOST}:443" -servername "$HOST" -CAfile "$CA" </dev/null 2>/dev/null | openssl x509 -noout -subject 2>/dev/null || warn "Could not open TLS session (DNS/firewall?)"
   fi
 
-  say "3) HTTP (curl — prefer --resolve if DNS broken)"
+  say "3) HTTP (curl + x-suite — prefer --resolve if DNS broken)"
   if [[ -n "${LB_IP:-}" ]]; then
-    if curl -sfS --max-time 15 --cacert "$CA" --resolve "${HOST}:443:${LB_IP}" "https://${HOST}/api/healthz" >/dev/null; then
+    if och_curl_suite -sfS --max-time 15 --cacert "$CA" --resolve "${HOST}:443:${LB_IP}" "https://${HOST}/api/healthz" >/dev/null; then
       ok "GET https://${HOST}/api/healthz (via --resolve $LB_IP)"
     else
       warn "curl /api/healthz failed — edge or gateway not reachable"
     fi
-    if curl -sfS --max-time 15 --cacert "$CA" --resolve "${HOST}:443:${LB_IP}" "https://${HOST}/auth/healthz" >/dev/null; then
+    if och_curl_suite -sfS --max-time 15 --cacert "$CA" --resolve "${HOST}:443:${LB_IP}" "https://${HOST}/auth/healthz" >/dev/null; then
       ok "GET https://${HOST}/auth/healthz (via --resolve $LB_IP)"
     else
       warn "curl /auth/healthz failed — if using nginx ingress, apply dev overlay ingress ( /auth → api-gateway )"
     fi
   else
-    if curl -sfS --max-time 15 --cacert "$CA" "https://${HOST}/api/healthz" >/dev/null; then
+    if och_curl_suite -sfS --max-time 15 --cacert "$CA" "https://${HOST}/api/healthz" >/dev/null; then
       ok "GET https://${HOST}/api/healthz"
     else
       warn "curl /api/healthz failed"
@@ -72,8 +76,8 @@ fi
 
 say "5) Bypass edge (gateway only — confirms app vs ingress)"
 echo "  kubectl -n $HOUSING_NS port-forward svc/api-gateway 4020:4020"
-echo "  curl -sS http://127.0.0.1:4020/healthz   # gateway liveness (no TLS)"
-echo "  curl -sS http://127.0.0.1:4020/api/healthz"
+echo "  curl -sS -H 'x-traffic-class: internal' http://127.0.0.1:4020/healthz   # gateway liveness (strict)"
+echo "  curl -sS -H 'x-traffic-class: internal' http://127.0.0.1:4020/api/healthz"
 
 say "k6 env (from host)"
 echo "  export SSL_CERT_FILE=$CA"

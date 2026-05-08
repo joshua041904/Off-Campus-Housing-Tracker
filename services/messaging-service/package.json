@@ -6,10 +6,11 @@
   "scripts": {
     "build": "prisma generate && tsc -p tsconfig.json",
     "dev": "tsx watch src/server.ts",
-    "start": "node dist/server.js",
+    "start": "node ./dist/server.js",
     "test": "ROLLUP_DISABLE_NATIVE=true vitest run",
+    "test:coverage": "ROLLUP_DISABLE_NATIVE=true vitest run --coverage",
     "test:watch": "ROLLUP_DISABLE_NATIVE=true vitest",
-    "test:integration": "ROLLUP_DISABLE_NATIVE=true vitest run tests/integration",
+    "test:integration": "ROLLUP_DISABLE_NATIVE=true vitest run --config vitest.integration.config.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio"
@@ -30,6 +31,7 @@
     "@types/pg": "^8.10.2",
     "@vitest/coverage-v8": "2.1.9",
     "prisma": "6.17.1",
+    "supertest": "^7.2.2",
     "tsx": "^4.16.2",
     "typescript": "^5.5.4",
     "vitest": "^2.1.0"

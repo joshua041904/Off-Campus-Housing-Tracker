@@ -22,6 +22,11 @@ export function getRedis(): Redis {
       // Insert password after redis://
       url = url.replace('redis://', `redis://:${password}@`)
     }
+    const enableOfflineQueueEnv = process.env.REDIS_ENABLE_OFFLINE_QUEUE
+    const enableOfflineQueue =
+      enableOfflineQueueEnv == null
+        ? true
+        : !/^(0|false|no|off)$/i.test(String(enableOfflineQueueEnv).trim())
     client = new Redis(url, {
       // In tests we execute commands immediately; eager connect avoids
       // "Stream isn't writeable" when offline queue is disabled.
@@ -33,8 +38,9 @@ export function getRedis(): Redis {
         if (times > 5) return null
         return Math.min(times * 200, 3000)
       },
-      // Vitest/integration bursts (e.g. 30× rate-limit Lua) can hit a brief reconnect; queue avoids false UNAVAILABLE.
-      enableOfflineQueue: isTest,
+      // Runtime reconnects can briefly make the stream non-writeable; queueing avoids request-time hard failures.
+      // Keep tunable for strict environments via REDIS_ENABLE_OFFLINE_QUEUE=0.
+      enableOfflineQueue,
     })
     // Handle errors gracefully - don't crash the app
     client.on('error', (err) => {

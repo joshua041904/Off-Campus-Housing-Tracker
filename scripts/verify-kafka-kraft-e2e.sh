@@ -214,7 +214,7 @@ KP_PASS=$(cat /etc/kafka/secrets/kafka.key-password 2>/dev/null || echo "$KS_PAS
   echo "ssl.keystore.password=${KS_PASS}"
   echo "ssl.key.password=${KP_PASS}"
 } > /tmp/och-kraft-describe.props
-kafka-topics --bootstrap-server kafka-0.kafka:9093 --command-config /tmp/och-kraft-describe.props --describe
+kafka-topics --bootstrap-server kafka-0.kafka-headless:9093 --command-config /tmp/och-kraft-describe.props --describe
 ' >"$_desc" || fail "kafka-topics --describe failed inside kafka-0"
 
 if grep -q 'Leader: -1' "$_desc"; then
@@ -307,7 +307,7 @@ KP_PASS=\$(cat /etc/kafka/secrets/kafka.key-password 2>/dev/null || echo \"\$KS_
   echo ssl.keystore.password=\${KS_PASS}
   echo ssl.key.password=\${KP_PASS}
 } > /tmp/och-smoke.props
-kafka-topics --bootstrap-server kafka-0.kafka:9093 --command-config /tmp/och-smoke.props --create --if-not-exists --topic ${_topic} --replication-factor 3 --partitions 1
+kafka-topics --bootstrap-server kafka-0.kafka-headless:9093 --command-config /tmp/och-smoke.props --create --if-not-exists --topic ${_topic} --replication-factor 3 --partitions 1
 " || fail "create topic failed"
   _msg="kraft-e2e-$(date +%s)"
   kctl exec -n "$NS" kafka-0 -- bash -ec "
@@ -323,7 +323,7 @@ KP_PASS=\$(cat /etc/kafka/secrets/kafka.key-password 2>/dev/null || echo \"\$KS_
   echo ssl.keystore.password=\${KS_PASS}
   echo ssl.key.password=\${KP_PASS}
 } > /tmp/och-smoke.props
-echo '${_msg}' | kafka-console-producer --bootstrap-server kafka-0.kafka:9093 --producer.config /tmp/och-smoke.props --topic ${_topic}
+echo '${_msg}' | kafka-console-producer --bootstrap-server kafka-0.kafka-headless:9093 --producer.config /tmp/och-smoke.props --topic ${_topic}
 " || fail "producer failed"
   _got="$(kctl exec -n "$NS" kafka-1 -- bash -ec "
 TS_PASS=\$(cat /etc/kafka/secrets/kafka.truststore-password)

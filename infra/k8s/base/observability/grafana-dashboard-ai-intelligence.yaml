@@ -1,0 +1,230 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-ai-intelligence
+  namespace: observability
+  labels:
+    grafana_dashboard: "1"
+data:
+  ai-intelligence.json: |
+    {
+      "title": "AI Intelligence – Analytics + Kafka + QA",
+      "uid": "ai-intelligence-v1",
+      "schemaVersion": 39,
+      "version": 1,
+      "timezone": "browser",
+      "refresh": "10s",
+      "tags": ["och", "analytics", "ai", "kafka", "qa"],
+      "panels": [
+        {
+          "id": 14,
+          "type": "stat",
+          "title": "AI Health Score (composite)",
+          "description": "Recording rule ai_health_composite_score (latency, fallback, entropy, quality, Kafka skew, hallucination rate).",
+          "gridPos": { "x": 0, "y": 0, "w": 24, "h": 6 },
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": {
+            "defaults": {
+              "min": 0,
+              "max": 100,
+              "unit": "none",
+              "decimals": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "yellow", "value": 60 },
+                  { "color": "green", "value": 75 }
+                ]
+              }
+            }
+          },
+          "targets": [{ "refId": "A", "expr": "ai_health_composite_score" }]
+        },
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "p95 Analytics Latency (5m)",
+          "gridPos": { "x": 0, "y": 6, "w": 8, "h": 6 },
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "s" } },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.95, sum(rate(analytics_latency_seconds_bucket[5m])) by (le))"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Fallback Rate (5m)",
+          "gridPos": { "x": 8, "y": 6, "w": 8, "h": 6 },
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "percentunit" } },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(analytics_fallback_total[5m])) / clamp_min(sum(rate(analytics_requests_total[5m])), 1e-9)"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Entropy (instant / last scrape)",
+          "gridPos": { "x": 16, "y": 6, "w": 8, "h": 6 },
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "targets": [{ "refId": "A", "expr": "analytics_entropy_value" }]
+        },
+        {
+          "id": 4,
+          "type": "timeseries",
+          "title": "Analytics Latency (mean over 5m)",
+          "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(analytics_latency_seconds_sum[5m])) / clamp_min(sum(rate(analytics_latency_seconds_count[5m])), 1e-9)",
+              "legendFormat": "mean latency (s)"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Tokens Generated (/s)",
+          "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(analytics_tokens_generated_total[5m]))",
+              "legendFormat": "tokens/s"
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "type": "gauge",
+          "title": "Kafka Skew max_share",
+          "gridPos": { "x": 0, "y": 20, "w": 8, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": {
+            "defaults": {
+              "min": 0,
+              "max": 0.5,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 0.25 },
+                  { "color": "red", "value": 0.35 }
+                ]
+              }
+            }
+          },
+          "targets": [{ "refId": "A", "expr": "kafka_skew_max_share" }]
+        },
+        {
+          "id": 7,
+          "type": "stat",
+          "title": "QA Suite Duration (s, last pushed)",
+          "gridPos": { "x": 8, "y": 20, "w": 8, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "qa_suite_duration_seconds_sum / clamp_min(qa_suite_duration_seconds_count, 1)"
+            }
+          ]
+        },
+        {
+          "id": 8,
+          "type": "timeseries",
+          "title": "Error budget burn (1 - 2xx ratio, 5m)",
+          "gridPos": { "x": 16, "y": 20, "w": 8, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "percentunit" } },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "1 - (sum(rate(http_requests_total{service=\"analytics-service\",code=~\"2..\"}[5m])) / clamp_min(sum(rate(http_requests_total{service=\"analytics-service\"}[5m])), 1e-9))",
+              "legendFormat": "error share"
+            }
+          ]
+        },
+        {
+          "id": 9,
+          "type": "stat",
+          "title": "Kafka skew pass (1=yes)",
+          "gridPos": { "x": 0, "y": 28, "w": 6, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "targets": [{ "refId": "A", "expr": "kafka_skew_pass" }]
+        },
+        {
+          "id": 10,
+          "type": "stat",
+          "title": "Confidence (gauge)",
+          "gridPos": { "x": 6, "y": 28, "w": 6, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "targets": [{ "refId": "A", "expr": "analytics_confidence_score" }]
+        },
+        {
+          "id": 11,
+          "type": "stat",
+          "title": "Hallucination flags (/s)",
+          "gridPos": { "x": 12, "y": 28, "w": 6, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "targets": [{ "refId": "A", "expr": "sum(rate(analytics_hallucination_total[5m]))" }]
+        },
+        {
+          "id": 12,
+          "type": "stat",
+          "title": "AI quality score (last response)",
+          "gridPos": { "x": 18, "y": 28, "w": 6, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": {
+            "defaults": {
+              "min": 0,
+              "max": 100,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "yellow", "value": 55 },
+                  { "color": "green", "value": 70 }
+                ]
+              }
+            }
+          },
+          "targets": [{ "refId": "A", "expr": "analytics_quality_score" }]
+        },
+        {
+          "id": 13,
+          "type": "timeseries",
+          "title": "Low-quality gate fires (/s)",
+          "gridPos": { "x": 0, "y": 32, "w": 24, "h": 6 },
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(analytics_quality_low_total[5m]))",
+              "legendFormat": "low_quality"
+            }
+          ]
+        }
+      ],
+      "templating": {
+        "list": [
+          {
+            "name": "DS_PROMETHEUS",
+            "type": "datasource",
+            "query": "prometheus",
+            "current": { "text": "Prometheus", "value": "Prometheus", "selected": false }
+          }
+        ]
+      },
+      "time": { "from": "now-6h", "to": "now" }
+    }

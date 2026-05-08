@@ -20,7 +20,7 @@ export { countSeeds as countKafkaBrokerSeeds };
 
 /** Same three-seed bootstrap as infra/k8s/base/config/app-config.yaml (in-cluster DNS + TLS :9093). */
 export const BOOKING_IT_DEFAULT_CLUSTER_BOOTSTRAP_SSL =
-  "kafka-0.kafka.off-campus-housing-tracker.svc.cluster.local:9093,kafka-1.kafka.off-campus-housing-tracker.svc.cluster.local:9093,kafka-2.kafka.off-campus-housing-tracker.svc.cluster.local:9093";
+  "kafka-0.kafka-headless:9093,kafka-1.kafka-headless:9093,kafka-2.kafka-headless:9093";
 
 export function applyBookingIntegrationKafkaBrokerEnv(): void {
   applyVitestClusterKafkaBrokerEnv(repoRoot);

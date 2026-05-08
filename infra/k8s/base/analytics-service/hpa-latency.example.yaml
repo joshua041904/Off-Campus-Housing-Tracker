@@ -1,0 +1,25 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: analytics-service-latency
+  namespace: off-campus-housing-tracker
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: analytics-service
+  minReplicas: 1
+  maxReplicas: 5
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 300
+    scaleDown:
+      stabilizationWindowSeconds: 600
+  metrics:
+    - type: Pods
+      pods:
+        metric:
+          name: analytics_generation_latency_ms_p95
+        target:
+          type: AverageValue
+          averageValue: "4000"

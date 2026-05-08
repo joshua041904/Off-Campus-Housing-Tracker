@@ -25,6 +25,7 @@ import {
   mergeEdgeTls,
   strictEdgeTlsOptions,
 } from "./k6-strict-edge-tls.js";
+import { injectTraceparentIntoParams } from "./k6-w3c-traceparent.js";
 
 export const envelope_errors = new Rate("envelope_errors");
 
@@ -71,7 +72,7 @@ function fullUrl() {
 }
 
 export default function () {
-  const params = mergeEdgeTls(RAW_BASE, { timeout: "15s" });
+  const params = injectTraceparentIntoParams(mergeEdgeTls(RAW_BASE, { timeout: "15s" }));
   let res;
   if (METHOD === "GET") {
     res = http.get(fullUrl(), params);

@@ -7,7 +7,7 @@
 #   - Optional: pnpm verify:kafka-tls-sans — fail if broker PEM SANs drift
 #   - Optional cert-manager: infra/k8s/kafka-certs/README.md
 #   - MetalLB installed and an address pool configured
-# App pods: infra/k8s/base/config/app-config.yaml defaults KAFKA_BROKER to this cluster’s headless bootstrap (comma-separated).
+# App pods: infra/k8s/base/config/app-config.yaml defaults KAFKA_BROKER to kafka-N.kafka-headless:9093 (alias + headless kafka).
 # Host-only Compose Kafka: use kubectl apply -k infra/k8s/overlays/kafka-host-compose/ instead of that default.
 #
 # Apply (single bundle):
@@ -26,6 +26,7 @@
 # Kafka advertised.listeners: the EXTERNAL listener IP is discovered by initContainer fetch-external-lb-ip (Kubernetes API),
 # written to a shared volume, and applied in the main container startup script to /etc/kafka/kafka.properties — not via static
 # KAFKA_ADVERTISED_LISTENERS in the StatefulSet env (see scripts/verify-kafka-no-static-advertised-env.sh).
+# MetalLB assigns per-broker EXTERNAL-IP; TLS follows live IPs (apply-kafka-kraft-staged / kafka-refresh-tls-from-lb.sh). Strip legacy pins: STRIP_KAFKA_EXTERNAL_REQUESTED_LB_IP=1 scripts/patch-kafka-external-metallb-pinned-ips.sh
 #
 # Optional Prometheus: kafka-metallb-alignment-exporter compares LB Service IPs to broker advertised EXTERNAL.
 apiVersion: kustomize.config.k8s.io/v1beta1
@@ -39,6 +40,7 @@ configMapGenerator:
       - exporter.py=exporter.py
 resources:
   - headless-service.yaml
+  - kafka-headless-alias-service.yaml
   - external-services.yaml
   - rbac-kafka-svc-reader.yaml
   - kafka-pdb.yaml

@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Get to a known-good state so run-preflight-scale-and-all-suites.sh can run.
 # 1) See what's going on (cross-layer diagnostic)
-# 2) Ensure curl with HTTP/3 (optional)
+# 2) curl HTTP/3 capability (curl --version; PATH curl only)
 # 3) Ensure Kubernetes API (k3d or Colima)
 # 4) Ensure Redis + all 8 Postgres DBs (5441–5448)
-# 5) Ensure Kafka (in-cluster KRaft)
-# 6) k3d only: Ensure required app images (:dev) exist locally and in registry (so pods don't ImagePullBackOff). ENSURE_IMAGES=0 to skip.
+# 5b) Colima host aliases (when Colima context)
+# 6) k3d only: required app images (:dev) locally + registry. ENSURE_IMAGES=0 to skip.
+# 7) Kafka (KRaft) — only if StatefulSet kafka exists (ordering vs deploy-dev / first apply).
+# 4b) When ollama-gateway exists, re-apply k8s/ stack so REDIS_URL=configMapRef(app-config) and external Redis (:6380) match repo (OLLAMA_GATEWAY_USE_EXTERNAL_REDIS default 1).
 #
 # Usage:
 #   ./scripts/ensure-ready-for-preflight.sh              # diagnose + ensure, then print "run preflight"
@@ -27,6 +29,7 @@ SKIP_DIAGNOSTIC="${SKIP_DIAGNOSTIC:-0}"
 say() { printf "\n\033[1m%s\033[0m\n" "$*"; }
 ok()  { echo "✅ $*"; }
 warn(){ echo "⚠️  $*"; }
+info(){ echo "ℹ️  $*"; }
 
 # --- 1. Cross-layer diagnostic (see what's really going on) ---
 if [[ "$SKIP_DIAGNOSTIC" != "1" ]] && [[ -x "$SCRIPT_DIR/colima-k3s-cross-layer-diagnostic.sh" ]]; then
@@ -40,17 +43,16 @@ else
   fi
 fi
 
-# --- 2. Ensure curl with HTTP/3 (for MetalLB/ingress verification) ---
-say "2. Ensuring curl with HTTP/3 support..."
-if command -v brew >/dev/null 2>&1; then
-  brew upgrade curl 2>/dev/null || true
-  if [[ -x /opt/homebrew/opt/curl/bin/curl ]] && /opt/homebrew/opt/curl/bin/curl --help 2>/dev/null | grep -q -- "--http3"; then
-    ok "Homebrew curl with HTTP/3 available (/opt/homebrew/opt/curl/bin/curl)"
+# --- 2. curl HTTP/3 capability (PATH curl; no package-manager assumptions) ---
+say "2. Checking curl HTTP/3 support (curl --version)..."
+if command -v curl >/dev/null 2>&1; then
+  if curl --version 2>/dev/null | grep -qiE 'HTTP3|HTTP/3'; then
+    ok "curl reports HTTP/3 support ($(command -v curl))"
   else
-    warn "Homebrew curl without HTTP/3; MetalLB HTTP/3 verification may fail (brew install curl --with-nghttp2)"
+    warn "curl on PATH does not report HTTP3 in curl --version; HTTP/3 edge checks may be skipped or fail ($(command -v curl))"
   fi
 else
-  info "Homebrew not found; using system curl (HTTP/3 tests may fail)"
+  warn "curl not in PATH"
 fi
 
 # --- 3. Ensure Kubernetes API (k3d or Colima) ---
@@ -108,6 +110,18 @@ if ! nc -z 127.0.0.1 "$REDIS_PORT" 2>/dev/null; then
   fi
 fi
 ok "Redis reachable ($REDIS_PORT)"
+
+_ns="${HOUSING_NS:-${NAMESPACE:-off-campus-housing-tracker}}"
+if [[ "${PREFLIGHT_GATEWAY_RECONCILE_SKIP:-0}" != "1" ]] && [[ "${BOOTSTRAP_SKIP_OLLAMA_GATEWAY_STACK:-0}" != "1" ]] && kubectl get ns "$_ns" --request-timeout=10s &>/dev/null; then
+  if kubectl get deploy ollama-gateway -n "$_ns" --request-timeout=10s &>/dev/null || kubectl get deploy ollama-worker -n "$_ns" --request-timeout=10s &>/dev/null; then
+    export OLLAMA_GATEWAY_USE_EXTERNAL_REDIS="${OLLAMA_GATEWAY_USE_EXTERNAL_REDIS:-1}"
+    say "4b. Reconciling ollama-gateway stack (OLLAMA_GATEWAY_USE_EXTERNAL_REDIS=$OLLAMA_GATEWAY_USE_EXTERNAL_REDIS)…"
+    if [[ -x "$SCRIPT_DIR/apply-ollama-gateway-stack.sh" ]]; then
+      HOUSING_NS="$_ns" bash "$SCRIPT_DIR/apply-ollama-gateway-stack.sh" && ok "ollama-gateway stack reconciled" || warn "apply-ollama-gateway-stack.sh failed (continuing)"
+    fi
+  fi
+fi
+
 if [[ -x "$SCRIPT_DIR/ensure-pgbench-dbs-ready.sh" ]]; then
   if "$SCRIPT_DIR/ensure-pgbench-dbs-ready.sh"; then
     ok "All 8 Postgres DBs reachable (5441–5448)"
@@ -129,15 +143,6 @@ else
 fi
 
 _KNS="${HOUSING_NS:-off-campus-housing-tracker}"
-# --- 5. Ensure Kafka (in-cluster KRaft; Compose broker removed) ---
-say "5. Ensuring Kafka (k8s $_KNS)..."
-if command -v kubectl >/dev/null 2>&1 && kubectl get pod kafka-0 -n "$_KNS" &>/dev/null; then
-  for _i in 0 1 2; do
-    kubectl wait pod "kafka-${_i}" -n "$_KNS" --for=condition=Ready --timeout=120s 2>/dev/null && ok "kafka-${_i} Ready" || warn "kafka-${_i} not Ready (continue)"
-  done
-else
-  warn "kafka-0 not in $_KNS — deploy KRaft StatefulSet or skip until cluster Kafka exists"
-fi
 
 # --- 5b. Colima: host aliases so pods reach Postgres/Redis (get to 1/1 Ready) ---
 if [[ "$ctx" == *"colima"* ]] && [[ -x "$SCRIPT_DIR/colima-apply-host-aliases.sh" ]]; then
@@ -197,6 +202,20 @@ elif [[ "$ENSURE_IMAGES" == "1" ]] && [[ "$ctx" != *"k3d"* ]]; then
   say "6. Skipping app image check (not k3d context)"
 elif [[ "$ENSURE_IMAGES" == "0" ]]; then
   say "6. Skipping app image check (ENSURE_IMAGES=0)"
+fi
+
+# --- 7. Kafka (KRaft) — only when StatefulSet is already applied (ordering vs deploy-dev) ---
+say "7. Kafka (k8s $_KNS) when StatefulSet exists..."
+if command -v kubectl >/dev/null 2>&1 && kubectl get sts kafka -n "$_KNS" &>/dev/null; then
+  if kubectl get pod kafka-0 -n "$_KNS" &>/dev/null; then
+    for _i in 0 1 2; do
+      kubectl wait pod "kafka-${_i}" -n "$_KNS" --for=condition=Ready --timeout=120s 2>/dev/null && ok "kafka-${_i} Ready" || warn "kafka-${_i} not Ready (continue)"
+    done
+  else
+    warn "StatefulSet kafka exists but kafka-0 not found yet — wait for rollout or check events"
+  fi
+else
+  info "StatefulSet kafka not in $_KNS — skipped (apply Kafka KRaft manifest / make apply-kafka-kraft before topic checks)"
 fi
 
 say "Ready for preflight"

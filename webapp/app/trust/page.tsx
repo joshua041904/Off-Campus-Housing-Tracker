@@ -6,6 +6,7 @@ import { getReputation, reportAbuse, submitPeerReview } from "@/lib/api";
 import { getStoredEmail, getStoredToken } from "@/lib/auth-storage";
 import { getSubFromJwt } from "@/lib/jwt-sub";
 import { Nav } from "@/components/Nav";
+import { trackTrustEvent } from "@/lib/track";
 
 
 // ---------------------------------------------------------------------------
@@ -103,6 +104,31 @@ function TrustHeaderSection() {
   );
 }
 
+function SkeletonLine({ className = "" }: { className?: string }) {
+  return (
+    <div
+      aria-hidden="true"
+      className={`animate-pulse rounded-md bg-slate-200 ${className}`}
+    />
+  );
+}
+
+function ReputationSkeleton() {
+  return (
+    <div
+      data-testid="trust-reputation-skeleton"
+      className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-4"
+      aria-hidden="true"
+    >
+      <SkeletonLine className="h-4 w-32" />
+
+      <SkeletonLine className="mt-3 h-7 w-24" />
+
+      <SkeletonLine className="mt-3 h-3 w-48" />
+    </div>
+  );
+}
+
 function ReputationSection({
   repUserId,
   setRepUserId,
@@ -110,6 +136,7 @@ function ReputationSection({
   loading,
   mySub,
   repScore,
+  repError,
 }: {
   repUserId: string;
   setRepUserId: (v: string) => void;
@@ -117,6 +144,7 @@ function ReputationSection({
   loading: boolean;
   mySub: string | null;
   repScore: number | null;
+  repError: string | null;
 }) {
   return (
     <section className="mt-10 rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
@@ -144,7 +172,9 @@ function ReputationSection({
           value={repUserId}
           onChange={(e) => setRepUserId(e.target.value)}
           placeholder="user UUID"
-          className="flex-1 rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 shadow-sm"
+          aria-describedby={repError ? "rep-error" : undefined}
+          aria-invalid={repError ? true : undefined}
+          className={"flex-1 rounded-md border px-3 py-2 font-mono text-sm text-slate-900 shadow-sm bg-white " + (repError ? "border-red-400" : "border-slate-300")}
         />
         <button
           type="submit"
@@ -156,6 +186,11 @@ function ReputationSection({
           {loading ? "Looking up…" : "Look up"}
         </button>
       </form>
+      {repError && (
+        <p id="rep-error" role="alert" aria-live="assertive" className="mt-2 text-xs text-red-600">
+          {repError}
+        </p>
+      )}
       {mySub && (
         <button
           type="button"
@@ -165,13 +200,17 @@ function ReputationSection({
           Use my account id
         </button>
       )}
-      {repScore != null && (
-        <p
-          data-testid="trust-reputation-score"
-          className="mt-4 text-sm text-slate-600"
-        >
-          Score: <strong className="text-teal-800">{repScore}</strong>
-        </p>
+      {loading ? (
+        <ReputationSkeleton />
+      ) : (
+        repScore != null && (
+          <p
+            data-testid="trust-reputation-score"
+            className="mt-4 text-sm text-slate-600"
+          >
+            Score: <strong className="text-teal-800">{repScore}</strong>
+          </p>
+        )
       )}
     </section>
   );
@@ -199,6 +238,7 @@ function ReportAbuseSection({
   setAbuseDetails: (v: string) => void;
   onReport: (e: React.FormEvent) => Promise<void>;
   loading: boolean;
+  abuseError: string | null;
 }) {
   return (
     <section className="mt-10 rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
@@ -215,7 +255,6 @@ function ReportAbuseSection({
       >
         <fieldset className="flex gap-4 text-sm text-slate-700">
           <legend className="sr-only">Abuse target type</legend>
-
           <label className="flex items-center gap-2">
             <input
               type="radio"
@@ -303,6 +342,7 @@ function PeerReviewSection({
   setComment,
   onPeerReview,
   loading,
+  reviewError,
 }: {
   bookingId: string;
   setBookingId: (v: string) => void;
@@ -316,6 +356,7 @@ function PeerReviewSection({
   setComment: (v: string) => void;
   onPeerReview: (e: React.FormEvent) => Promise<void>;
   loading: boolean;
+  reviewError: string | null;
 }) {
   return (
     <section className="mt-10 rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
@@ -345,9 +386,16 @@ function PeerReviewSection({
           value={bookingId}
           onChange={(e) => setBookingId(e.target.value)}
           placeholder="booking UUID"
-          className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 shadow-sm"
+          aria-describedby={reviewError ? "review-error" : undefined}
+          aria-invalid={reviewError ? true : undefined}
+          className={"w-full rounded-md border px-3 py-2 font-mono text-sm text-slate-900 shadow-sm bg-white " + (reviewError ? "border-red-400" : "border-slate-300")}
           required
         />
+        {reviewError && (
+          <p id="review-error" role="alert" aria-live="assertive" className="text-xs text-red-600">
+            {reviewError}
+          </p>
+        )}
         <label
           htmlFor="trust-reviewee-id"
           className="sr-only"
@@ -422,10 +470,7 @@ function PeerReviewSection({
 function TrustLoginPrompt() {
   return (
     <div className="mt-10 rounded-[1.25rem] border border-slate-200 bg-white px-5 py-4 text-sm text-slate-600 shadow-sm">
-      <Link
-        href="/login"
-        className="font-medium text-teal-700 hover:underline"
-      >
+      <Link href="/login" className="font-medium text-teal-700 hover:underline">
         Log in
       </Link>{" "}
       to report abuse or submit peer reviews.
@@ -486,6 +531,30 @@ export default function TrustPage() {
   const setRating = (v: number) => dispatch({ type: "SET", payload: { rating: v } });
   const setComment = (v: string) => dispatch({ type: "SET", payload: { comment: v } });
   const feedbackRef = useRef<HTMLDivElement | null>(null);
+  const [email, setEmail] = useState<string | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [mySub, setMySub] = useState<string | null>(null);
+
+  const [repUserId, setRepUserId] = useState("");
+  const [repScore, setRepScore] = useState<number | null>(null);
+  const [repError, setRepError] = useState<string | null>(null);
+
+  const [abuseType, setAbuseType] = useState<"listing" | "user">("listing");
+  const [abuseError, setAbuseError] = useState<string | null>(null);
+  const [abuseTarget, setAbuseTarget] = useState("");
+  const [abuseCategory, setAbuseCategory] = useState("spam");
+  const [abuseDetails, setAbuseDetails] = useState("");
+
+  const [bookingId, setBookingId] = useState("");
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const [revieweeId, setRevieweeId] = useState("");
+  const [side, setSide] = useState("guest");
+  const [rating, setRating] = useState(5);
+  const [comment, setComment] = useState("");
+
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
 
   useEffect(() => {
     const t = getStoredToken();
@@ -493,12 +562,6 @@ export default function TrustPage() {
     dispatch({ type: "SET_AUTH", email: getStoredEmail(), token: t, mySub: sub });
     if (sub) dispatch({ type: "SET", payload: { repUserId: sub } });
   }, []);
-
-  useEffect(() => {
-    if (!feedback.type) return;
-
-    feedbackRef.current?.focus();
-  }, [feedback.type]);
 
   async function onReputation(e: React.FormEvent) {
     e.preventDefault();
@@ -512,6 +575,28 @@ export default function TrustPage() {
     } catch (e: unknown) {
       dispatch({ type: "SET", payload: { repScore: null } });
       dispatch({ type: "SET_FEEDBACK", feedback: { type: "error", message: e instanceof Error ? e.message : "Lookup failed" } });
+    if (!repUserId.trim()) {
+      setRepError("Please enter a user UUID.");
+      return;
+    }
+    setRepError(null);
+    setFeedback({ type: null, message: "" });
+    setLoading(true);
+    try {
+      const r = await getReputation(repUserId.trim());
+      setRepScore(r.score);
+      trackTrustEvent({ type: "reputation_lookup", userId: repUserId.trim() });
+      setFeedback({
+        type: "success",
+        message: `Reputation for ${r.user_id}: ${r.score}`,
+      });
+    } catch (e: unknown) {
+      setRepScore(null);
+      setRepError(e instanceof Error ? e.message : "Lookup failed");
+      setFeedback({
+        type: "error",
+        message: e instanceof Error ? e.message : "Lookup failed",
+      });
     } finally {
       dispatch({ type: "SET_LOADING", loading: false });
     }
@@ -519,10 +604,16 @@ export default function TrustPage() {
 
   async function onReport(e: React.FormEvent) {
     e.preventDefault();
-    if (loading) return;
     if (!token) return;
     dispatch({ type: "CLEAR_FEEDBACK" });
     dispatch({ type: "SET_LOADING", loading: true });
+    if (!abuseTarget.trim()) {
+      setAbuseError("Please enter a target UUID.");
+      return;
+    }
+    setAbuseError(null);
+    setFeedback({ type: null, message: "" });
+    setLoading(true);
     try {
       await reportAbuse(token, {
         abuse_target_type: abuseType,
@@ -541,7 +632,6 @@ export default function TrustPage() {
 
   async function onPeerReview(e: React.FormEvent) {
     e.preventDefault();
-    if (loading) return;
     if (!token) return;
     dispatch({ type: "CLEAR_FEEDBACK" });
     dispatch({ type: "SET_LOADING", loading: true });
@@ -563,10 +653,13 @@ export default function TrustPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-teal-50/30 text-slate-900">
+    <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-emerald-50/50 text-slate-900">
       <Nav email={email} />
-      <main className="mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-12">
-        <TrustHeaderSection />
+      <main className="mx-auto max-w-3xl px-4 py-10">
+        <h1 className="font-serif text-3xl text-slate-900">Trust &amp; safety</h1>
+        <p className="mt-2 text-sm text-slate-600">
+          Report abuse and submit peer reviews via gateway → trust-service. Reputation lookup is public.
+        </p>
 
         <ReputationSection
           repUserId={repUserId}
@@ -575,6 +668,7 @@ export default function TrustPage() {
           loading={loading}
           mySub={mySub}
           repScore={repScore}
+          repError={repError}
         />
 
         {token ? (
@@ -590,6 +684,7 @@ export default function TrustPage() {
               setAbuseDetails={setAbuseDetails}
               onReport={onReport}
               loading={loading}
+              abuseError={abuseError}
             />
             <PeerReviewSection
               bookingId={bookingId}
@@ -604,16 +699,20 @@ export default function TrustPage() {
               setComment={setComment}
               onPeerReview={onPeerReview}
               loading={loading}
+              reviewError={reviewError}
             />
           </>
         ) : (
-          <TrustLoginPrompt />
+          <p className="mt-8 text-sm text-slate-600">
+            <Link href="/login" className="font-medium text-teal-700 hover:underline">
+              Log in
+            </Link>{" "}
+            to report abuse or submit peer reviews.
+          </p>
         )}
 
-        <TrustFeedback
-          feedback={feedback}
-          feedbackRef={feedbackRef}
-        />
+        {msg && <p className="mt-6 text-sm font-medium text-emerald-700">{msg}</p>}
+        {err && <p className="mt-2 text-sm text-red-600">{err}</p>}
       </main>
     </div>
   );

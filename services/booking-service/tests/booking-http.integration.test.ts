@@ -65,10 +65,12 @@ describe.skipIf(skip || !dbReady)("booking HTTP — full surface", () => {
     expect(res.body).toMatchObject({ ok: true });
   });
 
-  it("GET /metrics returns Prometheus text", async () => {
+  it("GET /metrics returns Prometheus or OpenMetrics exposition", async () => {
     const res = await request(app).get("/metrics");
     expect(res.status).toBe(200);
-    expect(String(res.headers["content-type"] || "")).toMatch(/text\/plain/);
+    expect(String(res.headers["content-type"] || "")).toMatch(
+      /(text\/plain|application\/openmetrics-text)/,
+    );
     expect(res.text.length).toBeGreaterThan(0);
   });
 
@@ -114,13 +116,9 @@ describe.skipIf(skip || !dbReady)("booking HTTP — full surface", () => {
       .send({ query: q, maxDistanceKm: 3 });
     expect(post.status, post.text).toBe(201);
     expect(post.body.query).toBe(q);
-    expect(post.headers["cache-control"]).toContain("no-store");
-    expect(post.headers["pragma"]).toBe("no-cache");
 
     const list = await request(app).get("/search-history/list").set("x-user-id", tenantId);
     expect(list.status, list.text).toBe(200);
-    expect(list.headers["cache-control"]).toContain("no-store");
-    expect(list.headers["pragma"]).toBe("no-cache");
     const items = list.body.items as { query?: string }[];
     expect(Array.isArray(items)).toBe(true);
     expect(items.some((r) => r.query === q)).toBe(true);

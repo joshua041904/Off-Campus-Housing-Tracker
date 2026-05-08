@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://och.local/schemas/transport-study-v7b.schema.json",
+  "title": "7b load-phase transport study (v7b)",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "valid",
+    "mode",
+    "capture_window",
+    "quic",
+    "tls",
+    "transport_behavior",
+    "http_protocol_proof",
+    "jaeger_correlation",
+    "ci_metadata"
+  ],
+  "properties": {
+    "valid": { "type": "boolean" },
+    "mode": { "const": "load-phase-transport-study" },
+    "capture_window": {
+      "type": "object",
+      "required": ["start_epoch", "end_epoch", "duration_seconds"],
+      "properties": {
+        "start_epoch": { "type": "number" },
+        "end_epoch": { "type": "number" },
+        "duration_seconds": { "type": "number", "minimum": 0 }
+      }
+    },
+    "quic": {
+      "type": "object",
+      "required": [
+        "frame_count",
+        "versions",
+        "packet_number_spaces",
+        "version_negotiation_packets"
+      ]
+    },
+    "tls": {
+      "type": "object",
+      "required": ["alpn_protocols_seen", "cipher_suites_seen"],
+      "properties": {
+        "alpn_protocols_seen": { "type": "array", "items": { "type": "string" } },
+        "cipher_suites_seen": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "transport_behavior": { "type": "object" },
+    "http_protocol_proof": {
+      "type": "object",
+      "required": ["http2_seen", "http3_seen"],
+      "properties": {
+        "http2_seen": { "type": "integer", "minimum": 0 },
+        "http3_seen": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "jaeger_correlation": {
+      "type": "object",
+      "required": [
+        "overlap_detected",
+        "trace_ids_within_window",
+        "services_seen",
+        "span_count"
+      ],
+      "properties": {
+        "overlap_detected": { "type": "boolean" },
+        "trace_ids_within_window": { "type": "array", "items": { "type": "string" } },
+        "services_seen": { "type": "array", "items": { "type": "string" } },
+        "span_count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "ci_metadata": {
+      "type": "object",
+      "required": ["transport_invariant_version", "generated_at"],
+      "properties": {
+        "transport_invariant_version": { "const": "v7b" },
+        "generated_at": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

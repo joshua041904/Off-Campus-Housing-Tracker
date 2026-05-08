@@ -1,0 +1,17 @@
+openapi: 3.0.3
+info:
+  title: trust-service
+  version: '0.0.0'
+paths:
+  "/api/trust/reputation/00000000-0000-4000-8000-000000000001":
+    get:
+      summary: "trust-service get /api/trust/reputation/00000000-0000-4000-8000-000000000001"
+      responses:
+        '200':
+          description: OK
+  "/api/trust/healthz":
+    get:
+      summary: "trust-service get /api/trust/healthz"
+      responses:
+        '200':
+          description: OK

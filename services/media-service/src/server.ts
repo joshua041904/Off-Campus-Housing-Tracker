@@ -1,3 +1,4 @@
+import './otel-bootstrap.js'
 import { userLifecycleV1Topic } from '@common/utils'
 import { ensureKafkaBrokerReady } from '@common/utils/kafka'
 import { startGrpcServer } from './grpc-server.js'

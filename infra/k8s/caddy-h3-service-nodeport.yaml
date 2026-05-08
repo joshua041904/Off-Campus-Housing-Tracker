@@ -1,5 +1,5 @@
-# Caddy HTTP/3 service (NodePort). Use when METALLB_ENABLED=0. nodePort 30443 for HTTP/2 and HTTP/3 (QUIC).
-# k3d must publish 30443 TCP+UDP (scripts/k3d-create-2-node-cluster.sh).
+# Caddy HTTP/3 service (NodePort). Use when METALLB_ENABLED=0. TCP 30443, UDP 30444 (k3s: split nodePorts).
+# k3d: publish both nodePorts TCP/UDP (see scripts/k3d-create-2-node-cluster.sh).
 apiVersion: v1
 kind: Service
 metadata:
@@ -19,7 +19,7 @@ spec:
     port: 443
     targetPort: 443
     protocol: UDP
-    nodePort: 30443
+    nodePort: 30444
   - name: grpc-h2c
     port: 5000
     targetPort: 5000

@@ -1,0 +1,8 @@
+{
+  "version": "v1",
+  "description": "Images that must exist inside the Colima VM Docker (k3s containerd) before ingress/edge Deployments roll out. Host docker build + colima ssh docker load (see scripts/ensure-required-images.sh).",
+  "images": [
+    "caddy-with-tcpdump:dev",
+    "envoy-with-tcpdump:dev"
+  ]
+}

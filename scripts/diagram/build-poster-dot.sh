@@ -17,7 +17,7 @@ mkdir -p "$(dirname "$out")"
   graph [
     rankdir=TB,
     fontsize=12,
-    label="Off-Campus Housing — system architecture (poster)",
+    label="Off-Campus Housing — system architecture (poster)\n(gRPC OTEL interceptors · OTLP → Jaeger · Prometheus rules · optional Ollama)",
     labelloc=t
   ];
   node [fontname="Helvetica"];
@@ -31,7 +31,7 @@ mkdir -p "$(dirname "$out")"
     caddy [label="Caddy\n(TLS / HTTP3)", shape=box, style="rounded,filled", fillcolor="#cce6ff"];
   }
   { rank=same;
-    gateway [label="API Gateway", shape=box, style="rounded,filled", fillcolor="#99ccff"];
+    gateway [label="API Gateway\n(gRPC client interceptors\n+ trace metadata)", shape=box, style="rounded,filled", fillcolor="#99ccff"];
   }
   { rank=same;
     auth [label="Auth", shape=box, style="rounded,filled", fillcolor="#ccffcc"];
@@ -43,6 +43,7 @@ mkdir -p "$(dirname "$out")"
     analytics [label="Analytics", shape=box, style="rounded,filled", fillcolor="#ccffcc"];
     media [label="Media", shape=box, style="rounded,filled", fillcolor="#ccffcc"];
     event_layer [label="Event layer", shape=box, style="rounded,filled", fillcolor="#c8e6c9"];
+    ollama [label="Ollama\n(listing-feel LLM)", shape=box, style="rounded,filled", fillcolor="#e8eaf6"];
   }
   { rank=same;
     kafka [label="Kafka\n(KRaft)", shape=hexagon, style=filled, fillcolor="#ffcc99"];
@@ -51,16 +52,17 @@ mkdir -p "$(dirname "$out")"
     postgres [label="Postgres\n(per-service DBs)", shape=cylinder, style=filled, fillcolor="#e6ccff"];
   }
   { rank=same;
-    prom [label="Prometheus /\nGrafana /\nAlerts", shape=box, style="rounded,filled", fillcolor="#f0f0f0"];
+    jaeger [label="Jaeger\n(OTLP traces / UI)", shape=box, style="rounded,filled", fillcolor="#fff3e0"];
+    prom [label="Prometheus\n+ Grafana + recording\n& alert rules", shape=box, style="rounded,filled", fillcolor="#eceff1"];
   }
 
   clients -> caddy [label="HTTPS"];
   caddy -> gateway [label="terminate"];
-  gateway -> auth [label="sync"];
-  gateway -> listings [label="sync"];
-  gateway -> bookings [label="sync"];
-  gateway -> messaging [label="sync"];
-  gateway -> media [label="sync"];
+  gateway -> auth [label="sync + OTEL"];
+  gateway -> listings [label="sync + OTEL"];
+  gateway -> bookings [label="sync + OTEL"];
+  gateway -> messaging [label="sync + OTEL"];
+  gateway -> media [label="sync + OTEL"];
 
   auth -> postgres [label="SQL"];
   listings -> postgres [label="SQL"];
@@ -79,9 +81,15 @@ mkdir -p "$(dirname "$out")"
   kafka -> notification [label="consume", style=dashed];
   kafka -> trust [label="consume", style=dashed];
 
-  gateway -> prom [label="metrics", style=dotted, color="#666666"];
+  analytics -> ollama [label="HTTP :11434\n(listing-feel)", style=dashed, color="#5c6bc0"];
+
+  gateway -> prom [label="/metrics\n(pod scrape)", style=dotted, color="#666666"];
+  analytics -> prom [label="/metrics", style=dotted, color="#666666"];
+  gateway -> jaeger [label="OTLP", style=dotted, color="#666666"];
   kafka -> prom [label="JMX / exp.", style=dotted, color="#666666"];
   postgres -> prom [label="exporter", style=dotted, color="#666666"];
+  kafka -> jaeger [label="trace ctx\non records", style=dotted, color="#e65100"];
+  analytics -> jaeger [label="OTLP", style=dotted, color="#e65100"];
 DOT
   echo "}"
 } >"$out"

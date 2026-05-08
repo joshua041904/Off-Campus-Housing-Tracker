@@ -27,6 +27,8 @@
 #   SKIP_HTTP3=1          — skip QUIC leg
 #   K6_HTTP3_NO_REUSE     — default 1 for the http3 leg (Colima/host QUIC reuse timeouts)
 #   K6_MATRIX_STRICT=1    — any non-zero k6 exit fails the cell (default 0: tolerate known xk6-http3 teardown panic)
+#   K6_MATRIX_RUN_REALISTIC=1 — after http1/http2/http3 grid, run scripts/load/k6-multi-protocol-realistic.js once (xk6-http3 when HTTP3_BIN set)
+#   K6_REALISTIC_DURATION — duration for that add-on (default 90s)
 #   K6_HTTP2_DISABLE_REUSE=1 — passed to k6 env; scripts that honor it (e.g. k6-messaging.js) set noVUConnectionReuse
 #
 # Each k6 run appends to k6-matrix-logs/<proto>-<service>.log: k6 version, planned env, full stdout/stderr,
@@ -408,6 +410,46 @@ else
   for svc in "${SERVICES[@]}"; do
     echo "{\"skipped\":true,\"reason\":\"missing xk6-http3 binary\"}" >"$OUT/http3/${svc}-summary.json"
   done
+fi
+
+if [[ "${K6_MATRIX_RUN_REALISTIC:-0}" == "1" ]]; then
+  say "Matrix add-on: k6-multi-protocol-realistic.js (H1/H2/H3 + unique auth/search)"
+  mkdir -p "$OUT/k6-matrix-logs"
+  _real_script="$REPO_ROOT/scripts/load/k6-multi-protocol-realistic.js"
+  _real_log="$OUT/k6-matrix-logs/realistic-multi-proto.log"
+  _real_sum="$OUT/realistic-multi-proto-summary.json"
+  _real_k6="$K6_BIN"
+  if [[ -n "$HTTP3_BIN" ]]; then
+    _real_k6="$HTTP3_BIN"
+  fi
+  if [[ ! -f "$_real_script" ]]; then
+    echo '{"skipped":true,"reason":"missing k6-multi-protocol-realistic.js"}' >"$_real_sum"
+  else
+    {
+      echo "======== $(date -u +%Y-%m-%dT%H:%M:%SZ) realistic multi-protocol add-on ========"
+      echo "k6_executable=$_real_k6"
+      "$_real_k6" version 2>&1 | head -8 || true
+      echo "---"
+    } >>"$_real_log"
+    set +e
+    env \
+      DURATION="${K6_REALISTIC_DURATION:-90s}" \
+      SSL_CERT_FILE="${SSL_CERT_FILE:-}" \
+      K6_TLS_CA_CERT="${K6_TLS_CA_CERT:-}" \
+      K6_CA_ABSOLUTE="${K6_CA_ABSOLUTE:-}" \
+      K6_HTTP3_REQUIRE_MODULE="${K6_REALISTIC_HTTP3_REQUIRE:-0}" \
+      K6_REALISTIC_H3_PRE_VUS="${K6_REALISTIC_H3_PRE_VUS:-10}" \
+      K6_REALISTIC_H3_MAX_VUS="${K6_REALISTIC_H3_MAX_VUS:-80}" \
+      K6_REALISTIC_H3_ONLY="${K6_REALISTIC_H3_ONLY:-0}" \
+      "$_real_k6" run --summary-export "$_real_sum" "$_real_script" >>"$_real_log" 2>&1
+    _real_rc=$?
+    set -e
+    echo "--- exit_code=$_real_rc" >>"$_real_log"
+    if [[ "$_real_rc" -ne 0 ]] && [[ "${K6_MATRIX_STRICT:-0}" == "1" ]]; then
+      say "K6_MATRIX_STRICT=1: realistic add-on failed (rc=$_real_rc) — see $_real_log"
+      exit "$_real_rc"
+    fi
+  fi
 fi
 
 "$REPO_ROOT/scripts/perf/summarize-protocol-matrix.sh" "$OUT"

@@ -1,3 +1,4 @@
+import "./otel-bootstrap.js";
 import "dotenv/config";
 import { userLifecycleV1Topic } from "@common/utils";
 import { ensureKafkaBrokerReady } from "@common/utils/kafka";

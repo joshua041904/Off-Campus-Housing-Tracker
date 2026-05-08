@@ -1,0 +1,22 @@
+digraph bootstrap_invariants {
+  rankdir="LR";
+  node [shape=box];
+  "A_workspace" [label="A.workspace\nWorkspace determinism (lockfile, build artifacts"];
+  "B_crypto" [label="B.crypto\nCryptographic root integrity on disk (dev CA + e"];
+  "C_infra" [label="C.infra\nCluster substrate (nodes, kube-system, MetalLB C"];
+  "C_metrics" [label="C.metrics\nmetrics-server in kube-system (kubectl apply -k "];
+  "C_images" [label="C.images\nColima/k3s runtime image availability (infra/req"];
+  "G_app_runtime" [label="G.app_runtime\nApplication readiness (scripts/verify-app-runtim"];
+  "D_observability" [label="D.observability\nJaeger query Service reachable (in-cluster / por"];
+  "F_kafka_alignment" [label="F.kafka_alignment\nKafka topics / alignment artifacts"];
+  "E_transport" [label="E.transport\nStrict QUIC / ALPN / transport-summary-v7 proof"];
+  "A_workspace" -> "B_crypto";
+  "B_crypto" -> "C_infra";
+  "C_infra" -> "C_metrics";
+  "C_metrics" -> "C_images";
+  "C_images" -> "G_app_runtime";
+  "G_app_runtime" -> "D_observability";
+  "G_app_runtime" -> "F_kafka_alignment";
+  "D_observability" -> "E_transport";
+  "F_kafka_alignment" -> "E_transport";
+}

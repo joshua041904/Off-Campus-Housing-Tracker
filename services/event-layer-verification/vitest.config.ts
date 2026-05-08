@@ -6,8 +6,14 @@ export default defineConfig({
     globals: true,
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'html'],
+      reporter: ['text', 'json', 'html', 'json-summary'],
       reportsDirectory: './coverage',
+      thresholds: {
+        statements: 98,
+        branches: 98,
+        functions: 98,
+        lines: 98,
+      },
       exclude: [
         '**/generated/**',
         '**/*.d.ts',

@@ -1,101 +1,44 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { useAuth } from "@/lib/auth-context";
+import { useRouter } from "next/navigation";
+import { clearStoredToken } from "@/lib/auth-storage";
 
 export function Nav({ email }: { email?: string | null }) {
   const router = useRouter();
-  const pathname = usePathname();
-
-  const isActive = (href: string) =>
-    href === "/"
-      ? pathname === href
-      : pathname === href || pathname.startsWith(`${href}/`);
-
-  const navLinkClass = (href: string) =>
-    `transition ${isActive(href) ? "text-teal-700" : "hover:text-slate-950"}`;
-  const { logout } = useAuth();
-
   return (
-    <header className="border-b border-slate-200/70 bg-white/80 backdrop-blur-md">
-      <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
-        <Link
-          href="/"
-          className={`text-base font-semibold tracking-tight transition ${
-            isActive("/")
-              ? "text-teal-700"
-              : "text-slate-950 hover:text-teal-700"
-          }`}
-        >
-          Off-Campus Housing Tracker
+    <header className="border-b border-teal-200/60 bg-white/80 backdrop-blur-md">
+      <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-4">
+        <Link href="/" className="font-semibold tracking-tight text-teal-900">
+          OCH Housing
         </Link>
-
-        <nav className="flex flex-wrap items-center justify-end gap-3 text-sm font-medium text-slate-600">
-          <Link
-            href="/listings"
-            className={navLinkClass("/listings")}
-            aria-current={isActive("/listings") ? "page" : undefined}
-          >
+        <nav className="flex flex-wrap items-center gap-3 text-sm font-medium text-slate-600">
+          <Link href="/listings" className="hover:text-teal-700">
             Listings
           </Link>
-          <Link
-            href="/booking"
-            className={navLinkClass("/booking")}
-            aria-current={isActive("/booking") ? "page" : undefined}
-          >
-            Booking
-          </Link>
-          <Link
-            href="/mission"
-            className={navLinkClass("/mission")}
-            aria-current={isActive("/mission") ? "page" : undefined}
-          >
+          <Link href="/mission" className="hover:text-teal-700">
             Mission
           </Link>
-          <Link
-            href="/community"
-            className={navLinkClass("/community")}
-            aria-current={isActive("/community") ? "page" : undefined}
-          >
-            Community
-          </Link>
-          <Link
-            href="/trust"
-            className={navLinkClass("/trust")}
-            aria-current={isActive("/trust") ? "page" : undefined}
-          >
+          <Link href="/trust" className="hover:text-teal-700">
             Trust
           </Link>
-          <Link
-            href="/analytics"
-            className={navLinkClass("/analytics")}
-            aria-current={isActive("/analytics") ? "page" : undefined}
-          >
+          <Link href="/analytics" className="hover:text-teal-700">
             Analytics
           </Link>
-
           {email ? (
             <>
-              <span
-                className="hidden max-w-[200px] truncate text-slate-500 sm:inline"
-                title={email ?? ""}
-              >
+              <span className="hidden max-w-[200px] truncate text-slate-500 sm:inline" title={email ?? ""}>
                 {email}
               </span>
-              <Link
-                href="/dashboard"
-                className={navLinkClass("/dashboard")}
-                aria-current={isActive("/dashboard") ? "page" : undefined}
-              >
+              <Link href="/dashboard" className="hover:text-teal-700">
                 Dashboard
               </Link>
               <button
                 type="button"
                 data-testid="nav-sign-out"
-                className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 transition hover:border-slate-400 hover:bg-slate-50"
+                className="rounded-md border border-slate-300 px-2 py-1.5 text-slate-700 hover:bg-slate-50"
                 onClick={() => {
-                  logout();
+                  clearStoredToken();
                   router.push("/login");
                   router.refresh();
                 }}
@@ -105,23 +48,14 @@ export function Nav({ email }: { email?: string | null }) {
             </>
           ) : (
             <>
-              <Link
-                href="/login"
-                className={navLinkClass("/login")}
-                aria-current={isActive("/login") ? "page" : undefined}
-              >
+              <Link href="/login" className="hover:text-teal-700">
                 Log in
               </Link>
               <Link
                 href="/register"
-                className={`rounded-full px-4 py-2 text-sm font-semibold shadow-lg shadow-teal-700/20 transition ${
-                  isActive("/register")
-                    ? "bg-teal-800 text-white"
-                    : "bg-teal-700 text-white hover:bg-teal-600"
-                }`}
-                aria-current={isActive("/register") ? "page" : undefined}
+                className="rounded-md bg-teal-600 px-3 py-1.5 text-white shadow-sm hover:bg-teal-500"
               >
-                Create account
+                Register
               </Link>
             </>
           )}

@@ -10,7 +10,7 @@ spec:
   template:
     spec:
       containers:
-        - name: app
+        - name: api-gateway
           env:
             - name: E2E_HIGH_CAP_MODE
               value: "1"

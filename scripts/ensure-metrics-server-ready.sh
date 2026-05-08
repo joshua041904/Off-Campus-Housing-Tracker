@@ -12,7 +12,13 @@ ns=kube-system
 deploy=metrics-server
 
 if ! kubectl get deployment "$deploy" -n "$ns" >/dev/null 2>&1; then
-  echo "No Deployment/${deploy} in ${ns} — install metrics-server for your distro (k3s: often included)." >&2
+  _bm="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/bootstrap-metrics-server.sh"
+  if [[ -x "$_bm" ]] || [[ -f "$_bm" ]]; then
+    echo "No Deployment/${deploy} in ${ns} — running bootstrap-metrics-server.sh…" >&2
+    chmod +x "$_bm" 2>/dev/null || true
+    REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" bash "$_bm" && exit 0
+  fi
+  echo "No Deployment/${deploy} in ${ns} — install metrics-server (e.g. make cold-bootstrap or bash scripts/bootstrap-metrics-server.sh)." >&2
   exit 1
 fi
 
