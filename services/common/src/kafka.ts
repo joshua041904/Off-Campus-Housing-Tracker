@@ -1,6 +1,7 @@
 import { Kafka } from "kafkajs";
 import * as fs from "fs";
 import type { ConnectionOptions } from "tls";
+import { recordKafkaPartitionLeaderMetrics } from "./kafkaLeaderMetrics.js";
 
 // Strict TLS: no plaintext. When KAFKA_SSL_ENABLED=true, require CA + client cert + key (mTLS).
 // Env: KAFKA_SSL_CA_PATH, KAFKA_SSL_CERT_PATH, KAFKA_SSL_KEY_PATH (or legacy KAFKA_CA_CERT, KAFKA_CLIENT_CERT, KAFKA_CLIENT_KEY).
@@ -90,12 +91,12 @@ export const kafka = new Kafka({
   clientId: process.env.KAFKA_CLIENT_ID || "off-campus-housing-tracker",
   brokers: kafkaBrokers,
   ssl: sslConfig,
-  connectionTimeout: Number(process.env.KAFKAJS_CONNECTION_TIMEOUT_MS || "4000"),
+  connectionTimeout: Number(process.env.KAFKAJS_CONNECTION_TIMEOUT_MS || "8000"),
   requestTimeout: 25000,
   retry: {
-    retries: Number(process.env.KAFKAJS_METADATA_RETRIES || "4"),
-    initialRetryTime: 100,
-    maxRetryTime: 15000,
+    retries: Number(process.env.KAFKAJS_METADATA_RETRIES || "12"),
+    initialRetryTime: Number(process.env.KAFKAJS_INITIAL_RETRY_MS || "300"),
+    maxRetryTime: 30000,
   },
 });
 
@@ -106,26 +107,39 @@ export type EnsureKafkaBrokerReadyOptions = {
 
 /**
  * Fail-fast barrier: connect admin, list topics, disconnect. Call before binding HTTP/gRPC listeners.
- * Throws if the broker is unreachable or metadata cannot be loaded.
+ * Retries with exponential backoff until `OCH_KAFKA_STARTUP_BARRIER_MS` (default 120s) elapses.
+ * Tune: `OCH_KAFKA_STARTUP_RETRY_MIN_MS`, `OCH_KAFKA_STARTUP_RETRY_MAX_MS`.
  *
  * Optional requiredTopics (or OCH_KAFKA_STARTUP_REQUIRED_TOPICS=comma-separated) enforce that topics
  * were created before services boot (see scripts/create-kafka-event-topics.sh).
  */
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export async function ensureKafkaBrokerReady(
   serviceLabel: string,
   options?: EnsureKafkaBrokerReadyOptions,
 ): Promise<void> {
-  const admin = kafka.admin();
-  const budgetMs = Number(process.env.OCH_KAFKA_STARTUP_BARRIER_MS || "60000");
+  const budgetMs = Number(process.env.OCH_KAFKA_STARTUP_BARRIER_MS || "120000");
+  const minRetryMs = Number(process.env.OCH_KAFKA_STARTUP_RETRY_MIN_MS || "1000");
+  const maxRetryMs = Number(process.env.OCH_KAFKA_STARTUP_RETRY_MAX_MS || "8000");
+  const deadline = Date.now() + budgetMs;
   const fromEnv =
     process.env.OCH_KAFKA_STARTUP_REQUIRED_TOPICS?.split(",")
       .map((t) => t.trim())
       .filter(Boolean) ?? [];
   const requiredTopics = [...new Set([...(options?.requiredTopics ?? []), ...fromEnv])];
-  try {
-    await Promise.race([
-      (async () => {
-        await admin.connect();
+
+  let attempt = 0;
+  let lastErr: unknown;
+
+  while (Date.now() < deadline) {
+    attempt += 1;
+    const admin = kafka.admin();
+    try {
+      await admin.connect();
+      try {
         const topics = await admin.listTopics();
         if (requiredTopics.length > 0) {
           const missing = requiredTopics.filter((t) => !topics.includes(t));
@@ -135,18 +149,37 @@ export async function ensureKafkaBrokerReady(
             );
           }
         }
+        await recordKafkaPartitionLeaderMetrics(admin);
+      } finally {
+        try {
+          await admin.disconnect();
+        } catch {
+          /* ignore disconnect errors */
+        }
+      }
+      console.log(`[kafka] broker ready (${serviceLabel})`);
+      return;
+    } catch (e) {
+      lastErr = e;
+      try {
         await admin.disconnect();
-      })(),
-      new Promise<never>((_, rej) =>
-        setTimeout(() => rej(new Error(`Kafka startup barrier timeout after ${budgetMs}ms`)), budgetMs),
-      ),
-    ]);
-    console.log(`[kafka] broker ready (${serviceLabel})`);
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.error(`[kafka] FATAL: broker not reachable for ${serviceLabel}:`, msg);
-    throw new Error(`[${serviceLabel}] Kafka broker required but unavailable: ${msg}`);
+      } catch {
+        /* ignore */
+      }
+      if (Date.now() >= deadline) {
+        break;
+      }
+      const backoff = Math.min(maxRetryMs, Math.floor(minRetryMs * 1.35 ** Math.min(attempt, 14)));
+      console.warn(
+        `[kafka] connect/metadata attempt ${attempt} failed for ${serviceLabel}; retry in ${backoff}ms (${e instanceof Error ? e.message : String(e)})`,
+      );
+      await sleepMs(backoff);
+    }
   }
+
+  const msg = lastErr instanceof Error ? lastErr.message : String(lastErr);
+  console.error(`[kafka] FATAL: broker not reachable for ${serviceLabel}:`, msg);
+  throw new Error(`[${serviceLabel}] Kafka broker required but unavailable: ${msg}`);
 }
 
 /**

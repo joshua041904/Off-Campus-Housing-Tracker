@@ -1,0 +1,33 @@
+# Rules for textfile / optional scrape of bench_logs-derived coverage metrics (export-coverage-integrity-prom.mjs).
+# If series are absent, these rules do not fire.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules-coverage-integrity
+  namespace: observability
+  labels:
+    app: prometheus
+    och.dev/role: coverage-integrity
+data:
+  coverage-integrity.yml: |
+    groups:
+      - name: och-coverage-integrity
+        interval: 60s
+        rules:
+          - alert: OchSuiteUnknownRatioHigh
+            expr: och_suite_unknown_ratio > 0.05
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Route coverage unknown-suite share high"
+              description: "och_suite_unknown_ratio from coverage integrity export exceeds 5%."
+
+          - alert: OchBashOrchestrationModelDegraded
+            expr: och_bash_orchestration_model_ok == 0
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Matrix bash/k6 orchestration model not satisfied"
+              description: "Re-run scripts/coverage/run-full-matrix-local-report.sh or pnpm run coverage:phase-vi2-verify; inspect suite-runs.json steps."

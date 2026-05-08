@@ -14,7 +14,7 @@ import {
 const RAW_BASE = defaultRawBase();
 const BASE = RAW_BASE;
 const SAMPLE_USER =
-  __ENV.TRUST_SAMPLE_USER || "00000000-0000-0000-0000-000000000001";
+  __ENV.TRUST_SAMPLE_USER || "00000000-0000-4000-8000-000000000001";
 
 export const options = {
   ...strictEdgeTlsOptions(RAW_BASE),

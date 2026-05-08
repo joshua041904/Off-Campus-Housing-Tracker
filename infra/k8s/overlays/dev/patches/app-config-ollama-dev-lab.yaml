@@ -1,0 +1,11 @@
+# Colima / local dev: keep model warm without pinning forever; reduce queue/parallel overload.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data:
+  OLLAMA_KEEP_ALIVE: "-1"
+  OLLAMA_NUM_PARALLEL: "1"
+  OLLAMA_MAX_QUEUE: "4"
+  ANALYTICS_LISTING_FEEL_NUM_PREDICT: "560"
+  ANALYTICS_DEV_FAST_MAX_GENERATION_TOKENS: "560"

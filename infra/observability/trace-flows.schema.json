@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Distributed Trace Flow Definitions",
+  "type": "object",
+  "properties": {
+    "flows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "services"],
+        "properties": {
+          "name": { "type": "string" },
+          "enabled": { "type": "boolean" },
+          "services": {
+            "type": "array",
+            "minItems": 2,
+            "items": { "type": "string" }
+          },
+          "seedService": { "type": "string" },
+          "requireProducer": { "type": "boolean" },
+          "requireConsumer": { "type": "boolean" },
+          "minSpanCount": { "type": "integer", "minimum": 2 },
+          "minTraceDepth": { "type": "integer", "minimum": 1 },
+          "requireSingleRoot": { "type": "boolean" }
+        }
+      }
+    }
+  },
+  "required": ["flows"]
+}

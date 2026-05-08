@@ -1,0 +1,19 @@
+# Reference-only environment knobs for analytics-service in production-like clusters.
+# Do not apply this file directly — merge selected keys into your prod overlay / Secret / ConfigMap.
+#
+# Goals vs dev (Metal laptop): higher token ceilings, dual-pass optional, longer timeouts, retries on transient upstream failures.
+#
+# Suggested baseline:
+#   ANALYTICS_DEV_FAST_MODE=0
+#   ANALYTICS_QA_FAST_MODE=0
+#   ANALYTICS_LISTING_FEEL_NUM_PREDICT=700
+#   ANALYTICS_LISTING_FEEL_NUM_CTX=2048
+#   ANALYTICS_OLLAMA_TIMEOUT_MS=120000
+#   ANALYTICS_OLLAMA_RETRIES=1
+#   ANALYTICS_DEV_FAST_MAX_GENERATION_TOKENS=560   # only when ANALYTICS_DEV_FAST_MODE=1
+#   ANALYTICS_OLLAMA_TIMEOUT_MS=90000
+#   ANALYTICS_OLLAMA_RETRIES=1
+#   ANALYTICS_LI_DUAL_PASS=1
+#   ANALYTICS_LI_DUAL_AGREEMENT_MIN=0.48
+#
+# Run Ollama on GPU-backed nodes or a dedicated high-CPU pool — not Colima VM CPU-only.

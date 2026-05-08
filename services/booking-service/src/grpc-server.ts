@@ -7,6 +7,11 @@ import {
   resolveProtoPath,
   createOchGrpcServerCredentialsForBind,
 } from "@common/utils";
+import {
+  buildKafkaMessageHeaders,
+  createGrpcServerTracingInterceptor,
+  withKafkaProduceSpan,
+} from "@common/utils/otel";
 import { randomUUID } from "node:crypto";
 import { prisma } from "./lib/prisma.js";
 
@@ -41,29 +46,41 @@ async function ensureProducer(): Promise<void> {
 
 async function publishBookingEvent(eventType: string, aggregateId: string, payload: Record<string, unknown>): Promise<void> {
   await ensureProducer();
-  await producer.send({
-    topic: BOOKING_EVENTS_TOPIC,
-    messages: [
-      {
-        key: aggregateId,
-        value: JSON.stringify({
-          metadata: {
-            event_id: randomUUID(),
-            event_type: eventType,
-            aggregate_id: aggregateId,
-            aggregate_type: "booking",
-            occurred_at: new Date().toISOString(),
-            producer: SERVICE_NAME,
-            version: "1",
+  await withKafkaProduceSpan(
+    `kafka produce ${BOOKING_EVENTS_TOPIC}`,
+    {
+      "messaging.system": "kafka",
+      "messaging.destination.name": BOOKING_EVENTS_TOPIC,
+      "booking.event_type": eventType,
+      "booking.aggregate_id": aggregateId,
+    },
+    async () => {
+      await producer.send({
+        topic: BOOKING_EVENTS_TOPIC,
+        messages: [
+          {
+            key: aggregateId,
+            headers: buildKafkaMessageHeaders(),
+            value: JSON.stringify({
+              metadata: {
+                event_id: randomUUID(),
+                event_type: eventType,
+                aggregate_id: aggregateId,
+                aggregate_type: "booking",
+                occurred_at: new Date().toISOString(),
+                producer: SERVICE_NAME,
+                version: "1",
+              },
+              payload,
+            }),
           },
-          payload,
-        }),
-      },
-    ],
-  });
+        ],
+      });
+    },
+  );
 }
 
-function toBookingResponse(row: {
+export function toBookingResponse(row: {
   id: string;
   listingId: string;
   tenantId: string;
@@ -79,142 +96,150 @@ function toBookingResponse(row: {
   };
 }
 
-export function startGrpcServer(port: number): void {
-  const server = new grpc.Server();
-
-  server.addService(bookingProto.BookingService.service, {
-    CreateBooking: async (call: any, callback: any) => {
-      try {
-        const req = call.request as {
-          listing_id?: string;
-          tenant_id?: string;
-          start_date?: string;
-          end_date?: string;
-        };
-        if (!req.listing_id || !req.tenant_id || !req.start_date || !req.end_date) {
-          callback({ code: grpc.status.INVALID_ARGUMENT, message: "listing_id, tenant_id, start_date, end_date required" });
-          return;
-        }
-        const created = await prisma.booking.create({
-          data: {
-            listingId: req.listing_id,
-            tenantId: req.tenant_id,
-            landlordId: req.tenant_id,
-            status: "created" as const,
-            startDate: new Date(req.start_date),
-            endDate: new Date(req.end_date),
-            priceCentsSnapshot: 0,
-            currencyCode: "USD",
-          },
-        });
-        await publishBookingEvent("BookingCreatedV1", created.id, {
-          booking_id: created.id,
-          listing_id: created.listingId,
-          tenant_id: created.tenantId,
-          start_date: created.startDate.toISOString(),
-          end_date: created.endDate.toISOString(),
-        });
-        callback(null, toBookingResponse(created));
-      } catch (error: any) {
-        callback({ code: grpc.status.INTERNAL, message: error?.message || "internal" });
-      }
-    },
-    ConfirmBooking: async (call: any, callback: any) => {
-      try {
-        const bookingId = String(call.request?.booking_id || "");
-        if (!bookingId) {
-          callback({ code: grpc.status.INVALID_ARGUMENT, message: "booking_id required" });
-          return;
-        }
-        const current = await prisma.booking.findUnique({ where: { id: bookingId } });
-        if (!current) {
-          callback({ code: grpc.status.NOT_FOUND, message: "booking not found" });
-          return;
-        }
-        if (current.status !== "created" && current.status !== "pending_confirmation") {
-          callback({ code: grpc.status.FAILED_PRECONDITION, message: `cannot confirm from status ${current.status}` });
-          return;
-        }
-        await prisma.booking.update({
-          where: { id: bookingId },
-          data: { status: "pending_confirmation" as const },
-        });
-        const updated = await prisma.booking.update({
-          where: { id: bookingId },
-          data: { status: "confirmed" as const, confirmedAt: new Date() },
-        });
-        await publishBookingEvent("BookingConfirmedV1", updated.id, {
-          booking_id: updated.id,
-          listing_id: updated.listingId,
-          tenant_id: updated.tenantId,
-          landlord_id: updated.landlordId || "",
-        });
-        callback(null, toBookingResponse(updated));
-      } catch (error: any) {
-        callback({ code: grpc.status.INTERNAL, message: error?.message || "internal" });
-      }
-    },
-    CancelBooking: async (call: any, callback: any) => {
-      try {
-        const bookingId = String(call.request?.booking_id || "");
-        if (!bookingId) {
-          callback({ code: grpc.status.INVALID_ARGUMENT, message: "booking_id required" });
-          return;
-        }
-        const current = await prisma.booking.findUnique({ where: { id: bookingId } });
-        if (!current) {
-          callback({ code: grpc.status.NOT_FOUND, message: "booking not found" });
-          return;
-        }
-        if (current.status === "cancelled") {
-          callback({ code: grpc.status.FAILED_PRECONDITION, message: "booking already cancelled" });
-          return;
-        }
-        const updated = await prisma.booking.update({
-          where: { id: bookingId },
-          data: {
-            status: "cancelled" as const,
-            cancellationReason: "cancelled_by:tenant",
-            cancelledAt: new Date(),
-          },
-        });
-        await publishBookingEvent("BookingCancelledV1", updated.id, {
-          booking_id: updated.id,
-          listing_id: updated.listingId,
-          cancelled_by: "tenant",
-        });
-        callback(null, toBookingResponse(updated));
-      } catch (error: any) {
-        callback({ code: grpc.status.INTERNAL, message: error?.message || "internal" });
-      }
-    },
-    GetBooking: async (call: any, callback: any) => {
-      try {
-        const bookingId = String(call.request?.booking_id || "");
-        if (!bookingId) {
-          callback({ code: grpc.status.INVALID_ARGUMENT, message: "booking_id required" });
-          return;
-        }
-        const current = await prisma.booking.findUnique({ where: { id: bookingId } });
-        if (!current) {
-          callback({ code: grpc.status.NOT_FOUND, message: "booking not found" });
-          return;
-        }
-        callback(null, toBookingResponse(current));
-      } catch (error: any) {
-        callback({ code: grpc.status.INTERNAL, message: error?.message || "internal" });
-      }
-    },
-  });
-
-  registerHealthService(server, "booking.BookingService", async () => {
+/** gRPC `BookingService` implementation map (unit-test via direct `call`/`callback` invocation). */
+export const bookingGrpcHandlers = {
+  CreateBooking: async (call: any, callback: any) => {
     try {
-      await prisma.$queryRaw`SELECT 1`;
-      return true;
-    } catch {
-      return false;
+      const req = call.request as {
+        listing_id?: string;
+        tenant_id?: string;
+        start_date?: string;
+        end_date?: string;
+      };
+      if (!req.listing_id || !req.tenant_id || !req.start_date || !req.end_date) {
+        callback({ code: grpc.status.INVALID_ARGUMENT, message: "listing_id, tenant_id, start_date, end_date required" });
+        return;
+      }
+      const created = await prisma.booking.create({
+        data: {
+          listingId: req.listing_id,
+          tenantId: req.tenant_id,
+          landlordId: req.tenant_id,
+          status: "created" as const,
+          startDate: new Date(req.start_date),
+          endDate: new Date(req.end_date),
+          priceCentsSnapshot: 0,
+          currencyCode: "USD",
+        },
+      });
+      await publishBookingEvent("BookingCreatedV1", created.id, {
+        booking_id: created.id,
+        listing_id: created.listingId,
+        tenant_id: created.tenantId,
+        start_date: created.startDate.toISOString(),
+        end_date: created.endDate.toISOString(),
+      });
+      callback(null, toBookingResponse(created));
+    } catch (error: any) {
+      callback({ code: grpc.status.INTERNAL, message: error?.message || "internal" });
     }
+  },
+  ConfirmBooking: async (call: any, callback: any) => {
+    try {
+      const bookingId = String(call.request?.booking_id || "");
+      if (!bookingId) {
+        callback({ code: grpc.status.INVALID_ARGUMENT, message: "booking_id required" });
+        return;
+      }
+      const current = await prisma.booking.findUnique({ where: { id: bookingId } });
+      if (!current) {
+        callback({ code: grpc.status.NOT_FOUND, message: "booking not found" });
+        return;
+      }
+      if (current.status !== "created" && current.status !== "pending_confirmation") {
+        callback({ code: grpc.status.FAILED_PRECONDITION, message: `cannot confirm from status ${current.status}` });
+        return;
+      }
+      await prisma.booking.update({
+        where: { id: bookingId },
+        data: { status: "pending_confirmation" as const },
+      });
+      const updated = await prisma.booking.update({
+        where: { id: bookingId },
+        data: { status: "confirmed" as const, confirmedAt: new Date() },
+      });
+      await publishBookingEvent("BookingConfirmedV1", updated.id, {
+        booking_id: updated.id,
+        listing_id: updated.listingId,
+        tenant_id: updated.tenantId,
+        landlord_id: updated.landlordId || "",
+      });
+      callback(null, toBookingResponse(updated));
+    } catch (error: any) {
+      callback({ code: grpc.status.INTERNAL, message: error?.message || "internal" });
+    }
+  },
+  CancelBooking: async (call: any, callback: any) => {
+    try {
+      const bookingId = String(call.request?.booking_id || "");
+      if (!bookingId) {
+        callback({ code: grpc.status.INVALID_ARGUMENT, message: "booking_id required" });
+        return;
+      }
+      const current = await prisma.booking.findUnique({ where: { id: bookingId } });
+      if (!current) {
+        callback({ code: grpc.status.NOT_FOUND, message: "booking not found" });
+        return;
+      }
+      if (current.status === "cancelled") {
+        callback({ code: grpc.status.FAILED_PRECONDITION, message: "booking already cancelled" });
+        return;
+      }
+      const updated = await prisma.booking.update({
+        where: { id: bookingId },
+        data: {
+          status: "cancelled" as const,
+          cancellationReason: "cancelled_by:tenant",
+          cancelledAt: new Date(),
+        },
+      });
+      await publishBookingEvent("BookingCancelledV1", updated.id, {
+        booking_id: updated.id,
+        listing_id: updated.listingId,
+        cancelled_by: "tenant",
+      });
+      callback(null, toBookingResponse(updated));
+    } catch (error: any) {
+      callback({ code: grpc.status.INTERNAL, message: error?.message || "internal" });
+    }
+  },
+  GetBooking: async (call: any, callback: any) => {
+    try {
+      const bookingId = String(call.request?.booking_id || "");
+      if (!bookingId) {
+        callback({ code: grpc.status.INVALID_ARGUMENT, message: "booking_id required" });
+        return;
+      }
+      const current = await prisma.booking.findUnique({ where: { id: bookingId } });
+      if (!current) {
+        callback({ code: grpc.status.NOT_FOUND, message: "booking not found" });
+        return;
+      }
+      callback(null, toBookingResponse(current));
+    } catch (error: any) {
+      callback({ code: grpc.status.INTERNAL, message: error?.message || "internal" });
+    }
+  },
+};
+
+/** Readiness probe: DB connectivity (same logic as registered on the gRPC server). */
+export async function bookingGrpcHealthCheck(): Promise<boolean> {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function startGrpcServer(port: number): void {
+  const server = new grpc.Server({
+    interceptors: [createGrpcServerTracingInterceptor()],
   });
+
+  server.addService(bookingProto.BookingService.service, bookingGrpcHandlers);
+
+  registerHealthService(server, "booking.BookingService", bookingGrpcHealthCheck);
 
   let credentials: grpc.ServerCredentials;
   try {

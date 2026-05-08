@@ -116,11 +116,14 @@ if [[ -z "$CA_CERT" ]]; then
 fi
 export CA_CERT
 
+# Route-hit JSONL suite attribution (api-gateway route-coverage-middleware).
+OCH_SUITE_CURL_HEADERS=( -H "x-suite: ${OCH_X_SUITE:-bash}" )
+
 strict_curl() {
   if [[ -n "$CA_CERT" ]] && [[ -f "$CA_CERT" ]]; then
-    "$CURL_BIN" --cacert "$CA_CERT" "$@"
+    "$CURL_BIN" --cacert "$CA_CERT" "${OCH_SUITE_CURL_HEADERS[@]}" "$@"
   else
-    "$CURL_BIN" -k "$@"
+    "$CURL_BIN" -k "${OCH_SUITE_CURL_HEADERS[@]}" "$@"
   fi
 }
 
@@ -132,9 +135,9 @@ strict_http3_curl() {
   local extra=()
   [[ "$has_http3_only" -eq 0 ]] && extra+=(--http3-only)
   if [[ -n "$CA_CERT" ]] && [[ -f "$CA_CERT" ]]; then
-    http3_curl --cacert "$CA_CERT" "${extra[@]}" "$@"
+    http3_curl --cacert "$CA_CERT" "${extra[@]}" "${OCH_SUITE_CURL_HEADERS[@]}" "$@"
   else
-    http3_curl -k "${extra[@]}" "$@"
+    http3_curl -k "${extra[@]}" "${OCH_SUITE_CURL_HEADERS[@]}" "$@"
   fi
 }
 

@@ -8,7 +8,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NS="${KAFKA_K8S_NS:-off-campus-housing-tracker}"
 KPOD="${KAFKA_K8S_POD:-kafka-0}"
-BS="kafka-0.kafka:9093"
+BS="${KAFKA_BOOTSTRAP_SERVER:-127.0.0.1:9093}"
 
 say() { printf "\n\033[1m%s\033[0m\n" "$*"; }
 

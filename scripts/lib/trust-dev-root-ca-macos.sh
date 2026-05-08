@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Add the dev-root CA to macOS keychain so k6, curl, and browsers trust https://off-campus-housing.test (avoids x509 and manual Keychain Access).
+# Add the dev-root CA to macOS keychain so k6, curl (without -k), and **browsers** trust https://off-campus-housing.test.
+# Curl with only --cacert does not update the OS store; Safari/Chrome need this (or manual Keychain “Always Trust”) or they show ERR_CERT_AUTHORITY_INVALID.
 # Call after rotation syncs certs/dev-root.pem, or before any step that hits off-campus-housing.test with TLS.
 # Usage: [CA_FILE=/path/to/certs/dev-root.pem] source scripts/lib/trust-dev-root-ca-macos.sh
 #        or: ./scripts/lib/trust-dev-root-ca-macos.sh /path/to/certs/dev-root.pem
@@ -21,8 +22,8 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   exit 0
 fi
 
-if [[ "${TRUST_DEV_ROOT_CA_SKIP:-0}" == "1" ]]; then
-  info "TRUST_DEV_ROOT_CA_SKIP=1 — skipping macOS keychain trust (non-interactive / automation). Host curl/k6 may need --cacert or manual trust."
+if [[ "${BOOTSTRAP_SKIP_TRUST:-0}" == "1" ]] || [[ "${TRUST_DEV_ROOT_CA_SKIP:-0}" == "1" ]] || [[ "${BOOTSTRAP_SKIP_MACOS_TRUST:-0}" == "1" ]]; then
+  info "BOOTSTRAP_SKIP_TRUST / TRUST_DEV_ROOT_CA_SKIP / BOOTSTRAP_SKIP_MACOS_TRUST — skipping macOS keychain trust (non-interactive / automation). Host curl/k6 may need --cacert or manual trust."
   exit 0
 fi
 

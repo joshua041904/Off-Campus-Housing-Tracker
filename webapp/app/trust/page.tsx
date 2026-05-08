@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { getReputation, reportAbuse, submitPeerReview } from "@/lib/api";
 import { getStoredEmail, getStoredToken } from "@/lib/auth-storage";
@@ -433,17 +433,8 @@ export default function TrustPage() {
   const [comment, setComment] = useState("");
 
   const [loading, setLoading] = useState(false);
-  type FeedbackState = {
-    type: "success" | "error" | null;
-    message: string;
-  };
-
-  const [feedback, setFeedback] = useState<FeedbackState>({
-    type: null,
-    message: "",
-  });
-
-  const feedbackRef = useRef<HTMLDivElement | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
 
   useEffect(() => {
     const t = getStoredToken();
@@ -453,12 +444,6 @@ export default function TrustPage() {
     setMySub(sub);
     if (sub) setRepUserId(sub);
   }, []);
-
-  useEffect(() => {
-    if (!feedback.type) return;
-
-    feedbackRef.current?.focus();
-  }, [feedback.type]);
 
   async function onReputation(e: React.FormEvent) {
     e.preventDefault();
@@ -492,7 +477,6 @@ export default function TrustPage() {
 
   async function onReport(e: React.FormEvent) {
     e.preventDefault();
-    if (loading) return;
     if (!token) return;
     if (!abuseTarget.trim()) {
       setAbuseError("Please enter a target UUID.");
@@ -508,16 +492,10 @@ export default function TrustPage() {
         category: abuseCategory,
         details: abuseDetails,
       });
-      setFeedback({
-        type: "success",
-        message: "Report submitted.",
-      });
+      setMsg("Report submitted.");
       setAbuseDetails("");
     } catch (e: unknown) {
-      setFeedback({
-        type: "error",
-        message: e instanceof Error ? e.message : "Report failed",
-      });
+      setErr(e instanceof Error ? e.message : "Report failed");
     } finally {
       setLoading(false);
     }
@@ -525,7 +503,6 @@ export default function TrustPage() {
 
   async function onPeerReview(e: React.FormEvent) {
     e.preventDefault();
-    if (loading) return;
     if (!token) return;
     if (!bookingId.trim() || !revieweeId.trim()) {
       setReviewError("Please enter both booking UUID and reviewee UUID.");
@@ -542,26 +519,23 @@ export default function TrustPage() {
         rating,
         comment,
       });
-      setFeedback({
-        type: "success",
-        message: "Peer review submitted.",
-      });
+      setMsg("Peer review submitted.");
       setComment("");
     } catch (e: unknown) {
-      setFeedback({
-        type: "error",
-        message: e instanceof Error ? e.message : "Review failed",
-      });
+      setErr(e instanceof Error ? e.message : "Review failed");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-teal-50/30 text-slate-900">
+    <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-emerald-50/50 text-slate-900">
       <Nav email={email} />
-      <main className="mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-12">
-        <TrustHeaderSection />
+      <main className="mx-auto max-w-3xl px-4 py-10">
+        <h1 className="font-serif text-3xl text-slate-900">Trust &amp; safety</h1>
+        <p className="mt-2 text-sm text-slate-600">
+          Report abuse and submit peer reviews via gateway → trust-service. Reputation lookup is public.
+        </p>
 
         <ReputationSection
           repUserId={repUserId}
@@ -605,13 +579,16 @@ export default function TrustPage() {
             />
           </>
         ) : (
-          <TrustLoginPrompt />
+          <p className="mt-8 text-sm text-slate-600">
+            <Link href="/login" className="font-medium text-teal-700 hover:underline">
+              Log in
+            </Link>{" "}
+            to report abuse or submit peer reviews.
+          </p>
         )}
 
-        <TrustFeedback
-          feedback={feedback}
-          feedbackRef={feedbackRef}
-        />
+        {msg && <p className="mt-6 text-sm font-medium text-emerald-700">{msg}</p>}
+        {err && <p className="mt-2 text-sm text-red-600">{err}</p>}
       </main>
     </div>
   );

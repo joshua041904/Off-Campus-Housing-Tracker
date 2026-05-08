@@ -1,0 +1,42 @@
+{
+  "flows": [
+    {
+      "name": "booking-http",
+      "services": ["api-gateway", "booking-service"],
+      "seedService": "api-gateway",
+      "requireSingleRoot": true,
+      "minSpanCount": 2
+    },
+    {
+      "name": "listings-http",
+      "services": ["api-gateway", "listings-service"],
+      "seedService": "api-gateway",
+      "requireSingleRoot": true,
+      "minSpanCount": 2
+    },
+    {
+      "name": "auth-http",
+      "services": ["api-gateway", "auth-service"],
+      "seedService": "api-gateway",
+      "requireSingleRoot": true,
+      "minSpanCount": 2
+    },
+    {
+      "name": "listings-analytics-async",
+      "services": ["api-gateway", "listings-service", "analytics-service"],
+      "seedService": "listings-service",
+      "requireProducer": true,
+      "requireConsumer": true,
+      "requireSingleRoot": true,
+      "minSpanCount": 3,
+      "minTraceDepth": 3
+    },
+    {
+      "name": "landlord-flow",
+      "enabled": false,
+      "services": ["api-gateway", "auth-service", "listings-service", "trust-service"],
+      "requireSingleRoot": true,
+      "minSpanCount": 4
+    }
+  ]
+}

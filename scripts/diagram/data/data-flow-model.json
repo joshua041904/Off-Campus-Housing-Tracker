@@ -1,6 +1,6 @@
 {
-  "title": "Cross-service data flow (curated: HTTP/gRPC + Kafka)",
-  "description": "Not inferred from SQL. Kafka brokers are a nested cluster; edge targets kb0 for layout (logical cluster). Optional KAFKA_BROKER_STATUS_JSON merges health → hexagon colors.",
+  "title": "Cross-service data flow (HTTP/gRPC + Kafka + OTEL + Prometheus + Ollama)",
+  "description": "Curated topology. Kafka brokers nested under data plane. Optional KAFKA_BROKER_STATUS_JSON merges broker health. Observability: Prometheus scrape + alert/recording rules, Jaeger via OTLP, gRPC interceptors propagate trace context on gateway→service calls. Ollama: optional LLM for analytics listing-feel.",
   "kafka_cluster": {
     "brokers": [
       { "id": "kb0", "label": "broker-0" },
@@ -30,9 +30,19 @@
       ]
     },
     {
+      "id": "llm",
+      "label": "Optional LLM",
+      "nodes": ["ollama"]
+    },
+    {
       "id": "data",
       "label": "Data plane",
       "nodes": ["postgres_fleet"]
+    },
+    {
+      "id": "observe",
+      "label": "Observability",
+      "nodes": ["prometheus", "jaeger"]
     }
   ],
   "labels": {
@@ -47,18 +57,21 @@
     "analytics": "Analytics",
     "media": "Media",
     "event_layer": "Event layer",
+    "ollama": "Ollama\n(listing-feel)",
     "postgres_fleet": "Postgres (per-service DBs)",
+    "prometheus": "Prometheus\n+ alert rules",
+    "jaeger": "Jaeger\n(OTLP traces)",
     "kb0": "broker-0",
     "kb1": "broker-1",
     "kb2": "broker-2"
   },
   "edges": [
     { "from": "caddy", "to": "gateway", "label": "TLS terminate" },
-    { "from": "gateway", "to": "auth", "label": "HTTP/gRPC" },
-    { "from": "gateway", "to": "listings", "label": "HTTP/gRPC" },
-    { "from": "gateway", "to": "bookings", "label": "HTTP/gRPC" },
-    { "from": "gateway", "to": "messaging", "label": "HTTP/gRPC" },
-    { "from": "gateway", "to": "media", "label": "HTTP/gRPC" },
+    { "from": "gateway", "to": "auth", "label": "HTTP/gRPC + OTEL\n(gRPC interceptors)" },
+    { "from": "gateway", "to": "listings", "label": "HTTP/gRPC + OTEL\n(gRPC interceptors)" },
+    { "from": "gateway", "to": "bookings", "label": "HTTP/gRPC + OTEL\n(gRPC interceptors)" },
+    { "from": "gateway", "to": "messaging", "label": "HTTP/gRPC + OTEL\n(gRPC interceptors)" },
+    { "from": "gateway", "to": "media", "label": "HTTP/gRPC + OTEL\n(gRPC interceptors)" },
     { "from": "listings", "to": "postgres_fleet", "label": "SQL" },
     { "from": "bookings", "to": "postgres_fleet", "label": "SQL" },
     { "from": "messaging", "to": "postgres_fleet", "label": "SQL" },
@@ -73,6 +86,12 @@
     { "from": "messaging", "to": "kb0", "label": "domain events", "style": "dashed" },
     { "from": "kb0", "to": "analytics", "label": "consume", "style": "dashed" },
     { "from": "kb0", "to": "notification", "label": "consume", "style": "dashed" },
-    { "from": "kb0", "to": "trust", "label": "consume", "style": "dashed" }
+    { "from": "kb0", "to": "trust", "label": "consume", "style": "dashed" },
+    { "from": "analytics", "to": "ollama", "label": "HTTP\n(listing-feel)", "style": "dashed" },
+    { "from": "gateway", "to": "prometheus", "label": "/metrics scrape", "style": "dotted" },
+    { "from": "gateway", "to": "jaeger", "label": "OTLP traces", "style": "dotted" },
+    { "from": "kb0", "to": "jaeger", "label": "trace headers\non records", "style": "dotted" },
+    { "from": "postgres_fleet", "to": "prometheus", "label": "exporter / sql metrics", "style": "dotted" },
+    { "from": "analytics", "to": "prometheus", "label": "/metrics", "style": "dotted" }
   ]
 }

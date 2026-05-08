@@ -1,9 +1,14 @@
 /* cspell:ignore grpc */
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
+import type { Context } from "@opentelemetry/api";
+import { context } from "@opentelemetry/api";
+import type { IncomingMessage } from "node:http";
 import * as fs from "fs";
 import * as path from "path";
 import { resolveProtoPath } from "./proto.js";
+import { tracingInterceptor } from "./otel/grpc-client-interceptor.js";
+import { getIncomingHttpOtelContext } from "./otel/outgoing-http-propagation.js";
 
 function buildCredentials() {
   const caPath =
@@ -16,7 +21,20 @@ function buildCredentials() {
   const clientCertPath = process.env.GRPC_CLIENT_CERT || process.env.TLS_CERT_PATH || "/etc/certs/tls.crt";
   const clientKeyPath = process.env.GRPC_CLIENT_KEY || process.env.TLS_KEY_PATH || "/etc/certs/tls.key";
 
-  if (fs.existsSync(caPath) && fs.existsSync(clientCertPath) && fs.existsSync(clientKeyPath)) {
+  const hasMtlsTriple =
+    fs.existsSync(caPath) && fs.existsSync(clientCertPath) && fs.existsSync(clientKeyPath);
+  const hasCaOnly = fs.existsSync(caPath);
+
+  // Vitest imports service modules (e.g. api-gateway `server.ts`) without listening; `certs/` is not in git
+  // so CI has no dev CA. HTTP-only tests never dial gRPC — use plaintext channel creds when no CA on disk.
+  if (process.env.VITEST === "true" && !hasCaOnly) {
+    console.warn(
+      `[grpc-client] VITEST: no CA at ${caPath} — using insecure channel credentials (no cluster TLS material in workspace)`,
+    );
+    return grpc.credentials.createInsecure();
+  }
+
+  if (hasMtlsTriple) {
     const rootCert = fs.readFileSync(caPath);
     const clientCert = fs.readFileSync(clientCertPath);
     const clientKey = fs.readFileSync(clientKeyPath);
@@ -24,7 +42,7 @@ function buildCredentials() {
     return grpc.credentials.createSsl(rootCert, clientKey, clientCert);
   }
 
-  if (fs.existsSync(caPath)) {
+  if (hasCaOnly) {
     const rootCert = fs.readFileSync(caPath);
     console.log(`[grpc-client] Using STRICT TLS with CA certificate only: ${caPath}`);
     return grpc.credentials.createSsl(rootCert);
@@ -82,6 +100,10 @@ function createClientWithOptions(ServiceClass: any, address: string, credentials
   const options: grpc.ChannelOptions = {};
   if (addressHost.includes("service") || addressHost.includes("-")) {
     (options as any)["grpc.ssl_target_name_override"] = serverName;
+  }
+  if (process.env.OTEL_SDK_DISABLED !== "true" && process.env.OTEL_SDK_DISABLED !== "1") {
+    const existing = options.interceptors ?? [];
+    options.interceptors = [...existing, tracingInterceptor];
   }
   return new ServiceClass(address, credentials, options);
 }
@@ -236,16 +258,25 @@ export function createMediaClient(address: string = "media-service.off-campus-ho
   return createClientWithOptions(MediaService, address, buildCredentials());
 }
 
+function resolveGrpcCallParentContext(incomingOrContext?: IncomingMessage | Context): Context {
+  if (incomingOrContext == null) return context.active();
+  if (typeof (incomingOrContext as Context).getValue === "function") {
+    return incomingOrContext as Context;
+  }
+  return getIncomingHttpOtelContext(incomingOrContext as IncomingMessage) ?? context.active();
+}
+
 export async function promisifyGrpcCall<T>(
   client: any,
   method: string,
   request: any,
   timeoutMs: number = 10000,
   maxRetries: number = 3,
-  retryDelayMs: number = 1000
+  retryDelayMs: number = 1000,
+  /** Express `req` or explicit OTEL context — gRPC client spans parent correctly after `await` in handlers. */
+  incomingOrContext?: IncomingMessage | Context
 ): Promise<T> {
-  const serviceName = client?.constructor?.name || "UnknownService";
-  const callId = `${serviceName}.${method}.${Date.now()}.${Math.random().toString(36).substr(2, 9)}`;
+  const parentCtx = resolveGrpcCallParentContext(incomingOrContext);
 
   const attemptCall = (attempt: number): Promise<T> => {
     return new Promise((resolve, reject) => {
@@ -259,12 +290,14 @@ export async function promisifyGrpcCall<T>(
       }, timeoutMs);
 
       try {
-        client[method](request, (error: any, response: T) => {
-          if (completed) return;
-          completed = true;
-          clearTimeout(timeout);
-          if (error) reject(error);
-          else resolve(response);
+        context.with(parentCtx, () => {
+          client[method](request, (error: any, response: T) => {
+            if (completed) return;
+            completed = true;
+            clearTimeout(timeout);
+            if (error) reject(error);
+            else resolve(response);
+          });
         });
       } catch (err: any) {
         if (!completed) {

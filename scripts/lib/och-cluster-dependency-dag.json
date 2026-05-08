@@ -1,0 +1,97 @@
+{
+  "description": "OCH dev cluster dependency DAG. Namespace defaults to housing_ns unless overridden. kind=external uses tcp host:port checks from the bootstrap host.",
+  "housing_ns_default": "off-campus-housing-tracker",
+  "nodes": {
+    "postgres": {
+      "kind": "external",
+      "tcp": "127.0.0.1:5441",
+      "deps": []
+    },
+    "redis": {
+      "kind": "external",
+      "tcp": "127.0.0.1:6380",
+      "deps": []
+    },
+    "kafka": {
+      "kind": "statefulset",
+      "namespace": "off-campus-housing-tracker",
+      "name": "kafka",
+      "deps": []
+    },
+    "auth-service": {
+      "kind": "deployment",
+      "namespace": "off-campus-housing-tracker",
+      "name": "auth-service",
+      "deps": ["postgres", "kafka", "redis"]
+    },
+    "listings-service": {
+      "kind": "deployment",
+      "namespace": "off-campus-housing-tracker",
+      "name": "listings-service",
+      "deps": ["postgres", "kafka", "redis"]
+    },
+    "booking-service": {
+      "kind": "deployment",
+      "namespace": "off-campus-housing-tracker",
+      "name": "booking-service",
+      "deps": ["postgres", "kafka", "redis"]
+    },
+    "messaging-service": {
+      "kind": "deployment",
+      "namespace": "off-campus-housing-tracker",
+      "name": "messaging-service",
+      "deps": ["postgres", "kafka", "redis"]
+    },
+    "trust-service": {
+      "kind": "deployment",
+      "namespace": "off-campus-housing-tracker",
+      "name": "trust-service",
+      "deps": ["postgres", "kafka", "redis"]
+    },
+    "analytics-service": {
+      "kind": "deployment",
+      "namespace": "off-campus-housing-tracker",
+      "name": "analytics-service",
+      "deps": ["postgres", "kafka", "redis"]
+    },
+    "media-service": {
+      "kind": "deployment",
+      "namespace": "off-campus-housing-tracker",
+      "name": "media-service",
+      "deps": ["postgres", "kafka", "redis"]
+    },
+    "notification-service": {
+      "kind": "deployment",
+      "namespace": "off-campus-housing-tracker",
+      "name": "notification-service",
+      "deps": ["postgres", "kafka", "redis"]
+    },
+    "api-gateway": {
+      "kind": "deployment",
+      "namespace": "off-campus-housing-tracker",
+      "name": "api-gateway",
+      "deps": [
+        "auth-service",
+        "listings-service",
+        "booking-service",
+        "messaging-service",
+        "trust-service",
+        "analytics-service",
+        "media-service",
+        "notification-service"
+      ]
+    },
+    "caddy-h3": {
+      "kind": "deployment",
+      "namespace": "ingress-nginx",
+      "name": "caddy-h3",
+      "deps": ["api-gateway"]
+    },
+    "envoy-test": {
+      "kind": "deployment",
+      "namespace": "envoy-test",
+      "name": "envoy-test",
+      "deps": ["api-gateway"]
+    }
+  }
+}

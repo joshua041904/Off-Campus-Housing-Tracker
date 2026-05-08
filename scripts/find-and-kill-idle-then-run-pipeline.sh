@@ -2,8 +2,8 @@
 # Find idle/stale processes (pipeline, preflight, suites, tcpdump, k6), kill them, then optionally run full pipeline.
 #
 # What we kill (no interference with current run):
-#   - run-full-pipeline, run-preflight-scale-and-all-suites, run-preflight-and-test-suite, run-full-flow-k3d
-#   - run-all-test-suites, test-microservices-http2-http3, test-auth-service, enhanced-adversarial-tests
+#   - scripts/run-full-pipeline.sh, scripts/run-preflight-scale-and-all-suites.sh, run-preflight-and-test-suite, run-full-flow-k3d
+#   - scripts/run-all-test-suites.sh, test-microservices-http2-http3, test-auth-service.sh, enhanced-adversarial-tests
 #   - rotation-suite, test-packet-capture-standalone, verify-metallb-and-traffic-policy
 #   - k6 run, k6-chaos
 #   - kubectl wait condition=ready, kubectl exec tcpdump, tcpdump -i any
@@ -33,12 +33,14 @@ touch "$LOG"
 log "=== $(date +%Y-%m-%dT%H:%M:%S) find-and-kill-idle-then-run-pipeline ==="
 
 # 1. Patterns for pipeline/test processes we may want to kill (avoids interference: preflight, suites, capture, k6)
+# Prefer script path substrings so we do not match unrelated argv (e.g. docs mentioning a script name).
 PATTERNS=(
-  "run-full-pipeline"
-  "run-preflight-scale-and-all-suites"
+  "scripts/run-full-pipeline\\.sh"
+  # Require bash + script path (./ optional) — avoids matching `git diff …/run-preflight-scale-and-all-suites.sh`.
+  "bash.*scripts/run-preflight-scale-and-all-suites\\.sh"
   "run-preflight-and-test-suite"
   "run-full-flow-k3d"
-  "run-all-test-suites"
+  "scripts/run-all-test-suites\\.sh"
   "test-microservices-http2-http3"
   "test-auth-service.sh"
   "enhanced-adversarial-tests"
@@ -47,7 +49,7 @@ PATTERNS=(
   "verify-metallb-and-traffic-policy"
   "k6 run"
   "k6-chaos"
-  "nohup.*run-full-pipeline"
+  "nohup.*scripts/run-full-pipeline\\.sh"
   "kubectl.*wait.*condition=ready"
   "kubectl.*exec.*tcpdump"
   "kubectl exec.*tcpdump"
@@ -55,17 +57,9 @@ PATTERNS=(
   "ensure-api-server-ready"
 )
 
-# 2. Collect PIDs (avoid our own PID, caller, ancestors, and caller's descendants — never kill the process that invoked us or its children e.g. telemetry loop)
-ANCESTORS=()
-p=$$
-while [[ -n "$p" ]] && [[ "$p" != "1" ]]; do
-  ANCESTORS+=("$p")
-  p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' \t') || break
-done
-# Caller may pass CALLER_PID=$$ so we never kill the preflight/pipeline that invoked us (e.g. when run from a pipe)
-[[ -n "${CALLER_PID:-}" ]] && ANCESTORS+=("$CALLER_PID")
-
-# Never kill caller's children (e.g. preflight's telemetry loop, ensure-api-server-ready subprocess)
+# 2. PIDs we must never kill: this helper, its ancestor chain, CALLER_PID (e.g. preflight bash), CALLER_PID's ancestors
+#    (nohup / bash -c / tee parents), and CALLER_PID's descendants (telemetry, waits). Without caller ancestors,
+#    pgrep -f run-preflight... matches the parent pipeline and step 0 can kill the active run.
 _descendants_of() {
   local root=$1
   local child
@@ -75,9 +69,33 @@ _descendants_of() {
     _descendants_of "$child" 2>/dev/null || true
   done
 }
-DESCENDANTS=()
+
+PROTECTED=()
+_protect_add() {
+  local x=$1
+  [[ -z "$x" || "$x" == "0" ]] && return
+  for e in "${PROTECTED[@]}"; do [[ "$e" == "$x" ]] && return; done
+  PROTECTED+=("$x")
+}
+
+_protect_ancestors() {
+  local p=$1
+  while [[ -n "$p" ]] && [[ "$p" != "1" ]]; do
+    _protect_add "$p"
+    p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' \t\n\r') || break
+    [[ -z "$p" || "$p" == "0" ]] && break
+  done
+  # while's last failed condition is exit 1 under set -e unless we succeed here
+  return 0
+}
+
+_protect_ancestors "$$"
 if [[ -n "${CALLER_PID:-}" ]]; then
-  while IFS= read -r pid; do [[ -n "$pid" ]] && DESCENDANTS+=("$pid"); done < <(_descendants_of "$CALLER_PID" 2>/dev/null || true)
+  _protect_ancestors "$CALLER_PID"
+  _protect_add "$CALLER_PID"
+  while IFS= read -r pid; do
+    [[ -n "$pid" ]] && _protect_add "$pid"
+  done < <(_descendants_of "$CALLER_PID" 2>/dev/null || true) || true
 fi
 
 # Never kill Colima/Lima stack (colima, limactl) — pgrep -f "kubectl.*exec.*tcpdump" can match "colima ssh -- kubectl exec ..."
@@ -88,9 +106,7 @@ for pat in "${PATTERNS[@]}"; do
   for pid in $pids; do
     [[ -z "$pid" ]] && continue
     skip=0
-    for a in "${ANCESTORS[@]}"; do [[ "$pid" == "$a" ]] && skip=1 && break; done
-    [[ $skip -eq 1 ]] && continue
-    for d in "${DESCENDANTS[@]}"; do [[ "$pid" == "$d" ]] && skip=1 && break; done
+    for a in "${PROTECTED[@]}"; do [[ "$pid" == "$a" ]] && skip=1 && break; done
     [[ $skip -eq 1 ]] && continue
     _comm=$(ps -p "$pid" -o comm= 2>/dev/null | tr -d ' \t' || true)
     for ex in "${EXCLUDE_COMM[@]}"; do [[ "$_comm" == *"$ex"* ]] && skip=1 && break; done

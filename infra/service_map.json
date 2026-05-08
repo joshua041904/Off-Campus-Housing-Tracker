@@ -1,0 +1,11 @@
+{
+  "api-gateway": "services/api-gateway",
+  "auth-service": "services/auth-service",
+  "listings-service": "services/listings-service",
+  "booking-service": "services/booking-service",
+  "trust-service": "services/trust-service",
+  "messaging-service": "services/messaging-service",
+  "analytics-service": "services/analytics-service",
+  "notification-service": "services/notification-service",
+  "media-service": "services/media-service"
+}

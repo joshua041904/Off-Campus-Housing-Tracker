@@ -32,20 +32,28 @@ run_grpc_http3_health_checks() {
     warn "strict_http3_curl not defined (source scripts/lib/http3.sh) — cannot verify HTTP/3 strictly"
     GRPC_HTTP3_HEALTH_OK=0
   else
+    export STRICT_CURL_H3_OK=0
     local h3_out h3_rc=0
     h3_out=$(strict_http3_curl -sS -w "\n%{http_code}\n%{http_version}" --http3-only --max-time 10 \
       --resolve "$http3_resolve" "$h3_url" 2>&1) || h3_rc=$?
     local h3_code h3_version
-    h3_code=$(echo "$h3_out" | tail -2 | head -1)
-    h3_version=$(echo "$h3_out" | tail -1)
+    h3_code=$(echo "$h3_out" | tail -2 | head -1 | tr -d '\r\n[:space:]')
+    h3_version=$(echo "$h3_out" | tail -1 | tr -d '\r\n[:space:]')
     info "  HTTP Code: ${h3_code:-none}, Version: ${h3_version:-none}, curl exit: $h3_rc"
-    if [[ "$h3_code" == "200" ]]; then
+    if [[ "$h3_code" == "200" ]] && [[ "$h3_version" == "3" ]]; then
       ok "Caddy HTTP/3 health: OK (HTTP $h3_code, version: $h3_version)"
+      export STRICT_CURL_H3_OK=1
+      export CAPTURE_V2_EXPECT_HTTP_VERSION="${CAPTURE_V2_EXPECT_HTTP_VERSION:-3}"
+      export CAPTURE_V2_HTTP_VERSION=3
+    elif [[ "$h3_code" == "200" ]]; then
+      ok "Caddy HTTP/3 health: OK (HTTP $h3_code, version: $h3_version)"
+      export CAPTURE_V2_HTTP_VERSION="${h3_version:-}"
     else
       warn "Caddy HTTP/3 health: failed (HTTP ${h3_code:-none}, curl exit $h3_rc)"
       echo "$h3_out" | head -5
       GRPC_HTTP3_HEALTH_OK=0
     fi
+    export STRICT_CURL_H3_OK
   fi
 
   if [[ -z "$proto_dir" ]] || [[ ! -d "$proto_dir" ]] || ! command -v grpcurl >/dev/null 2>&1; then

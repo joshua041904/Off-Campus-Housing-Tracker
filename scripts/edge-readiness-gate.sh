@@ -6,11 +6,21 @@
 #   HOUSING_NS — default off-campus-housing-tracker
 #   EDGE_READINESS_GATE_SKIP=1 — no-op success
 #   EDGE_GATEWAY_DEPLOY — default api-gateway
+#   EDGE_GATEWAY_CONTAINER — override exec -c name (default: api-gateway for deploy api-gateway, else app)
 set -euo pipefail
 
 NS_ING="${NS_ING:-ingress-nginx}"
 NS_APP="${HOUSING_NS:-off-campus-housing-tracker}"
 GW_DEPLOY="${EDGE_GATEWAY_DEPLOY:-api-gateway}"
+# api-gateway pod uses container name api-gateway; other stacks often use "app".
+GW_CONTAINER="${EDGE_GATEWAY_CONTAINER:-}"
+if [[ -z "$GW_CONTAINER" ]]; then
+  if [[ "$GW_DEPLOY" == "api-gateway" ]]; then
+    GW_CONTAINER="api-gateway"
+  else
+    GW_CONTAINER="app"
+  fi
+fi
 
 say() { printf "\n\033[1m%s\033[0m\n" "$*"; }
 ok() { echo "✅ $*"; }
@@ -49,8 +59,8 @@ ok "Caddy /_caddy/healthz HTTP 200 (in-cluster)"
 
 if kubectl get deploy "$GW_DEPLOY" -n "$NS_APP" --request-timeout=20s >/dev/null 2>&1; then
   _gc="$(
-    kubectl exec -n "$NS_APP" "deploy/$GW_DEPLOY" -c app --request-timeout=30s -- \
-      sh -c 'if command -v curl >/dev/null 2>&1; then curl -gfsS -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 15 http://127.0.0.1:4020/healthz; elif command -v wget >/dev/null 2>&1; then wget -q -O /dev/null --timeout=15 http://127.0.0.1:4020/healthz && echo 200; else echo 000; fi' 2>/dev/null || echo "000"
+    kubectl exec -n "$NS_APP" "deploy/$GW_DEPLOY" -c "$GW_CONTAINER" --request-timeout=30s -- \
+      sh -c 'if command -v curl >/dev/null 2>&1; then curl -gfsS -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 15 -H "x-traffic-class: internal" http://127.0.0.1:4020/healthz; elif command -v wget >/dev/null 2>&1; then wget -q -O /dev/null --timeout=15 --header="x-traffic-class: internal" http://127.0.0.1:4020/healthz && echo 200; else echo 000; fi' 2>/dev/null || echo "000"
   )"
   if [[ "$_gc" != "200" ]]; then
     bad "api-gateway /healthz HTTP $_gc (expected 200)"
@@ -58,8 +68,8 @@ if kubectl get deploy "$GW_DEPLOY" -n "$NS_APP" --request-timeout=20s >/dev/null
   fi
   ok "api-gateway /healthz HTTP 200 (in-pod)"
   _gz="$(
-    kubectl exec -n "$NS_APP" "deploy/$GW_DEPLOY" -c app --request-timeout=45s -- \
-      sh -c 'if command -v curl >/dev/null 2>&1; then curl -gfsS -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 25 http://127.0.0.1:4020/readyz; elif command -v wget >/dev/null 2>&1; then wget -q -O /dev/null --timeout=25 http://127.0.0.1:4020/readyz && echo 200; else echo 000; fi' 2>/dev/null || echo "000"
+    kubectl exec -n "$NS_APP" "deploy/$GW_DEPLOY" -c "$GW_CONTAINER" --request-timeout=45s -- \
+      sh -c 'if command -v curl >/dev/null 2>&1; then curl -gfsS -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 25 -H "x-traffic-class: internal" http://127.0.0.1:4020/readyz; elif command -v wget >/dev/null 2>&1; then wget -q -O /dev/null --timeout=25 --header="x-traffic-class: internal" http://127.0.0.1:4020/readyz && echo 200; else echo 000; fi' 2>/dev/null || echo "000"
   )"
   if [[ "$_gz" != "200" ]]; then
     bad "api-gateway /readyz HTTP $_gz (expected 200 — auth gRPC / deps not ready)"

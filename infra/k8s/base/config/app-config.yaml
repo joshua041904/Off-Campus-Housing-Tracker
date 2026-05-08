@@ -57,10 +57,10 @@ data:
   # Broker PLAINTEXT is bound to 127.0.0.1 only (healthcheck); clients must use SSL.
   # Required when KAFKA_SSL_ENABLED=true: set KAFKA_CA_CERT to path to CA PEM (e.g. kafka-ssl-secret).
   # Optional mTLS: KAFKA_CLIENT_CERT, KAFKA_CLIENT_KEY. Mount certs via Secret and set env in deployment.
-  # Default bootstrap: in-cluster KRaft headless Service (apply infra/k8s/kafka-kraft-metallb/; StatefulSet kafka, replicas 3).
+  # Default bootstrap: KRaft headless seeds via Service kafka (pod DNS: kafka-N.kafka).
   # Comma-separated list; services/common/src/kafka.ts splits KAFKA_BROKER into multiple seeds.
   # Optional legacy overlay (kafka-external → host broker): infra/k8s/overlays/kafka-host-compose/
-  KAFKA_BROKER: "kafka-0.kafka.off-campus-housing-tracker.svc.cluster.local:9093,kafka-1.kafka.off-campus-housing-tracker.svc.cluster.local:9093,kafka-2.kafka.off-campus-housing-tracker.svc.cluster.local:9093"
+  KAFKA_BROKER: "kafka-0.kafka:9093,kafka-1.kafka:9093,kafka-2.kafka:9093"
   KAFKA_USE_SSL: "true"
   KAFKA_SSL_ENABLED: "true"
   # Listings: do not block 201 on Kafka ack (reduces H2 multiplexing tail latency). Errors logged; use ANALYTICS_SYNC_MODE=1 for immediate metrics in dev/E2E.
@@ -69,3 +69,80 @@ data:
   ENV_PREFIX: "dev"
   # In-cluster HTTP base for api-gateway proxy (optional override; gateway has same default).
   NOTIFICATION_HTTP: "http://notification-service.off-campus-housing-tracker.svc.cluster.local:4015"
+  # Cross-service HTTP (pods resolve cluster DNS). Used by analytics/booking/messaging for listing lookup + saves.
+  LISTINGS_HTTP: "http://listings-service.off-campus-housing-tracker.svc.cluster.local:4012"
+  BOOKING_HTTP: "http://booking-service.off-campus-housing-tracker.svc.cluster.local:4013"
+
+  # analytics-service listing-feel: HTTP to Ollama. In-cluster pods use Linux binaries (no Apple Metal).
+  # For Metal on Apple Silicon: run `ollama serve` on the Mac and apply overlays/dev/patches/analytics-service-ollama-host-metal.yaml
+  # so analytics uses OLLAMA_BASE_URL=http://host.docker.internal:11434 (see scripts/colima-apply-host-aliases.sh).
+  OLLAMA_BASE_URL: "http://ollama.off-campus-housing-tracker.svc.cluster.local:11434"
+  OLLAMA_MODEL: "llama3.2:1b"
+  # Optional larger model (CPU-heavy on Colima): "llama3.2:3b" — raise ollama Deployment CPU/memory + init pull timeout.
+  # Keep llama.cpp runner loaded after idle so first /api/generate is not a full 30–60s model boot (listing-feel + gateway timeouts).
+  OLLAMA_KEEP_ALIVE: "10m"
+  OLLAMA_LOAD_TIMEOUT: "5m"
+  OLLAMA_NUM_PARALLEL: "2"
+  OLLAMA_MAX_QUEUE: "16"
+
+  # analytics-service listing-feel: stable defaults (700 predict + 2048 ctx); raise timeout locally if Colima is slow.
+  ANALYTICS_LISTING_FEEL_NUM_PREDICT: "700"
+  ANALYTICS_LISTING_FEEL_TEMPERATURE: "0.45"
+  ANALYTICS_LISTING_FEEL_NUM_CTX: "2048"
+  ANALYTICS_LISTING_FEEL_TOP_P: "0.9"
+  ANALYTICS_LISTING_FEEL_REPEAT_PENALTY: "1.15"
+  ANALYTICS_OLLAMA_TIMEOUT_MS: "300000"
+  ANALYTICS_OLLAMA_RETRIES: "1"
+  # Structured JSON listing intelligence (modes, depth, optional ensemble). Legacy bullet path when unset/0.
+  ANALYTICS_LISTING_INTELLIGENCE_V2: "1"
+  # Phase-A AI control plane defaults: observe-only until runbooks and confidence gates are validated.
+  ANALYTICS_CONTROL_PLANE_MODE: "observe"   # off | observe | enforce
+  ANALYTICS_CONTROL_PLANE_INTERVAL_MS: "30000"
+  ANALYTICS_CONTROL_PLANE_COOLDOWN_MS: "120000"
+  ANALYTICS_CONTROL_PLANE_PROM_ENABLED: "1"
+  ANALYTICS_CONTROL_PLANE_PROM_QUERY_URL: "http://prometheus.observability.svc.cluster.local:9090/prometheus/api/v1/query"
+  ANALYTICS_CONTROL_PLANE_COMPOSITE_QUERY: "ai_health_composite_score"
+  ANALYTICS_CONTROL_PLANE_DRIFT_QUERY: "analytics_embedding_drift_zscore"
+  ANALYTICS_CONTROL_PLANE_PROMPT_DELTA_QUERY: "analytics_prompt_quality_delta_10m"
+  ANALYTICS_CONTROL_PLANE_MODELS: "llama3.2:1b,llama3.2:3b"
+  ANALYTICS_RUNTIME_MODE: "normal"          # normal | degraded | legacy
+  ANALYTICS_ACTIVE_MODEL: "llama3.2:1b"
+  ANALYTICS_PROMPT_VERSION: "2026-05-07-v1"
+  ANALYTICS_PROMPT_PREVIOUS_VERSION: "2026-04-30-v0"
+  ANALYTICS_PROMPT_ROLLBACK_MIN_QUALITY: "45"
+  ANALYTICS_CANARY_PERCENT: "0"
+  ANALYTICS_CANARY_MODEL: "llama3.2:3b"
+  ANALYTICS_CANARY_SHADOW: "1"
+  ANALYTICS_ARBITRATION_WEIGHT_QUALITY: "0.4"
+  ANALYTICS_ARBITRATION_WEIGHT_LATENCY: "0.2"
+  ANALYTICS_ARBITRATION_WEIGHT_RELIABILITY: "0.2"
+  ANALYTICS_ARBITRATION_WEIGHT_COST: "0.2"
+  ANALYTICS_MODEL_COSTS: "llama3.2:1b=0.0010,llama3.2:3b=0.0028,mixtral=0.0042,*=0.0015"
+  # Set in Secret for write endpoints (/internal/control-plane/*); empty disables remote patching.
+  ANALYTICS_CONTROL_PLANE_TOKEN: ""
+  AI_CLUSTER_ID: "cluster-a"
+  # Listing Intelligence v2 sampling (listed-feel legacy ANALYTICS_LISTING_FEEL_* applies to bullet path only).
+  # Lower default for stabler JSON (override per env); legacy bullet path uses ANALYTICS_LISTING_FEEL_*.
+  ANALYTICS_LI_V2_TEMPERATURE: "0.48"
+  ANALYTICS_LI_V2_TOP_P: "0.9"
+  ANALYTICS_LI_V2_FREQUENCY_PENALTY: "0.4"
+  ANALYTICS_LI_V2_PRESENCE_PENALTY: "0.3"
+  # Comma-separated Ollama tags for parallel ensemble (requires ANALYTICS_ENSEMBLE_ENABLED=1 and 2+ models pulled).
+  # ANALYTICS_ENSEMBLE_MODELS: "llama3.2:1b,mistral:7b"
+  # ANALYTICS_ENSEMBLE_ENABLED: "0"
+  # ANALYTICS_META_EVAL: "0"
+
+  # OpenTelemetry → Jaeger (OTLP HTTP). In pods, `KUBERNETES_SERVICE_HOST` is set, so the shared SDK
+  # defaults to the in-cluster Jaeger Service unless you override or disable it.
+  # Jaeger: observability namespace, OTLP HTTP 4318 (see infra/k8s/base/observability/jaeger-deploy.yaml).
+  # Query UI: https://off-campus-housing.test/jaeger (Caddy → jaeger:16686; QUERY_BASE_PATH=/jaeger) or MetalLB http://<ip>:16686.
+  # Fallback laptop: kubectl -n observability port-forward svc/jaeger 16686:16686 → http://127.0.0.1:16686
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger.observability.svc.cluster.local:4318"
+  # W3C tracecontext+baggage are configured in code (CompositePropagator). OTEL_PROPAGATORS is documented for operators / autoinstrumentation parity only.
+  OTEL_PROPAGATORS: "tracecontext,baggage"
+  # Jaeger Step7 / load labs: sample every root trace so downstream gRPC/Kafka spans are not dropped by ratio sampling.
+  OTEL_TRACES_SAMPLER: "parentbased_always_on"
+  # Optional: MetalLB (or other LB) IP/hostname if processes must reach Jaeger outside cluster DNS:
+  # OCH_JAEGER_OTLP_HOST: "<metallb-ip>"
+  # Opt-in laptop docker-compose Jaeger (not for in-cluster): OCH_OTEL_LOCAL_JAEGER=1
+  # Skip cluster default when you only want console or a custom endpoint: OCH_OTEL_DISABLE_CLUSTER_JAEGER=1

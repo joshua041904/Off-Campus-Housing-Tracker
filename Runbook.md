@@ -250,7 +250,7 @@ These entries capture a **March 2026** debugging thread: k6 failures at the edge
 - **Cause:** **k6** is built with **Go**; on **macOS**, TLS trust for outbound HTTPS uses **Security.framework** (login keychain), **not** `SSL_CERT_FILE`. Exporting `SSL_CERT_FILE=$PWD/certs/dev-root.pem` is **insufficient** by itself.  
 - **Fix:** `./scripts/lib/trust-dev-root-ca-macos.sh "$PWD/certs/dev-root.pem"` (installs dev CA into **login** keychain with “Always Trust” for SSL). Re-run after **CA rotation**.  
 - **Alternatives:** `K6_USE_DOCKER_K6=1` → run **`grafana/k6`** in Docker (Linux OpenSSL path; `SSL_CERT_FILE` works there).  
-- **Preflight:** `run-preflight-scale-and-all-suites.sh` runs macOS keychain prep before host k6 when `k6` is on PATH and messaging/k6 grid is enabled; overrides: `SKIP_MACOS_DEV_CA_TRUST=1`, `PREFLIGHT_STRICT_MACOS_K6_TRUST=0` (not recommended).  
+- **Preflight:** before host k6, preflight **checks** that `dev-root-ca` is already in the login keychain (no automatic `security add-trusted-cert`). Trust once via Keychain or `trust-dev-root-ca-macos.sh`. Overrides: `SKIP_MACOS_DEV_CA_TRUST=1`, `PREFLIGHT_MACOS_CA_AUTO_TRUST=1` (legacy auto-add; may prompt), `PREFLIGHT_STRICT_MACOS_K6_TRUST=0` (not recommended).  
 - **Docs:** `docs/CA_ROTATION_AND_CLIENT_TRUST.md`, `ENGINEERING.md` (preflight header comments).
 
 **93 — k6 `__ENV` and shell inheritance**  
@@ -282,7 +282,62 @@ These entries capture a **March 2026** debugging thread: k6 failures at the edge
 - **Verify from gateway pod:**  
   `kubectl exec -n off-campus-housing-tracker deploy/api-gateway -- node -e "require('http').get('http://media-service.off-campus-housing-tracker.svc.cluster.local:4018/healthz',r=>{let d='';r.on('data',c=>d+=c);r.on('end',()=>console.log(r.statusCode,d))}).on('error',e=>console.error(e));"`  
   Expect **200** and JSON with **`ok`**.  
-- **Default script** also rebuilds **api-gateway** if you run `./scripts/rebuild-och-images-and-rollout.sh` with no `SERVICES` override.
+- **Full stack:** `./scripts/rebuild-och-images-and-rollout.sh` with no `SERVICES` rebuilds every image in `HOUSING_DOCKER_SERVICES_DEFAULT` (see `scripts/lib/och-housing-docker-services-default.sh`) and rollouts matching Deployments. For **gateway + watchdog sidecar** only: `SERVICES="api-gateway transport-watchdog" ./scripts/rebuild-och-images-and-rollout.sh`.
+
+**98 — Preflight step 7: `JAEGER_QUERY_BASE` / Jaeger for Playwright suites**  
+- **Symptom:** After edge checks pass, preflight fails with `JAEGER_QUERY_BASE is unset…` when `RUN_PREFLIGHT_PLAYWRIGHT` is on.  
+- **Cause:** Base observability manifest (`infra/k8s/base/observability/jaeger-deploy.yaml`) exposes the query UI as **`Service/jaeger`** (often **`type: ClusterIP`** on port **16686**). There may be no **`jaeger-query`** **LoadBalancer** for the script to discover from the Mac host.  
+- **In-repo behavior:** `scripts/run-preflight-scale-and-all-suites.sh` (1) tries **`jaeger-query`** then **`jaeger`** for a **LoadBalancer** IP in `JAEGER_OBSERVABILITY_NS` (default **`observability`**) and common fallbacks; (2) if still unset and **`PREFLIGHT_JAEGER_PORT_FORWARD`** is not **`0`**, starts **`kubectl port-forward`** to **`svc/jaeger`** or **`svc/jaeger-query`** and sets **`JAEGER_QUERY_BASE=http://127.0.0.1:<port>`** (default local port **16686**). The port-forward PID is stopped on **EXIT** via `_preflight_combined_exit`.  
+- **Manual override:** `export JAEGER_QUERY_BASE=http://<host>:16686` (LB IP, in-cluster proxy, or any reachable query base).  
+- **If local :16686 is already bound:** `JAEGER_PF_LOCAL_PORT=36686` (or another free port).  
+- **To require a real LB (no port-forward):** `PREFLIGHT_JAEGER_PORT_FORWARD=0` and expose Jaeger query with **`type: LoadBalancer`** (or set **`JAEGER_QUERY_BASE`** yourself).  
+- **Canonical Colima + MetalLB preflight without host pgbench / full load:** `make preflight-colima-metallb-edge` or the equivalent one-liner:  
+  `REQUIRE_COLIMA=1 METALLB_USE_K3D=0 METALLB_ENABLED=1 K6_USE_METALLB=1 RUN_PGBENCH=0 RUN_FULL_LOAD=0 ./scripts/run-preflight-scale-and-all-suites.sh`
+
+**99 — HTTP/3 + QUIC transport proof (`make transport-quic-v6-prove`)**  
+- **Purpose:** One repeatable path: MetalLB → strict `curl --http3-only` → `scripts/test-packet-capture-standalone.sh` → **`transport-summary-v6.json`** → optional **tshark** QUIC lines. Proves HTTP/3 at the edge and records a CI-style forensic artifact (full QUIC decode when the pcap + TLS key log align; otherwise a minimal artifact with **`curl_http3_only_evidence`** when curl still proves HTTP/3 but tshark cannot decode QUIC in the capture).  
+- **Requires:** `kubectl` context to cluster with **`ingress-nginx/caddy-h3`** LoadBalancer IP, **`curl`** with HTTP/3 (e.g. Homebrew curl + ngtcp2), **`tshark`**, **`jq`**, repo **`certs/dev-root.pem`**.  
+- **One command (recommended):** from repo root:
+
+```bash
+make transport-quic-v6-prove
+```
+
+That target: resolves the LB IP, writes a fresh TLS key log under **`bench_logs/sslkeys-och-transport-<timestamp>.log`**, runs standalone capture with **`STRICT_QUIC_VALIDATION=1`**, then **asserts** the v6 artifact with **`jq -e`** (must have **`valid`**, **`quic_frame_count > 0`**, at least one **`packet_number_spaces`** entry, and a non-empty **`tls.selected_cipher_suite`** from **ServerHello**, not the ClientHello cipher list), prints the full JSON, prints sample **`quic.packet_number`** fields, and runs the **ALPN `h3`** field extraction with **`-o tls.keylog_file:`** pointing at that key log.
+
+**0-RTT in the artifact:** **`zero_rtt.detected: false`** is normal for cold runs (no session resumption). Expect **`true`** only when you intentionally reuse a TLS session (e.g. repeated **`curl --http3`** to the same host with session tickets / connection reuse).
+
+- **Same flow by hand** (equivalent env + script):
+
+```bash
+export HOST=off-campus-housing.test
+export TARGET_IP=$(kubectl get svc -n ingress-nginx caddy-h3 -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+export PORT=443
+export STRICT_QUIC_VALIDATION=1
+export SSLKEYLOGFILE=/tmp/sslkeys.log
+PORT=443 STRICT_QUIC_VALIDATION=1 SSLKEYLOGFILE=/tmp/sslkeys.log \
+  ./scripts/test-packet-capture-standalone.sh
+```
+
+- **After any run, inspect the latest capture directory:**
+
+```bash
+latest=$(ls -dt /tmp/packet-captures-v2-* | head -1)
+jq . "$latest/transport-summary-v6.json"
+tshark -r "$latest/caddy-capture.pcap" -Y quic | head
+```
+
+- **ALPN check (optional):**
+
+```bash
+latest=$(ls -dt /tmp/packet-captures-v2-* | head -1)
+tshark -r "$latest/caddy-capture.pcap" -o tls.keylog_file:/path/to/your/sslkeys.log \
+  -Y 'tls.handshake.extensions_alpn_str == "h3"' -T fields -e tls.handshake.extensions_alpn_str
+```
+
+Use the key log path printed at the end of **`make transport-quic-v6-prove`** (or **`SSLKEYLOGFILE`** you exported) so tshark can decrypt TLS inside QUIC when needed.
+
+- **Implementation notes:** `scripts/lib/grpc-http3-health.sh` exports **`STRICT_CURL_H3_OK=1`** and **`CAPTURE_V2_HTTP_VERSION=3`** when strict curl returns **HTTP 200** and **version 3**, so **`scripts/lib/packet-capture-v2.sh`** STRICT mode does not fail solely because raw **`udp port 443`** counts are zero under overlay/CNI. Forensic analyzers live under **`scripts/lib/quic-forensic/`**.
 
 **HTTP/3 fallback (LB IP first, NodePort fallback on k3d):** **Policy:** Use the **LB IP** as the first choice for HTTP/2 and HTTP/3 when MetalLB is enabled and the LB IP is reachable (socat or native); use NodePort only when the LB IP is unavailable. When running suites with MetalLB, `run-all-test-suites.sh` runs `setup-lb-ip-host-access.sh` (socat TCP+UDP 443) so HTTP/2 and HTTP/3 work via the LB IP. If the HTTP/3 probe to the LB IP fails (e.g. curl exit 7 or 28), the script falls back to NodePort 30443 and sets `TARGET_IP=127.0.0.1` so HTTP/3 tests complete. Check the run-all log for `HTTP/3 probe to LB IP failed; falling back to NodePort 30443`.
 

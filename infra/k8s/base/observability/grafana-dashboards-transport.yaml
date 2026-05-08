@@ -25,7 +25,7 @@ data:
           "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
           "targets": [
             {
-              "expr": "och:gateway_5xx_ratio_5m",
+              "expr": "(sum(rate(http_requests_total{service=\"api-gateway\",code=~\"5..\"}[5m])) / clamp_min(sum(rate(http_requests_total{service=\"api-gateway\"}[5m])), 1e-9)) or on() vector(0)",
               "legendFormat": "gateway 5xx / all (5m)",
               "refId": "A"
             }
@@ -41,7 +41,7 @@ data:
           "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
           "targets": [
             {
-              "expr": "och:gateway_502_ratio_5m",
+              "expr": "(sum(rate(http_requests_total{service=\"api-gateway\",code=\"502\"}[5m])) / clamp_min(sum(rate(http_requests_total{service=\"api-gateway\"}[5m])), 1e-9)) or on() vector(0)",
               "legendFormat": "gateway 502 / all (5m)",
               "refId": "A"
             }
@@ -57,7 +57,7 @@ data:
           "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
           "targets": [
             {
-              "expr": "sum(rate(envoy_http3_downstream_rx_reset[5m]))",
+              "expr": "sum(rate(envoy_http_downstream_rq_rx_reset[5m]))",
               "legendFormat": "envoy h3 downstream rx reset / s",
               "refId": "A"
             }
