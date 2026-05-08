@@ -1,12 +1,91 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useReducer, useRef } from "react";
 import Link from "next/link";
 import { getReputation, reportAbuse, submitPeerReview } from "@/lib/api";
 import { getStoredEmail, getStoredToken } from "@/lib/auth-storage";
 import { getSubFromJwt } from "@/lib/jwt-sub";
 import { Nav } from "@/components/Nav";
 import { trackTrustEvent } from "@/lib/track";
+
+
+// ---------------------------------------------------------------------------
+// Trust page state — single source of truth
+// ---------------------------------------------------------------------------
+type FeedbackState = { type: "success" | "error" | null; message: string };
+
+type TrustState = {
+  // Auth
+  email: string | null;
+  token: string | null;
+  mySub: string | null;
+  // Reputation
+  repUserId: string;
+  repScore: number | null;
+  // Report abuse
+  abuseType: "listing" | "user";
+  abuseTarget: string;
+  abuseCategory: string;
+  abuseDetails: string;
+  // Peer review
+  bookingId: string;
+  revieweeId: string;
+  side: string;
+  rating: number;
+  comment: string;
+  // Shared
+  loading: boolean;
+  feedback: FeedbackState;
+};
+
+const DEFAULT_TRUST_STATE: TrustState = {
+  email: null,
+  token: null,
+  mySub: null,
+  repUserId: "",
+  repScore: null,
+  abuseType: "listing",
+  abuseTarget: "",
+  abuseCategory: "spam",
+  abuseDetails: "",
+  bookingId: "",
+  revieweeId: "",
+  side: "guest",
+  rating: 5,
+  comment: "",
+  loading: false,
+  feedback: { type: null, message: "" },
+};
+
+type TrustAction =
+  | { type: "SET_AUTH"; email: string | null; token: string | null; mySub: string | null }
+  | { type: "SET"; payload: Partial<TrustState> }
+  | { type: "SET_LOADING"; loading: boolean }
+  | { type: "SET_FEEDBACK"; feedback: FeedbackState }
+  | { type: "CLEAR_FEEDBACK" }
+  | { type: "RESET_REPORT" }
+  | { type: "RESET_REVIEW" };
+
+function trustReducer(state: TrustState, action: TrustAction): TrustState {
+  switch (action.type) {
+    case "SET_AUTH":
+      return { ...state, email: action.email, token: action.token, mySub: action.mySub };
+    case "SET":
+      return { ...state, ...action.payload };
+    case "SET_LOADING":
+      return { ...state, loading: action.loading };
+    case "SET_FEEDBACK":
+      return { ...state, feedback: action.feedback };
+    case "CLEAR_FEEDBACK":
+      return { ...state, feedback: { type: null, message: "" } };
+    case "RESET_REPORT":
+      return { ...state, abuseTarget: "", abuseDetails: "" };
+    case "RESET_REVIEW":
+      return { ...state, comment: "" };
+    default:
+      return state;
+  }
+}
 
 function TrustHeaderSection() {
   return (
@@ -60,7 +139,7 @@ function ReputationSection({
   repError,
 }: {
   repUserId: string;
-  setRepUserId: React.Dispatch<React.SetStateAction<string>>;
+  setRepUserId: (v: string) => void;
   onReputation: (e: React.FormEvent) => Promise<void>;
   loading: boolean;
   mySub: string | null;
@@ -150,13 +229,13 @@ function ReportAbuseSection({
   loading,
 }: {
   abuseType: "listing" | "user";
-  setAbuseType: React.Dispatch<React.SetStateAction<"listing" | "user">>;
+  setAbuseType: (v: "listing" | "user") => void;
   abuseTarget: string;
-  setAbuseTarget: React.Dispatch<React.SetStateAction<string>>;
+  setAbuseTarget: (v: string) => void;
   abuseCategory: string;
-  setAbuseCategory: React.Dispatch<React.SetStateAction<string>>;
+  setAbuseCategory: (v: string) => void;
   abuseDetails: string;
-  setAbuseDetails: React.Dispatch<React.SetStateAction<string>>;
+  setAbuseDetails: (v: string) => void;
   onReport: (e: React.FormEvent) => Promise<void>;
   loading: boolean;
   abuseError: string | null;
@@ -266,15 +345,15 @@ function PeerReviewSection({
   reviewError,
 }: {
   bookingId: string;
-  setBookingId: React.Dispatch<React.SetStateAction<string>>;
+  setBookingId: (v: string) => void;
   revieweeId: string;
-  setRevieweeId: React.Dispatch<React.SetStateAction<string>>;
+  setRevieweeId: (v: string) => void;
   side: string;
-  setSide: React.Dispatch<React.SetStateAction<string>>;
+  setSide: (v: string) => void;
   rating: number;
-  setRating: React.Dispatch<React.SetStateAction<number>>;
+  setRating: (v: number) => void;
   comment: string;
-  setComment: React.Dispatch<React.SetStateAction<string>>;
+  setComment: (v: string) => void;
   onPeerReview: (e: React.FormEvent) => Promise<void>;
   loading: boolean;
   reviewError: string | null;
@@ -437,6 +516,21 @@ function TrustFeedback({
 }
 
 export default function TrustPage() {
+  const [state, dispatch] = useReducer(trustReducer, DEFAULT_TRUST_STATE);
+  const { email, token, mySub, repUserId, repScore, abuseType, abuseTarget,
+    abuseCategory, abuseDetails, bookingId, revieweeId, side, rating, comment,
+    loading, feedback } = state;
+  const setRepUserId = (v: string) => dispatch({ type: "SET", payload: { repUserId: v } });
+  const setAbuseType = (v: "listing" | "user") => dispatch({ type: "SET", payload: { abuseType: v } });
+  const setAbuseTarget = (v: string) => dispatch({ type: "SET", payload: { abuseTarget: v } });
+  const setAbuseCategory = (v: string) => dispatch({ type: "SET", payload: { abuseCategory: v } });
+  const setAbuseDetails = (v: string) => dispatch({ type: "SET", payload: { abuseDetails: v } });
+  const setBookingId = (v: string) => dispatch({ type: "SET", payload: { bookingId: v } });
+  const setRevieweeId = (v: string) => dispatch({ type: "SET", payload: { revieweeId: v } });
+  const setSide = (v: string) => dispatch({ type: "SET", payload: { side: v } });
+  const setRating = (v: number) => dispatch({ type: "SET", payload: { rating: v } });
+  const setComment = (v: string) => dispatch({ type: "SET", payload: { comment: v } });
+  const feedbackRef = useRef<HTMLDivElement | null>(null);
   const [email, setEmail] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [mySub, setMySub] = useState<string | null>(null);
@@ -464,16 +558,23 @@ export default function TrustPage() {
 
   useEffect(() => {
     const t = getStoredToken();
-    setToken(t);
-    setEmail(getStoredEmail());
     const sub = getSubFromJwt(t);
-    setMySub(sub);
-    if (sub) setRepUserId(sub);
+    dispatch({ type: "SET_AUTH", email: getStoredEmail(), token: t, mySub: sub });
+    if (sub) dispatch({ type: "SET", payload: { repUserId: sub } });
   }, []);
 
   async function onReputation(e: React.FormEvent) {
     e.preventDefault();
     if (loading) return;
+    dispatch({ type: "CLEAR_FEEDBACK" });
+    dispatch({ type: "SET_LOADING", loading: true });
+    try {
+      const r = await getReputation(repUserId.trim());
+      dispatch({ type: "SET", payload: { repScore: r.score } });
+      dispatch({ type: "SET_FEEDBACK", feedback: { type: "success", message: `Reputation for ${r.user_id}: ${r.score}` } });
+    } catch (e: unknown) {
+      dispatch({ type: "SET", payload: { repScore: null } });
+      dispatch({ type: "SET_FEEDBACK", feedback: { type: "error", message: e instanceof Error ? e.message : "Lookup failed" } });
     if (!repUserId.trim()) {
       setRepError("Please enter a user UUID.");
       return;
@@ -497,13 +598,15 @@ export default function TrustPage() {
         message: e instanceof Error ? e.message : "Lookup failed",
       });
     } finally {
-      setLoading(false);
+      dispatch({ type: "SET_LOADING", loading: false });
     }
   }
 
   async function onReport(e: React.FormEvent) {
     e.preventDefault();
     if (!token) return;
+    dispatch({ type: "CLEAR_FEEDBACK" });
+    dispatch({ type: "SET_LOADING", loading: true });
     if (!abuseTarget.trim()) {
       setAbuseError("Please enter a target UUID.");
       return;
@@ -518,29 +621,20 @@ export default function TrustPage() {
         category: abuseCategory,
         details: abuseDetails,
       });
-      trackTrustEvent({ type: "report_submitted", targetType: abuseType, category: abuseCategory });
-      setFeedback({
-        type: "success",
-        message: "Report submitted.",
-      });
-      setAbuseDetails("");
+      dispatch({ type: "SET_FEEDBACK", feedback: { type: "success", message: "Report submitted." } });
+      dispatch({ type: "RESET_REPORT" });
     } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : "Report failed");
+      dispatch({ type: "SET_FEEDBACK", feedback: { type: "error", message: e instanceof Error ? e.message : "Report failed" } });
     } finally {
-      setLoading(false);
+      dispatch({ type: "SET_LOADING", loading: false });
     }
   }
 
   async function onPeerReview(e: React.FormEvent) {
     e.preventDefault();
     if (!token) return;
-    if (!bookingId.trim() || !revieweeId.trim()) {
-      setReviewError("Please enter both booking UUID and reviewee UUID.");
-      return;
-    }
-    setReviewError(null);
-    setFeedback({ type: null, message: "" });
-    setLoading(true);
+    dispatch({ type: "CLEAR_FEEDBACK" });
+    dispatch({ type: "SET_LOADING", loading: true });
     try {
       await submitPeerReview(token, {
         booking_id: bookingId.trim(),
@@ -549,16 +643,12 @@ export default function TrustPage() {
         rating,
         comment,
       });
-      trackTrustEvent({ type: "peer_review_submitted", side, rating });
-      setFeedback({
-        type: "success",
-        message: "Peer review submitted.",
-      });
-      setComment("");
+      dispatch({ type: "SET_FEEDBACK", feedback: { type: "success", message: "Peer review submitted." } });
+      dispatch({ type: "RESET_REVIEW" });
     } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : "Review failed");
+      dispatch({ type: "SET_FEEDBACK", feedback: { type: "error", message: e instanceof Error ? e.message : "Review failed" } });
     } finally {
-      setLoading(false);
+      dispatch({ type: "SET_LOADING", loading: false });
     }
   }
 
