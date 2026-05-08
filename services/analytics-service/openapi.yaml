@@ -1,0 +1,23 @@
+openapi: 3.0.3
+info:
+  title: analytics-service
+  version: '0.0.0'
+paths:
+  "/api/analytics/healthz":
+    get:
+      summary: "analytics-service get /api/analytics/healthz"
+      responses:
+        '200':
+          description: OK
+  "/api/analytics/daily-metrics":
+    get:
+      summary: "analytics-service get /api/analytics/daily-metrics"
+      responses:
+        '200':
+          description: OK
+  "/api/analytics/insights/listing-feel":
+    post:
+      summary: "analytics-service post /api/analytics/insights/listing-feel"
+      responses:
+        '200':
+          description: OK

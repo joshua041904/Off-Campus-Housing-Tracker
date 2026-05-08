@@ -23,7 +23,7 @@ spec:
               imagePullPolicy: IfNotPresent
               env:
                 - name: KAFKA_BOOTSTRAP
-                  value: kafka-0.kafka.off-campus-housing-tracker.svc.cluster.local:9093
+                  value: kafka-0.kafka-headless:9093
               command:
                 - /bin/bash
                 - -c

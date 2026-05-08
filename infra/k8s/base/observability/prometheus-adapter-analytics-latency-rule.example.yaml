@@ -1,0 +1,18 @@
+rules:
+  default: false
+  custom:
+    - seriesQuery: 'analytics_generation_latency_ms_bucket{namespace!="",pod!=""}'
+      resources:
+        overrides:
+          namespace:
+            resource: namespace
+          pod:
+            resource: pod
+      name:
+        matches: "analytics_generation_latency_ms_bucket"
+        as: "analytics_generation_latency_ms_p95"
+      metricsQuery: |
+        histogram_quantile(
+          0.95,
+          sum(rate(analytics_generation_latency_ms_bucket{<<.LabelMatchers>>}[5m])) by (le, pod)
+        )

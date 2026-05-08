@@ -27,8 +27,10 @@ bad() { echo "❌ $*" >&2; }
 
 discover_lb_ip() {
   local ip=""
+  local _ns="${OCH_CADDY_K8S_NS:-ingress-nginx}"
+  local _svc="${OCH_CADDY_K8S_SVC:-caddy-h3}"
   if command -v kubectl >/dev/null 2>&1; then
-    ip="$(kubectl get svc caddy-h3 -n ingress-nginx -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null | tr -d '\r' || true)"
+    ip="$(kubectl get svc "$_svc" -n "$_ns" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null | tr -d '\r' || true)"
     if [[ -n "$ip" ]] && [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
       printf '%s\n' "$ip"
       return 0

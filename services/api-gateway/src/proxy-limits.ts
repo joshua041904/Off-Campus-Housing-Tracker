@@ -3,6 +3,7 @@
  * and GET coalescing for analytics daily-metrics (same query string shares one upstream fetch).
  */
 import type { Request, RequestHandler, Response, NextFunction } from "express";
+import { buildOutgoingHttpHeadersForIncomingMessage } from "@common/utils/otel";
 import http from "http";
 import type { Agent } from "http";
 
@@ -54,8 +55,9 @@ export function analyticsDailyMetricsCoalescedHandler(opts: AnalyticsDailyCoales
         const targetUrl = `${base}/daily-metrics${search}`;
 
         const created = new Promise<DailyMetricsPayload>((resolve, reject) => {
+          const traceHeaders = buildOutgoingHttpHeadersForIncomingMessage(req);
           http
-            .get(targetUrl, { agent: opts.agent }, (incoming) => {
+            .get(targetUrl, { agent: opts.agent, headers: traceHeaders }, (incoming) => {
               const chunks: Buffer[] = [];
               incoming.on("data", (c: Buffer) => chunks.push(c));
               incoming.on("end", () => {

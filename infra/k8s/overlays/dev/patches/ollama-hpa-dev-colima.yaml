@@ -1,0 +1,10 @@
+# Dev / Colima: single Ollama replica avoids gateway LB splitting traffic across a warm and a cold
+# pod (readiness was /healthz before model RAM warm-up; see base ollama deploy warm marker).
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ollama
+  namespace: off-campus-housing-tracker
+spec:
+  minReplicas: 1
+  maxReplicas: 1

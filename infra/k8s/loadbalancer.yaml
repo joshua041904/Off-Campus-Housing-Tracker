@@ -1,5 +1,5 @@
 # Caddy LoadBalancer service for MetalLB (Colima L2 / k3s).
-# TCP 443 = HTTP/1.1 + HTTP/2; UDP 443 = HTTP/3 (QUIC). Both required for full protocol support.
+# TCP 443 = HTTP/1.1 + HTTP/2; UDP 443 = HTTP/3 (QUIC). NodePorts: TCP 30443, UDP 30444 (must not share one nodePort on k3s/ServiceLB).
 # Apply after MetalLB is installed and pool is configured; MetalLB assigns an IP to this service.
 # Usage: kubectl apply -f infra/k8s/loadbalancer.yaml
 # Then: kubectl -n ingress-nginx get svc caddy-h3  (EXTERNAL-IP will be set)
@@ -19,10 +19,14 @@ spec:
     port: 443
     targetPort: 443
     protocol: TCP
+    # Explicit TCP nodePort for k3s ServiceLB / QUIC companion service.
+    nodePort: 30443
   - name: https-udp
     port: 443
     targetPort: 443
     protocol: UDP
+    # k3s/klipper-lb: UDP nodePort MUST differ from TCP nodePort for QUIC to route correctly.
+    nodePort: 30444
   - name: grpc-h2c
     port: 5000
     targetPort: 5000

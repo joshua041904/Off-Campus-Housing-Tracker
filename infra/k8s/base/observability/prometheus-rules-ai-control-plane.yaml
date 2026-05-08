@@ -1,0 +1,65 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules-ai-control-plane
+  namespace: observability
+  labels:
+    app: prometheus
+    och.dev/role: ai-control-plane
+data:
+  ai-control-plane.yml: |
+    groups:
+      - name: ai-control-plane-signals
+        interval: 30s
+        rules:
+          - record: ai_model_health_score
+            expr: |
+              100 * clamp(
+                (
+                  0.45 * (analytics_model_quality_score / 100)
+                  + 0.35 * (analytics_model_reliability_score / 100)
+                  + 0.20 * (1 - clamp(analytics_model_latency_ms / 10000, 0, 1))
+                ),
+                0,
+                1
+              )
+          - record: analytics_embedding_drift_zscore
+            expr: |
+              (
+                analytics_embedding_drift_score
+                -
+                avg_over_time(analytics_embedding_drift_score[1h])
+              )
+              /
+              clamp_min(stddev_over_time(analytics_embedding_drift_score[1h]), 1e-6)
+          - record: analytics_prompt_quality_avg_10m
+            expr: avg_over_time(analytics_prompt_quality_score[10m])
+          - record: analytics_prompt_quality_delta_10m
+            expr: analytics_prompt_quality_current - analytics_prompt_quality_previous
+          - alert: AIEmbeddingDriftAnomaly
+            expr: analytics_embedding_drift_zscore > 3
+            for: 3m
+            labels:
+              severity: warning
+              service: analytics
+              slo: ai-drift
+            annotations:
+              summary: "Embedding drift anomaly"
+              description: "analytics_embedding_drift_score is >3 stddev above the 1h baseline."
+          - alert: AIPromptRegressionDetected
+            expr: |
+              (
+                analytics_prompt_quality_delta_10m < -8
+              )
+              and
+              (
+                increase(analytics_prompt_current_requests_total[10m]) >= 100
+              )
+            for: 5m
+            labels:
+              severity: warning
+              service: analytics
+              slo: ai-prompt-regression
+            annotations:
+              summary: "Prompt quality regression detected"
+              description: "New prompt version quality is >8 points lower over 10m with at least 100 requests."

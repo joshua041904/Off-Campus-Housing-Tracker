@@ -1,0 +1,36 @@
+# Prometheus Operator (monitoring.coreos.com/v1) — apply only when PrometheusRule CRD exists:
+#   kubectl apply -f infra/k8s/base/observability/prometheus-rule-kafka-alignment-operator.yaml
+# Vanilla Prometheus in this repo loads rules from ConfigMap prometheus-rules-kafka-health instead.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: kafka-alignment-alerts
+  namespace: observability
+  labels:
+    app: prometheus
+    och.dev/role: kafka-alignment
+spec:
+  groups:
+    - name: kafka-alignment.rules
+      interval: 30s
+      rules:
+        - alert: KafkaAlignmentSuiteFailed
+          expr: kafka_alignment_test_pass == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: Kafka alignment suite failing
+            description: >
+              kafka_alignment_test_pass{test}=0 — alignment or TLS/MetaLB drift. Re-run
+              ./scripts/tests/kafka-alignment-suite.sh or make kafka-health. Metrics come from
+              NODE_EXPORTER_TEXTFILE_DIR or kafka-alignment CronJob.
+        - alert: KafkaAlignmentSuiteMissing
+          expr: absent(kafka_alignment_test_pass)
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: kafka_alignment_test_pass not scraped
+            description: >
+              No time series for kafka_alignment_test_pass — run alignment with textfile export or deploy scrape.

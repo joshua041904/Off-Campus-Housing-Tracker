@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Create the same proto-derived event topics as create-kafka-event-topics.sh, inside k3s KRaft Kafka.
-# Uses kubectl exec on kafka-0 with SSL to kafka-0.kafka:9093 and replication factor 3 by default.
+# Idempotent: kafka-topics --create --if-not-exists per topic; partition alter only when count is below PARTITIONS.
+# Bootstrap: scripts/bootstrap-cluster.sh phase P5c runs this (then verify-kafka-event-topic-partitions + alignment suite) before deploy-dev.
+# Uses kubectl exec on kafka-0 with SSL. Default bootstrap is 127.0.0.1:9093 (in-broker admin; avoids headless
+# DNS/hairpin races during cold bootstrap). Override: KAFKA_BOOTSTRAP_SERVER=kafka-0.kafka-headless:9093
 # Each create sets topic config min.insync.replicas=2 (aligns with broker KAFKA_MIN_INSYNC_REPLICAS).
 # If a topic already exists with fewer partitions than PARTITIONS, runs --alter --partitions (Kafka cannot shrink).
 #
@@ -11,7 +14,7 @@
 #   KAFKA_K8S_POD=kafka-0
 #   KAFKA_K8S_REPLICATION_FACTOR=3
 #   ENV_PREFIX, PARTITIONS, OCH_KAFKA_TOPIC_SUFFIX — same as create-kafka-event-topics.sh
-#   KAFKA_K8S_SKIP_API_HEALTH=1 — do not run colima-api-health.sh first
+#   KAFKA_K8S_SKIP_API_HEALTH=1 — do not run colima-api-health.sh first (uses kubectl only; skip if you must)
 #   REPO_ROOT
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -67,10 +70,27 @@ KP_PASS=$(cat /etc/kafka/secrets/kafka.key-password 2>/dev/null || echo "$KS_PAS
 
 kubectl exec -n "$NS" "$KPOD" -- bash -ec "$_inner_props" || die "Could not write TLS props in $KPOD"
 
-BS="kafka-0.kafka:9093"
+BS="${KAFKA_BOOTSTRAP_SERVER:-127.0.0.1:9093}"
 
 k8s_kafka_topics() {
   kubectl exec -n "$NS" "$KPOD" -- kafka-topics --bootstrap-server "$BS" --command-config /tmp/och-k8s-topics.props "$@"
+}
+
+# Cold bootstrap: metadata/controller can lag briefly after rollout Ready.
+k8s_kafka_topics_retry() {
+  local attempt out
+  for attempt in 1 2 3 4 5 6 7 8 9 10; do
+    out="$(k8s_kafka_topics "$@" 2>&1)" && return 0
+    if [[ "$attempt" -lt 10 ]]; then
+      echo "    (attempt $attempt/10 kafka-topics failed, retry in 3s)" >&2
+      echo "$out" >&2
+      sleep 3
+    else
+      echo "$out" >&2
+      return 1
+    fi
+  done
+  return 1
 }
 
 # First summary line from --describe includes PartitionCount (per-partition rows use "Partition:" only).
@@ -82,10 +102,10 @@ partition_count_for_topic() {
 }
 
 for t in "${TOPICS[@]}"; do
-  k8s_kafka_topics \
+  k8s_kafka_topics_retry \
     --create --if-not-exists --topic "$t" --partitions "$PARTITIONS" --replication-factor "$RF" \
     --config min.insync.replicas=2 \
-    || die "Failed to create topic $t"
+    || die "Failed to create topic $t (bootstrap=$BS pod=$KPOD ns=$NS; set KAFKA_BOOTSTRAP_SERVER to override)"
   ok "Ensured topic $t"
 done
 
@@ -93,7 +113,7 @@ say "Aligning partition counts (--create --if-not-exists does not increase parti
 for t in "${TOPICS[@]}"; do
   pc="$(partition_count_for_topic "$t")"
   if [[ -n "${pc:-}" && "$pc" =~ ^[0-9]+$ && "$pc" -lt "$PARTITIONS" ]]; then
-    k8s_kafka_topics --alter --topic "$t" --partitions "$PARTITIONS" \
+    k8s_kafka_topics_retry --alter --topic "$t" --partitions "$PARTITIONS" \
       || die "Could not alter partitions for $t (have $pc, want $PARTITIONS)"
     ok "Altered partitions for $t ($pc → $PARTITIONS)"
   fi

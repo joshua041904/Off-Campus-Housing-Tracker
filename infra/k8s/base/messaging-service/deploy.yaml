@@ -25,6 +25,41 @@ spec:
         prometheus.io/port: "4014"
         prometheus.io/path: "/metrics"
     spec:
+      initContainers:
+        - name: wait-kafka-tcp
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: KAFKA_BROKER
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: KAFKA_BROKER
+                  optional: true
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              targets="${KAFKA_BROKER:-kafka-0.kafka-headless:9093,kafka-1.kafka-headless:9093,kafka-2.kafka-headless:9093}"
+              targets="${targets},kafka-0.kafka:9093,kafka-1.kafka:9093,kafka-2.kafka:9093,kafka-0:9093,kafka-0:9092"
+              echo "[wait-kafka-tcp] probing Kafka endpoints: $targets"
+              i=0
+              while [ "$i" -lt 360 ]; do
+                IFS=','; for endpoint in $targets; do
+                  host="${endpoint%%:*}"
+                  port="${endpoint##*:}"
+                  if [ "$port" = "$host" ]; then port=9093; fi
+                  if nc -z "$host" "$port" 2>/dev/null; then
+                    echo "[wait-kafka-tcp] ok via $host:$port"
+                    exit 0
+                  fi
+                done
+                unset IFS
+                i=$((i+1))
+                sleep 5
+              done
+              echo "[wait-kafka-tcp] timeout after probing: $targets"
+              exit 1
       containers:
         - name: app
           image: messaging-service:dev
@@ -44,6 +79,8 @@ spec:
           env:
             - name: NODE_ENV
               value: "development"
+            - name: OTEL_SERVICE_NAME
+              value: "messaging-service"
             - name: HTTP_PORT
               value: "4014"
             - name: GRPC_PORT

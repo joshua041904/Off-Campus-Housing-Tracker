@@ -1,0 +1,99 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-kafka-integrity
+  namespace: observability
+  labels:
+    grafana_dashboard: "1"
+data:
+  kafka-integrity.json: |
+    {
+      "title": "OCH - Kafka Integrity",
+      "uid": "och-kafka-integrity",
+      "schemaVersion": 39,
+      "version": 1,
+      "timezone": "browser",
+      "refresh": "30s",
+      "tags": ["och", "kafka", "slo"],
+      "panels": [
+        {
+          "id": 1,
+          "type": "timeseries",
+          "title": "External listener alignment by broker (1=match, 0=drift)",
+          "gridPos": { "h": 9, "w": 24, "x": 0, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "targets": [
+            { "refId": "A", "expr": "max(kafka_external_listener_matches_lb) by (broker)", "legendFormat": "broker {{broker}}" }
+          ]
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Kafka metadata drift (0=healthy)",
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 9 },
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "targets": [
+            { "refId": "A", "expr": "max(kafka_metallb_advertised_lb_drift)" }
+          ]
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Runtime config drift (max; want 0)",
+          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 9 },
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }]
+              }
+            }
+          },
+          "targets": [
+            { "refId": "A", "expr": "max(kafka_runtime_config_drift)" }
+          ]
+        },
+        {
+          "id": 4,
+          "type": "timeseries",
+          "title": "Kafka skew pass (1=healthy)",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 9 },
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "targets": [
+            { "refId": "A", "expr": "max(kafka_skew_pass) by (instance)", "legendFormat": "{{instance}}" }
+          ]
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "OCH leader imbalance (app metadata snapshot; per service)",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 13 },
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "targets": [
+            { "refId": "A", "expr": "max(och_kafka_leader_imbalance_max_ratio) by (pod)", "legendFormat": "{{pod}}" }
+          ]
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "Partition leaders per broker (snapshot gauge)",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 13 },
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "targets": [
+            { "refId": "A", "expr": "max(och_kafka_broker_partition_leaders) by (broker_id)", "legendFormat": "broker {{broker_id}}" }
+          ]
+        }
+      ],
+      "templating": {
+        "list": [
+          {
+            "name": "DS_PROMETHEUS",
+            "type": "datasource",
+            "query": "prometheus",
+            "current": { "text": "Prometheus", "value": "Prometheus", "selected": false }
+          }
+        ]
+      },
+      "time": { "from": "now-6h", "to": "now" }
+    }

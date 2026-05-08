@@ -1,0 +1,191 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules-analytics-ai-slo
+  namespace: observability
+  labels:
+    app: prometheus
+    och.dev/role: analytics-ai-slo
+data:
+  analytics-ai-slo.yml: |
+    groups:
+      - name: analytics-ai-slo
+        interval: 30s
+        rules:
+          - alert: AnalyticsAvailabilityLow
+            expr: |
+              (
+                sum(rate(http_requests_total{service="analytics-service",code=~"2.."}[5m]))
+                /
+                clamp_min(sum(rate(http_requests_total{service="analytics-service"}[5m])), 1e-9)
+              ) < 0.995
+            for: 5m
+            labels:
+              severity: critical
+              slo: availability
+            annotations:
+              summary: "Analytics availability below 99.5%"
+              description: "analytics-service 2xx success ratio dropped below 99.5% over 5m."
+
+          - alert: AnalyticsHighLatency
+            expr: |
+              histogram_quantile(
+                0.95,
+                sum(rate(analytics_generation_latency_ms_bucket[5m])) by (le)
+              ) > 5000
+            for: 10m
+            labels:
+              severity: warning
+              slo: latency
+            annotations:
+              summary: "Analytics p95 latency > 5s"
+              description: "listing intelligence generation p95 latency exceeded 5000ms."
+
+          - alert: AnalyticsEntropyCollapse
+            expr: |
+              (
+                sum(rate(analytics_generation_entropy_sum[10m]))
+                /
+                clamp_min(sum(rate(analytics_generation_entropy_count[10m])), 1e-9)
+              ) < 0.20
+            for: 10m
+            labels:
+              severity: warning
+              slo: quality
+            annotations:
+              summary: "Analytics entropy collapsed (<0.20)"
+              description: "Low entropy indicates deterministic drift or fallback dominance."
+
+          - alert: AnalyticsFallbackSpike
+            expr: |
+              (
+                sum(rate(analytics_generation_fallback_total[5m]))
+                /
+                clamp_min(sum(rate(analytics_generation_requests_total[5m])), 1e-9)
+              ) > 0.02
+            for: 5m
+            labels:
+              severity: critical
+              slo: reliability
+            annotations:
+              summary: "Analytics fallback rate above 2% of generation attempts"
+              description: "Fallback / requests ratio exceeded 2% over 5m (set analytics_generation_requests_total via v2 + legacy listing-feel)."
+
+          - alert: AnalyticsModelDegradationSevere
+            expr: |
+              (
+                (
+                  sum(rate(analytics_generation_entropy_sum[5m]))
+                  /
+                  clamp_min(sum(rate(analytics_generation_entropy_count[5m])), 1e-9)
+                ) < 0.20
+              )
+              and
+              (
+                histogram_quantile(
+                  0.95,
+                  sum(rate(analytics_generation_latency_ms_bucket[5m])) by (le)
+                ) > 5000
+              )
+            for: 5m
+            labels:
+              severity: critical
+              slo: severe
+            annotations:
+              summary: "Severe analytics degradation"
+              description: "Low entropy and high p95 latency detected together."
+
+          - alert: AnalyticsFastBurn
+            expr: |
+              (
+                1 -
+                (
+                  sum(rate(http_requests_total{service="analytics-service",code=~"2.."}[1h]))
+                  /
+                  clamp_min(sum(rate(http_requests_total{service="analytics-service"}[1h])), 1e-9)
+                )
+              ) > 0.02
+            for: 10m
+            labels:
+              severity: critical
+              slo: burn-rate
+            annotations:
+              summary: "Analytics fast error budget burn"
+              description: "1h error ratio exceeds 2%, rapidly burning the 99.5% SLO budget."
+
+      - name: analytics-unified-observability
+        interval: 30s
+        rules:
+          - alert: AIEntropyCollapseUnified
+            expr: |
+              (
+                analytics_entropy_value > 0
+                and avg_over_time(analytics_entropy_value[5m]) < 0.2
+              )
+            for: 5m
+            labels:
+              severity: critical
+              slo: ai-quality
+            annotations:
+              summary: "AI entropy collapsed on unified gauge (<0.2)"
+              description: "analytics_entropy_value averaged over 5m fell below 0.2 while the gauge is active."
+
+          - alert: AIFallbackSpikeUnified
+            expr: |
+              (
+                sum(rate(analytics_fallback_total[5m]))
+                /
+                clamp_min(sum(rate(analytics_requests_total[5m])), 1e-9)
+              ) > 0.10
+            for: 5m
+            labels:
+              severity: warning
+              slo: ai-reliability
+            annotations:
+              summary: "Unified analytics fallback rate above 10%"
+              description: "analytics_fallback_total / analytics_requests_total exceeded 10% over 5m."
+
+          - alert: AIHighLatencyUnifiedSeconds
+            expr: |
+              histogram_quantile(
+                0.95,
+                sum(rate(analytics_latency_seconds_bucket[5m])) by (le)
+              ) > 5
+            for: 5m
+            labels:
+              severity: warning
+              slo: ai-latency
+            annotations:
+              summary: "Unified analytics p95 latency > 5s"
+              description: "histogram_quantile over analytics_latency_seconds_bucket exceeded 5 seconds."
+
+          - alert: AIKafkaSkewRegression
+            expr: kafka_skew_max_share > 0.35
+            for: 15m
+            labels:
+              severity: warning
+              slo: kafka-skew
+            annotations:
+              summary: "Kafka partition skew max_share high"
+              description: "kafka_skew_max_share from coverage/telemetry exceeded 0.35 for 15m."
+
+          - alert: AIModelDegradationUnified
+            expr: |
+              (
+                analytics_entropy_value > 0
+                and avg_over_time(analytics_entropy_value[5m]) < 0.2
+              )
+              and
+              (
+                histogram_quantile(
+                  0.95,
+                  sum(rate(analytics_latency_seconds_bucket[5m])) by (le)
+                ) > 5
+              )
+            for: 5m
+            labels:
+              severity: critical
+              slo: ai-correlated
+            annotations:
+              summary: "Low entropy and high latency together (unified metrics)"
+              description: "Correlates entropy collapse with p95 analytics_latency_seconds > 5s."

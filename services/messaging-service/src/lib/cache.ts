@@ -187,10 +187,16 @@ export function makeCommentsKey(postId: string): string {
   return ckey(['messaging', 'comments', postId])
 }
 
-export function makeMessagesKey(userId: string, page: number, limit: number, type?: string): string {
-  return ckey(['messaging', 'messages', userId, page, limit, type || ''])
+export function makeMessagesKey(
+  userId: string,
+  page: number,
+  limit: number,
+  type?: string,
+  includeArchived?: boolean,
+): string {
+  return ckey(['messaging', 'messages', userId, page, limit, type || '', includeArchived ? 'ia1' : 'ia0'])
 }
 
-export function makeThreadKey(threadId: string): string {
-  return ckey(['messaging', 'thread', threadId])
+export function makeThreadKey(threadId: string, includeArchived?: boolean): string {
+  return ckey(['messaging', 'thread', threadId, includeArchived ? 'ia1' : 'ia0'])
 }

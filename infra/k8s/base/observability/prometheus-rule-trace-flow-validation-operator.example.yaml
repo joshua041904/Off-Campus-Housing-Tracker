@@ -1,0 +1,27 @@
+# Example PrometheusRule (operator CRD) — apply only when prometheus-operator is installed.
+# Requires trace_flow_validation_pass scraped from CI textfile / Pushgateway / custom exporter
+# (see bench_logs/*/trace_flow_validation.prom emitted by verify-jaeger-trace-flows.mjs --report-dir).
+#
+# kubectl apply -f prometheus-rule-trace-flow-validation-operator.example.yaml -n observability
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: och-trace-flow-validation
+  namespace: observability
+  labels:
+    role: alert-rules
+    release: prometheus
+spec:
+  groups:
+    - name: och_trace_flow_validation
+      rules:
+        - alert: TraceFlowValidationFailure
+          expr: trace_flow_validation_pass == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Jaeger structural flow validation failed (trace_flow_validation_pass == 0)"
+            description: >-
+              One or more trace-flow gates failed in the last scrape. Check bench_logs trace-validation
+              artifacts or the exporter that sets trace_flow_validation_pass{flow=...,gate=...}.
