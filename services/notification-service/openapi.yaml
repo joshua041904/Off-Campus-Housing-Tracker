@@ -1,0 +1,11 @@
+openapi: 3.0.3
+info:
+  title: notification-service
+  version: '0.0.0'
+paths:
+  "/api/notification/healthz":
+    get:
+      summary: "notification-service get /api/notification/healthz"
+      responses:
+        '200':
+          description: OK

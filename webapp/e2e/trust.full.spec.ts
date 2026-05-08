@@ -13,8 +13,11 @@ test.describe("trust (gateway vertical)", () => {
   });
 
   test("GET /api/trust/reputation/:userId (public read)", async ({ request }) => {
-    const r = await request.get(edgePath("/api/trust/reputation/00000000-0000-0000-0000-000000000001"));
-    expect([200, 404]).toContain(r.status());
+    // RFC-compliant v4 shape (trust-service rejects version-0 / malformed IDs with 400).
+    const r = await request.get(
+      edgePath("/api/trust/reputation/f47ac10b-58cc-4372-a567-0e02b2c3d479"),
+    );
+    expect(r.status()).toBe(200);
   });
 
   test("POST /api/trust/report-abuse without auth → 401", async ({ request }) => {

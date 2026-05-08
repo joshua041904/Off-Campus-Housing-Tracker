@@ -16,6 +16,20 @@ Bring up the platform **before** the webapp. From the **repo root**, respect thi
    make dev-onboard                             # or: no Phase-0 restore (empty / SQL bootstrap path)
    ```
 
+### Full cluster cold rebuild (optional)
+
+For a **from-scratch** Colima + k3s + Compose + deploy + health artifacts + DB schema check + `cluster-doctor`, from repo root:
+
+```bash
+make cold-bootstrap
+```
+
+- **Confirm:** On an interactive terminal you are prompted to type `yes`. In CI or a non-TTY shell, set `COLD_BOOTSTRAP_CONFIRM=yes`.
+- **Workspace:** Cold-bootstrap runs **`make kafka-alignment-report-venv`** first (matplotlib for alignment PNGs), then **`pnpm install --frozen-lockfile`** and **`pnpm run build`**, before cluster bootstrap; requires **`tools/kafka-contract/dist/index.js`**. **`make preflight-lab`** does not mutate the workspace. **`COLD_BOOTSTRAP_SKIP_WORKSPACE_BUILD=1`** skips `pnpm` but still runs the venv first and requires the dist file if you pre-built.
+- **Postgres restore:** If you **do not** set `RESTORE_BACKUP_DIR` and the repo already has `backups/all-8-*` or `backups/all-7-*`, cold-bootstrap uses **`latest`** (newest directory) automatically so you can refresh backups over time without changing the command. If there are **no** such directories, Postgres comes up **without** a dump restore (empty / SQL bootstrap path).
+- **Skip restore** even when backups exist: `RESTORE_BACKUP_DIR=off make cold-bootstrap` (also `no` or `skip`).
+- **Pin a bundle:** `RESTORE_BACKUP_DIR=backups/all-8-20260406-184627 make cold-bootstrap` (or keep using `latest` after you drop a newer `backups/all-8-*` tree in place).
+
 You need **api-gateway** (and backing services) reachable — typically **`https://off-campus-housing.test`** via ingress or, for quick UI work, same-origin rewrites to **`http://127.0.0.1:4020`** (see below).
 
 ## Frontend — from repo root
@@ -112,7 +126,7 @@ New specs: `e2e/webapp-pages.spec.ts` (mission, analytics shell, nav), `e2e/auth
 **Edge + gateway required for:** `e2e/guest.spec.ts` (listings+trust), `e2e/flows.spec.ts`, `e2e/auth-cycle.spec.ts`, `e2e/analytics-api.spec.ts`. Ensure the stack is up and **`off-campus-housing.test`** resolves to your edge.
 
 - **`GET /api/healthz`** only proves the gateway process is up. **Register / gRPC auth** needs **`GET /api/readyz` → 200** (auth-service gRPC verified). If readyz is **503**, Playwright register tests **skip** with a hint — fix auth connectivity, don’t assume “healthz is enough”.
-- **POST `/api/analytics/insights/listing-feel` without JWT** needs a **current `api-gateway` image** (OPEN_ROUTES). If the direct API test skips with “auth required”, **rebuild/redeploy api-gateway** from this repo.
+- **POST `/api/analytics/insights/listing-feel` without JWT** needs a **current `api-gateway` image** (public `/api/analytics/*` namespace bypass + correct Caddy `@api` routing). If the test still sees “auth required”, **rebuild/redeploy api-gateway** and Caddy config from this repo.
 
 **Analytics / Ollama**
 

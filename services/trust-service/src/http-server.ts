@@ -8,6 +8,7 @@ import {
   register,
   createHttpConcurrencyGuard,
 } from "@common/utils";
+import { inferNetProtoForSpan, mountDebugTraceHeaders, tracingMiddleware } from "@common/utils/otel";
 import { pool } from "./db.js";
 
 type AuthedRequest = Request & { userId?: string };
@@ -75,6 +76,8 @@ function requireUser(
 
 export function createTrustHttpApp() {
   const app = express();
+  app.use(tracingMiddleware);
+  mountDebugTraceHeaders(app);
   app.use(express.json({ limit: "512kb" }));
   attachTrustHttpDiagnostics(app);
   app.use((req, res, next) => {
@@ -84,6 +87,7 @@ export function createTrustHttpApp() {
         route: req.path,
         method: req.method,
         code: res.statusCode,
+        proto: inferNetProtoForSpan(req),
       }),
     );
     next();

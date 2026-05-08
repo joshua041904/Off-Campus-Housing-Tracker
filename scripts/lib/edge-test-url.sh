@@ -70,7 +70,7 @@ edge_print_resolve_and_hosts_hint() {
   fi
   echo "  curl TLS examples use SNI + fixed IP:" >&2
   echo "    export OCH_EDGE_IP=$ip" >&2
-  echo "    curl --cacert certs/dev-root.pem --resolve ${host}:443:${ip} https://${host}/api/readyz" >&2
+  echo "    curl --cacert certs/dev-root.pem --resolve ${host}:443:${ip} -H \"x-traffic-class: infra\" -H \"x-suite: \${OCH_X_SUITE:-bash}\" https://${host}/api/readyz" >&2
   echo "  Add stable DNS for Node/Playwright (needs /etc/hosts or split-horizon DNS):" >&2
   echo "    sudo sh -c 'grep -qF \"$ip $host\" /etc/hosts || echo \"$ip $host\" >> /etc/hosts'" >&2
   echo "  Or: OCH_AUTO_EDGE_HOSTS=1 (uses OCH_EDGE_IP or discovered LB IP; requires sudo on non-root)" >&2
@@ -162,11 +162,12 @@ edge_strict_curl_edge_health() {
     return 1
   }
   local maxt="${EDGE_CURL_GATE_TIMEOUT_SEC:-15}"
-  if ! curl -sfS --max-time "$maxt" --cacert "$ca" "${base}/api/healthz" >/dev/null; then
+  local _suite_h=( -H "x-suite: ${OCH_X_SUITE:-bash}" )
+  if ! curl -sfS --max-time "$maxt" --cacert "$ca" "${_suite_h[@]}" "${base}/api/healthz" >/dev/null; then
     echo "❌ Edge curl failed: ${base}/api/healthz (TLS, DNS, or ingress /api → gateway?)" >&2
     return 1
   fi
-  if ! curl -sfS --max-time "$maxt" --cacert "$ca" "${base}/auth/healthz" >/dev/null; then
+  if ! curl -sfS --max-time "$maxt" --cacert "$ca" "${_suite_h[@]}" "${base}/auth/healthz" >/dev/null; then
     echo "❌ Edge curl failed: ${base}/auth/healthz — ingress may be missing Prefix /auth → api-gateway (see infra/k8s/overlays/dev/ingress.yaml)" >&2
     return 1
   fi

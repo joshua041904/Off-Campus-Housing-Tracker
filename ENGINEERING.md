@@ -1020,6 +1020,11 @@ Client Request
     └─► Database Query (span: db)
 ```
 
+**Lab contracts (trace + intelligence split):**
+
+- Observability integrity (Jaeger contracts, Step 7, QUIC lab budget): `docs/observability/och-observability-integrity-spec-v1.md`
+- Listing intelligence (modes, structured signals, audits): `docs/intelligence/och-listing-intelligence-spec-v1.md`
+
 **Access**:
 ```bash
 kubectl -n observability port-forward svc/jaeger 16686:16686
@@ -1937,7 +1942,7 @@ wireshark test-results/YYYYMMDD-HHMMSS-http3-verification/quic-capture.pcap
 ### API Gateway Recovery
 
 **Diagnosis**:
-1. Check gateway logs: `kubectl -n off-campus-housing-tracker logs -l app=api-gateway -c app --tail=500`
+1. Check gateway logs: `kubectl -n off-campus-housing-tracker logs -l app=api-gateway -c api-gateway --tail=500`
 2. Check proxy errors: Filter logs for "proxy error", "502", "upstream error"
 3. Check Redis connection: Filter logs for "redis", "Redis"
 4. Test gateway health: `curl -k https://off-campus-housing.test:8443/api/healthz`

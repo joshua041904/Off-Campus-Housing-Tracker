@@ -6,10 +6,11 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.httpCounter = exports.register = void 0;
 const prom_client_1 = __importDefault(require("prom-client"));
 exports.register = new prom_client_1.default.Registry();
+exports.register.setContentType(prom_client_1.default.Registry.OPENMETRICS_CONTENT_TYPE);
 prom_client_1.default.collectDefaultMetrics({ register: exports.register });
 exports.httpCounter = new prom_client_1.default.Counter({
     name: 'http_requests_total',
     help: 'HTTP requests',
-    labelNames: ['service', 'route', 'method', 'code']
+    labelNames: ['service', 'route', 'method', 'code', 'proto']
 });
 exports.register.registerMetric(exports.httpCounter);

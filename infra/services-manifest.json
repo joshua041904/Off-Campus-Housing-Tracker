@@ -1,0 +1,15 @@
+{
+  "specVersion": "och-services-manifest-v1",
+  "description": "Canonical housing Node services for coverage matrix, Jaeger checks, and trace contracts.",
+  "services": [
+    "api-gateway",
+    "auth-service",
+    "listings-service",
+    "booking-service",
+    "messaging-service",
+    "media-service",
+    "notification-service",
+    "trust-service",
+    "analytics-service"
+  ]
+}

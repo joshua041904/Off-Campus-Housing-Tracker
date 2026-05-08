@@ -24,6 +24,15 @@ data:
           summary: Kafka has under-replicated partitions
           description: Broker replication lag or ISR shrink — check broker logs and network coherence (make verify-network-coherence).
 
+      - alert: KafkaISRShrinkRate
+        expr: sum(rate(kafka_server_replicamanager_isrshrinks_total[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Kafka ISR shrink rate elevated
+          description: ISR shrinks per second above threshold — broker or network instability (JMX metric; absent if Kafka not scraped).
+
       - alert: KafkaActiveControllerCount
         expr: kafka_controller_kafkacontroller_activecontrollercount != 1
         for: 30s
@@ -43,6 +52,18 @@ data:
         annotations:
           summary: High Kafka leader election rate
           description: Possible instability — correlate with pod restarts and network (Colima / MetalLB drift).
+
+      # Emitted by @common/utils kafka startup barrier (partition leadership snapshot per service).
+      - alert: KafkaPartitionLeaderImbalanceHigh
+        expr: och_kafka_leader_imbalance_max_ratio > 0.70
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Kafka partition leadership skew high on sampled topic
+          description: >
+            One broker leads >70% of partitions in the sampled topic metadata snapshot.
+            Correlate with broker count, RF, and Strimzi/broker health.
 
     - name: kafka-tls
       interval: 30s
@@ -88,9 +109,9 @@ data:
       # Emitted by scripts/tests/kafka-alignment-suite.sh → textfile (NODE_EXPORTER_TEXTFILE_DIR) or bench_logs.
       - alert: KafkaAlignmentTestFailure
         expr: kafka_alignment_test_pass == 0
-        for: 30s
+        for: 2m
         labels:
-          severity: warning
+          severity: critical
         annotations:
           summary: Kafka alignment suite reported a failing test
           description: >

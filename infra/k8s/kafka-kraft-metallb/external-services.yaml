@@ -1,5 +1,10 @@
 # One LoadBalancer per broker so each broker can advertise a stable hostname (MetalLB EXTERNAL-IP).
 # In-cluster clients: use kafka-N-external.<ns>.svc.cluster.local:9094 or headless kafka-N.kafka:9093.
+#
+# Do not set spec.loadBalancerIP (pinning fights MetalLB sharing / allocator). After apply, wait for
+# status.loadBalancer.ingress[0].ip on each kafka-N-external; refresh broker TLS from those IPs
+# (scripts/kafka-refresh-tls-from-lb.sh). Recovery from old pins: STRIP_KAFKA_EXTERNAL_REQUESTED_LB_IP=1
+# ./scripts/patch-kafka-external-metallb-pinned-ips.sh
 ---
 apiVersion: v1
 kind: Service

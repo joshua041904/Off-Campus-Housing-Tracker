@@ -67,6 +67,53 @@ jobs:
           cat bench_logs/performance-lab/protocol-matrix-anomalies.json
           grep '"any_http2_collapse_anomaly": false' bench_logs/performance-lab/protocol-matrix-anomalies.json
 
+  bootstrap-state-contract:
+    name: Bootstrap state contract (workspace + openssl + venv)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.11.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Run verify-bootstrap-state CI script
+        run: bash scripts/ci/verify-bootstrap-state-ci.sh
+
+  trace-contract-validator:
+    name: Trace contract validator (fixture, no Jaeger)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Validate trace contract rules on fixture JSON
+        run: node scripts/validate-trace-contract.mjs --fixture scripts/trace-validators/fixtures/trace-contract-pass.json
+
+  kustomize-manifest-static:
+    name: Kustomize static (make verify-ci)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: "v1.31.0"
+      - name: Install kustomize
+        run: |
+          set -euo pipefail
+          KUST_VER=5.4.3
+          curl -fsSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUST_VER}/kustomize_v${KUST_VER}_linux_amd64.tar.gz" | sudo tar xz -C /usr/local/bin
+          kustomize version
+      - name: make verify-ci
+        working-directory: ${{ github.workspace }}
+        env:
+          CI: "true"
+        run: make verify-ci
+
   build:
     name: Build (${{ matrix.service }})
     runs-on: ubuntu-latest
@@ -377,21 +424,39 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Full strict E2E (RUN_STRICT_PLAYWRIGHT) or Playwright smoke (default)
+      - name: Playwright strict verticals + integrity (or offline toolchain only)
         env:
-          RUN_STRICT_PLAYWRIGHT: ${{ vars.RUN_STRICT_PLAYWRIGHT }}
+          # On github-hosted, default is offline --list unless vars.PLAYWRIGHT_OFFLINE_LIST_ONLY=0 (self-hosted edge + Jaeger).
+          PLAYWRIGHT_OFFLINE_LIST_ONLY: ${{ vars.PLAYWRIGHT_OFFLINE_LIST_ONLY }}
+          JAEGER_QUERY_BASE: ${{ vars.JAEGER_QUERY_BASE }}
         run: |
           set -euo pipefail
           cd "$GITHUB_WORKSPACE/webapp"
           pnpm exec playwright install chromium --with-deps
-          if [ "${RUN_STRICT_PLAYWRIGHT:-}" = "true" ]; then
-            bash "$GITHUB_WORKSPACE/scripts/dev-generate-certs.sh"
-            export NODE_EXTRA_CA_CERTS="$GITHUB_WORKSPACE/certs/dev-root.pem"
-            PLAYWRIGHT_VERTICAL_STRICT=1 PLAYWRIGHT_STRICT_HTTP3=1 pnpm run test:e2e:strict-verticals-and-integrity
-          else
-            echo "RUN_STRICT_PLAYWRIGHT not true — Playwright toolchain smoke (test --list)"
+          _offline="${PLAYWRIGHT_OFFLINE_LIST_ONLY:-}"
+          if [ "${GITHUB_ACTIONS:-}" = "true" ] && [ "${_offline:-1}" = "1" ]; then
+            echo "Playwright offline (GITHUB_ACTIONS + PLAYWRIGHT_OFFLINE_LIST_ONLY default 1): playwright test --list"
+            echo "Set repository variable PLAYWRIGHT_OFFLINE_LIST_ONLY=0 to run test:e2e:strict-verticals-and-integrity on a runner with edge."
             pnpm exec playwright test --list
+            exit 0
           fi
+          if [ "${_offline:-0}" = "1" ] && [ "${GITHUB_ACTIONS:-}" != "true" ]; then
+            echo "PLAYWRIGHT_OFFLINE_LIST_ONLY=1 — playwright test --list"
+            pnpm exec playwright test --list
+            exit 0
+          fi
+          if [ -z "${JAEGER_QUERY_BASE:-}" ]; then
+            echo "::error::Strict Playwright requires JAEGER_QUERY_BASE (Jaeger query UI :16686). Set repository variable JAEGER_QUERY_BASE on self-hosted runners with cluster access."
+            exit 1
+          fi
+          bash "$GITHUB_WORKSPACE/scripts/dev-generate-certs.sh"
+          export NODE_EXTRA_CA_CERTS="$GITHUB_WORKSPACE/certs/dev-root.pem"
+          PLAYWRIGHT_VERTICAL_STRICT=1 PLAYWRIGHT_STRICT_HTTP3=1 pnpm run test:e2e:strict-verticals-and-integrity
+          chmod +x "$GITHUB_WORKSPACE/scripts/verify-jaeger-tracing-services.sh" "$GITHUB_WORKSPACE/scripts/verify-jaeger-trace-structure.sh" "$GITHUB_WORKSPACE/scripts/verify-jaeger-trace-all-verticals.sh"
+          JAEGER_QUERY_BASE="$JAEGER_QUERY_BASE" "$GITHUB_WORKSPACE/scripts/verify-jaeger-tracing-services.sh"
+          JAEGER_QUERY_BASE="$JAEGER_QUERY_BASE" "$GITHUB_WORKSPACE/scripts/verify-jaeger-trace-all-verticals.sh"
+          cd "$GITHUB_WORKSPACE"
+          JAEGER_QUERY_BASE="$JAEGER_QUERY_BASE" pnpm run test:observability
 
   och-ci-gate:
     name: Aggregate gate (performance + structural)
@@ -400,6 +465,9 @@ jobs:
     needs:
       - rollup-wasm-guard
       - protocol-anomaly
+      - bootstrap-state-contract
+      - trace-contract-validator
+      - kustomize-manifest-static
       - build
       - integration-tests
       - transport-validation
@@ -411,6 +479,9 @@ jobs:
         env:
           ROLLUP_GUARD: ${{ needs.rollup-wasm-guard.result }}
           PROTOCOL_ANOMALY: ${{ needs.protocol-anomaly.result }}
+          BOOTSTRAP_STATE: ${{ needs['bootstrap-state-contract'].result }}
+          TRACE_CONTRACT_FIXTURE: ${{ needs['trace-contract-validator'].result }}
+          KUSTOMIZE_STATIC: ${{ needs['kustomize-manifest-static'].result }}
           BUILD: ${{ needs.build.result }}
           INTEGRATION: ${{ needs['integration-tests'].result }}
           TV: ${{ needs.transport-validation.result }}
@@ -422,12 +493,15 @@ jobs:
           fail() { echo "::error::$1"; exit 1; }
           [ "$ROLLUP_GUARD" = success ] || fail "rollup-wasm-guard: $ROLLUP_GUARD (native @rollup/rollup-* leaked into node_modules — use @rollup/wasm-node override)"
           [ "$PROTOCOL_ANOMALY" = success ] || fail "protocol-anomaly: $PROTOCOL_ANOMALY (HTTP/2 matrix collapse or missing artifacts — tuning required)"
+          [ "$BOOTSTRAP_STATE" = success ] || fail "bootstrap-state-contract: $BOOTSTRAP_STATE (workspace/crypto/venv contract — see scripts/ci/verify-bootstrap-state-ci.sh)"
+          [ "$TRACE_CONTRACT_FIXTURE" = success ] || fail "trace-contract-validator: $TRACE_CONTRACT_FIXTURE (scripts/validate-trace-contract.mjs fixture)"
+          [ "$KUSTOMIZE_STATIC" = success ] || fail "kustomize-manifest-static: $KUSTOMIZE_STATIC (make verify-ci — kustomize build + shell checks)"
           [ "$BUILD" = success ] || fail "build matrix: $BUILD"
           [ "$INTEGRATION" = success ] || fail "integration-tests: $INTEGRATION"
           [ "$TV" = success ] || fail "transport-validation: $TV"
           [ "$SLO" = success ] || fail "slo-policy: $SLO"
           [ "$QUIC" = success ] || fail "quic-hostname-invariant: $QUIC"
           if [ "$PW" != skipped ]; then
-            [ "$PW" = success ] || fail "playwright-strict: $PW (set RUN_STRICT_PLAYWRIGHT=true for full edge E2E)"
+            [ "$PW" = success ] || fail "playwright-strict: $PW (hosted: default --list; full strict needs PLAYWRIGHT_OFFLINE_LIST_ONLY=0 + vars.JAEGER_QUERY_BASE for observability verification)"
           fi
           echo "och-ci: all required jobs succeeded."

@@ -1,5 +1,6 @@
 import express, { type Application, type NextFunction, type Request, type Response } from "express";
 import { httpCounter, register, createHttpConcurrencyGuard } from "@common/utils";
+import { inferNetProtoForSpan, mountDebugTraceHeaders, tracingMiddleware } from "@common/utils/otel";
 import { pool } from "./db.js";
 
 type AuthedRequest = Request & { userId?: string };
@@ -16,10 +17,18 @@ function requireUser(req: AuthedRequest, res: Response, next: NextFunction): voi
 
 export function createNotificationHttpApp(): Application {
   const app = express();
+  app.use(tracingMiddleware);
+  mountDebugTraceHeaders(app);
   app.use(express.json({ limit: "512kb" }));
   app.use((req, res, next) => {
     res.on("finish", () =>
-      httpCounter.inc({ service: "notification", route: req.path, method: req.method, code: res.statusCode })
+      httpCounter.inc({
+        service: "notification",
+        route: req.path,
+        method: req.method,
+        code: res.statusCode,
+        proto: inferNetProtoForSpan(req),
+      })
     );
     next();
   });

@@ -1,0 +1,29 @@
+openapi: 3.0.3
+info:
+  title: listings-service
+  version: '0.0.0'
+paths:
+  "/api/listings/healthz":
+    get:
+      summary: "listings-service get /api/listings/healthz"
+      responses:
+        '200':
+          description: OK
+  "/api/listings":
+    get:
+      summary: "listings-service get /api/listings"
+      responses:
+        '200':
+          description: OK
+  "/api/listings/search":
+    get:
+      summary: "listings-service get /api/listings/search"
+      responses:
+        '200':
+          description: OK
+  "/api/listings/listings/sample-listing-id":
+    get:
+      summary: "listings-service get /api/listings/listings/sample-listing-id"
+      responses:
+        '200':
+          description: OK

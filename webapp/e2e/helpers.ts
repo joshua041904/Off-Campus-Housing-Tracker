@@ -92,6 +92,8 @@ export async function registerViaUi(page: Page, email: string, password: string)
   const responseTimeout = Math.max(5_000, Number(process.env.E2E_REGISTER_RESPONSE_MS ?? "30_000") || 30_000);
   const dashboardTimeout = Math.max(5_000, Number(process.env.E2E_DASHBOARD_MS ?? "45_000") || 45_000);
   let lastDetail = "";
+  let usedSingleInfraRetry = false;
+  let usedSingleValidationRetry = false;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     await page.goto("/register", { waitUntil: "domcontentloaded" });
@@ -110,7 +112,7 @@ export async function registerViaUi(page: Page, email: string, password: string)
       { timeout: responseTimeout },
     );
 
-    await page.locator('[data-testid="register-form"]').getByRole("button", { name: "Create account" }).click();
+    await page.locator('[data-testid="register-form"]').getByRole("button", { name: "Register" }).click();
 
     let regStatus = 0;
     let regBody = "";
@@ -136,6 +138,15 @@ export async function registerViaUi(page: Page, email: string, password: string)
     }
 
     if (regStatus === 400 || regStatus === 409) {
+      // Infra flaps can surface as a malformed validation parse despite a filled client payload.
+      const looksLikeMissingCreds = /email and password are required|email\/password required/i.test(regBody);
+      const canRetryValidation = regStatus === 400 && !!regBody && looksLikeMissingCreds && !usedSingleValidationRetry;
+      if (canRetryValidation) {
+        usedSingleValidationRetry = true;
+        await sleep(1_000);
+        await waitForEdgeReadyz(page, 20_000);
+        continue;
+      }
       throw new Error(
         `Register API ${regStatus} (not retryable): ${regBody || "empty body"}. ` +
           `url=${page.url()} email=${email.slice(0, 24)}… — check gateway json body parse and auth gRPC.`,
@@ -144,6 +155,12 @@ export async function registerViaUi(page: Page, email: string, password: string)
 
     if (regStatus !== 201 && regStatus !== 200) {
       if (regStatus >= 500 || regStatus === 429) {
+        if (regStatus >= 500 && !usedSingleInfraRetry) {
+          usedSingleInfraRetry = true;
+          await sleep(1_000);
+          await waitForEdgeReadyz(page, 20_000);
+          continue;
+        }
         lastDetail = `register HTTP ${regStatus}: ${regBody}`;
         if (attempt < maxAttempts) {
           const backoff = Math.min(1_500 * 2 ** (attempt - 1), 12_000);

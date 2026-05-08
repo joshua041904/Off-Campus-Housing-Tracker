@@ -1,8 +1,28 @@
 import { getRedis } from "./redis.js";
 
+function isRedisStreamNotWriteableError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  return /Stream isn't writeable|stream is not writeable|enableOfflineQueue/i.test(msg);
+}
+
+async function retryRedisOnce<T>(op: () => Promise<T>): Promise<T> {
+  try {
+    return await op();
+  } catch (e) {
+    if (!isRedisStreamNotWriteableError(e)) throw e;
+    const redis = getRedis();
+    try {
+      await redis.connect();
+    } catch {
+      // ignore reconnect error; second op attempt will surface definitive error
+    }
+    return await op();
+  }
+}
+
 /** Atomic SET key NX with TTL (ms). Returns true if lock acquired. */
 export async function acquireLockWithToken(key: string, token: string, ttlMs: number): Promise<boolean> {
-  const r = await getRedis().set(key, token, "PX", ttlMs, "NX");
+  const r = await retryRedisOnce(() => getRedis().set(key, token, "PX", ttlMs, "NX"));
   return r === "OK";
 }
 
@@ -16,7 +36,7 @@ end
 `;
 
 export async function releaseLockWithToken(key: string, token: string): Promise<boolean> {
-  const n = (await getRedis().eval(LUA_RELEASE_LOCK, 1, key, token)) as number;
+  const n = (await retryRedisOnce(() => getRedis().eval(LUA_RELEASE_LOCK, 1, key, token))) as number;
   return n === 1;
 }
 

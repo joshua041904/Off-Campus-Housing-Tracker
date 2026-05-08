@@ -35,6 +35,10 @@ export default defineConfig({
     environment: "node",
     include: ["tests/**/*.integration.test.ts"],
     globalSetup: ["./vitest.integration.global-setup.ts"],
+    // Default Vitest "threads" pool has triggered native SIGABRT on macOS/arm64
+    // (LLVM BuilderBase assertion) when transforming/running this suite under load.
+    // Child-process isolation matches other integration harnesses and avoids the crash.
+    pool: "forks",
     fileParallelism: false,
     testTimeout: 30_000,
     hookTimeout: 30_000,

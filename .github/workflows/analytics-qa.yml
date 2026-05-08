@@ -1,0 +1,21 @@
+# Manual regression against a live analytics stack (Ollama + gateway + listings).
+# Configure repository secrets: ANALYTICS_QA_BASE_URL, ANALYTICS_QA_LISTING_ID
+name: analytics-qa
+on:
+  workflow_dispatch:
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+      - name: Analytics QA harness
+        env:
+          BASE_URL: ${{ secrets.ANALYTICS_QA_BASE_URL }}
+          LISTING_ID: ${{ secrets.ANALYTICS_QA_LISTING_ID }}
+          ENFORCE_ANALYTICS_QA_THRESHOLDS: "1"
+          STRICT_ANALYTICS_QA: "1"
+        run: node scripts/analytics-qa/run-regression-suite.mjs

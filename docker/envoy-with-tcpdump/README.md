@@ -10,6 +10,8 @@ From repo root:
 docker build -t envoy-with-tcpdump:dev -f docker/envoy-with-tcpdump/Dockerfile .
 ```
 
+**Docker Hub 429:** the Dockerfile defaults to **`mirror.gcr.io/envoyproxy/envoy:v1.28-latest`**. Override with `--build-arg ENVOY_IMAGE=docker.io/envoyproxy/envoy:v1.28-latest` after `docker login` if you prefer hub directly.
+
 k3d: load into cluster after build:
 
 ```bash

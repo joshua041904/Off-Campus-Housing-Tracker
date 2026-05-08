@@ -1,3 +1,12 @@
+import express, { type Express, type NextFunction, type Request, type Response } from "express";
+import { kafka, register, httpCounter, createHttpConcurrencyGuard } from "@common/utils";
+import {
+  buildKafkaMessageHeaders,
+  inferNetProtoForSpan,
+  mountDebugTraceHeaders,
+  tracingMiddleware,
+  withKafkaProduceSpan,
+} from "@common/utils/otel";
 import express, {
   type Express,
   type NextFunction,
@@ -55,10 +64,21 @@ async function publishBookingEvent(
       },
       payload,
     };
-    await producer.send({
-      topic: BOOKING_EVENTS_TOPIC,
-      messages: [{ key: aggregateId, value: JSON.stringify(message) }],
-    });
+    await withKafkaProduceSpan(
+      `kafka produce ${BOOKING_EVENTS_TOPIC}`,
+      {
+        "messaging.system": "kafka",
+        "messaging.destination.name": BOOKING_EVENTS_TOPIC,
+        "booking.event_type": eventType,
+        "booking.aggregate_id": aggregateId,
+      },
+      async () => {
+        await producer.send({
+          topic: BOOKING_EVENTS_TOPIC,
+          messages: [{ key: aggregateId, headers: buildKafkaMessageHeaders(), value: JSON.stringify(message) }],
+        });
+      },
+    );
   } catch (e) {
     console.warn("[booking] kafka publish skipped", e);
   }
@@ -83,15 +103,10 @@ const TENANT_NOTES_MAX = 4000;
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-function disableHistoryCaching(res: Response): void {
-  res.setHeader("Cache-Control", "private, no-store, max-age=0");
-  res.setHeader("Pragma", "no-cache");
-  res.setHeader("Expires", "0");
-  res.vary("x-user-id");
-}
-
 export function createBookingHttpApp(): Express {
   const app = express();
+  app.use(tracingMiddleware);
+  mountDebugTraceHeaders(app);
   app.use(express.json({ limit: "1mb" }));
 
   app.use((req, res, next) => {
@@ -101,6 +116,7 @@ export function createBookingHttpApp(): Express {
         route: req.path,
         method: req.method,
         code: res.statusCode,
+        proto: inferNetProtoForSpan(req),
       }),
     );
     next();
@@ -403,49 +419,72 @@ export function createBookingHttpApp(): Express {
     },
   );
 
-  app.post(
-    "/search-history",
-    requireUser,
-    async (req: AuthedRequest, res: Response) => {
-      try {
-        disableHistoryCaching(res);
-        const {
-          query,
-          minPriceCents,
-          maxPriceCents,
-          maxDistanceKm,
-          latitude,
-          longitude,
-          filters,
-        } = req.body as {
-          query?: string;
-          minPriceCents?: number;
-          maxPriceCents?: number;
-          maxDistanceKm?: number;
-          latitude?: number;
-          longitude?: number;
-          filters?: Record<string, unknown>;
-        };
-        const row = await prisma.searchHistory.create({
-          data: {
-            userId: req.userId!,
-            query: query || null,
-            minPriceCents: minPriceCents ?? null,
-            maxPriceCents: maxPriceCents ?? null,
-            maxDistanceKm: maxDistanceKm ?? null,
-            latitude: latitude ?? null,
-            longitude: longitude ?? null,
-            filters:
-              (filters as Prisma.InputJsonValue | undefined) ?? undefined,
-          },
-        });
-        res.status(201).json(row);
-      } catch (error) {
-        console.error("[booking] search-history create failed", error);
-        res.status(500).json({ error: "internal" });
-      }
-    },
-  );
+      const updated = await prisma.booking.update({
+        where: { id: bookingId },
+        data: {
+          status: "cancelled" as const,
+          cancellationReason: `cancelled_by:${actor}`,
+          cancelledAt: new Date(),
+        },
+      });
+
+      await publishBookingEvent("BookingCancelledV1", updated.id, {
+        booking_id: updated.id,
+        listing_id: updated.listingId,
+        cancelled_by: actor,
+      });
+
+      res.json(updated);
+    } catch (error) {
+      console.error("[booking] cancel failed", error);
+      res.status(500).json({ error: "internal" });
+    }
+  });
+
+  app.post("/search-history", requireUser, async (req: AuthedRequest, res: Response) => {
+    try {
+      const { query, minPriceCents, maxPriceCents, maxDistanceKm, latitude, longitude, filters } = req.body as {
+        query?: string;
+        minPriceCents?: number;
+        maxPriceCents?: number;
+        maxDistanceKm?: number;
+        latitude?: number;
+        longitude?: number;
+        filters?: Record<string, unknown>;
+      };
+      const row = await prisma.searchHistory.create({
+        data: {
+          userId: req.userId!,
+          query: query || null,
+          minPriceCents: minPriceCents ?? null,
+          maxPriceCents: maxPriceCents ?? null,
+          maxDistanceKm: maxDistanceKm ?? null,
+          latitude: latitude ?? null,
+          longitude: longitude ?? null,
+          filters: (filters as Prisma.InputJsonValue | undefined) ?? undefined,
+        },
+      });
+      res.status(201).json(row);
+    } catch (error) {
+      console.error("[booking] search-history create failed", error);
+      res.status(500).json({ error: "internal" });
+    }
+  });
+
+  app.get("/search-history/list", requireUser, async (req: AuthedRequest, res: Response) => {
+    try {
+      const limit = Math.min(Number(req.query.limit || 25), 100);
+      const items = await prisma.searchHistory.findMany({
+        where: { userId: req.userId! },
+        orderBy: { createdAt: "desc" },
+        take: limit,
+      });
+      res.json({ items });
+    } catch (error) {
+      console.error("[booking] search-history list failed", error);
+      res.status(500).json({ error: "internal" });
+    }
+  });
 
   app.get(
     "/search-history/list",
@@ -507,28 +546,130 @@ export function createBookingHttpApp(): Express {
     },
   );
 
-  app.post(
-    "/watchlist/remove",
-    requireUser,
-    async (req: AuthedRequest, res: Response) => {
+  async function fetchListingForBookingRequest(
+    listingId: string,
+  ): Promise<{ landlordId: string; priceCents: number } | null> {
+    const base = (process.env.LISTINGS_HTTP || "http://127.0.0.1:4012").replace(/\/$/, "");
+    const url = `${base}/listings/${listingId}`;
+    let upstream: globalThis.Response;
+    try {
+      const ms = Number(process.env.BOOKING_LISTING_FETCH_TIMEOUT_MS ?? "12000");
+      const timeout = Number.isFinite(ms) ? Math.min(120_000, Math.max(1000, ms)) : 12_000;
+      upstream = await fetch(url, { signal: AbortSignal.timeout(timeout) });
+    } catch {
+      throw new Error("listings_fetch_failed");
+    }
+    if (upstream.status === 404) return null;
+    if (!upstream.ok) throw new Error(`listings_http_${upstream.status}`);
+    const j = (await upstream.json()) as Record<string, unknown>;
+    const landlordId = String(j.landlord_id ?? j.user_id ?? "").trim();
+    if (!UUID_RE.test(landlordId)) return null;
+    let priceCents = Number(j.price_cents);
+    if (!Number.isFinite(priceCents) && typeof j.price === "number") {
+      priceCents = Math.round(j.price * 100);
+    }
+    if (!Number.isFinite(priceCents)) priceCents = 0;
+    return { landlordId, priceCents };
+  }
+
+  /** Tour/booking interest: validates listing via listings-service HTTP, creates booking row, emits Kafka. */
+  app.post("/request", requireUser, async (req: AuthedRequest, res: Response) => {
+    try {
+      const { listing_id, renter_id, requested_date, message } = req.body as {
+        listing_id?: string;
+        renter_id?: string;
+        requested_date?: string;
+        message?: string;
+      };
+      if (!listing_id || !renter_id || !requested_date) {
+        res.status(400).json({ error: "listing_id, renter_id, requested_date required" });
+        return;
+      }
+      if (!UUID_RE.test(listing_id)) {
+        res.status(400).json({ error: "invalid listing_id" });
+        return;
+      }
+      if (renter_id !== req.userId) {
+        res.status(403).json({ error: "renter_id must match authenticated user" });
+        return;
+      }
+      const day = String(requested_date).trim().slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+        res.status(400).json({ error: "requested_date must be YYYY-MM-DD" });
+        return;
+      }
+
+      let meta: { landlordId: string; priceCents: number } | null;
       try {
-        const { listingId } = req.body as { listingId?: string };
-        if (!listingId) {
-          res.status(400).json({ error: "listingId required" });
-          return;
-        }
-        const updated = await prisma.watchlistItem.updateMany({
-          where: { userId: req.userId!, listingId, isActive: true },
-          data: { isActive: false, removedAt: new Date() },
-        });
-        res.json({
-          ok: true,
-          removed: updated.count,
-          message: "Removed from watchlist",
-        });
-      } catch (error) {
-        console.error("[booking] watchlist remove failed", error);
-        res.status(500).json({ error: "internal" });
+        meta = await fetchListingForBookingRequest(listing_id);
+      } catch {
+        res.status(502).json({ error: "listing fetch failed" });
+        return;
+      }
+      if (!meta) {
+        res.status(404).json({ error: "listing not found" });
+        return;
+      }
+
+      const startDate = new Date(`${day}T00:00:00.000Z`);
+      const endDate = new Date(`${day}T00:00:00.000Z`);
+      const note =
+        message != null && String(message).trim() !== ""
+          ? String(message).slice(0, TENANT_NOTES_MAX)
+          : null;
+
+      const booking = await prisma.booking.create({
+        data: {
+          listingId: listing_id,
+          tenantId: renter_id,
+          landlordId: meta.landlordId,
+          status: "created" as const,
+          startDate,
+          endDate,
+          priceCentsSnapshot: meta.priceCents,
+          currencyCode: "USD",
+          tenantNotes: note,
+        },
+      });
+
+      await publishBookingEvent("BookingRequestV1", booking.id, {
+        booking_id: booking.id,
+        listing_id: booking.listingId,
+        tenant_id: booking.tenantId,
+        requested_date: day,
+        message_present: Boolean(note),
+      });
+
+      res.status(201).json({
+        ok: true,
+        booking_id: booking.id,
+        listing_id: booking.listingId,
+        landlord_id: booking.landlordId,
+        tenant_id: booking.tenantId,
+        requested_date: day,
+        status: booking.status,
+      });
+    } catch (error) {
+      console.error("[booking] request failed", error);
+      res.status(500).json({ error: "internal" });
+    }
+  });
+
+  app.patch("/:bookingId", requireUser, async (req: AuthedRequest, res: Response) => {
+    try {
+      const bid = req.params.bookingId || "";
+      if (!UUID_RE.test(bid)) {
+        res.status(400).json({ error: "invalid bookingId" });
+        return;
+      }
+      const { tenantNotes } = req.body as { tenantNotes?: string | null };
+      if (!Object.prototype.hasOwnProperty.call(req.body, "tenantNotes")) {
+        res.status(400).json({ error: "tenantNotes required (string or null)" });
+        return;
+      }
+      if (tenantNotes !== null && typeof tenantNotes !== "string") {
+        res.status(400).json({ error: "tenantNotes must be string or null" });
+        return;
       }
     },
   );
