@@ -37,7 +37,13 @@ const suiteProjects = [
   },
   {
     name: "03-listings",
-    testMatch: ["listing-and-analytics-journey.spec.ts", "listings-filters-maps.spec.ts"],
+    testMatch: [
+      "listing-and-analytics-journey.spec.ts",
+      "listings-filters-maps.spec.ts",
+      "search-filters.spec.ts",
+      "listings.visual.spec.ts",
+      "listings-detail.spec.ts",
+    ],
   },
   {
     name: "04-analytics",

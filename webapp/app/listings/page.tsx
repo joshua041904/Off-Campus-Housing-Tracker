@@ -68,6 +68,15 @@ export default function ListingsPage() {
     setEmail(getStoredEmail());
   }, []);
 
+  const debouncedFilters = useDebounce(filters, 300);
+
+  // Sync filter state → URL query params on every filter change
+  useEffect(() => {
+    const params = filtersToParams(debouncedFilters);
+    const qs = params.toString();
+    router.replace(qs ? `/listings?${qs}` : "/listings", { scroll: false });
+  }, [debouncedFilters]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const buildCreateAmenities = (): string[] => {
     const parts: string[] = [];
     if (createGarage) parts.push("garage");
@@ -213,6 +222,12 @@ export default function ListingsPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-teal-50/30 text-slate-900">
+      <a
+        href="#listings-results"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:rounded-lg focus:bg-teal-700 focus:px-4 focus:py-2 focus:text-white focus:text-sm focus:font-semibold"
+      >
+        Skip to listings
+      </a>
       <Nav email={email} />
       <main className="mx-auto max-w-5xl px-4 py-10">
         <h1 className="font-serif text-3xl text-slate-900">Browse listings</h1>
