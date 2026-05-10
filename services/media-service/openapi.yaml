@@ -1,0 +1,11 @@
+openapi: 3.0.3
+info:
+  title: media-service
+  version: '0.0.0'
+paths:
+  "/api/media/healthz":
+    get:
+      summary: "media-service get /api/media/healthz"
+      responses:
+        '200':
+          description: OK

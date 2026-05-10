@@ -41,8 +41,11 @@ data:
     backend be_api
       balance leastconn
       http-reuse always
-      # Match gateway K8s readiness: /readyz is 200 only after auth gRPC Health/Check succeeds
-      option httpchk GET /readyz
+      # Match gateway K8s readiness: /readyz is 200 only after auth gRPC Health/Check succeeds.
+      # x-traffic-class: infra — api-gateway strict suite labeling (see docs/TRAFFIC_CLASSIFICATION_POLICY.md).
+      option httpchk
+      http-check connect
+      http-check send meth GET uri /readyz ver HTTP/1.1 hdr x-traffic-class infra
       http-check expect status 200
       # Only send traffic to ready pods; inter/fall/rise reduce 503 during rotation when backends restart.
       default-server inter 3s fall 2 rise 3

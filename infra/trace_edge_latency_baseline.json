@@ -1,0 +1,10 @@
+{
+  "api-gateway->auth-service": 500,
+  "api-gateway->listings-service": 500,
+  "api-gateway->trust-service": 500,
+  "api-gateway->booking-service": 500,
+  "api-gateway->messaging-service": 500,
+  "api-gateway->media-service": 800,
+  "api-gateway->notification-service": 500,
+  "api-gateway->analytics-service": 500
+}

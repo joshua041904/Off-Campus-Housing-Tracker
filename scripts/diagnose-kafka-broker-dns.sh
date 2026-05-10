@@ -29,7 +29,7 @@ fi
 ok "Namespace exists"
 
 if ! kubectl get svc kafka -n "$NS" --request-timeout=15s >/dev/null 2>&1; then
-  bad "Service/kafka (headless) missing — apply infra/k8s/kafka-kraft-metallb/headless-service.yaml (see make apply-kafka-kraft)"
+  bad "Service/kafka (headless) missing — run make apply-kafka-kraft (applies headless-service.yaml + kafka-headless alias + externals)"
   exit 1
 fi
 cluster_ip="$(kubectl get svc kafka -n "$NS" -o jsonpath='{.spec.clusterIP}' --request-timeout=15s)"

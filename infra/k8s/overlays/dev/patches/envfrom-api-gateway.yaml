@@ -7,7 +7,7 @@ spec:
   template:
     spec:
       containers:
-        - name: app
+        - name: api-gateway
           envFrom:
             - configMapRef: { name: app-config }
             - secretRef:    { name: app-secrets }

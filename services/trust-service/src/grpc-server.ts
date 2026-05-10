@@ -37,7 +37,8 @@ function isValidUuid(value: string): boolean {
   );
 }
 
-const trustHandlers = {
+/** Exported for unit tests (no bind / no credentials). */
+export const trustGrpcHandlersForTest = {
   FlagListing(
     call: grpc.ServerUnaryCall<any, any>,
     cb: grpc.sendUnaryData<any>,
@@ -313,22 +314,25 @@ const trustHandlers = {
   },
 };
 
+/** Same logic as gRPC health registration; callable from tests without starting the server. */
+export async function trustGrpcHealthCheckForTest(): Promise<boolean> {
+  const requireDb =
+    process.env.TRUST_GRPC_HEALTH_REQUIRES_DB !== "0" &&
+    process.env.TRUST_GRPC_HEALTH_REQUIRES_DB !== "false";
+  if (!requireDb) return true;
+  try {
+    await pool.query("SELECT 1");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function startGrpcServer(port: number): grpc.Server {
   const server = new grpc.Server();
-  server.addService(trustProto.trust.TrustService.service, trustHandlers);
+  server.addService(trustProto.trust.TrustService.service, trustGrpcHandlersForTest);
 
-  registerHealthService(server, "trust.TrustService", async () => {
-    const requireDb =
-      process.env.TRUST_GRPC_HEALTH_REQUIRES_DB !== "0" &&
-      process.env.TRUST_GRPC_HEALTH_REQUIRES_DB !== "false";
-    if (!requireDb) return true;
-    try {
-      await pool.query("SELECT 1");
-      return true;
-    } catch {
-      return false;
-    }
-  });
+  registerHealthService(server, "trust.TrustService", trustGrpcHealthCheckForTest);
 
   let credentials: grpc.ServerCredentials;
   try {

@@ -16,6 +16,10 @@ on:
       - "scripts/validate-kafka-dns.sh"
       - "scripts/preflight-kafka-k8s-rollout.sh"
       - "scripts/create-kafka-event-topics-k8s.sh"
+      - "scripts/patch-kafka-external-metallb-pinned-ips.sh"
+      - "scripts/verify-kafka-metallb-pin-formula.sh"
+      - "scripts/lib/kafka-metallb-pin-formula.sh"
+      - "scripts/lib/metallb-subnet-guard.sh"
       - "infra/k8s/kafka-kraft-metallb/**"
       - "infra/ops/**"
       - "infra/policies/kafka-replica-guard.yaml"
@@ -42,6 +46,11 @@ jobs:
           bash -n scripts/validate-kafka-dns.sh
           bash -n scripts/preflight-kafka-k8s-rollout.sh
           bash -n scripts/create-kafka-event-topics-k8s.sh
+          bash -n scripts/patch-kafka-external-metallb-pinned-ips.sh
+          bash -n scripts/verify-kafka-metallb-pin-formula.sh
+          bash -n scripts/lib/kafka-metallb-pin-formula.sh
+      - name: Kafka MetalLB pin IP formula (table tests, no cluster)
+        run: chmod +x scripts/verify-kafka-metallb-pin-formula.sh && ./scripts/verify-kafka-metallb-pin-formula.sh
       - name: Kustomize build kafka-kraft-metallb
         run: kubectl kustomize infra/k8s/kafka-kraft-metallb/ >/tmp/kafka-kraft.yaml && test -s /tmp/kafka-kraft.yaml
       - name: Assert KRaft bundle is three brokers (replicas)

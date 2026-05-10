@@ -75,7 +75,8 @@ function dedupeListingsById(
   return out;
 }
 
-const listingsService = {
+/** Exported for unit tests (no bind / no TLS). */
+export const listingsGrpcHandlersForTest = {
   CreateListing(
     call: grpc.ServerUnaryCall<any, any>,
     callback: grpc.sendUnaryData<any>,
@@ -345,6 +346,15 @@ const listingsService = {
   },
 };
 
+export async function listingsGrpcHealthCheckForTest(): Promise<boolean> {
+  try {
+    await pool.query("SELECT 1");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function createListingsGrpcServerCredentials(): grpc.ServerCredentials {
   try {
     return createOchGrpcServerCredentialsForBind("listings gRPC");
@@ -357,20 +367,16 @@ function createListingsGrpcServerCredentials(): grpc.ServerCredentials {
 
 function buildListingsGrpcServer(): grpc.Server {
   const server = new grpc.Server();
-  server.addService(listingsProto.listings.ListingsService.service, {
-    CreateListing: listingsService.CreateListing,
-    GetListing: listingsService.GetListing,
-    SearchListings: listingsService.SearchListings,
-  });
+  server.addService(
+    listingsProto.listings.ListingsService.service,
+    listingsGrpcHandlersForTest,
+  );
 
-  registerHealthService(server, "listings.ListingsService", async () => {
-    try {
-      await pool.query("SELECT 1");
-      return true;
-    } catch {
-      return false;
-    }
-  });
+  registerHealthService(
+    server,
+    "listings.ListingsService",
+    listingsGrpcHealthCheckForTest,
+  );
 
   return server;
 }

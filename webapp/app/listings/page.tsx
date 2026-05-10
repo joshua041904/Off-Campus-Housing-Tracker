@@ -1,123 +1,16 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useReducer, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
-import { useDebounce } from "@/lib/use-debounce"; // eslint-disable-line @typescript-eslint/no-unused-vars
 import {
   createListing,
   getListing,
   searchListings,
-  type ListingSearchSort,
   type ListingJson,
 } from "@/lib/api";
 import { getStoredEmail, getStoredToken } from "@/lib/auth-storage";
 import { Nav } from "@/components/Nav";
-import { ListingCard } from "@/components/listings/ListingCard";
-
-// ---------------------------------------------------------------------------
-// Filter state — single source of truth for all search/filter fields
-// ---------------------------------------------------------------------------
-type ListingFilters = {
-  q: string;
-  minPrice: string;
-  maxPrice: string;
-  smokeFree: boolean;
-  petFriendly: boolean;
-  furnishedOnly: boolean;
-  filterGarage: boolean;
-  filterParking: boolean;
-  filterLaundry: boolean;
-  filterDishwasher: boolean;
-  sortBy: ListingSearchSort;
-  newWithin: string;
-};
-
-const DEFAULT_FILTERS: ListingFilters = {
-  q: "",
-  minPrice: "",
-  maxPrice: "",
-  smokeFree: false,
-  petFriendly: false,
-  furnishedOnly: false,
-  filterGarage: false,
-  filterParking: false,
-  filterLaundry: false,
-  filterDishwasher: false,
-  sortBy: "created_desc",
-  newWithin: "",
-};
-
-type FilterAction =
-  | { type: "SET"; payload: Partial<ListingFilters> }
-  | { type: "RESET" };
-
-function filtersReducer(
-  state: ListingFilters,
-  action: FilterAction,
-): ListingFilters {
-  switch (action.type) {
-    case "SET":
-      return { ...state, ...action.payload };
-    case "RESET":
-      return DEFAULT_FILTERS;
-    default:
-      return state;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// URL <-> filter state helpers
-// ---------------------------------------------------------------------------
-function filtersToParams(f: ListingFilters): URLSearchParams {
-  const p = new URLSearchParams();
-  if (f.q) p.set("q", f.q);
-  if (f.minPrice) p.set("min_price", f.minPrice);
-  if (f.maxPrice) p.set("max_price", f.maxPrice);
-  if (f.smokeFree) p.set("smoke_free", "1");
-  if (f.petFriendly) p.set("pet_friendly", "1");
-  if (f.furnishedOnly) p.set("furnished", "1");
-  const amenities: string[] = [];
-  if (f.filterGarage) amenities.push("garage");
-  if (f.filterParking) amenities.push("parking");
-  if (f.filterLaundry) amenities.push("in_unit_laundry");
-  if (f.filterDishwasher) amenities.push("dishwasher");
-  if (amenities.length) p.set("amenities", amenities.join("|"));
-  if (f.newWithin) p.set("new_within", f.newWithin);
-  if (f.sortBy && f.sortBy !== "created_desc") p.set("sort", f.sortBy);
-  return p;
-}
-
-function safeStr(v: string | null): string {
-  return v?.trim() || "";
-}
-function safeBool(v: string | null): boolean {
-  return v === "1";
-}
-function safeSort(v: string | null): ListingFilters["sortBy"] {
-  const safe = ["created_desc", "listed_desc", "price_asc", "price_desc"];
-  return safe.includes(v ?? "")
-    ? (v as ListingFilters["sortBy"])
-    : "created_desc";
-}
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function paramsToFilters(p: URLSearchParams): Partial<ListingFilters> {
-  const amenities = (p.get("amenities") || "").split("|").filter(Boolean);
-  return {
-    q: p.get("q") || "",
-    minPrice: p.get("min_price") || "",
-    maxPrice: p.get("max_price") || "",
-    smokeFree: safeBool(p.get("smoke_free")),
-    petFriendly: safeBool(p.get("pet_friendly")),
-    furnishedOnly: safeBool(p.get("furnished")),
-    filterGarage: amenities.includes("garage"),
-    filterParking: amenities.includes("parking"),
-    filterLaundry: amenities.includes("in_unit_laundry"),
-    filterDishwasher: amenities.includes("dishwasher"),
-    newWithin: safeStr(p.get("new_within")),
-    sortBy: safeSort(p.get("sort")),
-  };
-}
+import { GoogleMapEmbed } from "@/components/GoogleMapEmbed";
 
 const AMENITY_OPTIONS = [
   { slug: "garage", label: "Garage" },
@@ -292,6 +185,7 @@ function ListingsSearchSection({
   setNewWithin,
   searchLoading,
   onSearch,
+  onResetFilters,
 }: {
   q: string;
   setQ: (v: string) => void;
@@ -319,6 +213,7 @@ function ListingsSearchSection({
   setNewWithin: (v: string) => void;
   searchLoading: boolean;
   onSearch: (e?: React.FormEvent) => Promise<void>;
+  onResetFilters: () => void;
 }) {
   return (
     <form
@@ -516,6 +411,15 @@ function ListingsSearchSection({
           >
             Search
           </button>
+          <button
+            type="button"
+            onClick={onResetFilters}
+            disabled={searchLoading}
+            data-testid="listings-reset-filters"
+            className="rounded-full border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:opacity-50"
+          >
+            Reset filters
+          </button>
         </div>
       </div>
     </form>
@@ -651,10 +555,7 @@ function CreateListingSection({
         structured amenities so listings can be searched and displayed
         consistently.
       </p>
-      <form
-        onSubmit={onCreate}
-        className="mt-6 grid gap-4 md:grid-cols-2"
-      >
+      <form onSubmit={onCreate} className="mt-6 grid gap-4 md:grid-cols-2">
         <div className="md:col-span-2">
           <label className="text-xs font-medium uppercase text-slate-500">
             Title
@@ -851,7 +752,7 @@ function ListingsPageInner() {
     dispatchFilters({ type: "SET", payload: { sortBy: v } });
   const setNewWithin = (v: string) =>
     dispatchFilters({ type: "SET", payload: { newWithin: v } });
-
+  const resetFilters = () => dispatchFilters({ type: "RESET" });
   const [items, setItems] = useState<ListingJson[]>([]);
   const [detail, setDetail] = useState<ListingJson | null>(null);
   const [detailId, setDetailId] = useState("");
@@ -860,7 +761,6 @@ function ListingsPageInner() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
-  const [searchError, setSearchError] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -906,7 +806,7 @@ function ListingsPageInner() {
   const onSearch = useCallback(
     async (e?: React.FormEvent) => {
       e?.preventDefault();
-      setSearchError(null);
+      setErr(null);
       setSearchLoading(true);
       try {
         const minC = minPrice ? Math.round(Number(minPrice) * 100) : undefined;
@@ -933,7 +833,7 @@ function ListingsPageInner() {
         });
         setItems(list);
       } catch (e: unknown) {
-        setSearchError(e instanceof Error ? e.message : "Search failed");
+        setErr(e instanceof Error ? e.message : "Search failed");
         setItems([]);
       } finally {
         setSearchLoading(false);
@@ -959,15 +859,13 @@ function ListingsPageInner() {
     let cancelled = false;
     void (async () => {
       setSearchLoading(true);
-      setSearchError(null);
+      setErr(null);
       try {
-        const list = await searchListings({ sort: "created_desc" });
+        const list = await searchListings({});
         if (!cancelled) setItems(list);
       } catch (e: unknown) {
         if (!cancelled) {
-          setSearchError(
-            e instanceof Error ? e.message : "Could not load listings",
-          );
+          setErr(e instanceof Error ? e.message : "Could not load listings");
           setItems([]);
         }
       } finally {
@@ -1013,7 +911,7 @@ function ListingsPageInner() {
     const lngN = createLng.trim() ? Number(createLng) : NaN;
     setCreateLoading(true);
     try {
-      const created = await createListing(token, {
+      await createListing(token, {
         title: title.trim(),
         description: desc.trim(),
         price_cents: cents,
@@ -1025,7 +923,7 @@ function ListingsPageInner() {
         latitude: Number.isFinite(latN) ? latN : null,
         longitude: Number.isFinite(lngN) ? lngN : null,
       });
-      setMsg(`Listing created: ${created.title}`);
+      setMsg("Listing created.");
       setTitle("");
       setDesc("");
       setPriceUsd("");
@@ -1048,8 +946,23 @@ function ListingsPageInner() {
         Skip to listings
       </a>
       <Nav email={email} />
-      <main className="mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-12">
-        <ListingsHeaderSection />
+      <main className="mx-auto max-w-5xl px-4 py-10">
+        <h1 className="font-serif text-3xl text-slate-900">Browse listings</h1>
+        <p className="mt-2 text-sm text-slate-600">
+          Filter by price, features, and recency. Listings with
+          latitude/longitude show a map when{" "}
+          <code className="rounded bg-slate-200 px-1 text-xs">
+            NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+          </code>{" "}
+          is set.{" "}
+          <Link
+            href="/dashboard"
+            className="font-medium text-teal-700 hover:underline"
+          >
+            Dashboard
+          </Link>{" "}
+          for watchlist &amp; search history.
+        </p>
 
         <ListingsSearchSection
           q={q}
@@ -1078,55 +991,253 @@ function ListingsPageInner() {
           setNewWithin={setNewWithin}
           searchLoading={searchLoading}
           onSearch={onSearch}
+          onResetFilters={resetFilters}
         />
 
-        <ListingsResultsSection
-          items={items}
-          searchLoading={searchLoading}
-          searchError={searchError}
-        />
+        <div
+          data-testid="listings-results"
+          className="mt-8 min-h-[3rem] space-y-3"
+          aria-busy={searchLoading}
+        >
+          {items.length === 0 && !searchLoading && (
+            <p className="text-sm text-slate-500">
+              No listings match (or empty index).
+            </p>
+          )}
+          {items.map((row) => (
+            <div
+              key={row.id}
+              className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm"
+            >
+              <div className="font-medium text-slate-900">{row.title}</div>
+              <div className="mt-1 text-slate-600">
+                ${(row.price_cents / 100).toFixed(2)} ·{" "}
+                <span className="font-mono text-xs text-slate-500">
+                  {row.id}
+                </span>
+                {row.listed_at && (
+                  <span className="ml-2 text-xs text-slate-500">
+                    Listed {row.listed_at}
+                  </span>
+                )}
+              </div>
+              {row.amenities && row.amenities.length > 0 && (
+                <p className="mt-1 text-xs text-slate-500">
+                  Features: {row.amenities.join(", ")}
+                </p>
+              )}
+              <div className="mt-3 max-w-md">
+                {row.latitude != null && row.longitude != null ? (
+                  <GoogleMapEmbed
+                    latitude={row.latitude}
+                    longitude={row.longitude}
+                    height={160}
+                    zoom={15}
+                  />
+                ) : (
+                  <p className="text-xs text-slate-500">
+                    No coordinates on this listing — add lat/lng when posting.
+                  </p>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
 
-        <ListingLookupSection
-          detailId={detailId}
-          setDetailId={setDetailId}
-          detailLoading={detailLoading}
-          detail={detail}
-          onLoadDetail={onLoadDetail}
-        />
+        <section className="mt-12 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
+          <h2 className="text-lg font-medium text-slate-900">Listing by ID</h2>
+          <form
+            onSubmit={onLoadDetail}
+            className="mt-4 flex flex-col gap-2 sm:flex-row"
+          >
+            <input
+              data-testid="listings-detail-id"
+              value={detailId}
+              onChange={(e) => setDetailId(e.target.value)}
+              placeholder="listing UUID"
+              className="flex-1 rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm"
+            />
+            <button
+              type="submit"
+              disabled={detailLoading}
+              data-testid="listings-detail-load"
+              className="rounded-md border border-slate-400 px-4 py-2 text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+            >
+              Load
+            </button>
+          </form>
+          {detail && (
+            <pre
+              data-testid="listings-detail-json"
+              className="mt-4 overflow-x-auto rounded-md bg-slate-900 p-4 text-xs text-teal-100"
+            >
+              {JSON.stringify(detail, null, 2)}
+            </pre>
+          )}
+        </section>
 
         {token ? (
-          <CreateListingSection
-            title={title}
-            setTitle={setTitle}
-            desc={desc}
-            setDesc={setDesc}
-            priceUsd={priceUsd}
-            setPriceUsd={setPriceUsd}
-            effectiveFrom={effectiveFrom}
-            setEffectiveFrom={setEffectiveFrom}
-            createLat={createLat}
-            setCreateLat={setCreateLat}
-            createLng={createLng}
-            setCreateLng={setCreateLng}
-            createSmokeFree={createSmokeFree}
-            setCreateSmokeFree={setCreateSmokeFree}
-            createPetFriendly={createPetFriendly}
-            setCreatePetFriendly={setCreatePetFriendly}
-            createFurnished={createFurnished}
-            setCreateFurnished={setCreateFurnished}
-            createGarage={createGarage}
-            setCreateGarage={setCreateGarage}
-            createParking={createParking}
-            setCreateParking={setCreateParking}
-            createLaundry={createLaundry}
-            setCreateLaundry={setCreateLaundry}
-            createDishwasher={createDishwasher}
-            setCreateDishwasher={setCreateDishwasher}
-            createLoading={createLoading}
-            onCreate={onCreate}
-          />
+          <section className="mt-10 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
+            <h2 className="text-lg font-medium text-slate-900">
+              Post a listing
+            </h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Lister side: set optional coordinates for map preview (e.g.
+              campus-adjacent). Features are stored in the DB as structured
+              amenities for both search and display.
+            </p>
+            <form
+              onSubmit={onCreate}
+              className="mt-4 grid gap-3 md:grid-cols-2"
+            >
+              <div className="md:col-span-2">
+                <label className="text-xs font-medium uppercase text-slate-500">
+                  Title
+                </label>
+                <input
+                  data-testid="listings-create-title"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2"
+                  required
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="text-xs font-medium uppercase text-slate-500">
+                  Description
+                </label>
+                <textarea
+                  data-testid="listings-create-desc"
+                  value={desc}
+                  onChange={(e) => setDesc(e.target.value)}
+                  rows={3}
+                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium uppercase text-slate-500">
+                  Price (USD)
+                </label>
+                <input
+                  data-testid="listings-create-price"
+                  type="number"
+                  step="0.01"
+                  value={priceUsd}
+                  onChange={(e) => setPriceUsd(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2"
+                  required
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium uppercase text-slate-500">
+                  Effective from
+                </label>
+                <input
+                  data-testid="listings-create-effective-from"
+                  type="date"
+                  value={effectiveFrom}
+                  onChange={(e) => setEffectiveFrom(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2"
+                  required
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium uppercase text-slate-500">
+                  Latitude (optional)
+                </label>
+                <input
+                  data-testid="listings-create-lat"
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="e.g. 42.3910"
+                  value={createLat}
+                  onChange={(e) => setCreateLat(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium uppercase text-slate-500">
+                  Longitude (optional)
+                </label>
+                <input
+                  data-testid="listings-create-lng"
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="e.g. -72.5267"
+                  value={createLng}
+                  onChange={(e) => setCreateLng(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm"
+                />
+              </div>
+              <div className="md:col-span-2 flex flex-wrap gap-4 text-sm">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={createSmokeFree}
+                    onChange={(e) => setCreateSmokeFree(e.target.checked)}
+                  />
+                  Smoke-free
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={createPetFriendly}
+                    onChange={(e) => setCreatePetFriendly(e.target.checked)}
+                  />
+                  Pet-friendly
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={createFurnished}
+                    onChange={(e) => setCreateFurnished(e.target.checked)}
+                  />
+                  Furnished
+                </label>
+                {AMENITY_OPTIONS.map((a) => (
+                  <label
+                    key={a.slug}
+                    className="flex items-center gap-2"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={
+                        a.slug === "garage"
+                          ? createGarage
+                          : a.slug === "parking"
+                            ? createParking
+                            : a.slug === "in_unit_laundry"
+                              ? createLaundry
+                              : createDishwasher
+                      }
+                      onChange={(e) => {
+                        if (a.slug === "garage")
+                          setCreateGarage(e.target.checked);
+                        else if (a.slug === "parking")
+                          setCreateParking(e.target.checked);
+                        else if (a.slug === "in_unit_laundry")
+                          setCreateLaundry(e.target.checked);
+                        else setCreateDishwasher(e.target.checked);
+                      }}
+                    />
+                    {a.label}
+                  </label>
+                ))}
+              </div>
+              <div className="md:col-span-2">
+                <button
+                  type="submit"
+                  disabled={createLoading}
+                  data-testid="listings-create-submit"
+                  className="rounded-md bg-teal-700 px-4 py-2 font-medium text-white hover:bg-teal-600 disabled:opacity-50"
+                >
+                  Create listing
+                </button>
+              </div>
+            </form>
+          </section>
         ) : (
-          <p className="mt-10 rounded-[1.25rem] border border-slate-200 bg-white px-5 py-4 text-sm text-slate-600 shadow-sm">
+          <p className="mt-8 text-sm text-slate-600">
             <Link
               href="/login"
               className="font-medium text-teal-700 hover:underline"
@@ -1137,19 +1248,8 @@ function ListingsPageInner() {
           </p>
         )}
 
-        <ListingsFeedback
-          msg={msg}
-          err={err}
-        />
+        <ListingsFeedback msg={msg} err={err} />
       </main>
     </div>
-  );
-}
-
-export default function ListingsPage() {
-  return (
-    <Suspense>
-      <ListingsPageInner />
-    </Suspense>
   );
 }

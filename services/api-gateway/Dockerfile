@@ -60,4 +60,4 @@ RUN rm -rf node_modules/.cache \
 USER nodejs
 
 EXPOSE 4020
-CMD ["node","dist/server.js"]
+CMD ["node", "dist/server.js"]

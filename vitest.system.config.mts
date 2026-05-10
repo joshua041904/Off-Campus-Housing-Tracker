@@ -60,6 +60,13 @@ export default defineConfig(async () => {
   return {
     test: {
       environment: "node",
+      // One fork + serial workers: fewer concurrent transforms / less JIT churn after long preflight runs.
+      pool: "forks",
+      poolOptions: {
+        forks: { singleFork: true },
+      },
+      maxWorkers: 1,
+      fileParallelism: false,
       include: ["tests/system/**/*.test.ts"],
       passWithNoTests: false,
       testTimeout: 120_000,

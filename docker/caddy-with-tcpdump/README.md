@@ -10,6 +10,14 @@ From repo root:
 docker build -t caddy-with-tcpdump:dev -f docker/caddy-with-tcpdump/Dockerfile .
 ```
 
+**Docker Hub 429 (anonymous pull rate limit):** the Dockerfile defaults to **`mirror.gcr.io/library/...`** bases (Google’s Docker Hub mirror). To force hub after `docker login`:
+
+```bash
+docker build -t caddy-with-tcpdump:dev -f docker/caddy-with-tcpdump/Dockerfile . \
+  --build-arg GOLANG_IMAGE=docker.io/library/golang:1.22-alpine \
+  --build-arg ALPINE_IMAGE=docker.io/library/alpine:3.19
+```
+
 k3d: load into cluster after build:
 
 ```bash

@@ -23,6 +23,9 @@
 #   K6_SUITE_KILL_K6_AFTER_BLOCK=1 (default here) — SIGKILL stray k6 (kills all k6 on host; set 0 if you run other k6 in parallel).
 #   K6_SUITE_POST_KILL_K6_SLEEP_SEC=0 (default) — optional extra sleep after kill; set 10 for harsher lab settle.
 #   SKIP_K6_EDGE_CURL_GATE=1 — skip strict curl to /api/healthz and /auth/healthz before k6 (not recommended).
+#   PREFLIGHT_LAB=1 — after the standard grid + JWT flows, run k6-preflight-lab-randomized-all-endpoints.js (random data, all service routes). Set by `make preflight-lab` / preflight-strict. Opt out: PREFLIGHT_LAB=0.
+#   PREFLIGHT_LAB_K6_RANDOM_DURATION / PREFLIGHT_LAB_K6_RANDOM_VUS — tune the lab-only randomized script (defaults 120s / 10).
+#   PREFLIGHT_LAB_TRACE_REPLAY_CAPTURE=1 — on preflight-lab k6 failure, write bench_logs/trace_replay/trace-*.json (TRACE_REPLAY_URL default: BASE_URL + /api/trust/reputation/… canary).
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -30,6 +33,10 @@ LOAD="$SCRIPT_DIR/load"
 
 # shellcheck source=lib/edge-test-url.sh
 source "$SCRIPT_DIR/lib/edge-test-url.sh"
+
+# Route-hit JSONL suite tags (api-gateway route-coverage-middleware; och-service-coverage-matrix).
+export OCH_X_SUITE="${OCH_X_SUITE:-bash}"
+export K6_X_SUITE="${K6_X_SUITE:-k6}"
 
 if [[ -f "$SCRIPT_DIR/lib/k6-suite-resource-hooks.sh" ]]; then
   # shellcheck source=lib/k6-suite-resource-hooks.sh
@@ -110,6 +117,13 @@ say() { printf "\n\033[1m%s\033[0m\n" "$*"; }
 
 say "run-housing-k6-edge-smoke (BASE_URL=$BASE_URL, SSL_CERT_FILE=$SSL_CERT_FILE)"
 
+# Preflight-lab: analytics + randomized grid hit strict Kafka-adjacent paths under load; relax k6 thresholds unless overridden.
+if [[ "${PREFLIGHT_LAB:-0}" == "1" ]] || [[ "${PREFLIGHT_LAB:-0}" == "yes" ]] || [[ "${PREFLIGHT_LAB:-0}" == "true" ]]; then
+  export K6_ANALYTICS_PUBLIC_MAX_FAIL_RATE="${K6_ANALYTICS_PUBLIC_MAX_FAIL_RATE:-0.20}"
+  export K6_PREFLIGHT_LAB_HTTP_REQ_FAILED_MAX="${K6_PREFLIGHT_LAB_HTTP_REQ_FAILED_MAX:-0.92}"
+  export K6_PREFLIGHT_LAB_ERRORS_MAX="${K6_PREFLIGHT_LAB_ERRORS_MAX:-0.88}"
+fi
+
 # Third field: 1 after k6 constant-arrival-rate scripts (see scripts/load/*.js)
 for triple in \
   "gateway-health:k6-gateway-health.js:0" \
@@ -169,6 +183,32 @@ if [[ "${SKIP_K6_BOOKING_SEARCH:-0}" != "1" ]]; then
   }
 else
   echo "ℹ️  Skip k6-booking/search (SKIP_K6_BOOKING_SEARCH=1)"
+fi
+
+if [[ "${PREFLIGHT_LAB:-0}" == "1" ]] || [[ "${PREFLIGHT_LAB:-0}" == "yes" ]] || [[ "${PREFLIGHT_LAB:-0}" == "true" ]]; then
+  say "k6 preflight-lab: randomized all-service endpoints (k6-preflight-lab-randomized-all-endpoints.js)"
+  export DURATION="${PREFLIGHT_LAB_K6_RANDOM_DURATION:-120s}" VUS="${PREFLIGHT_LAB_K6_RANDOM_VUS:-10}"
+  k6_suite_before_k6_block "smoke-preflight-lab-randomized"
+  _lab_rc=0
+  _k6_run "$LOAD/k6-preflight-lab-randomized-all-endpoints.js" || _lab_rc=$?
+  k6_suite_after_k6_block "k6-smoke-preflight-lab-randomized" 0 || {
+    echo "⚠️  suite hook failed after preflight-lab randomized k6"
+    [[ "${K6_GRID_STRICT:-0}" == "1" ]] && exit 1
+    true
+  }
+  if [[ "$_lab_rc" -ne 0 ]]; then
+    echo "⚠️  preflight-lab randomized k6 exited ${_lab_rc}"
+    if [[ "${PREFLIGHT_LAB_TRACE_REPLAY_CAPTURE:-0}" == "1" ]]; then
+      _canary="${BASE_URL%/}/api/trust/reputation/00000000-0000-4000-8000-000000000001"
+      _hdr_json="${TRACE_REPLAY_HEADERS_JSON:-{\"x-debug-replay\":\"true\"}}"
+      TRACE_REPLAY_URL="${TRACE_REPLAY_URL:-$_canary}" \
+        TRACE_REPLAY_METHOD="${TRACE_REPLAY_METHOD:-GET}" \
+        TRACE_REPLAY_NOTE="preflight-lab k6 exit ${_lab_rc}" \
+        TRACE_REPLAY_HEADERS_JSON="$_hdr_json" \
+        bash "$SCRIPT_DIR/trace-replay-capture.sh" || true
+    fi
+    [[ "${K6_GRID_STRICT:-0}" == "1" ]] && exit "$_lab_rc"
+  fi
 fi
 
 say "run-housing-k6-edge-smoke done"

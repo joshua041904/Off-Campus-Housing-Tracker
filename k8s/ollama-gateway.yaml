@@ -1,0 +1,170 @@
+# Apply after: k8s/ollama-gateway-configmap.yaml (+ optional k8s/redis.yaml if OLLAMA_GATEWAY_USE_EXTERNAL_REDIS=0).
+# Redis URL comes from app-config (default redis://host.docker.internal:6380/0 — Docker Compose redis on host).
+# Ollama + Kafka must exist in-namespace for async heavy path.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama-gateway
+  namespace: off-campus-housing-tracker
+  labels:
+    app: ollama-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama-gateway
+  template:
+    metadata:
+      labels:
+        app: ollama-gateway
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8081"
+        prometheus.io/path: "/metrics"
+    spec:
+      initContainers:
+        - name: npm-install
+          image: node:20-alpine
+          command: ["sh", "-ec"]
+          args:
+            - |
+              set -e
+              cp /config/package.json /config/server.js /work/
+              cd /work && npm install --omit=dev --no-audit --no-fund
+          volumeMounts:
+            - name: code
+              mountPath: /config
+              readOnly: true
+            - name: work
+              mountPath: /work
+        - name: wait-kafka-tcp
+          image: busybox:1.36
+          env:
+            - name: KAFKA_BROKER
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: KAFKA_BROKER
+                  optional: true
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              raw="${KAFKA_BROKER:-kafka-0.kafka-headless:9093}"
+              first="${raw%%,*}"
+              host="${first%%:*}"
+              port="${first##*:}"
+              if [ "$port" = "$host" ]; then port=9093; fi
+              echo "[wait-kafka-tcp] until nc -z $host $port"
+              i=0
+              until nc -z "$host" "$port" 2>/dev/null; do
+                i=$((i+1))
+                if [ "$i" -gt 180 ]; then echo "[wait-kafka-tcp] timeout"; exit 1; fi
+                sleep 2
+              done
+              echo "[wait-kafka-tcp] ok"
+      containers:
+        - name: gateway
+          image: node:20-alpine
+          workingDir: /work
+          command: ["node", "server.js"]
+          env:
+            - name: OLLAMA_URL
+              value: "http://ollama:11434"
+            - name: OLLAMA_MODEL
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: OLLAMA_MODEL
+                  optional: true
+            - name: REDIS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: REDIS_URL
+            - name: KAFKA_BROKERS
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: KAFKA_BROKER
+                  optional: true
+            - name: KAFKA_SSL_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: KAFKA_SSL_ENABLED
+                  optional: true
+            - name: KAFKA_CA_CERT
+              value: "/etc/kafka/secrets/ca-cert.pem"
+            - name: KAFKA_CLIENT_CERT
+              value: "/etc/kafka/secrets/tls.crt"
+            - name: KAFKA_CLIENT_KEY
+              value: "/etc/kafka/secrets/tls.key"
+            - name: KAFKA_ENABLED
+              value: "1"
+            - name: OLLAMA_JOBS_TOPIC
+              value: "ollama-jobs"
+            - name: EMBEDDING_DIM
+              value: "768"
+          ports:
+            - name: http
+              containerPort: 8081
+          volumeMounts:
+            - name: work
+              mountPath: /work
+            - name: kafka-ssl
+              mountPath: /etc/kafka/secrets
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: 8081
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "2"
+              memory: "1Gi"
+      volumes:
+        - name: code
+          configMap:
+            name: ollama-gateway-code
+        - name: work
+          emptyDir: {}
+        - name: kafka-ssl
+          secret:
+            secretName: och-kafka-ssl-secret
+            optional: true
+            items:
+              - key: ca-cert.pem
+                path: ca-cert.pem
+              - key: client.crt
+                path: tls.crt
+              - key: client.key
+                path: tls.key
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-gateway
+  namespace: off-campus-housing-tracker
+  labels:
+    app: ollama-gateway
+spec:
+  selector:
+    app: ollama-gateway
+  ports:
+    - name: http
+      port: 8081
+      targetPort: 8081

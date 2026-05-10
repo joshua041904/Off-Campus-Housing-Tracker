@@ -7,6 +7,10 @@ import http from "k6/http";
 import { check } from "k6";
 
 const base = (__ENV.BASE_URL || "https://off-campus-housing.test").replace(/\/$/, "");
+const edgeHeaders = {
+  "x-loadtest": "1",
+  "x-suite": typeof __ENV.K6_X_SUITE === "string" && __ENV.K6_X_SUITE.trim() ? __ENV.K6_X_SUITE.trim() : "k6",
+};
 
 export const options = {
   vus: Number(__ENV.VUS || 5),
@@ -16,7 +20,7 @@ export const options = {
 export default function () {
   const d = new Date().toISOString().slice(0, 10);
   const url = `${base}/api/analytics/daily-metrics?date=${encodeURIComponent(d)}`;
-  const res = http.get(url);
+  const res = http.get(url, { headers: edgeHeaders });
   check(res, {
     "status 200": (r) => r.status === 200,
   });

@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Copy to .git/hooks/pre-push — stronger gate (Make coverage-hard-gate).
+set -euo pipefail
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+echo "pre-push: make coverage-hard-gate (set SKIP_COVERAGE_PRE_PUSH=1 to skip)"
+if [[ "${SKIP_COVERAGE_PRE_PUSH:-0}" == "1" ]]; then
+  echo "SKIP_COVERAGE_PRE_PUSH=1 — skipping" >&2
+  exit 0
+fi
+make coverage-hard-gate
+echo "pre-push: coverage hard gate OK"

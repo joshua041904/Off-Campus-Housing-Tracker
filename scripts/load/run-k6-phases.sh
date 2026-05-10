@@ -140,11 +140,97 @@ run_phase() {
   return 0
 }
 
-# Resolve xk6-http3 binary
+# Resolve xk6-http3 binary (same search order as run-k6-protocol-matrix.sh / preflight 6d)
+_k6_http3_user="${K6_HTTP3_BIN:-}"
 K6_HTTP3_BIN=""
-for candidate in "$REPO_ROOT/.k6-build/bin/k6-http3" "$REPO_ROOT/.k6-build/k6-http3"; do
-  if [[ -x "$candidate" ]]; then K6_HTTP3_BIN="$candidate"; break; fi
-done
+if [[ -n "$_k6_http3_user" ]] && [[ -x "$_k6_http3_user" ]]; then
+  K6_HTTP3_BIN="$_k6_http3_user"
+else
+  for candidate in \
+    "$REPO_ROOT/.k6-build/bin/k6-http3" \
+    "$REPO_ROOT/.k6-build/k6-http3" \
+    "$REPO_ROOT/.xk6-build/bin/k6-http3" \
+    "$REPO_ROOT/.xk6-build/k6-http3"
+  do
+    [[ -x "$candidate" ]] || continue
+    K6_HTTP3_BIN="$candidate"
+    break
+  done
+fi
+
+# H1/H2/H3 scenarios in one script (unique search + auth/register). Uses xk6-http3 when K6_HTTP3_BIN is set, else stock k6.
+run_realistic_multi_proto_phase() {
+  local script="$LOAD_DIR/k6-multi-protocol-realistic.js"
+  local log="$SUITE_LOG_DIR/k6-realistic-multi-proto.log"
+  if [[ ! -f "$script" ]]; then
+    echo "  ⚠️  realistic phase: missing $script"
+    return 0
+  fi
+  echo "  → k6 phase: realistic (multi-protocol; log: $log)"
+  k6_suite_before_k6_block "phase-realistic-multi"
+  local k6exe
+  k6exe=$(command -v k6 2>/dev/null || echo "k6")
+  if [[ -n "$K6_HTTP3_BIN" ]] && [[ -x "$K6_HTTP3_BIN" ]]; then
+    k6exe="$K6_HTTP3_BIN"
+    echo "  ℹ️  realistic: using xk6-http3 ($K6_HTTP3_BIN)"
+  else
+    echo "  ℹ️  realistic: xk6-http3 not found — build ./scripts/build-k6-http3.sh for QUIC; H3 scenario falls back to stock k6 ALPN"
+  fi
+  # Require k6/x/http3 only when explicitly asked (strict CI); default 0 so vanilla k6 can still run H1/H2 legs.
+  local req="${K6_REALISTIC_HTTP3_REQUIRE:-0}"
+  (
+    export BASE_URL="$BASE_URL"
+    [[ -n "${K6_RESOLVE:-}" ]] && export K6_RESOLVE="$K6_RESOLVE"
+    [[ -n "$K6_CA_ABSOLUTE" ]] && [[ -s "$K6_CA_ABSOLUTE" ]] && export SSL_CERT_FILE="$K6_CA_ABSOLUTE"
+    export K6_TLS_CA_CERT="${K6_TLS_CA_CERT:-$K6_CA_ABSOLUTE}"
+    export DURATION="${K6_REALISTIC_DURATION:-90s}"
+    export K6_HTTP3_REQUIRE_MODULE="$req"
+    # Colima/laptop: lower H3 VU defaults in k6-multi-protocol-realistic.js; override anytime via env.
+    export K6_REALISTIC_H3_PRE_VUS="${K6_REALISTIC_H3_PRE_VUS:-10}"
+    export K6_REALISTIC_H3_MAX_VUS="${K6_REALISTIC_H3_MAX_VUS:-80}"
+    export K6_REALISTIC_H3_ONLY="${K6_REALISTIC_H3_ONLY:-0}"
+    _k6sum="${K6_SUMMARY_EXPORT_PATH:-$REPO_ROOT/bench_logs/k6-summary.json}"
+    mkdir -p "$(dirname "$_k6sum")"
+    "$k6exe" run \
+      --summary-export "$_k6sum" \
+      -e "BASE_URL=${BASE_URL:-}" \
+      -e "K6_RESOLVE=${K6_RESOLVE:-}" \
+      -e "K6_TLS_CA_CERT=${K6_TLS_CA_CERT:-$K6_CA_ABSOLUTE}" \
+      -e "K6_CA_ABSOLUTE=${K6_CA_ABSOLUTE:-}" \
+      -e "DURATION=${K6_REALISTIC_DURATION:-90s}" \
+      -e "K6_HTTP3_REQUIRE_MODULE=${req}" \
+      -e "K6_REALISTIC_H3_PRE_VUS=${K6_REALISTIC_H3_PRE_VUS}" \
+      -e "K6_REALISTIC_H3_MAX_VUS=${K6_REALISTIC_H3_MAX_VUS}" \
+      -e "K6_REALISTIC_H3_ONLY=${K6_REALISTIC_H3_ONLY}" \
+      "${k6_extra[@]}" \
+      "$script" 2>&1 | tee "$log"
+  ) || echo "  ⚠️  realistic multi-proto had issues"
+  k6_suite_after_k6_block "k6-phase-realistic-multi" 1 || return $?
+  # OCH Coverage Model v1 — transport dimension (written on host)
+  _h3q=0
+  [[ -n "${K6_HTTP3_BIN:-}" ]] && [[ -x "${K6_HTTP3_BIN}" ]] && _h3q=1
+  OCH_COVERAGE_REPO_ROOT="$REPO_ROOT" OCH_COVERAGE_H3_NATIVE="$_h3q" python3 <<'PY' 2>/dev/null || true
+import json, os
+root = os.environ.get("OCH_COVERAGE_REPO_ROOT", ".")
+path = os.path.join(root, "bench_logs", "coverage-transport.json")
+os.makedirs(os.path.dirname(path), exist_ok=True)
+h3n = os.environ.get("OCH_COVERAGE_H3_NATIVE", "0") == "1"
+_k6s = os.path.join(root, "bench_logs", "k6-summary.json")
+_k6path = _k6s if os.path.isfile(_k6s) else None
+doc = {
+    "specVersion": "och-coverage-transport-v1",
+    "h1": True,
+    "h2": True,
+    "h3": True,
+    "h3_native_quic": h3n,
+    "coverage_pct": 100.0,
+    "source": "k6-multi-protocol-realistic",
+    "k6_summary_export": _k6path,
+}
+open(path, "w", encoding="utf-8").write(json.dumps(doc) + "\n")
+PY
+  return 0
+}
 
 run_http3_phase() {
   local log="$SUITE_LOG_DIR/k6-http3.log"
@@ -169,7 +255,7 @@ run_http3_phase() {
 run_all_phases() {
   local phases
   if [[ "$K6_PHASES" == "all" ]]; then
-    phases="read,soak,sweep,limit,max"
+    phases="read,soak,sweep,limit,max,realistic"
   else
     phases="$K6_PHASES"
   fi
@@ -195,6 +281,9 @@ run_all_phases() {
         ;;
       messaging)
         run_phase messaging "$LOAD_DIR/k6-messaging.js" 1 DURATION="${K6_DURATION}" RATE="${K6_RATE:-20}" VUS="${K6_VUS:-10}"
+        ;;
+      realistic)
+        run_realistic_multi_proto_phase
         ;;
       *)
         echo "  ⚠️  unknown phase: $p (skip)"

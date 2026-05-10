@@ -5,9 +5,11 @@
   "scripts": {
     "build": "bash scripts/prisma-generate-retry.sh && tsc -b && node scripts/rewrite-prisma-imports.js",
     "dev": "tsx watch src/server.ts",
-    "start": "node dist/server.js",
+    "start": "node ./dist/server.js",
     "test": "ROLLUP_DISABLE_NATIVE=true vitest run",
-    "test:watch": "ROLLUP_DISABLE_NATIVE=true vitest"
+    "test:coverage": "ROLLUP_DISABLE_NATIVE=true vitest run --coverage",
+    "test:watch": "ROLLUP_DISABLE_NATIVE=true vitest",
+    "mutation:test": "stryker run"
   },
   "dependencies": {
     "@common/utils": "workspace:*",
@@ -29,14 +31,20 @@
   },
   "devDependencies": {
     "@prisma/client": "6.17.1",
+    "@stryker-mutator/core": "^8.6.0",
+    "@stryker-mutator/vitest-runner": "^8.6.0",
     "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^20.11.0",
     "@types/nodemailer": "^6.4.14",
     "@types/passport": "^1.0.16",
     "@types/passport-google-oauth20": "^2.0.14",
     "@types/qrcode": "^1.5.5",
+    "@types/supertest": "^6.0.2",
     "@vitest/coverage-v8": "2.1.9",
+    "jsonwebtoken": "^9.0.2",
     "prisma": "6.17.1",
+    "supertest": "^7.0.0",
     "tsx": "^4.16.2",
     "typescript": "^5.5.4",
     "vitest": "^2.1.0"

@@ -127,7 +127,7 @@ class VonageSmsProvider implements SmsProvider {
 
   constructor(apiKey: string, apiSecret: string, fromNumber: string) {
     try {
-      const Vonage = require('@vonage/server-sdk');
+      const { Vonage } = require('@vonage/server-sdk');
       this.client = new Vonage({ apiKey, apiSecret });
       this.fromNumber = fromNumber;
     } catch (error: any) {
@@ -166,7 +166,7 @@ class MessageBirdSmsProvider implements SmsProvider {
 
   constructor(apiKey: string, originator: string) {
     try {
-      const messagebird = require('messagebird')(apiKey);
+      const messagebird = require('messagebird').initClient(apiKey);
       this.client = messagebird;
       this.originator = originator;
     } catch (error: any) {

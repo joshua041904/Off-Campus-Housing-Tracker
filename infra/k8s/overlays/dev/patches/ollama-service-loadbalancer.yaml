@@ -1,0 +1,8 @@
+# Optional MetalLB / external access to Ollama. In-cluster checks use Service DNS + health-proxy /healthz; verify scripts align with that.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+  namespace: off-campus-housing-tracker
+spec:
+  type: LoadBalancer

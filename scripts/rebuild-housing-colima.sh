@@ -21,6 +21,7 @@
 #   ROLLOUT_TIMEOUT=180s     rollout status timeout per deployment
 #   HOUSING_NS               default off-campus-housing-tracker
 #   DOCKER_DEFAULT_PLATFORM  unset = native (Colima ARM); linux/amd64 for x86-only targets
+#   SKIP_HOST_ALIASES=1      skip scripts/colima-apply-host-aliases.sh after rollout (default: run on colima ctx)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -145,6 +146,11 @@ if [[ "$WAIT_ROLLOUT" == "1" ]]; then
     kubectl -n "$HOUSING_NS" get deploy "$s" -o name &>/dev/null || continue
     kubectl -n "$HOUSING_NS" rollout status "deployment/$s" --timeout="$ROLLOUT_TIMEOUT" || true
   done
+fi
+
+if [[ "${SKIP_HOST_ALIASES:-0}" != "1" ]] && [[ "$ctx" == *colima* ]] && [[ -x "$REPO_ROOT/scripts/colima-apply-host-aliases.sh" ]]; then
+  say "Applying host.docker.internal hostAliases (host Ollama from pods)"
+  "$REPO_ROOT/scripts/colima-apply-host-aliases.sh" || warn "colima-apply-host-aliases.sh failed (non-fatal)"
 fi
 
 ok "Done. Maps key is baked into the webapp image at build time; .env.local is not read by running pods."

@@ -1,13 +1,94 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { getReputation, reportAbuse, submitPeerReview } from "@/lib/api";
 import { getStoredEmail, getStoredToken } from "@/lib/auth-storage";
 import { getSubFromJwt } from "@/lib/jwt-sub";
 import { Nav } from "@/components/Nav";
+import { trackTrustEvent } from "@/lib/track";
 
-function TrustHeaderSection() {
+
+// ---------------------------------------------------------------------------
+// Trust page state — single source of truth
+// ---------------------------------------------------------------------------
+type FeedbackState = { type: "success" | "error" | null; message: string };
+
+type TrustState = {
+  // Auth
+  email: string | null;
+  token: string | null;
+  mySub: string | null;
+  // Reputation
+  repUserId: string;
+  repScore: number | null;
+  // Report abuse
+  abuseType: "listing" | "user";
+  abuseTarget: string;
+  abuseCategory: string;
+  abuseDetails: string;
+  // Peer review
+  bookingId: string;
+  revieweeId: string;
+  side: string;
+  rating: number;
+  comment: string;
+  // Shared
+  loading: boolean;
+  feedback: FeedbackState;
+};
+
+const DEFAULT_TRUST_STATE: TrustState = {
+  email: null,
+  token: null,
+  mySub: null,
+  repUserId: "",
+  repScore: null,
+  abuseType: "listing",
+  abuseTarget: "",
+  abuseCategory: "spam",
+  abuseDetails: "",
+  bookingId: "",
+  revieweeId: "",
+  side: "guest",
+  rating: 5,
+  comment: "",
+  loading: false,
+  feedback: { type: null, message: "" },
+};
+
+type TrustAction =
+  | { type: "SET_AUTH"; email: string | null; token: string | null; mySub: string | null }
+  | { type: "SET"; payload: Partial<TrustState> }
+  | { type: "SET_LOADING"; loading: boolean }
+  | { type: "SET_FEEDBACK"; feedback: FeedbackState }
+  | { type: "CLEAR_FEEDBACK" }
+  | { type: "RESET_REPORT" }
+  | { type: "RESET_REVIEW" };
+
+function trustReducer(state: TrustState, action: TrustAction): TrustState {
+  switch (action.type) {
+    case "SET_AUTH":
+      return { ...state, email: action.email, token: action.token, mySub: action.mySub };
+    case "SET":
+      return { ...state, ...action.payload };
+    case "SET_LOADING":
+      return { ...state, loading: action.loading };
+    case "SET_FEEDBACK":
+      return { ...state, feedback: action.feedback };
+    case "CLEAR_FEEDBACK":
+      return { ...state, feedback: { type: null, message: "" } };
+    case "RESET_REPORT":
+      return { ...state, abuseTarget: "", abuseDetails: "" };
+    case "RESET_REVIEW":
+      return { ...state, comment: "" };
+    default:
+      return state;
+  }
+}
+
+const TrustHeaderSection = memo(function TrustHeaderSection() {
   return (
     <section className="max-w-3xl">
       <p className="text-sm font-semibold uppercase tracking-[0.22em] text-teal-700">
@@ -22,6 +103,32 @@ function TrustHeaderSection() {
       </p>
     </section>
   );
+});
+TrustHeaderSection.displayName = "TrustHeaderSection";
+
+function SkeletonLine({ className = "" }: { className?: string }) {
+  return (
+    <div
+      aria-hidden="true"
+      className={`animate-pulse rounded-md bg-slate-200 ${className}`}
+    />
+  );
+}
+
+function ReputationSkeleton() {
+  return (
+    <div
+      data-testid="trust-reputation-skeleton"
+      className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-4"
+      aria-hidden="true"
+    >
+      <SkeletonLine className="h-4 w-32" />
+
+      <SkeletonLine className="mt-3 h-7 w-24" />
+
+      <SkeletonLine className="mt-3 h-3 w-48" />
+    </div>
+  );
 }
 
 function ReputationSection({
@@ -31,13 +138,15 @@ function ReputationSection({
   loading,
   mySub,
   repScore,
+  repError,
 }: {
   repUserId: string;
-  setRepUserId: React.Dispatch<React.SetStateAction<string>>;
+  setRepUserId: (v: string) => void;
   onReputation: (e: React.FormEvent) => Promise<void>;
   loading: boolean;
   mySub: string | null;
   repScore: number | null;
+  repError: string | null;
 }) {
   return (
     <section className="mt-10 rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
@@ -65,7 +174,9 @@ function ReputationSection({
           value={repUserId}
           onChange={(e) => setRepUserId(e.target.value)}
           placeholder="user UUID"
-          className="flex-1 rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 shadow-sm"
+          aria-describedby={repError ? "rep-error" : undefined}
+          aria-invalid={repError ? true : undefined}
+          className={"flex-1 rounded-md border px-3 py-2 font-mono text-sm text-slate-900 shadow-sm bg-white " + (repError ? "border-red-400" : "border-slate-300")}
         />
         <button
           type="submit"
@@ -77,6 +188,11 @@ function ReputationSection({
           {loading ? "Looking up…" : "Look up"}
         </button>
       </form>
+      {repError && (
+        <p id="rep-error" role="alert" aria-live="assertive" className="mt-2 text-xs text-red-600">
+          {repError}
+        </p>
+      )}
       {mySub && (
         <button
           type="button"
@@ -86,19 +202,24 @@ function ReputationSection({
           Use my account id
         </button>
       )}
-      {repScore != null && (
-        <p
-          data-testid="trust-reputation-score"
-          className="mt-4 text-sm text-slate-600"
-        >
-          Score: <strong className="text-teal-800">{repScore}</strong>
-        </p>
+      {loading ? (
+        <ReputationSkeleton />
+      ) : (
+        repScore != null && (
+          <p
+            data-testid="trust-reputation-score"
+            className="mt-4 text-sm text-slate-600"
+          >
+            Score: <strong className="text-teal-800">{repScore}</strong>
+          </p>
+        )
       )}
     </section>
   );
-}
+});
+ReputationSection.displayName = "ReputationSection";
 
-function ReportAbuseSection({
+const ReportAbuseSection = memo(function ReportAbuseSection({
   abuseType,
   setAbuseType,
   abuseTarget,
@@ -111,15 +232,16 @@ function ReportAbuseSection({
   loading,
 }: {
   abuseType: "listing" | "user";
-  setAbuseType: React.Dispatch<React.SetStateAction<"listing" | "user">>;
+  setAbuseType: (v: "listing" | "user") => void;
   abuseTarget: string;
-  setAbuseTarget: React.Dispatch<React.SetStateAction<string>>;
+  setAbuseTarget: (v: string) => void;
   abuseCategory: string;
-  setAbuseCategory: React.Dispatch<React.SetStateAction<string>>;
+  setAbuseCategory: (v: string) => void;
   abuseDetails: string;
-  setAbuseDetails: React.Dispatch<React.SetStateAction<string>>;
+  setAbuseDetails: (v: string) => void;
   onReport: (e: React.FormEvent) => Promise<void>;
   loading: boolean;
+  abuseError: string | null;
 }) {
   return (
     <section className="mt-10 rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
@@ -136,7 +258,6 @@ function ReportAbuseSection({
       >
         <fieldset className="flex gap-4 text-sm text-slate-700">
           <legend className="sr-only">Abuse target type</legend>
-
           <label className="flex items-center gap-2">
             <input
               type="radio"
@@ -209,9 +330,10 @@ function ReportAbuseSection({
       </form>
     </section>
   );
-}
+});
+ReportAbuseSection.displayName = "ReportAbuseSection";
 
-function PeerReviewSection({
+const PeerReviewSection = memo(function PeerReviewSection({
   bookingId,
   setBookingId,
   revieweeId,
@@ -224,19 +346,21 @@ function PeerReviewSection({
   setComment,
   onPeerReview,
   loading,
+  reviewError,
 }: {
   bookingId: string;
-  setBookingId: React.Dispatch<React.SetStateAction<string>>;
+  setBookingId: (v: string) => void;
   revieweeId: string;
-  setRevieweeId: React.Dispatch<React.SetStateAction<string>>;
+  setRevieweeId: (v: string) => void;
   side: string;
-  setSide: React.Dispatch<React.SetStateAction<string>>;
+  setSide: (v: string) => void;
   rating: number;
-  setRating: React.Dispatch<React.SetStateAction<number>>;
+  setRating: (v: number) => void;
   comment: string;
-  setComment: React.Dispatch<React.SetStateAction<string>>;
+  setComment: (v: string) => void;
   onPeerReview: (e: React.FormEvent) => Promise<void>;
   loading: boolean;
+  reviewError: string | null;
 }) {
   return (
     <section className="mt-10 rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
@@ -266,9 +390,16 @@ function PeerReviewSection({
           value={bookingId}
           onChange={(e) => setBookingId(e.target.value)}
           placeholder="booking UUID"
-          className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 shadow-sm"
+          aria-describedby={reviewError ? "review-error" : undefined}
+          aria-invalid={reviewError ? true : undefined}
+          className={"w-full rounded-md border px-3 py-2 font-mono text-sm text-slate-900 shadow-sm bg-white " + (reviewError ? "border-red-400" : "border-slate-300")}
           required
         />
+        {reviewError && (
+          <p id="review-error" role="alert" aria-live="assertive" className="text-xs text-red-600">
+            {reviewError}
+          </p>
+        )}
         <label
           htmlFor="trust-reviewee-id"
           className="sr-only"
@@ -338,23 +469,22 @@ function PeerReviewSection({
       </form>
     </section>
   );
-}
+});
+PeerReviewSection.displayName = "PeerReviewSection";
 
-function TrustLoginPrompt() {
+const TrustLoginPrompt = memo(function TrustLoginPrompt() {
   return (
     <div className="mt-10 rounded-[1.25rem] border border-slate-200 bg-white px-5 py-4 text-sm text-slate-600 shadow-sm">
-      <Link
-        href="/login"
-        className="font-medium text-teal-700 hover:underline"
-      >
+      <Link href="/login" className="font-medium text-teal-700 hover:underline">
         Log in
       </Link>{" "}
       to report abuse or submit peer reviews.
     </div>
   );
-}
+});
+TrustLoginPrompt.displayName = "TrustLoginPrompt";
 
-function TrustFeedback({
+const TrustFeedback = memo(function TrustFeedback({
   feedback,
   feedbackRef,
 }: {
@@ -389,47 +519,55 @@ function TrustFeedback({
       {feedback.message}
     </div>
   );
-}
+});
+TrustFeedback.displayName = "TrustFeedback";
 
 export default function TrustPage() {
+  const [state, dispatch] = useReducer(trustReducer, DEFAULT_TRUST_STATE);
+  const { email, token, mySub, repUserId, repScore, abuseType, abuseTarget,
+    abuseCategory, abuseDetails, bookingId, revieweeId, side, rating, comment,
+    loading, feedback } = state;
+  const setRepUserId = (v: string) => dispatch({ type: "SET", payload: { repUserId: v } });
+  const setAbuseType = (v: "listing" | "user") => dispatch({ type: "SET", payload: { abuseType: v } });
+  const setAbuseTarget = (v: string) => dispatch({ type: "SET", payload: { abuseTarget: v } });
+  const setAbuseCategory = (v: string) => dispatch({ type: "SET", payload: { abuseCategory: v } });
+  const setAbuseDetails = (v: string) => dispatch({ type: "SET", payload: { abuseDetails: v } });
+  const setBookingId = (v: string) => dispatch({ type: "SET", payload: { bookingId: v } });
+  const setRevieweeId = (v: string) => dispatch({ type: "SET", payload: { revieweeId: v } });
+  const setSide = (v: string) => dispatch({ type: "SET", payload: { side: v } });
+  const setRating = (v: number) => dispatch({ type: "SET", payload: { rating: v } });
+  const setComment = (v: string) => dispatch({ type: "SET", payload: { comment: v } });
+  const feedbackRef = useRef<HTMLDivElement | null>(null);
   const [email, setEmail] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [mySub, setMySub] = useState<string | null>(null);
 
   const [repUserId, setRepUserId] = useState("");
   const [repScore, setRepScore] = useState<number | null>(null);
+  const [repError, setRepError] = useState<string | null>(null);
 
   const [abuseType, setAbuseType] = useState<"listing" | "user">("listing");
+  const [abuseError, setAbuseError] = useState<string | null>(null);
   const [abuseTarget, setAbuseTarget] = useState("");
   const [abuseCategory, setAbuseCategory] = useState("spam");
   const [abuseDetails, setAbuseDetails] = useState("");
 
   const [bookingId, setBookingId] = useState("");
+  const [reviewError, setReviewError] = useState<string | null>(null);
   const [revieweeId, setRevieweeId] = useState("");
   const [side, setSide] = useState("guest");
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
 
   const [loading, setLoading] = useState(false);
-  type FeedbackState = {
-    type: "success" | "error" | null;
-    message: string;
-  };
-
-  const [feedback, setFeedback] = useState<FeedbackState>({
-    type: null,
-    message: "",
-  });
-
-  const feedbackRef = useRef<HTMLDivElement | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
 
   useEffect(() => {
     const t = getStoredToken();
-    setToken(t);
-    setEmail(getStoredEmail());
     const sub = getSubFromJwt(t);
-    setMySub(sub);
-    if (sub) setRepUserId(sub);
+    dispatch({ type: "SET_AUTH", email: getStoredEmail(), token: t, mySub: sub });
+    if (sub) dispatch({ type: "SET", payload: { repUserId: sub } });
   }, []);
 
   useEffect(() => {
@@ -438,33 +576,55 @@ export default function TrustPage() {
     feedbackRef.current?.focus();
   }, [feedback.type]);
 
-  async function onReputation(e: React.FormEvent) {
+  const onReputation = useCallback(async function onReputation(e: React.FormEvent) {
     e.preventDefault();
     if (loading) return;
+    dispatch({ type: "CLEAR_FEEDBACK" });
+    dispatch({ type: "SET_LOADING", loading: true });
+    try {
+      const r = await getReputation(repUserId.trim());
+      dispatch({ type: "SET", payload: { repScore: r.score } });
+      dispatch({ type: "SET_FEEDBACK", feedback: { type: "success", message: `Reputation for ${r.user_id}: ${r.score}` } });
+    } catch (e: unknown) {
+      dispatch({ type: "SET", payload: { repScore: null } });
+      dispatch({ type: "SET_FEEDBACK", feedback: { type: "error", message: e instanceof Error ? e.message : "Lookup failed" } });
+    if (!repUserId.trim()) {
+      setRepError("Please enter a user UUID.");
+      return;
+    }
+    setRepError(null);
     setFeedback({ type: null, message: "" });
     setLoading(true);
     try {
       const r = await getReputation(repUserId.trim());
       setRepScore(r.score);
+      trackTrustEvent({ type: "reputation_lookup", userId: repUserId.trim() });
       setFeedback({
         type: "success",
         message: `Reputation for ${r.user_id}: ${r.score}`,
       });
     } catch (e: unknown) {
       setRepScore(null);
+      setRepError(e instanceof Error ? e.message : "Lookup failed");
       setFeedback({
         type: "error",
         message: e instanceof Error ? e.message : "Lookup failed",
       });
     } finally {
-      setLoading(false);
+      dispatch({ type: "SET_LOADING", loading: false });
     }
-  }
+  }, [repUserId, loading]);
 
-  async function onReport(e: React.FormEvent) {
+  const onReport = useCallback(async function onReport(e: React.FormEvent) {
     e.preventDefault();
-    if (loading) return;
     if (!token) return;
+    dispatch({ type: "CLEAR_FEEDBACK" });
+    dispatch({ type: "SET_LOADING", loading: true });
+    if (!abuseTarget.trim()) {
+      setAbuseError("Please enter a target UUID.");
+      return;
+    }
+    setAbuseError(null);
     setFeedback({ type: null, message: "" });
     setLoading(true);
     try {
@@ -474,27 +634,20 @@ export default function TrustPage() {
         category: abuseCategory,
         details: abuseDetails,
       });
-      setFeedback({
-        type: "success",
-        message: "Report submitted.",
-      });
-      setAbuseDetails("");
+      dispatch({ type: "SET_FEEDBACK", feedback: { type: "success", message: "Report submitted." } });
+      dispatch({ type: "RESET_REPORT" });
     } catch (e: unknown) {
-      setFeedback({
-        type: "error",
-        message: e instanceof Error ? e.message : "Report failed",
-      });
+      dispatch({ type: "SET_FEEDBACK", feedback: { type: "error", message: e instanceof Error ? e.message : "Report failed" } });
     } finally {
-      setLoading(false);
+      dispatch({ type: "SET_LOADING", loading: false });
     }
-  }
+  }, [token, abuseType, abuseTarget, abuseCategory, abuseDetails, loading]);
 
-  async function onPeerReview(e: React.FormEvent) {
+  const onPeerReview = useCallback(async function onPeerReview(e: React.FormEvent) {
     e.preventDefault();
-    if (loading) return;
     if (!token) return;
-    setFeedback({ type: null, message: "" });
-    setLoading(true);
+    dispatch({ type: "CLEAR_FEEDBACK" });
+    dispatch({ type: "SET_LOADING", loading: true });
     try {
       await submitPeerReview(token, {
         booking_id: bookingId.trim(),
@@ -503,26 +656,23 @@ export default function TrustPage() {
         rating,
         comment,
       });
-      setFeedback({
-        type: "success",
-        message: "Peer review submitted.",
-      });
-      setComment("");
+      dispatch({ type: "SET_FEEDBACK", feedback: { type: "success", message: "Peer review submitted." } });
+      dispatch({ type: "RESET_REVIEW" });
     } catch (e: unknown) {
-      setFeedback({
-        type: "error",
-        message: e instanceof Error ? e.message : "Review failed",
-      });
+      dispatch({ type: "SET_FEEDBACK", feedback: { type: "error", message: e instanceof Error ? e.message : "Review failed" } });
     } finally {
-      setLoading(false);
+      dispatch({ type: "SET_LOADING", loading: false });
     }
-  }
+  }, [token, bookingId, revieweeId, side, rating, comment, loading]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-teal-50/30 text-slate-900">
+    <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-emerald-50/50 text-slate-900">
       <Nav email={email} />
-      <main className="mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-12">
-        <TrustHeaderSection />
+      <main className="mx-auto max-w-3xl px-4 py-10">
+        <h1 className="font-serif text-3xl text-slate-900">Trust &amp; safety</h1>
+        <p className="mt-2 text-sm text-slate-600">
+          Report abuse and submit peer reviews via gateway → trust-service. Reputation lookup is public.
+        </p>
 
         <ReputationSection
           repUserId={repUserId}
@@ -531,6 +681,7 @@ export default function TrustPage() {
           loading={loading}
           mySub={mySub}
           repScore={repScore}
+          repError={repError}
         />
 
         {token ? (
@@ -546,6 +697,7 @@ export default function TrustPage() {
               setAbuseDetails={setAbuseDetails}
               onReport={onReport}
               loading={loading}
+              abuseError={abuseError}
             />
             <PeerReviewSection
               bookingId={bookingId}
@@ -560,16 +712,20 @@ export default function TrustPage() {
               setComment={setComment}
               onPeerReview={onPeerReview}
               loading={loading}
+              reviewError={reviewError}
             />
           </>
         ) : (
-          <TrustLoginPrompt />
+          <p className="mt-8 text-sm text-slate-600">
+            <Link href="/login" className="font-medium text-teal-700 hover:underline">
+              Log in
+            </Link>{" "}
+            to report abuse or submit peer reviews.
+          </p>
         )}
 
-        <TrustFeedback
-          feedback={feedback}
-          feedbackRef={feedbackRef}
-        />
+        {msg && <p className="mt-6 text-sm font-medium text-emerald-700">{msg}</p>}
+        {err && <p className="mt-2 text-sm text-red-600">{err}</p>}
       </main>
     </div>
   );

@@ -3,7 +3,9 @@
 # Sourced by create-kafka-event-topics.sh, verify-kafka-event-topic-partitions.sh, verify-proto-topic-alignment.sh.
 #
 # Requires before call:
-#   REPO_ROOT, ENV_PREFIX, SUF (isolation suffix; same rules as ochKafkaTopicIsolationSuffix() in services/common/src/kafka.ts)
+#   REPO_ROOT, ENV_PREFIX
+# Optional: SUF — isolation suffix (same rules as ochKafkaTopicIsolationSuffix() in services/common/src/kafka.ts).
+#   If unset, treated as empty (verify-kafka-event-topic-partitions.sh / callers without OCH_KAFKA_TOPIC_SUFFIX).
 #
 # On success sets:
 #   OCH_KAFKA_EVENT_TOPICS — bash array of topic names (sorted unique)
@@ -15,8 +17,9 @@
 #   - Always add "${ENV_PREFIX}.messaging.dlq${SUF}"
 
 och_kafka_event_topics_fill() {
-  : "${SUF:=}"
   OCH_KAFKA_EVENT_TOPICS=()
+  # Default when caller omits SUF (set -u safe); create-kafka-event-topics*.sh set SUF from OCH_KAFKA_TOPIC_SUFFIX.
+  local suf="${SUF:-}"
   local proto_root="${PROTO_EVENTS_ROOT:-$REPO_ROOT/proto/events}"
   if [[ ! -d "$proto_root" ]]; then
     echo "❌ Proto events directory not found: $proto_root" >&2
@@ -41,15 +44,15 @@ och_kafka_event_topics_fill() {
     if [[ "$base" == "messaging" ]]; then
       tmp_topics+=("messaging.events.v1")
     else
-      tmp_topics+=("${ENV_PREFIX}.${base}.events${SUF}")
+      tmp_topics+=("${ENV_PREFIX}.${base}.events${suf}")
     fi
   done <<<"$sorted_names"
 
-  tmp_topics+=("${ENV_PREFIX}.booking.events.v1${SUF}")
-  tmp_topics+=("${ENV_PREFIX}.messaging.dlq${SUF}")
+  tmp_topics+=("${ENV_PREFIX}.booking.events.v1${suf}")
+  tmp_topics+=("${ENV_PREFIX}.messaging.dlq${suf}")
   # Account lifecycle (deletion / anonymization); envelope payloads in proto/events/auth.proto
-  tmp_topics+=("${ENV_PREFIX}.user.lifecycle.v1${SUF}")
-  tmp_topics+=("${ENV_PREFIX}.user.lifecycle.ack.v1${SUF}")
+  tmp_topics+=("${ENV_PREFIX}.user.lifecycle.v1${suf}")
+  tmp_topics+=("${ENV_PREFIX}.user.lifecycle.ack.v1${suf}")
 
   local line
   while IFS= read -r line || [[ -n "$line" ]]; do

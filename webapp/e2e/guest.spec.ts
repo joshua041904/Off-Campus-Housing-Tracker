@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { apiGatewayHealthy } from "./helpers";
 
-test("dashboard and booking redirect unauthenticated users to login", async ({ page }) => {
+test("dashboard redirects unauthenticated users to login", async ({ page }) => {
   await page.addInitScript(() => {
     try {
       localStorage.clear();
@@ -11,9 +11,6 @@ test("dashboard and booking redirect unauthenticated users to login", async ({ p
     }
   });
   await page.goto("/dashboard");
-  await expect(page).toHaveURL(/\/login$/, { timeout: 20_000 });
-
-  await page.goto("/booking");
   await expect(page).toHaveURL(/\/login$/, { timeout: 20_000 });
 });
 

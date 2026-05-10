@@ -1,10 +1,70 @@
-chore(webapp): defer analytics metrics cards UI to branch saved/feat-webapp-analytics-ui-full
+feat(ai-control-plane,observability): add phased control-loop + canary arbitration scaffolding
 
-The polished daily-metrics card grid and related analytics UI live on branch
-saved/feat-webapp-analytics-ui-full (snapshot of this work before this change).
-This branch keeps the simpler analytics shell from main-line history.
+Introduce Phase A/B/C control-plane foundations so analytics can move from passive
+observability to guarded autonomous governance without unsafe flapping.
 
-Teammate: merge or cherry-pick from saved/feat-webapp-analytics-ui-full, or
-restore the file with: git checkout saved/feat-webapp-analytics-ui-full -- webapp/app/analytics/page.tsx
+- Phase A (runtime + safe actuation):
+  - Added in-process control-plane state/runtime for mode, active model, prompt version,
+    canary percent, and arbitration weights.
+  - Added controller loop (`off|observe|enforce`) with cooldown/hysteresis and
+    deterministic decision logging before enforcement.
+  - Wired runtime controls into listing generation path:
+    - degraded mode token throttling
+    - legacy mode short-circuit fallback
+    - runtime-selected active model + prompt version envelope.
+  - Added authenticated internal endpoints for control-plane state read/patch.
 
-Made-with: Tom
+- Phase B (signal plane + Prometheus integration):
+  - Added model/prompt/drift metrics:
+    - analytics_model_{quality,reliability,latency,cost}_*
+    - analytics_prompt_quality_score / analytics_prompt_requests_total
+    - analytics_embedding_drift_score
+  - Added control-plane rule pack with recordings/alerts for:
+    - ai_model_health_score
+    - analytics_embedding_drift_zscore
+    - analytics_prompt_quality_delta_10m
+    - embedding drift and prompt regression alerts.
+  - Controller can now query Prometheus-derived composite/drift/prompt signals
+    while retaining local fallback behavior.
+
+- Phase C starter (canary + active-active hooks):
+  - Added deterministic canary sampling and weighted arbitration helper.
+  - Added shadow/canary arbitration instrumentation:
+    - analytics_model_arbitration_runs_total
+    - analytics_model_wins_total
+    - analytics_model_arbitration_disagreement_ratio
+  - Added cluster health gauge + Prometheus rule pack for
+    ai_cluster_route_weight (health × inverse latency × inverse cost).
+  - Added rollout runbook: docs/ai-control-plane-phase-c-runbook.md
+
+- Observability plumbing:
+  - Wired new rule ConfigMaps into kustomization and Prometheus projected mounts.
+  - Added app-config defaults for control-plane mode, Prometheus queries,
+    model cost book, canary model/shadow flags, and cluster id.
+
+Net effect:
+- deterministic, auditable control decisions in observe mode
+- conservative autonomous actions when promoted to enforce mode
+- canary/arbitration and multi-cluster routing signals ready for progressive rollout
+
+Preflight/Vitest contract alignment (follow-up in this patch set):
+- Fixed integration Vitest glob/config mismatch that caused false preflight failures:
+  - messaging-service and media-service now use dedicated
+    `vitest.integration.config.ts` files for `test:integration`.
+  - `test:integration` scripts now run with explicit integration configs.
+- Added root aliases:
+  - `test:workspace` for workspace unit suite contract
+  - `test:workspace:integration` for workspace integration contract
+  - `test:vitest-stack` now composes integration + system + workspace units through these aliases.
+- Hardened preflight Step 7 contract:
+  - `make preflight-lab` / `preflight-strict` now explicitly export
+    `PREFLIGHT_RUN_REPO_VITEST_STACK=1`.
+  - preflight script treats repo Vitest stack as canonical "all suites" path and
+    skips redundant messaging/media-only subset when full stack is enabled.
+
+Reviewer reliability concerns resolved in this patch set:
+- gRPC parent-context stability after Express await gaps (`promisifyGrpcCall(..., req)` + context.with parent capture)
+- W3C baggage forwarded end-to-end (Caddy/Caddy H3 + gateway CORS/proxy paths)
+- Single trace-header injection mechanism in gateway (helper-only; no manual duplicate headers)
+- bench_logs runtime artifact hygiene (`services/**/bench_logs/` ignored; diagnostics artifact removed)
+- Prometheus image pinned (`prom/prometheus:v2.52.0`)

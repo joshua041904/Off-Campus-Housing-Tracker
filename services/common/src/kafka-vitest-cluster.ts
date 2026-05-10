@@ -11,7 +11,6 @@ import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Kafka, type Admin } from "kafkajs";
-import { getKafkaSslConfigForTest } from "./kafka.js";
 
 const DEFAULT_TOPIC_PARTITIONS = 3;
 const DEFAULT_TOPIC_REPLICATION = 3;
@@ -300,6 +299,7 @@ export async function ensureVitestClusterKafkaTopic(topicName: string): Promise<
 
   enforceTlsPemFilesExistOnDisk();
 
+  const { getKafkaSslConfigForTest } = await import("./kafka.js");
   const ssl = getKafkaSslConfigForTest(process.env);
   if (!ssl) {
     throw new Error("[och-it] topic bootstrap: TLS config missing (cert paths).");

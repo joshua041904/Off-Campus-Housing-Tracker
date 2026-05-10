@@ -3,6 +3,11 @@
 # Colima often exposes k3s on a different port (e.g. 51819) in the VM; this script
 # starts an SSH tunnel so host 6443 -> guest <k3s-port>, then sets kubeconfig to 6443.
 #
+# Symptom: kubectl fails with "TLS handshake timeout" while something still listens on
+# 127.0.0.1:6443 — usually a wedged tunnel or wrong guest port after k3s restart. Run:
+#   ./scripts/colima-forward-6443.sh --restart
+# before preflight or long kubectl loops. Optionally run: make kill-preflight-stale
+#
 # Use: ./scripts/colima-forward-6443.sh [--restart]
 #   --restart  kill any existing tunnel and start fresh (use when you see TLS handshake timeout / flaky kubectl)
 #
@@ -47,9 +52,13 @@ api_probe() {
 }
 
 pin_kubeconfig_to_tunnel() {
-  local ctx cluster
+  local ctx cluster server
   ctx=$(kubectl config current-context 2>/dev/null || true)
-  if [[ "$ctx" == *"colima"* ]]; then
+  server=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null || true)
+  # Pin when context is Colima, or when kubeconfig still points at the Lima/Colima bridged host (e.g.
+  # https://192.168.64.2:63587). Otherwise teammates who renamed the context still hit "no route to host"
+  # on the VM IP even after this script starts the tunnel.
+  if [[ "$ctx" == *"colima"* ]] || [[ "$server" =~ ^https://192\.168\.[0-9]+\.[0-9]+:[0-9]+$ ]]; then
     cluster=$(kubectl config view --minify -o jsonpath='{.clusters[0].name}' 2>/dev/null || echo "colima")
     kubectl config set-cluster "$cluster" --server="https://127.0.0.1:6443" >/dev/null 2>&1 || true
   fi
@@ -99,13 +108,23 @@ echo "  Setting up tunnel 127.0.0.1:6443..."
 kill_existing_tunnel
 
 # Detect k3s port: prefer VM k3s.yaml (port changes after restart); fallback to host kubeconfig then 51819.
+# If we guess wrong, host :6443 accepts TCP but TLS to the API hangs — same symptom as a wedged tunnel.
 GUEST_PORT="51819"
 if [[ -f "$SSH_CFG" ]]; then
-  _raw=$(colima ssh -- sh -c 'grep -E "server:.*https://" /etc/rancher/k3s/k3s.yaml 2>/dev/null' 2>/dev/null | head -1)
-  if [[ -n "$_raw" ]]; then
-    _p=$(echo "$_raw" | sed -n 's/.*:\([0-9]*\)[^0-9]*/\1/p')
-    [[ -n "$_p" ]] && GUEST_PORT="$_p"
-  fi
+  # colima ssh may exit non-zero under load; do not abort the whole script (set -e).
+  set +e
+  for (( _try = 1; _try <= 5; _try++ )); do
+    _raw=$(colima ssh -- sh -c 'grep -E "server:.*https://" /etc/rancher/k3s/k3s.yaml 2>/dev/null' 2>/dev/null | head -1)
+    if [[ -n "$_raw" ]]; then
+      _p=$(echo "$_raw" | sed -n 's/.*:\([0-9]*\)[^0-9]*/\1/p')
+      if [[ -n "$_p" ]]; then
+        GUEST_PORT="$_p"
+        break
+      fi
+    fi
+    sleep 1
+  done
+  set -e
 fi
 if [[ "$GUEST_PORT" == "51819" ]]; then
   _current_server=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null || true)
@@ -125,7 +144,13 @@ if ! ssh -F "$SSH_CFG" -o ConnectTimeout=10 -o StrictHostKeyChecking=no -L "6443
   rm -f "$_ssh_err"
 fi
 sleep 1
-tunnel_pid=$(pgrep -f "ssh.*-L.*6443:127.0.0.1:${GUEST_PORT}" 2>/dev/null | head -1)
+# pgrep exits 1 when no match — with pipefail that aborts under set -e.
+tunnel_pid=$(pgrep -f "ssh.*-L.*6443:127.0.0.1:${GUEST_PORT}" 2>/dev/null | head -1) || true
+# ControlMaster mux: forward may not match pgrep argv; use listener PID on 6443.
+# lsof exits 1 when no match — with pipefail that would abort the script (set -e).
+if [[ -z "$tunnel_pid" ]] && command -v lsof >/dev/null 2>&1; then
+  tunnel_pid=$(lsof -t -iTCP:6443 -sTCP:LISTEN 2>/dev/null | head -1) || true
+fi
 if [[ -n "$tunnel_pid" ]]; then
   echo "$tunnel_pid" >"$PID_FILE"
 fi

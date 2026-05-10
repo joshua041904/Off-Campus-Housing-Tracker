@@ -1,0 +1,18 @@
+# Example Alertmanager fragment: route KafkaAlignmentSuiteFailed / KafkaAlignmentTestFailure to a critical receiver.
+# Merge into your Alertmanager config Secret; do not apply this file verbatim (placeholders).
+#
+# route:
+#   receiver: default
+#   routes:
+#     - matchers:
+#         - alertname =~ "KafkaAlignmentSuiteFailed|KafkaAlignmentTestFailure|KafkaAlignmentSuiteMissing"
+#       receiver: platform-critical
+#       continue: false
+#
+# receivers:
+#   - name: platform-critical
+#     slack_configs:
+#       - channel: "#alerts"
+#         send_resolved: true
+#         title: "{{ .CommonAnnotations.summary }}"
+#         text: "{{ .CommonAnnotations.description }}"

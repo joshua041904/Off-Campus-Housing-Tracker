@@ -1,0 +1,97 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-coverage-integrity
+  namespace: observability
+  labels:
+    grafana_dashboard: "1"
+data:
+  coverage-integrity.json: |
+    {
+      "title": "OCH - Coverage Integrity",
+      "uid": "och-coverage-integrity",
+      "schemaVersion": 39,
+      "version": 1,
+      "timezone": "browser",
+      "refresh": "1m",
+      "tags": ["och", "coverage", "matrix"],
+      "description": "Populated when Prometheus scrapes textfile / push of export-coverage-integrity-prom.mjs output (bench_logs/coverage-integrity.prom).",
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Transport H1/H2/H3 observed (1=yes)",
+          "gridPos": { "h": 4, "w": 24, "x": 0, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "targets": [
+            { "refId": "A", "expr": "och_transport_protocol_used{protocol=\"h1\"} or on() vector(0)", "legendFormat": "h1" },
+            { "refId": "B", "expr": "och_transport_protocol_used{protocol=\"h2\"} or on() vector(0)", "legendFormat": "h2" },
+            { "refId": "C", "expr": "och_transport_protocol_used{protocol=\"h3\"} or on() vector(0)", "legendFormat": "h3" }
+          ]
+        },
+        {
+          "id": 2,
+          "type": "timeseries",
+          "title": "Route hits (last export) by suite",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "targets": [
+            { "refId": "A", "expr": "och_route_hits_last_run or on() vector(0)", "legendFormat": "{{suite}}" }
+          ]
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Unknown suite ratio",
+          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 4 },
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.03 }, { "color": "red", "value": 0.05 }]
+              }
+            }
+          },
+          "targets": [{ "refId": "A", "expr": "och_suite_unknown_ratio or on() vector(0)" }]
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Bash orchestration model OK",
+          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 4 },
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }]
+              }
+            }
+          },
+          "targets": [{ "refId": "A", "expr": "och_bash_orchestration_model_ok or on() vector(0)" }]
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Bash / k6 phase success (last export; 1=ok)",
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 12 },
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "targets": [
+            { "refId": "A", "expr": "och_bash_phase_success or on() vector(0)", "legendFormat": "{{suite}} {{phase}}" }
+          ]
+        }
+      ],
+      "templating": {
+        "list": [
+          {
+            "name": "DS_PROMETHEUS",
+            "type": "datasource",
+            "query": "prometheus",
+            "current": { "text": "Prometheus", "value": "Prometheus", "selected": false }
+          }
+        ]
+      },
+      "time": { "from": "now-24h", "to": "now" }
+    }
