@@ -11,11 +11,25 @@ digraph physical {
     style=filled;
     color=lightgrey;
     label="Schema: listings";
-    "listings_listing_media" [label="{listing_media|id : uuid\llisting_id : uuid\lmedia_type : text\lurl_or_path : text\lsort_order : integer\lcreated_at : timestamp with time zone}", style=filled, fillcolor="#e8f5e9"];
-    "listings_listings" [label="{listings|id : uuid\luser_id : uuid\lusername_display : text\ltitle : text\llisted_at : date\lprice_cents : integer\llease_length_months : integer\lsize_sqft : integer\ldescription : text\lamenities : jsonb\lsmoke_free : boolean\lpet_friendly : boolean\lfurnished : boolean\leffective_from : date\leffective_until : date\lstatus : listings.listing_status}", style=filled, fillcolor="#f1f8e9"];
+    "listings_community_comment_votes" [label="{community_comment_votes|comment_id : uuid\luser_id : uuid\lvalue : smallint\lcreated_at : timestamp with time zone}", style=filled, fillcolor="#f1f8e9"];
+    "listings_community_comments" [label="{community_comments|id : uuid\lpost_id : uuid\lauthor_id : uuid\lparent_comment_id : uuid\lbody : text\lcreated_at : timestamp with time zone\lauthor_display_name : character varying(128)\lauthor_username : character varying(128)}", style=filled, fillcolor="#f1f8e9"];
+    "listings_community_post_images" [label="{community_post_images|id : uuid\lpost_id : uuid\limage_url : text\lalt_text : character varying(256)\lsort_order : integer\lcreated_at : timestamp with time zone}", style=filled, fillcolor="#f1f8e9"];
+    "listings_community_post_votes" [label="{community_post_votes|post_id : uuid\lvalue : smallint\lcreated_at : timestamp with time zone\luser_id : uuid}", style=filled, fillcolor="#f1f8e9"];
+    "listings_community_posts" [label="{community_posts|id : uuid\lauthor_id : uuid\ltitle : character varying(512)\lbody : text\lcreated_at : timestamp with time zone\lupdated_at : timestamp with time zone\lflair : character varying(32)\lauthor_display_name : character varying(128)\lauthor_username : character varying(128)}", style=filled, fillcolor="#f1f8e9"];
+    "listings_community_reports" [label="{community_reports|id : uuid\lreporter_id : uuid\llisting_id : uuid\lreason : text\lstatus : character varying(32)\lcreated_at : timestamp with time zone}", style=filled, fillcolor="#e8f5e9"];
+    "listings_listing_media" [label="{listing_media|id : uuid\llisting_id : uuid\lmedia_type : text\lurl_or_path : text\lsort_order : integer\lcreated_at : timestamp with time zone}", style=filled, fillcolor="#f1f8e9"];
+    "listings_listing_revisions" [label="{listing_revisions|id : uuid\llisting_id : uuid\leditor_user_id : uuid\lsnapshot : jsonb\lcreated_at : timestamp with time zone}", style=filled, fillcolor="#e8f5e9"];
+    "listings_listings" [label="{listings|id : uuid\luser_id : uuid\lusername_display : text\ltitle : text\llisted_at : date\lprice_cents : integer\llease_length_months : integer\lsize_sqft : integer\ldescription : text\lamenities : jsonb\lsmoke_free : boolean\lpet_friendly : boolean\lfurnished : boolean\leffective_from : date\leffective_until : date\lstatus : listings.listing_status}", style=filled, fillcolor="#e1f5fe"];
     "listings_outbox_events" [label="{outbox_events|id : uuid\laggregate_id : text\ltype : text\lversion : integer\lpayload : bytea\lcreated_at : timestamp with time zone\lpublished : boolean}", style=filled, fillcolor="#e8f5e9"];
     "listings_processed_events" [label="{processed_events|event_id : uuid\lprocessed_at : timestamp with time zone}", style=filled, fillcolor="#e8f5e9"];
   }
 
+  "listings_community_comment_votes" -> "listings_community_comments" [label="community_comment_votes_comment_id_fkey"];
+  "listings_community_comments" -> "listings_community_comments" [label="community_comments_parent_comment_id_fkey"];
+  "listings_community_comments" -> "listings_community_posts" [label="community_comments_post_id_fkey"];
+  "listings_community_post_images" -> "listings_community_posts" [label="community_post_images_post_id_fkey"];
+  "listings_community_post_votes" -> "listings_community_posts" [label="community_post_votes_post_id_fkey"];
+  "listings_community_reports" -> "listings_listings" [label="community_reports_listing_id_fkey"];
   "listings_listing_media" -> "listings_listings" [label="listing_media_listing_id_fkey"];
+  "listings_listing_revisions" -> "listings_listings" [label="listing_revisions_listing_id_fkey"];
 }

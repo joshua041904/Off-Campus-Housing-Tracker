@@ -1,6 +1,62 @@
 {
     "tables": [
         {
+            "name": "users",
+            "schema": "auth",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "email",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "display_name",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "display_username",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "avatar_url",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "is_deleted",
+                    "type": "boolean",
+                    "nullable": false
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "username",
+                    "type": "text",
+                    "nullable": true
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE INDEX idx_auth_users_email_lower ON auth.users USING btree (lower(email))",
+                    "name": "idx_auth_users_email_lower"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX users_pkey ON auth.users USING btree (id)",
+                    "name": "users_pkey"
+                }
+            ]
+        },
+        {
             "name": "comment_attachments",
             "schema": "forum",
             "columns": [
@@ -477,6 +533,138 @@
             ]
         },
         {
+            "name": "external_contact_requests",
+            "schema": "messages",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "sender_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "listing_id",
+                    "type": "uuid",
+                    "nullable": true
+                },
+                {
+                    "name": "recipient_email",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "recipient_phone",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "subject",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "body",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "contact_method",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "status",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX external_contact_requests_pkey ON messages.external_contact_requests USING btree (id)",
+                    "name": "external_contact_requests_pkey"
+                },
+                {
+                    "def": "CREATE INDEX idx_external_contact_sender ON messages.external_contact_requests USING btree (sender_id, created_at DESC)",
+                    "name": "idx_external_contact_sender"
+                }
+            ]
+        },
+        {
+            "name": "external_contacts",
+            "schema": "messages",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "user_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "contact_method",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "recipient_email",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "recipient_phone",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "subject",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "body",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "listing_id",
+                    "type": "uuid",
+                    "nullable": true
+                },
+                {
+                    "name": "status",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX external_contacts_pkey ON messages.external_contacts USING btree (id)",
+                    "name": "external_contacts_pkey"
+                },
+                {
+                    "def": "CREATE INDEX idx_external_contacts_user_created ON messages.external_contacts USING btree (user_id, created_at DESC)",
+                    "name": "idx_external_contacts_user_created"
+                }
+            ]
+        },
+        {
             "name": "group_bans",
             "schema": "messages",
             "columns": [
@@ -741,6 +929,10 @@
                     "name": "idx_message_attachments_file_type"
                 },
                 {
+                    "def": "CREATE INDEX idx_message_attachments_message ON messages.message_attachments USING btree (message_id)",
+                    "name": "idx_message_attachments_message"
+                },
+                {
                     "def": "CREATE INDEX idx_message_attachments_message_id ON messages.message_attachments USING btree (message_id)",
                     "name": "idx_message_attachments_message_id"
                 },
@@ -909,6 +1101,10 @@
                     "name": "idx_messages_created_at"
                 },
                 {
+                    "def": "CREATE INDEX idx_messages_group ON messages.messages USING btree (group_id, created_at)",
+                    "name": "idx_messages_group"
+                },
+                {
                     "def": "CREATE INDEX idx_messages_group_created ON messages.messages USING btree (group_id, created_at DESC) WHERE (group_id IS NOT NULL)",
                     "name": "idx_messages_group_created"
                 },
@@ -933,12 +1129,20 @@
                     "name": "idx_messages_recalled"
                 },
                 {
+                    "def": "CREATE INDEX idx_messages_recipient ON messages.messages USING btree (recipient_id, created_at DESC)",
+                    "name": "idx_messages_recipient"
+                },
+                {
                     "def": "CREATE INDEX idx_messages_recipient_created ON messages.messages USING btree (recipient_id, created_at DESC) WHERE (recipient_id IS NOT NULL)",
                     "name": "idx_messages_recipient_created"
                 },
                 {
                     "def": "CREATE INDEX idx_messages_recipient_id ON messages.messages USING btree (recipient_id)",
                     "name": "idx_messages_recipient_id"
+                },
+                {
+                    "def": "CREATE INDEX idx_messages_sender ON messages.messages USING btree (sender_id, created_at DESC)",
+                    "name": "idx_messages_sender"
                 },
                 {
                     "def": "CREATE INDEX idx_messages_sender_created ON messages.messages USING btree (sender_id, created_at DESC)",
@@ -951,6 +1155,10 @@
                 {
                     "def": "CREATE INDEX idx_messages_subject_trgm ON messages.messages USING gin (subject gin_trgm_ops)",
                     "name": "idx_messages_subject_trgm"
+                },
+                {
+                    "def": "CREATE INDEX idx_messages_thread ON messages.messages USING btree (thread_id, created_at)",
+                    "name": "idx_messages_thread"
                 },
                 {
                     "def": "CREATE INDEX idx_messages_thread_id ON messages.messages USING btree (thread_id)",
@@ -1269,6 +1477,28 @@
                     "name": "outbox_events_pkey"
                 }
             ]
+        },
+        {
+            "name": "processed_events",
+            "schema": "messaging",
+            "columns": [
+                {
+                    "name": "event_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "processed_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX processed_events_pkey ON messaging.processed_events USING btree (event_id)",
+                    "name": "processed_events_pkey"
+                }
+            ]
         }
     ],
     "database": "messaging",
@@ -1469,5 +1699,5 @@
             "from_schema": "messaging"
         }
     ],
-    "generated_at": "2026-04-03T20:12:11.914955+00:00"
+    "generated_at": "2026-05-10T18:39:37.37411+00:00"
 }

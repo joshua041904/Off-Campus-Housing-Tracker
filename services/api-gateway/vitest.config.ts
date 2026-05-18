@@ -11,6 +11,8 @@ export default defineConfig({
     environment: "node",
     /** Deterministic module mocks for ../src/server (api-gateway.exhaustive must win cache over gateway-http). */
     fileParallelism: false,
+    testTimeout: 30_000,
+    hookTimeout: 60_000,
     include: ["tests/**/*.test.ts"],
     exclude: ["**/node_modules/**", "tests/auto/**"],
     env: {

@@ -11,10 +11,18 @@ digraph physical {
     style=filled;
     color=lightgrey;
     label="Schema: booking";
-    "booking_bookings" [label="{bookings|id : uuid\llisting_id : uuid\ltenant_id : uuid\llandlord_id : uuid\lstart_date : date\lend_date : date\lstatus : booking.booking_status\lprice_cents_snapshot : integer\lcurrency_code : text\lcancellation_reason : text\lcreated_at : timestamp with time zone\lupdated_at : timestamp with time zone\lconfirmed_at : timestamp with time zone\lcancelled_at : timestamp with time zone\lcompleted_at : timestamp with time zone\lversion : integer}", style=filled, fillcolor="#f1f8e9"];
+    "booking_bookings" [label="{bookings|id : uuid\llisting_id : uuid\ltenant_id : uuid\llandlord_id : uuid\lstart_date : date\lend_date : date\lcreated_at : timestamp with time zone\lupdated_at : timestamp with time zone\lstatus : booking.booking_status\lprice_cents_snapshot : integer\lcurrency_code : text\lcancellation_reason : text\lconfirmed_at : timestamp with time zone\lcancelled_at : timestamp with time zone\lcompleted_at : timestamp with time zone\lversion : integer}", style=filled, fillcolor="#f1f8e9"];
     "booking_outbox_events" [label="{outbox_events|id : uuid\laggregate_id : text\ltype : text\lversion : integer\lpayload : bytea\lcreated_at : timestamp with time zone\lpublished : boolean}", style=filled, fillcolor="#e8f5e9"];
-    "booking_search_history" [label="{search_history|id : uuid\luser_id : uuid\lquery : character varying(256)\lmin_price_cents : integer\lmax_price_cents : integer\lmax_distance_km : integer\llatitude : double precision\llongitude : double precision\lfilters : jsonb\lcreated_at : timestamp with time zone}", style=filled, fillcolor="#fff59d"];
-    "booking_watchlist_items" [label="{watchlist_items|id : uuid\luser_id : uuid\llisting_id : uuid\lsource : character varying(40)\ladded_at : timestamp with time zone\lremoved_at : timestamp with time zone\lis_active : boolean}", style=filled, fillcolor="#e1f5fe"];
+    "booking_processed_events" [label="{processed_events|event_id : uuid\lprocessed_at : timestamp with time zone}", style=filled, fillcolor="#e8f5e9"];
+    "booking_search_history" [label="{search_history|id : uuid\luser_id : uuid\lquery : character varying(256)\lmin_price_cents : integer\lmax_price_cents : integer\lmax_distance_km : integer\llatitude : double precision\llongitude : double precision\lfilters : jsonb\lcreated_at : timestamp with time zone\lalert_on_match : boolean\lmax_campus_miles : double precision}", style=filled, fillcolor="#f1f8e9"];
+    "booking_watchlist_items" [label="{watchlist_items|id : uuid\luser_id : uuid\llisting_id : uuid\lsource : character varying(40)\ladded_at : timestamp with time zone\lremoved_at : timestamp with time zone\lis_active : boolean}", style=filled, fillcolor="#f1f8e9"];
+  }
+
+  subgraph cluster_public {
+    style=filled;
+    color=lightgrey;
+    label="Schema: public";
+    "public__prisma_migrations" [label="{_prisma_migrations|id : character varying(36)\lchecksum : character varying(64)\lfinished_at : timestamp with time zone\lmigration_name : character varying(255)\llogs : text\lrolled_back_at : timestamp with time zone\lstarted_at : timestamp with time zone\lapplied_steps_count : integer}", style=filled, fillcolor="#e8f5e9"];
   }
 
 }

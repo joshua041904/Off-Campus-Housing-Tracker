@@ -279,6 +279,7 @@ export function mountFullTraceDebug(app: Express, bases: FullTraceBases): void {
 
     const root = trace.getActiveSpan();
     root?.setAttribute("trace.coverage", "full");
+    const traceId = root?.spanContext().traceId ?? null;
 
     const tracer = trace.getTracer("api-gateway-full-trace");
     const steps = buildSteps(bases);
@@ -313,6 +314,7 @@ export function mountFullTraceDebug(app: Express, bases: FullTraceBases): void {
     res.status(200).json({
       ok,
       trace: "full",
+      trace_id: traceId,
       total: services.length,
       success,
       failed,

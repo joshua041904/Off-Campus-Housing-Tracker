@@ -26,4 +26,11 @@ describe("api-gateway HTTP (no listen)", () => {
     expect(res.status).toBe(200);
     expect(res.body?.authUpstream).toBe(true);
   });
+
+  it("GET /api/media/public/:id without Authorization is not blocked by JWT guard (img tags)", async () => {
+    const res = await agent.get(
+      "/api/media/public/00000000-0000-4000-8000-000000000000?e=1&s=invalid-signature-for-test",
+    );
+    expect(res.status).not.toBe(401);
+  });
 });

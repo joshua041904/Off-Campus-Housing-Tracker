@@ -31,6 +31,13 @@ och_collect_docker_build_paths() {
       fi
       ;;
     *)
+      [[ -f "$root/services/$svc/Dockerfile" ]] && echo "$root/services/$svc/Dockerfile"
+      for f in \
+        scripts/docker/debian-apt-update.sh \
+        scripts/docker/install-grpc-health-probe.sh \
+        scripts/docker/install-bookworm-runtime-probe.sh; do
+        [[ -f "$root/$f" ]] && echo "$root/$f"
+      done
       for f in package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json .npmrc; do
         [[ -f "$root/$f" ]] && echo "$root/$f"
       done

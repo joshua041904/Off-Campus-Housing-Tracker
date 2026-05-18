@@ -20,6 +20,7 @@ resources:
   - prometheus-rules-och-slo.yaml
   - prometheus-rules-kafka-health.yaml
   - prometheus-rules-auth-outbox.yaml
+  - prometheus-rules-och-outbox.yaml
   - prometheus-rules-ollama-worker.yaml
   - prometheus-rules-analytics-ai-slo.yaml
   - prometheus-rules-ai-health-composite.yaml
@@ -31,6 +32,7 @@ resources:
   - grafana-dashboard-providers.yaml
   - grafana-dashboards-transport.yaml
   - grafana-dashboard-auth-outbox.yaml
+  - grafana-dashboard-transactional-outbox.yaml
   - grafana-dashboard-analytics-intelligence.yaml
   - grafana-dashboard-ai-intelligence.yaml
   - grafana-dashboard-kafka-integrity.yaml

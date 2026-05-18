@@ -10,6 +10,9 @@
 ARG ENVOY_IMAGE=mirror.gcr.io/envoyproxy/envoy:v1.28-latest
 FROM ${ENVOY_IMAGE}
 USER root
-RUN apt-get update && apt-get install -y --no-install-recommends tcpdump \
-  && rm -rf /var/lib/apt/lists/*
+COPY scripts/docker/debian-apt-update.sh /tmp/debian-apt-update.sh
+RUN chmod +x /tmp/debian-apt-update.sh && \
+  /tmp/debian-apt-update.sh && \
+  apt-get -o Acquire::Check-Valid-Until=false -o Acquire::Min-ValidTime=0 install -y --no-install-recommends tcpdump && \
+  rm -rf /var/lib/apt/lists/*
 # Keep image default user (entrypoint unchanged)

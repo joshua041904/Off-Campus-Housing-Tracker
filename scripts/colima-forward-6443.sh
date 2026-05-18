@@ -18,6 +18,7 @@
 #   COLIMA_6443_API_PROBE_TRIES   — default 15 (attempts after tunnel start)
 #   COLIMA_6443_API_PROBE_SLEEP   — default 2 (seconds between attempts)
 #   COLIMA_6443_CURL_MAX_TIME     — default 3 (seconds per curl)
+#   OCH_COLIMA_KUBECONFIG_ALIGN_HOST_API — default 1: never pin host kubeconfig to https://127.0.0.1:6443 (host API stays https://<bridge>:<k3s-port>; see scripts/lib/colima-kubeconfig.sh). Set 0 for strict tunnel mode to allow pinning below.
 #
 # Run after colima start; safe to run multiple times (idempotent).
 
@@ -52,10 +53,13 @@ api_probe() {
 }
 
 pin_kubeconfig_to_tunnel() {
+  # Default (OCH_COLIMA_KUBECONFIG_ALIGN_HOST_API=1): do not rewrite host kubeconfig — not even from
+  # https://127.0.0.1:<k3s-port> or https://192.168.x.x:<port> to https://127.0.0.1:6443 (see scripts/lib/colima-kubeconfig.sh).
+  [[ "${OCH_COLIMA_KUBECONFIG_ALIGN_HOST_API:-1}" != "0" ]] && return 0
   local ctx cluster server
   ctx=$(kubectl config current-context 2>/dev/null || true)
   server=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null || true)
-  # Pin when context is Colima, or when kubeconfig still points at the Lima/Colima bridged host (e.g.
+  # Strict tunnel mode only: pin when context is Colima, or when kubeconfig still points at the Lima/Colima bridged host (e.g.
   # https://192.168.64.2:63587). Otherwise teammates who renamed the context still hit "no route to host"
   # on the VM IP even after this script starts the tunnel.
   if [[ "$ctx" == *"colima"* ]] || [[ "$server" =~ ^https://192\.168\.[0-9]+\.[0-9]+:[0-9]+$ ]]; then

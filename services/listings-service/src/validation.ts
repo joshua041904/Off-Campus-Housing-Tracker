@@ -3,6 +3,8 @@
  * Used by both gRPC and HTTP layers to ensure consistent behavior.
  */
 
+import { normalizeResidenceType } from "./location-display.js";
+
 type ValidationResult<T> =
   | { ok: true; value: T }
   | { ok: false; message: string };
@@ -18,6 +20,21 @@ export type CreateListingInput = {
   furnished?: unknown;
   effective_from?: unknown;
   effective_until?: unknown;
+  residence_type?: unknown;
+  size_sqft?: unknown;
+  square_feet?: unknown;
+  bedrooms?: unknown;
+  bathrooms?: unknown;
+  address_line1?: unknown;
+  address_line2?: unknown;
+  city?: unknown;
+  state_or_province?: unknown;
+  region?: unknown;
+  state?: unknown;
+  postal_code?: unknown;
+  zip?: unknown;
+  country?: unknown;
+  neighborhood?: unknown;
 };
 
 export type ValidatedCreateListingInput = {
@@ -31,6 +48,17 @@ export type ValidatedCreateListingInput = {
   furnished: boolean | null;
   effective_from: string;
   effective_until: string;
+  residence_type: string;
+  size_sqft: number | null;
+  bedrooms: number | null;
+  bathrooms: number | null;
+  address_line1: string | null;
+  address_line2: string | null;
+  city: string | null;
+  state_or_province: string | null;
+  postal_code: string | null;
+  country: string | null;
+  neighborhood: string | null;
 };
 
 export type SearchFilters = {
@@ -79,6 +107,20 @@ function normalizeAmenities(value: unknown): string[] {
 function parsePositiveInteger(value: unknown): number | null {
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+
+function optTrimString(value: unknown, maxLen: number): string | null {
+  if (value == null) return null;
+  const s = typeof value === "string" ? value.trim() : String(value).trim();
+  if (!s) return null;
+  return s.slice(0, maxLen);
+}
+
+function parseOptionalPositiveNumber(value: unknown): number | null | "invalid" {
+  if (value == null || value === "") return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return "invalid";
   return parsed;
 }
 
@@ -178,6 +220,42 @@ export function validateCreateListingInput(
     };
   }
 
+  const rtRaw = normalizeResidenceType(input.residence_type);
+  const residence_type = rtRaw ?? "apartment";
+
+  const sqRaw = input.size_sqft ?? input.square_feet;
+  const sqParsed = parseOptionalPositiveNumber(sqRaw);
+  if (sqParsed === "invalid") {
+    return { ok: false, message: "size_sqft must be a positive number when provided" };
+  }
+  const size_sqft =
+    sqParsed == null ? null : Math.min(1_000_000, Math.floor(Number(sqParsed)));
+
+  const br = parseOptionalNonNegativeInteger(input.bedrooms);
+  if (br === "invalid") return { ok: false, message: "bedrooms invalid" };
+  const bedrooms = br != null && br > 0 ? Math.min(20, br) : null;
+
+  const bathRaw = input.bathrooms;
+  let bathrooms: number | null = null;
+  if (bathRaw != null && bathRaw !== "") {
+    const b = Number(bathRaw);
+    if (!Number.isFinite(b) || b <= 0 || b > 20) {
+      return { ok: false, message: "bathrooms must be between 0 and 20 when provided" };
+    }
+    bathrooms = Math.round(b * 10) / 10;
+  }
+
+  const address_line1 = optTrimString(input.address_line1, 240);
+  const address_line2 = optTrimString(input.address_line2, 240);
+  const city = optTrimString(input.city, 120);
+  const state_or_province = optTrimString(
+    input.state_or_province ?? input.region ?? input.state,
+    80,
+  );
+  const postal_code = optTrimString(input.postal_code ?? input.zip, 32);
+  const country = optTrimString(input.country, 80);
+  const neighborhood = optTrimString(input.neighborhood, 160);
+
   return {
     ok: true,
     value: {
@@ -192,6 +270,17 @@ export function validateCreateListingInput(
       furnished: input.furnished != null ? Boolean(input.furnished) : null,
       effective_from,
       effective_until,
+      residence_type,
+      size_sqft,
+      bedrooms,
+      bathrooms,
+      address_line1,
+      address_line2,
+      city,
+      state_or_province,
+      postal_code,
+      country,
+      neighborhood,
     },
   };
 }

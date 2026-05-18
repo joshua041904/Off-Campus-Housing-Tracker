@@ -185,6 +185,8 @@ assert_kubectl_colima() {
 
 assert_core_rollouts() {
   export_kube_colima
+  # api-gateway /readyz blocks on auth-service — match deploy-dev ordering.
+  kubectl rollout status deployment/auth-service -n "$HOUSING_NS" --timeout=480s
   kubectl rollout status deployment/api-gateway -n "$HOUSING_NS" --timeout=480s
   kubectl rollout status deployment/caddy-h3 -n ingress-nginx --timeout=360s
   kubectl wait --for=condition=ready pod -l app=jaeger -n observability --timeout=240s

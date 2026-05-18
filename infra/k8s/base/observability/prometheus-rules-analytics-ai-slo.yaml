@@ -31,15 +31,15 @@ data:
             expr: |
               histogram_quantile(
                 0.95,
-                sum(rate(analytics_generation_latency_ms_bucket[5m])) by (le)
-              ) > 5000
+                sum(rate(analytics_latency_seconds_bucket[5m])) by (le)
+              ) > 5
             for: 10m
             labels:
               severity: warning
               slo: latency
             annotations:
               summary: "Analytics p95 latency > 5s"
-              description: "listing intelligence generation p95 latency exceeded 5000ms."
+              description: "listing intelligence generation p95 latency exceeded 5 seconds."
 
           - alert: AnalyticsEntropyCollapse
             expr: |
@@ -84,8 +84,8 @@ data:
               (
                 histogram_quantile(
                   0.95,
-                  sum(rate(analytics_generation_latency_ms_bucket[5m])) by (le)
-                ) > 5000
+                  sum(rate(analytics_latency_seconds_bucket[5m])) by (le)
+                ) > 5
               )
             for: 5m
             labels:
@@ -147,9 +147,11 @@ data:
 
           - alert: AIHighLatencyUnifiedSeconds
             expr: |
-              histogram_quantile(
-                0.95,
-                sum(rate(analytics_latency_seconds_bucket[5m])) by (le)
+              (
+                histogram_quantile(
+                  0.95,
+                  sum(rate(analytics_latency_seconds_bucket[5m])) by (le)
+                )
               ) > 5
             for: 5m
             labels:

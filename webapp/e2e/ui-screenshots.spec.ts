@@ -6,7 +6,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "@playwright/test";
 
-const SCREENSHOT_DIR = path.join(__dirname, "screenshots");
+const SCREENSHOT_DIR = path.join(process.cwd(), "e2e", "screenshots");
 
 test.describe("UI screenshots (optional)", () => {
   test("capture key webapp pages", async ({ page }) => {
@@ -28,6 +28,28 @@ test.describe("UI screenshots (optional)", () => {
 
     await page.goto("/listings");
     await shot("04-listings-guest");
+
+    const detailLink = page.getByRole("button", { name: "View Details" }).first();
+    if ((await detailLink.count()) > 0) {
+      await detailLink.click();
+      await shot("04b-listing-detail");
+    } else {
+      await page.goto("/listings/00000000-0000-0000-0000-000000000000");
+      await shot("04b-listing-detail");
+    }
+
+    await page.goto("/listings");
+    const quickBook = page.getByRole("button", { name: "Book" }).first();
+    if ((await quickBook.count()) > 0) {
+      await quickBook.click();
+      await page.waitForTimeout(600);
+      await shot("04c-booking-confirmation");
+    } else {
+      await shot("04c-booking-confirmation");
+    }
+
+    await page.goto("/dashboard/landlord");
+    await shot("04d-landlord-dashboard");
 
     await page.goto("/mission");
     await shot("05-mission");

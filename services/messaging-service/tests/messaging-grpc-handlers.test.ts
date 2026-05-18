@@ -11,6 +11,10 @@ const { poolQuery } = vi.hoisted(() => ({
 vi.mock('../src/lib/db.js', () => ({
   pool: {
     query: (...args: unknown[]) => poolQuery(...args),
+    connect: async () => ({
+      query: (...args: unknown[]) => poolQuery(...args),
+      release: vi.fn(),
+    }),
   },
 }))
 
@@ -26,6 +30,7 @@ vi.mock('../src/lib/cache.js', () => ({
   makeMessagesKey: (userId: string, page: number, limit: number, messageType: string) =>
     `msgs:${userId}:${page}:${limit}:${messageType}`,
   makeThreadKey: (id: string) => `thread:${id}`,
+  invalidateForumVoteCaches: vi.fn().mockResolvedValue(undefined),
 }))
 
 const kafkaSend = vi.fn().mockResolvedValue(undefined)
@@ -114,9 +119,21 @@ describe('messagingGrpcHandlers', () => {
   })
 
   it('VotePost succeeds with pool rows', async () => {
+    poolQuery.mockImplementation(async (sql: string) => {
+      const s = String(sql).replace(/\s+/g, ' ').trim()
+      if (s === 'BEGIN' || s === 'COMMIT' || s === 'ROLLBACK') return { rows: [] }
+      if (s.includes('FROM forum.post_votes WHERE post_id')) return { rows: [] }
+      if (s.includes('INSERT INTO forum.post_votes')) return { rows: [] }
+      if (s.includes('UPDATE forum.posts SET')) return { rows: [], rowCount: 1 }
+      if (s.includes('FROM forum.posts p WHERE p.id')) {
+        return { rows: [{ upvotes: 2, downvotes: 1, user_vote: 'up' }] }
+      }
+      return { rows: [] }
+    })
     const { err, res } = await invoke('VotePost', { post_id: 'p', user_id: 'u', vote: 'up' })
     expect(err).toBeNull()
     expect((res as { upvotes: number }).upvotes).toBe(2)
+    expect((res as { user_vote: string }).user_vote).toBe('up')
   })
 
   it('VotePost maps pool error to INTERNAL', async () => {
@@ -177,9 +194,22 @@ describe('messagingGrpcHandlers', () => {
   })
 
   it('VoteComment succeeds', async () => {
+    poolQuery.mockImplementation(async (sql: string) => {
+      const s = String(sql).replace(/\s+/g, ' ').trim()
+      if (s === 'BEGIN' || s === 'COMMIT' || s === 'ROLLBACK') return { rows: [] }
+      if (s.includes('FROM forum.comments WHERE id')) return { rows: [{ post_id: 'p' }] }
+      if (s.includes('FROM forum.comment_votes WHERE comment_id')) return { rows: [] }
+      if (s.includes('INSERT INTO forum.comment_votes')) return { rows: [] }
+      if (s.includes('UPDATE forum.comments SET')) return { rows: [], rowCount: 1 }
+      if (s.includes('FROM forum.comments c WHERE c.id')) {
+        return { rows: [{ upvotes: 3, downvotes: 0, user_vote: 'up' }] }
+      }
+      return { rows: [] }
+    })
     const { err, res } = await invoke('VoteComment', { comment_id: 'c', user_id: 'u', vote: 'up' })
     expect(err).toBeNull()
-    expect((res as { upvotes: number }).upvotes).toBe(2)
+    expect((res as { upvotes: number }).upvotes).toBe(3)
+    expect((res as { user_vote: string }).user_vote).toBe('up')
   })
 
   it('ListMessages falls back on cache timeout', async () => {

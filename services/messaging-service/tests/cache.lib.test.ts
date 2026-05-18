@@ -11,12 +11,14 @@ afterEach(() => {
 
 function redisMock(opts: {
   evalshaImpl?: () => Promise<unknown>;
+  evalImpl?: () => Promise<unknown>;
   getImpl?: () => Promise<string | null>;
   setnxImpl?: () => Promise<number>;
   multiExecImpl?: () => Promise<unknown>;
   scriptLoadImpl?: () => Promise<string>;
 }): Record<string, ReturnType<typeof vi.fn>> {
   const evalsha = vi.fn().mockImplementation(() => opts.evalshaImpl?.() ?? Promise.resolve(["miss-wait", ""]));
+  const evalFn = vi.fn().mockImplementation(() => opts.evalImpl?.() ?? Promise.resolve(["miss-wait", ""]));
   const get = vi.fn().mockImplementation(() => opts.getImpl?.() ?? Promise.resolve(null));
   const setnx = vi.fn().mockImplementation(() => opts.setnxImpl?.() ?? Promise.resolve(0));
   const pexpire = vi.fn().mockResolvedValue(undefined);
@@ -25,7 +27,7 @@ function redisMock(opts: {
   const exec = vi.fn().mockImplementation(() => opts.multiExecImpl?.() ?? Promise.resolve([]));
   const multi = vi.fn(() => ({ psetex, del, exec }));
   const script = vi.fn().mockImplementation(() => opts.scriptLoadImpl?.() ?? Promise.resolve("sha1abc"));
-  return { evalsha, get, setnx, pexpire, psetex, del, exec, multi, script };
+  return { evalsha, eval: evalFn, get, setnx, pexpire, psetex, del, exec, multi, script };
 }
 
 describe("messaging cache.ts", () => {
@@ -88,6 +90,55 @@ describe("messaging cache.ts", () => {
     const out = await cached(r as never, "k2", 5000, compute);
     expect(out).toEqual({ ok: true });
     expect(compute).not.toHaveBeenCalled();
+    expect(r.eval).not.toHaveBeenCalled();
+  });
+
+  it("cached retries evalsha after NOSCRIPT then returns hit", async () => {
+    vi.resetModules();
+    let n = 0;
+    const r = redisMock({
+      evalshaImpl: () => {
+        n += 1;
+        if (n === 1) return Promise.reject(new Error("NOSCRIPT No matching script"));
+        return Promise.resolve(["hit", JSON.stringify({ recovered: true })]);
+      },
+    });
+    const { cached } = await import("../src/lib/cache.js");
+    const compute = vi.fn();
+    const out = await cached(r as never, "k-noscript", 5000, compute);
+    expect(out).toEqual({ recovered: true });
+    expect(compute).not.toHaveBeenCalled();
+    expect(r.script).toHaveBeenCalled();
+    expect(r.evalsha).toHaveBeenCalledTimes(2);
+    expect(r.eval).not.toHaveBeenCalled();
+  });
+
+  it("cached falls back to EVAL after two NOSCRIPT errors", async () => {
+    vi.resetModules();
+    const r = redisMock({
+      evalshaImpl: () => Promise.reject(new Error("NOSCRIPT")),
+      evalImpl: () => Promise.resolve(["hit", JSON.stringify({ viaEval: true })]),
+    });
+    const { cached } = await import("../src/lib/cache.js");
+    const compute = vi.fn();
+    const out = await cached(r as never, "k-eval-fallback", 5000, compute);
+    expect(out).toEqual({ viaEval: true });
+    expect(compute).not.toHaveBeenCalled();
+    expect(r.eval).toHaveBeenCalledTimes(1);
+  });
+
+  it("cached lock key is namespaced messaging:sf:lock:<sha1>", async () => {
+    vi.resetModules();
+    const r = redisMock({
+      evalshaImpl: () => Promise.resolve(["miss-wait", ""]),
+      getImpl: () => Promise.resolve(null),
+      setnxImpl: () => Promise.resolve(1),
+    });
+    const { cached } = await import("../src/lib/cache.js");
+    await cached(r as never, "my-cache-key", 2000, vi.fn().mockResolvedValue({ a: 1 }));
+    const lockArg = (r.evalsha as ReturnType<typeof vi.fn>).mock.calls[0]?.[3] as string;
+    expect(lockArg).toMatch(/^messaging:sf:lock:[a-f0-9]{40}$/);
+    expect(r.setnx).toHaveBeenCalledWith(lockArg, "1");
   });
 
   it("cached uses plain get when evalsha returns miss and get returns JSON", async () => {

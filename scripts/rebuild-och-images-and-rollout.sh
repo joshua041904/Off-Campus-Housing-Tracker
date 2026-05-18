@@ -5,7 +5,7 @@
 # Usage (repo root):
 #   ./scripts/rebuild-och-images-and-rollout.sh
 #     Default SERVICES = all HTTP/gRPC app images (see scripts/lib/och-housing-docker-services-default.sh), same as build-housing-images-k3s.sh.
-#   SERVICES=api-gateway ./scripts/rebuild-och-images-and-rollout.sh   # one service
+#   SERVICES=api-gateway ./scripts/rebuild-och-images-and-rollout.sh   # one service (build also pulls in transport-watchdog sidecar image)
 #   SERVICES=listings-service ./scripts/rebuild-och-images-and-rollout.sh
 #   SERVICES=trust-service ./scripts/rebuild-och-images-and-rollout.sh
 #   SERVICES="auth-service analytics-service" ./scripts/rebuild-och-images-and-rollout.sh

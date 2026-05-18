@@ -1,4 +1,5 @@
-# syntax=docker/dockerfile:1
+# No `# syntax=docker/dockerfile:1` — avoids Colima/BuildKit failures pulling docker/dockerfile:1
+# (see services/api-gateway/Dockerfile). Cache mounts work with default BuildKit.
 
 # ---------- deps ----------
 FROM node:20-alpine AS deps

@@ -18,7 +18,7 @@
 <!-- notification_notifications -->
 <g id="node1" class="node">
 <title>notification_notifications</title>
-<polygon fill="#e8f5e9" stroke="black" points="29.12,-16.5 29.12,-159.5 391.12,-159.5 391.12,-16.5 29.12,-16.5"/>
+<polygon fill="#f1f8e9" stroke="black" points="29.12,-16.5 29.12,-159.5 391.12,-159.5 391.12,-16.5 29.12,-16.5"/>
 <text xml:space="preserve" text-anchor="middle" x="72.75" y="-82.2" font-family="Helvetica,sans-Serif" font-size="14.00">notifications</text>
 <polyline fill="none" stroke="black" points="116.38,-16.5 116.38,-159.5"/>
 <text xml:space="preserve" text-anchor="start" x="124.38" y="-142.2" font-family="Helvetica,sans-Serif" font-size="14.00">id : uuid</text>
@@ -57,7 +57,7 @@
 <!-- notification_user_preferences -->
 <g id="node4" class="node">
 <title>notification_user_preferences</title>
-<polygon fill="#f1f8e9" stroke="black" points="25,-368 25,-496 395.25,-496 395.25,-368 25,-368"/>
+<polygon fill="#e8f5e9" stroke="black" points="25,-368 25,-496 395.25,-496 395.25,-368 25,-368"/>
 <text xml:space="preserve" text-anchor="middle" x="85.5" y="-426.2" font-family="Helvetica,sans-Serif" font-size="14.00">user_preferences</text>
 <polyline fill="none" stroke="black" points="146,-368 146,-496"/>
 <text xml:space="preserve" text-anchor="start" x="154" y="-478.7" font-family="Helvetica,sans-Serif" font-size="14.00">user_id : uuid</text>

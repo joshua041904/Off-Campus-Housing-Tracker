@@ -102,9 +102,10 @@ export K6_X_SUITE
 #   - PREFLIGHT_KAFKA_ALIGNMENT_SUITE_DESTRUCTIVE=1 — no longer required (default is full suite); kept as a no-op alias for older invocations.
 #   - Step 7 (Vitest, k6, Playwright) runs only after step 6b (Kafka strict path + wait-for-all-services-ready); 7a8 Playwright is never overlapped with topic creation.
 #   RUN_SUITES=0 skip test suites.
-#   PREFLIGHT_RUN_REPO_VITEST_STACK — after 7a0b (event-layer), run `pnpm -C services/common run build` then `pnpm run test:vitest-stack`
+#   PREFLIGHT_RUN_REPO_VITEST_STACK — after 7a0b (event-layer + optional 7a0b2 coverage:phase-vi2-verify), run `pnpm -C services/common run build` then `pnpm run test:vitest-stack`
 #     (test:integration:all with Kafka assert → test:system → unit batch). Same 3-broker TLS invariants as local `make test-vitest-stack`.
 #     Implies system contracts; skips duplicate PREFLIGHT_RUN_SYSTEM_CONTRACTS test:system. Default 1. Disable: PREFLIGHT_RUN_REPO_VITEST_STACK=0.
+#   PREFLIGHT_SKIP_COVERAGE_PHASE_VI2_VERIFY=1 — skip 7a0b2 `pnpm run coverage:phase-vi2-verify` after event-layer Vitest (cluster + k6 transport + full matrix; long).
 #   PREFLIGHT_RUN_SYSTEM_CONTRACTS=1 — after 7a0b, run repo-root `pnpm run test:system` only when Vitest stack is off (PREFLIGHT_RUN_REPO_VITEST_STACK=0). Default 0 (opt-in).
 #   PREFLIGHT_APP_SCOPE=full|core — which Deployments to scale and wait for (default full).
 #     core = auth-service api-gateway messaging-service media-service (finishes without listings/booking/trust/analytics).
@@ -3967,6 +3968,14 @@ _run_all_suites() {
   # One-line toolchain log: catches PATH/Node/pnpm drift vs interactive shell (Rollup native ABI issues).
   info "Vitest toolchain: node=$(command -v node 2>/dev/null || echo '?') $(node -v 2>/dev/null || echo '?') | pnpm=$(command -v pnpm 2>/dev/null || echo '?') $(pnpm -v 2>/dev/null || echo '?') | ROLLUP_DISABLE_NATIVE=1 for event-layer"
   ( cd "$REPO_ROOT/services/event-layer-verification" && ROLLUP_DISABLE_NATIVE=true pnpm test ) || return 1
+  # Phase VI.2 matrix + suite-attribution (Vitest coverage columns, k6 transport, route-hit merge). Skip: PREFLIGHT_SKIP_COVERAGE_PHASE_VI2_VERIFY=1
+  if [[ "${PREFLIGHT_SKIP_COVERAGE_PHASE_VI2_VERIFY:-0}" != "1" ]]; then
+    say "7a0b2. Coverage phase VI.2 verify (pnpm run coverage:phase-vi2-verify)…"
+    info "Requires: cluster + edge readyz; see scripts/coverage/run-phase-vi2-matrix-verify.sh. Skip: PREFLIGHT_SKIP_COVERAGE_PHASE_VI2_VERIFY=1"
+    ( cd "$REPO_ROOT" && ROLLUP_DISABLE_NATIVE=true pnpm run coverage:phase-vi2-verify ) || return 1
+  else
+    warn "7a0b2 skipped: PREFLIGHT_SKIP_COVERAGE_PHASE_VI2_VERIFY=1"
+  fi
   if [[ "${PREFLIGHT_RUN_REPO_VITEST_STACK:-1}" == "1" ]] || [[ "${PREFLIGHT_RUN_REPO_VITEST_STACK:-1}" == "true" ]]; then
     say "7a0c. Repo Vitest stack (ALL suites: integration:all → system → workspace units; Kafka policy in integration:all; docs/vitest-per-service-requirements.md)…"
     info "Requires: all integration DBs + MetalLB Kafka TLS + analytics DB for system; services/common build for Kafka assert. Skip: PREFLIGHT_RUN_REPO_VITEST_STACK=0"

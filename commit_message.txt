@@ -1,70 +1,35 @@
-feat(ai-control-plane,observability): add phased control-loop + canary arbitration scaffolding
+feat(och): edge transport observability, booking/notifications UX, CI bootstrap fix
 
-Introduce Phase A/B/C control-plane foundations so analytics can move from passive
-observability to guarded autonomous governance without unsafe flapping.
+Edge protocol (Caddy → api-gateway)
+- Terminate h1/h2/h3; stamp X-OCH-Edge-Proto; gateway metrics and OTEL spans label
+  client→edge proto (h1|h2|h3), not the internal Caddy→gateway hop.
+- Grafana transport dashboard, Prometheus unknown-proto alert, obs smokes and proof artifacts.
 
-- Phase A (runtime + safe actuation):
-  - Added in-process control-plane state/runtime for mode, active model, prompt version,
-    canary percent, and arbitration weights.
-  - Added controller loop (`off|observe|enforce`) with cooldown/hysteresis and
-    deterministic decision logging before enforcement.
-  - Wired runtime controls into listing generation path:
-    - degraded mode token throttling
-    - legacy mode short-circuit fallback
-    - runtime-selected active model + prompt version envelope.
-  - Added authenticated internal endpoints for control-plane state read/patch.
+Booking and renter dashboard
+- GET /bookings/mine views (active, past, all, dashboard) with OR-branch view filters.
+- Recent bookings on search dashboard: load view=all, show all confirmed/pending_confirmation
+  upcoming rows (matches My bookings); exclude draft created integration noise.
+- My bookings page: upcoming vs past partition; listing images and host/renter labels.
 
-- Phase B (signal plane + Prometheus integration):
-  - Added model/prompt/drift metrics:
-    - analytics_model_{quality,reliability,latency,cost}_*
-    - analytics_prompt_quality_score / analytics_prompt_requests_total
-    - analytics_embedding_drift_score
-  - Added control-plane rule pack with recordings/alerts for:
-    - ai_model_health_score
-    - analytics_embedding_drift_zscore
-    - analytics_prompt_quality_delta_10m
-    - embedding drift and prompt regression alerts.
-  - Controller can now query Prometheus-derived composite/drift/prompt signals
-    while retaining local fallback behavior.
+Landlord notifications
+- Booking-context mark-read syncs lifecycle siblings (created/confirmed/cancelled) in API + UI.
+- Human-readable event labels (“Booking confirmed”, not booking.confirmed); drop session read
+  overlay that fought API state after refresh.
+- Notification list cache invalidation; collapsed unread counts; landlord dashboard load helpers.
 
-- Phase C starter (canary + active-active hooks):
-  - Added deterministic canary sampling and weighted arbitration helper.
-  - Added shadow/canary arbitration instrumentation:
-    - analytics_model_arbitration_runs_total
-    - analytics_model_wins_total
-    - analytics_model_arbitration_disagreement_ratio
-  - Added cluster health gauge + Prometheus rule pack for
-    ai_cluster_route_weight (health × inverse latency × inverse cost).
-  - Added rollout runbook: docs/ai-control-plane-phase-c-runbook.md
+Auth and platform
+- Login resolves merged/deleted alias emails to canonical user id.
+- Colima rebuild helpers, Docker probe installs, infra DB migration scripts and notification
+  read-state SQL (27–31).
 
-- Observability plumbing:
-  - Wired new rule ConfigMaps into kustomization and Prometheus projected mounts.
-  - Added app-config defaults for control-plane mode, Prometheus queries,
-    model cost book, canary model/shadow flags, and cluster id.
+CI / integration tests
+- Add infra/db/04-booking-search-history.sql (search_history + watchlist) and apply 04/05/06
+  before 19-booking-search-history-alerts.sql in bootstrap-all-dbs.sh and ensure-booking-schema.sh
+  so SQL-only CI bootstrap no longer fails with “relation booking.search_history does not exist”.
+- auth-service: partial @common/utils mock (importOriginal) for och-outbox metrics exports.
+- api-gateway: drop bare /api/listings from 502 open-route matrix; longer Vitest timeouts.
+- ci.yml: OCH_DISABLE_EXTERNALS on integration batch; SLO/Playwright need build only; gate
+  always requires playwright-strict success.
 
-Net effect:
-- deterministic, auditable control decisions in observe mode
-- conservative autonomous actions when promoted to enforce mode
-- canary/arbitration and multi-cluster routing signals ready for progressive rollout
-
-Preflight/Vitest contract alignment (follow-up in this patch set):
-- Fixed integration Vitest glob/config mismatch that caused false preflight failures:
-  - messaging-service and media-service now use dedicated
-    `vitest.integration.config.ts` files for `test:integration`.
-  - `test:integration` scripts now run with explicit integration configs.
-- Added root aliases:
-  - `test:workspace` for workspace unit suite contract
-  - `test:workspace:integration` for workspace integration contract
-  - `test:vitest-stack` now composes integration + system + workspace units through these aliases.
-- Hardened preflight Step 7 contract:
-  - `make preflight-lab` / `preflight-strict` now explicitly export
-    `PREFLIGHT_RUN_REPO_VITEST_STACK=1`.
-  - preflight script treats repo Vitest stack as canonical "all suites" path and
-    skips redundant messaging/media-only subset when full stack is enabled.
-
-Reviewer reliability concerns resolved in this patch set:
-- gRPC parent-context stability after Express await gaps (`promisifyGrpcCall(..., req)` + context.with parent capture)
-- W3C baggage forwarded end-to-end (Caddy/Caddy H3 + gateway CORS/proxy paths)
-- Single trace-header injection mechanism in gateway (helper-only; no manual duplicate headers)
-- bench_logs runtime artifact hygiene (`services/**/bench_logs/` ignored; diagnostics artifact removed)
-- Prometheus image pinned (`prom/prometheus:v2.52.0`)
+Verified: webapp unit tests (booking partition, notification projection/read persistence);
+booking-service mine-view tests; notification mark-context-read tests.

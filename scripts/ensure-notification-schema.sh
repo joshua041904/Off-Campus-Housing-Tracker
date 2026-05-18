@@ -30,4 +30,16 @@ if [[ -f "$SQL3" ]]; then
   psql -h "$PGHOST" -p "$PGPORT" -U postgres -d notification -v ON_ERROR_STOP=1 -f "$SQL3"
   echo "✅ Notification outbox (03) applied."
 fi
+for extra in \
+  24-notification-read-state.sql \
+  25-notification-booking-context-read.sql \
+  26-notification-dedupe-key.sql \
+  27-notification-backfill-booking-context-read-and-dedupe.sql \
+  29-notification-booking-dedupe-cleanup.sql; do
+  path="$REPO_ROOT/infra/db/$extra"
+  if [[ -f "$path" ]]; then
+    psql -h "$PGHOST" -p "$PGPORT" -U postgres -d notification -v ON_ERROR_STOP=1 -f "$path"
+    echo "✅ Notification $extra applied."
+  fi
+done
 echo "✅ Notification schema applied (port $PGPORT, database notification)."

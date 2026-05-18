@@ -12,9 +12,13 @@ import { pool } from "./db.js";
 import {
   buildListingsSearchQuery,
   parseAmenitySlugs,
+  parseResidenceTypesCsv,
 } from "./search-listings-query.js";
 
 import { validateCreateListingInput, validateListingId } from "./validation.js";
+import { buildDisplayLocationForCreate } from "./location-display.js";
+import { geocodeStructuredAddress } from "./geocode-address.js";
+import { fireSavedSearchNotifyForNewListing } from "./notify-saved-search-on-create.js";
 
 // Logs per-request gRPC latency and marks requests over 100ms as slow.
 function logGrpcTiming(method: string, start: number) {
@@ -24,6 +28,17 @@ function logGrpcTiming(method: string, start: number) {
   console.log(
     `[listings gRPC] ${slow ? "SLOW REQUEST " : ""}method=${method} latency_ms=${ms}`,
   );
+}
+
+function grpcMetaUsername(call: grpc.ServerUnaryCall<any, any>): string {
+  try {
+    const arr = call.metadata?.get("x-user-username");
+    const first = arr?.[0];
+    const s = Buffer.isBuffer(first) ? first.toString("utf8") : String(first ?? "");
+    return s.trim().slice(0, 120);
+  } catch {
+    return "";
+  }
 }
 
 const LISTINGS_PROTO = resolveProtoPath("listings.proto");
@@ -55,6 +70,11 @@ function rowToResponse(row: Record<string, unknown>) {
     pet_friendly: Boolean(row.pet_friendly),
     furnished: row.furnished != null ? Boolean(row.furnished) : false,
     status: String(row.status ?? "active"),
+    residence_type: row.residence_type != null ? String(row.residence_type) : "",
+    size_sqft: row.size_sqft != null ? Number(row.size_sqft) : 0,
+    city: row.city != null ? String(row.city) : "",
+    state_or_province: row.state_or_province != null ? String(row.state_or_province) : "",
+    country: row.country != null ? String(row.country) : "",
     created_at: row.created_at
       ? new Date(row.created_at as string | Date).toISOString()
       : new Date().toISOString(),
@@ -95,18 +115,21 @@ export const listingsGrpcHandlersForTest = {
     }
 
     const input = validation.value;
-    const lat =
+    const bodyRec = req as Record<string, unknown>;
+    let lat =
       req.latitude != null && Number.isFinite(Number(req.latitude))
         ? Number(req.latitude)
         : null;
-    const lng =
+    let lng =
       req.longitude != null && Number.isFinite(Number(req.longitude))
         ? Number(req.longitude)
         : null;
+    let displayLocation = buildDisplayLocationForCreate(bodyRec, lat, lng, input.title);
 
     const query = `
     INSERT INTO listings.listings (
       user_id,
+      username_display,
       title,
       description,
       price_cents,
@@ -118,22 +141,47 @@ export const listingsGrpcHandlersForTest = {
       effective_until,
       listed_at,
       latitude,
-      longitude
+      longitude,
+      display_location,
+      residence_type,
+      size_sqft,
+      address_line1,
+      address_line2,
+      city,
+      state_or_province,
+      postal_code,
+      country,
+      neighborhood,
+      bedrooms,
+      bathrooms
     )
     VALUES (
       $1::uuid,
-      $2,
+      NULLIF(TRIM($2::text), ''),
       $3,
       $4,
-      $5::jsonb,
-      $6,
+      $5,
+      $6::jsonb,
       $7,
       $8,
-      $9::date,
-      NULLIF($10, '')::date,
+      $9,
+      $10::date,
+      NULLIF($11, '')::date,
       CURRENT_DATE,
-      $11,
-      $12
+      $12,
+      $13,
+      $14,
+      $15::text,
+      $16::int,
+      $17,
+      $18,
+      $19,
+      $20,
+      $21,
+      $22,
+      $23,
+      $24::int,
+      $25::numeric
     )
     RETURNING
       id,
@@ -149,26 +197,75 @@ export const listingsGrpcHandlersForTest = {
       created_at,
       listed_at,
       latitude,
-      longitude
+      longitude,
+      display_location,
+      residence_type,
+      size_sqft,
+      address_line1,
+      address_line2,
+      city,
+      state_or_province,
+      postal_code,
+      country,
+      neighborhood,
+      bedrooms,
+      bathrooms
   `;
 
-    const values = [
-      input.user_id,
-      input.title,
-      input.description,
-      input.price_cents,
-      JSON.stringify(input.amenities),
-      input.smoke_free,
-      input.pet_friendly,
-      input.furnished,
-      input.effective_from,
-      input.effective_until,
-      lat,
-      lng,
-    ];
+    const geoMaybe =
+      (lat == null || lng == null) &&
+      input.address_line1 &&
+      input.city &&
+      input.state_or_province &&
+      input.country
+        ? geocodeStructuredAddress({
+            address_line1: input.address_line1,
+            address_line2: input.address_line2,
+            city: input.city,
+            state_or_province: input.state_or_province,
+            postal_code: input.postal_code,
+            country: input.country,
+          })
+        : Promise.resolve(null);
 
-    pool
-      .query(query, values)
+    void geoMaybe
+      .then((g) => {
+        if (g) {
+          lat = g.lat;
+          lng = g.lng;
+        }
+        displayLocation =
+          buildDisplayLocationForCreate(bodyRec, lat, lng, input.title) ?? displayLocation;
+        const hostHandle = grpcMetaUsername(call);
+        const values = [
+          input.user_id,
+          hostHandle || "",
+          input.title,
+          input.description,
+          input.price_cents,
+          JSON.stringify(input.amenities),
+          input.smoke_free,
+          input.pet_friendly,
+          input.furnished,
+          input.effective_from,
+          input.effective_until,
+          lat,
+          lng,
+          displayLocation,
+          input.residence_type,
+          input.size_sqft,
+          input.address_line1,
+          input.address_line2,
+          input.city,
+          input.state_or_province,
+          input.postal_code,
+          input.country,
+          input.neighborhood,
+          input.bedrooms,
+          input.bathrooms,
+        ];
+        return pool.query(query, values);
+      })
       .then(async (result) => {
         const row = result.rows[0];
         const listedDay =
@@ -212,6 +309,19 @@ export const listingsGrpcHandlersForTest = {
           });
           return;
         }
+        fireSavedSearchNotifyForNewListing({
+          listing_id: String(row.id),
+          landlord_user_id: String(row.user_id),
+          title: String(row.title),
+          price_cents: Number(row.price_cents),
+          residence_type: input.residence_type,
+          size_sqft: input.size_sqft,
+          bedrooms: input.bedrooms,
+          bathrooms: input.bathrooms,
+          latitude: lat,
+          longitude: lng,
+          status: row.status != null ? String(row.status) : "active",
+        });
         logGrpcTiming("CreateListing", start);
         callback(null, rowToResponse(row));
       })
@@ -243,7 +353,9 @@ export const listingsGrpcHandlersForTest = {
     const id = validation.value;
     pool
       .query(
-        `SELECT id, user_id, title, description, price_cents, amenities, smoke_free, pet_friendly, furnished, status::text AS status, created_at
+        `SELECT id, user_id, title, description, price_cents, amenities, smoke_free, pet_friendly, furnished,
+                status::text AS status, created_at,
+                residence_type, size_sqft, city, state_or_province, country
          FROM listings.listings
          WHERE id = $1::uuid
            AND (deleted_at IS NULL)
@@ -315,6 +427,33 @@ export const listingsGrpcHandlersForTest = {
         ? Math.floor(offsetRaw)
         : null;
 
+    const residenceTypes = parseResidenceTypesCsv(
+      String(req.residence_types || req.residence_type || ""),
+    );
+    const minSqftRaw =
+      req.min_sqft != null && req.min_sqft !== "" ? Number(req.min_sqft) : null;
+    const minSqft =
+      minSqftRaw != null && Number.isFinite(minSqftRaw) && minSqftRaw > 0
+        ? Math.floor(minSqftRaw)
+        : null;
+    const maxSqftRaw =
+      req.max_sqft != null && req.max_sqft !== "" ? Number(req.max_sqft) : null;
+    const maxSqft =
+      maxSqftRaw != null && Number.isFinite(maxSqftRaw) && maxSqftRaw > 0
+        ? Math.floor(maxSqftRaw)
+        : null;
+    const city = String(req.city || "").trim().slice(0, 120) || null;
+    const state = String(req.state || "").trim().slice(0, 80) || null;
+    const neighborhood = String(req.neighborhood || "").trim().slice(0, 160) || null;
+    const campusWithinRaw =
+      req.campus_within_miles != null && req.campus_within_miles !== ""
+        ? Number(req.campus_within_miles)
+        : null;
+    const campusWithinMiles =
+      campusWithinRaw != null && Number.isFinite(campusWithinRaw) && campusWithinRaw > 0
+        ? Math.min(50, campusWithinRaw)
+        : null;
+
     const { sql, params } = buildListingsSearchQuery({
       q,
       minP: minP != null && !Number.isNaN(minP) ? minP : null,
@@ -327,6 +466,13 @@ export const listingsGrpcHandlersForTest = {
       sort,
       limit,
       offset,
+      residenceTypes,
+      minSqft,
+      maxSqft,
+      city,
+      state,
+      neighborhood,
+      campusWithinMiles,
     });
 
     pool

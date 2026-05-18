@@ -61,6 +61,10 @@
                     "name": "idx_listing_flags_listing"
                 },
                 {
+                    "def": "CREATE UNIQUE INDEX idx_listing_flags_listing_reporter_unique ON trust.listing_flags USING btree (listing_id, reporter_id)",
+                    "name": "idx_listing_flags_listing_reporter_unique"
+                },
+                {
                     "def": "CREATE INDEX idx_listing_flags_reporter ON trust.listing_flags USING btree (reporter_id, created_at DESC)",
                     "name": "idx_listing_flags_reporter"
                 },
@@ -327,6 +331,10 @@
                     "name": "idx_user_flags_user"
                 },
                 {
+                    "def": "CREATE UNIQUE INDEX idx_user_flags_user_reporter_unique ON trust.user_flags USING btree (user_id, reporter_id)",
+                    "name": "idx_user_flags_user_reporter_unique"
+                },
+                {
                     "def": "CREATE UNIQUE INDEX user_flags_pkey ON trust.user_flags USING btree (id)",
                     "name": "user_flags_pkey"
                 }
@@ -418,5 +426,5 @@
     "database": "trust",
     "foreign_keys": [
     ],
-    "generated_at": "2026-04-03T20:12:17.960865+00:00"
+    "generated_at": "2026-05-10T18:39:40.04015+00:00"
 }

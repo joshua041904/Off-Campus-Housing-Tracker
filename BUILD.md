@@ -1,6 +1,6 @@
 # Build, install, and local deployment
 
-**Full lab (canonical):** from repo root, **`COLD_BOOTSTRAP_CONFIRM=yes RESTORE_BACKUP_DIR=backups/all-8-<stamp> make cold-bootstrap`** — see **[README.md](README.md#full-local-stack-canonical)**. **Incremental:** **`make dev`** (**`scripts/dev-up.sh`** → **`scripts/dev-orchestrator.sh`** → **`scripts/dev-health-check.sh`**, **`bench_logs/dev-state.json`**), edge **`off-campus-housing.test`**.
+**Full lab (canonical):** from repo root, **`COLD_BOOTSTRAP_CONFIRM=yes RESTORE_BACKUP_DIR=backups/all-8-20260517-152701 make cold-bootstrap`** (or unset **`RESTORE_BACKUP_DIR`** to use **`COLD_BOOTSTRAP_DEFAULT_RESTORE`**, same pin). See **[README.md](README.md#full-local-stack-canonical)**. **Incremental:** **`make dev`** (**`scripts/dev-up.sh`** → **`scripts/dev-orchestrator.sh`** → **`scripts/dev-health-check.sh`**, **`bench_logs/dev-state.json`**), edge **`off-campus-housing.test`**.
 
 This file is the **under-the-hood** reference: prerequisites, restore flags, fast paths, teardown, and legacy **`make dev-onboard`**.
 
@@ -30,7 +30,7 @@ Tear down: **`DEV_DOWN_CONFIRM=yes make dev-down`**. Hard reset (including compo
 | **Docker** | **Colima + Kubernetes** is the primary local path (`colima start --with-kubernetes`). Docker Desktop can work but the repo assumes Colima’s daemon for image build/load; align context per **`scripts/lib/ensure-colima-docker-context.sh`** if you see socket/context drift. |
 | **kubectl** | Must talk to your cluster. Colima: `export KUBECONFIG="$HOME/.colima/default/kubeconfig"` or **`make kubeconfig-colima`** (prints hint). |
 | **jq** | Used by onboarding, phase barriers, and many scripts. `brew install jq` / distro package. |
-| **openssl**, **curl** | TLS and edge checks. For HTTP/3 preflight, a modern **curl** (e.g. Homebrew) is recommended. |
+| **openssl**, **curl ≥ 8.19.0 + HTTP/3** | TLS and edge checks; preflight and **`make deps`** run **`scripts/check-curl-preflight-reqs.sh`**. macOS: **`brew install curl`** and **`export PATH="/opt/homebrew/opt/curl/bin:$PATH"`** (Apple Silicon) or **`/usr/local/opt/curl/bin`** (Intel). Diagnose: **`./scripts/verify-curl-http3.sh`**. |
 | **Python 3** | Some verify steps (e.g. `och-kafka-ssl-secret` checks in `scripts/dev-onboard-local.sh`). |
 | **RAM / disk** | First onboard: multiple Postgres instances, three Kafka brokers, images — allow **~8 GB+ RAM** and **~20–30 minutes**. |
 

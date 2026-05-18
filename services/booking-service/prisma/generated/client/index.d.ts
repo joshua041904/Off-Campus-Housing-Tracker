@@ -1078,10 +1078,12 @@ export namespace Prisma {
 
   export type BookingAvgAggregateOutputType = {
     priceCentsSnapshot: number | null
+    fraudScore: number | null
   }
 
   export type BookingSumAggregateOutputType = {
     priceCentsSnapshot: number | null
+    fraudScore: number | null
   }
 
   export type BookingMinAggregateOutputType = {
@@ -1099,6 +1101,15 @@ export namespace Prisma {
     confirmedAt: Date | null
     cancelledAt: Date | null
     completedAt: Date | null
+    expiresAt: Date | null
+    statusUpdatedAt: Date | null
+    fraudScore: number | null
+    fraudFlagged: boolean | null
+    listingTitleSnapshot: string | null
+    tenantEmailSnapshot: string | null
+    tenantUsernameSnapshot: string | null
+    fraudReviewStatus: string | null
+    tenantArchivedAt: Date | null
     createdAt: Date | null
     updatedAt: Date | null
   }
@@ -1118,6 +1129,15 @@ export namespace Prisma {
     confirmedAt: Date | null
     cancelledAt: Date | null
     completedAt: Date | null
+    expiresAt: Date | null
+    statusUpdatedAt: Date | null
+    fraudScore: number | null
+    fraudFlagged: boolean | null
+    listingTitleSnapshot: string | null
+    tenantEmailSnapshot: string | null
+    tenantUsernameSnapshot: string | null
+    fraudReviewStatus: string | null
+    tenantArchivedAt: Date | null
     createdAt: Date | null
     updatedAt: Date | null
   }
@@ -1137,6 +1157,16 @@ export namespace Prisma {
     confirmedAt: number
     cancelledAt: number
     completedAt: number
+    expiresAt: number
+    statusUpdatedAt: number
+    fraudScore: number
+    fraudFlagged: number
+    fraudSignals: number
+    listingTitleSnapshot: number
+    tenantEmailSnapshot: number
+    tenantUsernameSnapshot: number
+    fraudReviewStatus: number
+    tenantArchivedAt: number
     createdAt: number
     updatedAt: number
     _all: number
@@ -1145,10 +1175,12 @@ export namespace Prisma {
 
   export type BookingAvgAggregateInputType = {
     priceCentsSnapshot?: true
+    fraudScore?: true
   }
 
   export type BookingSumAggregateInputType = {
     priceCentsSnapshot?: true
+    fraudScore?: true
   }
 
   export type BookingMinAggregateInputType = {
@@ -1166,6 +1198,15 @@ export namespace Prisma {
     confirmedAt?: true
     cancelledAt?: true
     completedAt?: true
+    expiresAt?: true
+    statusUpdatedAt?: true
+    fraudScore?: true
+    fraudFlagged?: true
+    listingTitleSnapshot?: true
+    tenantEmailSnapshot?: true
+    tenantUsernameSnapshot?: true
+    fraudReviewStatus?: true
+    tenantArchivedAt?: true
     createdAt?: true
     updatedAt?: true
   }
@@ -1185,6 +1226,15 @@ export namespace Prisma {
     confirmedAt?: true
     cancelledAt?: true
     completedAt?: true
+    expiresAt?: true
+    statusUpdatedAt?: true
+    fraudScore?: true
+    fraudFlagged?: true
+    listingTitleSnapshot?: true
+    tenantEmailSnapshot?: true
+    tenantUsernameSnapshot?: true
+    fraudReviewStatus?: true
+    tenantArchivedAt?: true
     createdAt?: true
     updatedAt?: true
   }
@@ -1204,6 +1254,16 @@ export namespace Prisma {
     confirmedAt?: true
     cancelledAt?: true
     completedAt?: true
+    expiresAt?: true
+    statusUpdatedAt?: true
+    fraudScore?: true
+    fraudFlagged?: true
+    fraudSignals?: true
+    listingTitleSnapshot?: true
+    tenantEmailSnapshot?: true
+    tenantUsernameSnapshot?: true
+    fraudReviewStatus?: true
+    tenantArchivedAt?: true
     createdAt?: true
     updatedAt?: true
     _all?: true
@@ -1310,6 +1370,16 @@ export namespace Prisma {
     confirmedAt: Date | null
     cancelledAt: Date | null
     completedAt: Date | null
+    expiresAt: Date | null
+    statusUpdatedAt: Date
+    fraudScore: number | null
+    fraudFlagged: boolean
+    fraudSignals: JsonValue | null
+    listingTitleSnapshot: string | null
+    tenantEmailSnapshot: string | null
+    tenantUsernameSnapshot: string | null
+    fraudReviewStatus: string | null
+    tenantArchivedAt: Date | null
     createdAt: Date
     updatedAt: Date
     _count: BookingCountAggregateOutputType | null
@@ -1348,6 +1418,16 @@ export namespace Prisma {
     confirmedAt?: boolean
     cancelledAt?: boolean
     completedAt?: boolean
+    expiresAt?: boolean
+    statusUpdatedAt?: boolean
+    fraudScore?: boolean
+    fraudFlagged?: boolean
+    fraudSignals?: boolean
+    listingTitleSnapshot?: boolean
+    tenantEmailSnapshot?: boolean
+    tenantUsernameSnapshot?: boolean
+    fraudReviewStatus?: boolean
+    tenantArchivedAt?: boolean
     createdAt?: boolean
     updatedAt?: boolean
   }, ExtArgs["result"]["booking"]>
@@ -1367,6 +1447,16 @@ export namespace Prisma {
     confirmedAt?: boolean
     cancelledAt?: boolean
     completedAt?: boolean
+    expiresAt?: boolean
+    statusUpdatedAt?: boolean
+    fraudScore?: boolean
+    fraudFlagged?: boolean
+    fraudSignals?: boolean
+    listingTitleSnapshot?: boolean
+    tenantEmailSnapshot?: boolean
+    tenantUsernameSnapshot?: boolean
+    fraudReviewStatus?: boolean
+    tenantArchivedAt?: boolean
     createdAt?: boolean
     updatedAt?: boolean
   }, ExtArgs["result"]["booking"]>
@@ -1386,6 +1476,16 @@ export namespace Prisma {
     confirmedAt?: boolean
     cancelledAt?: boolean
     completedAt?: boolean
+    expiresAt?: boolean
+    statusUpdatedAt?: boolean
+    fraudScore?: boolean
+    fraudFlagged?: boolean
+    fraudSignals?: boolean
+    listingTitleSnapshot?: boolean
+    tenantEmailSnapshot?: boolean
+    tenantUsernameSnapshot?: boolean
+    fraudReviewStatus?: boolean
+    tenantArchivedAt?: boolean
     createdAt?: boolean
     updatedAt?: boolean
   }, ExtArgs["result"]["booking"]>
@@ -1405,11 +1505,21 @@ export namespace Prisma {
     confirmedAt?: boolean
     cancelledAt?: boolean
     completedAt?: boolean
+    expiresAt?: boolean
+    statusUpdatedAt?: boolean
+    fraudScore?: boolean
+    fraudFlagged?: boolean
+    fraudSignals?: boolean
+    listingTitleSnapshot?: boolean
+    tenantEmailSnapshot?: boolean
+    tenantUsernameSnapshot?: boolean
+    fraudReviewStatus?: boolean
+    tenantArchivedAt?: boolean
     createdAt?: boolean
     updatedAt?: boolean
   }
 
-  export type BookingOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "listingId" | "tenantId" | "landlordId" | "status" | "startDate" | "endDate" | "priceCentsSnapshot" | "currencyCode" | "tenantNotes" | "cancellationReason" | "confirmedAt" | "cancelledAt" | "completedAt" | "createdAt" | "updatedAt", ExtArgs["result"]["booking"]>
+  export type BookingOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "listingId" | "tenantId" | "landlordId" | "status" | "startDate" | "endDate" | "priceCentsSnapshot" | "currencyCode" | "tenantNotes" | "cancellationReason" | "confirmedAt" | "cancelledAt" | "completedAt" | "expiresAt" | "statusUpdatedAt" | "fraudScore" | "fraudFlagged" | "fraudSignals" | "listingTitleSnapshot" | "tenantEmailSnapshot" | "tenantUsernameSnapshot" | "fraudReviewStatus" | "tenantArchivedAt" | "createdAt" | "updatedAt", ExtArgs["result"]["booking"]>
 
   export type $BookingPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     name: "Booking"
@@ -1432,6 +1542,19 @@ export namespace Prisma {
       confirmedAt: Date | null
       cancelledAt: Date | null
       completedAt: Date | null
+      expiresAt: Date | null
+      statusUpdatedAt: Date
+      fraudScore: number | null
+      fraudFlagged: boolean
+      fraudSignals: Prisma.JsonValue | null
+      listingTitleSnapshot: string | null
+      tenantEmailSnapshot: string | null
+      /**
+       * Renter username/handle from gateway at request time (optional).
+       */
+      tenantUsernameSnapshot: string | null
+      fraudReviewStatus: string | null
+      tenantArchivedAt: Date | null
       createdAt: Date
       updatedAt: Date
     }, ExtArgs["result"]["booking"]>
@@ -1871,6 +1994,16 @@ export namespace Prisma {
     readonly confirmedAt: FieldRef<"Booking", 'DateTime'>
     readonly cancelledAt: FieldRef<"Booking", 'DateTime'>
     readonly completedAt: FieldRef<"Booking", 'DateTime'>
+    readonly expiresAt: FieldRef<"Booking", 'DateTime'>
+    readonly statusUpdatedAt: FieldRef<"Booking", 'DateTime'>
+    readonly fraudScore: FieldRef<"Booking", 'Int'>
+    readonly fraudFlagged: FieldRef<"Booking", 'Boolean'>
+    readonly fraudSignals: FieldRef<"Booking", 'Json'>
+    readonly listingTitleSnapshot: FieldRef<"Booking", 'String'>
+    readonly tenantEmailSnapshot: FieldRef<"Booking", 'String'>
+    readonly tenantUsernameSnapshot: FieldRef<"Booking", 'String'>
+    readonly fraudReviewStatus: FieldRef<"Booking", 'String'>
+    readonly tenantArchivedAt: FieldRef<"Booking", 'DateTime'>
     readonly createdAt: FieldRef<"Booking", 'DateTime'>
     readonly updatedAt: FieldRef<"Booking", 'DateTime'>
   }
@@ -2255,6 +2388,7 @@ export namespace Prisma {
     minPriceCents: number | null
     maxPriceCents: number | null
     maxDistanceKm: number | null
+    maxCampusMiles: number | null
     latitude: number | null
     longitude: number | null
   }
@@ -2263,6 +2397,7 @@ export namespace Prisma {
     minPriceCents: number | null
     maxPriceCents: number | null
     maxDistanceKm: number | null
+    maxCampusMiles: number | null
     latitude: number | null
     longitude: number | null
   }
@@ -2274,6 +2409,8 @@ export namespace Prisma {
     minPriceCents: number | null
     maxPriceCents: number | null
     maxDistanceKm: number | null
+    maxCampusMiles: number | null
+    alertOnMatch: boolean | null
     latitude: number | null
     longitude: number | null
     createdAt: Date | null
@@ -2286,6 +2423,8 @@ export namespace Prisma {
     minPriceCents: number | null
     maxPriceCents: number | null
     maxDistanceKm: number | null
+    maxCampusMiles: number | null
+    alertOnMatch: boolean | null
     latitude: number | null
     longitude: number | null
     createdAt: Date | null
@@ -2298,6 +2437,8 @@ export namespace Prisma {
     minPriceCents: number
     maxPriceCents: number
     maxDistanceKm: number
+    maxCampusMiles: number
+    alertOnMatch: number
     latitude: number
     longitude: number
     filters: number
@@ -2310,6 +2451,7 @@ export namespace Prisma {
     minPriceCents?: true
     maxPriceCents?: true
     maxDistanceKm?: true
+    maxCampusMiles?: true
     latitude?: true
     longitude?: true
   }
@@ -2318,6 +2460,7 @@ export namespace Prisma {
     minPriceCents?: true
     maxPriceCents?: true
     maxDistanceKm?: true
+    maxCampusMiles?: true
     latitude?: true
     longitude?: true
   }
@@ -2329,6 +2472,8 @@ export namespace Prisma {
     minPriceCents?: true
     maxPriceCents?: true
     maxDistanceKm?: true
+    maxCampusMiles?: true
+    alertOnMatch?: true
     latitude?: true
     longitude?: true
     createdAt?: true
@@ -2341,6 +2486,8 @@ export namespace Prisma {
     minPriceCents?: true
     maxPriceCents?: true
     maxDistanceKm?: true
+    maxCampusMiles?: true
+    alertOnMatch?: true
     latitude?: true
     longitude?: true
     createdAt?: true
@@ -2353,6 +2500,8 @@ export namespace Prisma {
     minPriceCents?: true
     maxPriceCents?: true
     maxDistanceKm?: true
+    maxCampusMiles?: true
+    alertOnMatch?: true
     latitude?: true
     longitude?: true
     filters?: true
@@ -2453,6 +2602,8 @@ export namespace Prisma {
     minPriceCents: number | null
     maxPriceCents: number | null
     maxDistanceKm: number | null
+    maxCampusMiles: number | null
+    alertOnMatch: boolean
     latitude: number | null
     longitude: number | null
     filters: JsonValue | null
@@ -2485,6 +2636,8 @@ export namespace Prisma {
     minPriceCents?: boolean
     maxPriceCents?: boolean
     maxDistanceKm?: boolean
+    maxCampusMiles?: boolean
+    alertOnMatch?: boolean
     latitude?: boolean
     longitude?: boolean
     filters?: boolean
@@ -2498,6 +2651,8 @@ export namespace Prisma {
     minPriceCents?: boolean
     maxPriceCents?: boolean
     maxDistanceKm?: boolean
+    maxCampusMiles?: boolean
+    alertOnMatch?: boolean
     latitude?: boolean
     longitude?: boolean
     filters?: boolean
@@ -2511,6 +2666,8 @@ export namespace Prisma {
     minPriceCents?: boolean
     maxPriceCents?: boolean
     maxDistanceKm?: boolean
+    maxCampusMiles?: boolean
+    alertOnMatch?: boolean
     latitude?: boolean
     longitude?: boolean
     filters?: boolean
@@ -2524,13 +2681,15 @@ export namespace Prisma {
     minPriceCents?: boolean
     maxPriceCents?: boolean
     maxDistanceKm?: boolean
+    maxCampusMiles?: boolean
+    alertOnMatch?: boolean
     latitude?: boolean
     longitude?: boolean
     filters?: boolean
     createdAt?: boolean
   }
 
-  export type SearchHistoryOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "userId" | "query" | "minPriceCents" | "maxPriceCents" | "maxDistanceKm" | "latitude" | "longitude" | "filters" | "createdAt", ExtArgs["result"]["searchHistory"]>
+  export type SearchHistoryOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "userId" | "query" | "minPriceCents" | "maxPriceCents" | "maxDistanceKm" | "maxCampusMiles" | "alertOnMatch" | "latitude" | "longitude" | "filters" | "createdAt", ExtArgs["result"]["searchHistory"]>
 
   export type $SearchHistoryPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     name: "SearchHistory"
@@ -2542,6 +2701,14 @@ export namespace Prisma {
       minPriceCents: number | null
       maxPriceCents: number | null
       maxDistanceKm: number | null
+      /**
+       * Max distance from campus in miles (saved-search alerts). Distinct from legacy maxDistanceKm.
+       */
+      maxCampusMiles: number | null
+      /**
+       * When true, new active listings that match this row can trigger in-app notifications.
+       */
+      alertOnMatch: boolean
       latitude: number | null
       longitude: number | null
       filters: Prisma.JsonValue | null
@@ -2975,6 +3142,8 @@ export namespace Prisma {
     readonly minPriceCents: FieldRef<"SearchHistory", 'Int'>
     readonly maxPriceCents: FieldRef<"SearchHistory", 'Int'>
     readonly maxDistanceKm: FieldRef<"SearchHistory", 'Int'>
+    readonly maxCampusMiles: FieldRef<"SearchHistory", 'Float'>
+    readonly alertOnMatch: FieldRef<"SearchHistory", 'Boolean'>
     readonly latitude: FieldRef<"SearchHistory", 'Float'>
     readonly longitude: FieldRef<"SearchHistory", 'Float'>
     readonly filters: FieldRef<"SearchHistory", 'Json'>
@@ -4395,6 +4564,16 @@ export namespace Prisma {
     confirmedAt: 'confirmedAt',
     cancelledAt: 'cancelledAt',
     completedAt: 'completedAt',
+    expiresAt: 'expiresAt',
+    statusUpdatedAt: 'statusUpdatedAt',
+    fraudScore: 'fraudScore',
+    fraudFlagged: 'fraudFlagged',
+    fraudSignals: 'fraudSignals',
+    listingTitleSnapshot: 'listingTitleSnapshot',
+    tenantEmailSnapshot: 'tenantEmailSnapshot',
+    tenantUsernameSnapshot: 'tenantUsernameSnapshot',
+    fraudReviewStatus: 'fraudReviewStatus',
+    tenantArchivedAt: 'tenantArchivedAt',
     createdAt: 'createdAt',
     updatedAt: 'updatedAt'
   };
@@ -4409,6 +4588,8 @@ export namespace Prisma {
     minPriceCents: 'minPriceCents',
     maxPriceCents: 'maxPriceCents',
     maxDistanceKm: 'maxDistanceKm',
+    maxCampusMiles: 'maxCampusMiles',
+    alertOnMatch: 'alertOnMatch',
     latitude: 'latitude',
     longitude: 'longitude',
     filters: 'filters',
@@ -4455,14 +4636,6 @@ export namespace Prisma {
   export type QueryMode = (typeof QueryMode)[keyof typeof QueryMode]
 
 
-  export const NullsOrder: {
-    first: 'first',
-    last: 'last'
-  };
-
-  export type NullsOrder = (typeof NullsOrder)[keyof typeof NullsOrder]
-
-
   export const JsonNullValueFilter: {
     DbNull: typeof DbNull,
     JsonNull: typeof JsonNull,
@@ -4470,6 +4643,14 @@ export namespace Prisma {
   };
 
   export type JsonNullValueFilter = (typeof JsonNullValueFilter)[keyof typeof JsonNullValueFilter]
+
+
+  export const NullsOrder: {
+    first: 'first',
+    last: 'last'
+  };
+
+  export type NullsOrder = (typeof NullsOrder)[keyof typeof NullsOrder]
 
 
   /**
@@ -4534,16 +4715,9 @@ export namespace Prisma {
 
 
   /**
-   * Reference to a field of type 'Float'
+   * Reference to a field of type 'Boolean'
    */
-  export type FloatFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Float'>
-    
-
-
-  /**
-   * Reference to a field of type 'Float[]'
-   */
-  export type ListFloatFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Float[]'>
+  export type BooleanFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Boolean'>
     
 
 
@@ -4562,9 +4736,16 @@ export namespace Prisma {
 
 
   /**
-   * Reference to a field of type 'Boolean'
+   * Reference to a field of type 'Float'
    */
-  export type BooleanFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Boolean'>
+  export type FloatFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Float'>
+    
+
+
+  /**
+   * Reference to a field of type 'Float[]'
+   */
+  export type ListFloatFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Float[]'>
     
   /**
    * Deep Input Types
@@ -4589,6 +4770,16 @@ export namespace Prisma {
     confirmedAt?: DateTimeNullableFilter<"Booking"> | Date | string | null
     cancelledAt?: DateTimeNullableFilter<"Booking"> | Date | string | null
     completedAt?: DateTimeNullableFilter<"Booking"> | Date | string | null
+    expiresAt?: DateTimeNullableFilter<"Booking"> | Date | string | null
+    statusUpdatedAt?: DateTimeFilter<"Booking"> | Date | string
+    fraudScore?: IntNullableFilter<"Booking"> | number | null
+    fraudFlagged?: BoolFilter<"Booking"> | boolean
+    fraudSignals?: JsonNullableFilter<"Booking">
+    listingTitleSnapshot?: StringNullableFilter<"Booking"> | string | null
+    tenantEmailSnapshot?: StringNullableFilter<"Booking"> | string | null
+    tenantUsernameSnapshot?: StringNullableFilter<"Booking"> | string | null
+    fraudReviewStatus?: StringNullableFilter<"Booking"> | string | null
+    tenantArchivedAt?: DateTimeNullableFilter<"Booking"> | Date | string | null
     createdAt?: DateTimeFilter<"Booking"> | Date | string
     updatedAt?: DateTimeFilter<"Booking"> | Date | string
   }
@@ -4608,6 +4799,16 @@ export namespace Prisma {
     confirmedAt?: SortOrderInput | SortOrder
     cancelledAt?: SortOrderInput | SortOrder
     completedAt?: SortOrderInput | SortOrder
+    expiresAt?: SortOrderInput | SortOrder
+    statusUpdatedAt?: SortOrder
+    fraudScore?: SortOrderInput | SortOrder
+    fraudFlagged?: SortOrder
+    fraudSignals?: SortOrderInput | SortOrder
+    listingTitleSnapshot?: SortOrderInput | SortOrder
+    tenantEmailSnapshot?: SortOrderInput | SortOrder
+    tenantUsernameSnapshot?: SortOrderInput | SortOrder
+    fraudReviewStatus?: SortOrderInput | SortOrder
+    tenantArchivedAt?: SortOrderInput | SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
   }
@@ -4630,6 +4831,16 @@ export namespace Prisma {
     confirmedAt?: DateTimeNullableFilter<"Booking"> | Date | string | null
     cancelledAt?: DateTimeNullableFilter<"Booking"> | Date | string | null
     completedAt?: DateTimeNullableFilter<"Booking"> | Date | string | null
+    expiresAt?: DateTimeNullableFilter<"Booking"> | Date | string | null
+    statusUpdatedAt?: DateTimeFilter<"Booking"> | Date | string
+    fraudScore?: IntNullableFilter<"Booking"> | number | null
+    fraudFlagged?: BoolFilter<"Booking"> | boolean
+    fraudSignals?: JsonNullableFilter<"Booking">
+    listingTitleSnapshot?: StringNullableFilter<"Booking"> | string | null
+    tenantEmailSnapshot?: StringNullableFilter<"Booking"> | string | null
+    tenantUsernameSnapshot?: StringNullableFilter<"Booking"> | string | null
+    fraudReviewStatus?: StringNullableFilter<"Booking"> | string | null
+    tenantArchivedAt?: DateTimeNullableFilter<"Booking"> | Date | string | null
     createdAt?: DateTimeFilter<"Booking"> | Date | string
     updatedAt?: DateTimeFilter<"Booking"> | Date | string
   }, "id">
@@ -4649,6 +4860,16 @@ export namespace Prisma {
     confirmedAt?: SortOrderInput | SortOrder
     cancelledAt?: SortOrderInput | SortOrder
     completedAt?: SortOrderInput | SortOrder
+    expiresAt?: SortOrderInput | SortOrder
+    statusUpdatedAt?: SortOrder
+    fraudScore?: SortOrderInput | SortOrder
+    fraudFlagged?: SortOrder
+    fraudSignals?: SortOrderInput | SortOrder
+    listingTitleSnapshot?: SortOrderInput | SortOrder
+    tenantEmailSnapshot?: SortOrderInput | SortOrder
+    tenantUsernameSnapshot?: SortOrderInput | SortOrder
+    fraudReviewStatus?: SortOrderInput | SortOrder
+    tenantArchivedAt?: SortOrderInput | SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
     _count?: BookingCountOrderByAggregateInput
@@ -4676,6 +4897,16 @@ export namespace Prisma {
     confirmedAt?: DateTimeNullableWithAggregatesFilter<"Booking"> | Date | string | null
     cancelledAt?: DateTimeNullableWithAggregatesFilter<"Booking"> | Date | string | null
     completedAt?: DateTimeNullableWithAggregatesFilter<"Booking"> | Date | string | null
+    expiresAt?: DateTimeNullableWithAggregatesFilter<"Booking"> | Date | string | null
+    statusUpdatedAt?: DateTimeWithAggregatesFilter<"Booking"> | Date | string
+    fraudScore?: IntNullableWithAggregatesFilter<"Booking"> | number | null
+    fraudFlagged?: BoolWithAggregatesFilter<"Booking"> | boolean
+    fraudSignals?: JsonNullableWithAggregatesFilter<"Booking">
+    listingTitleSnapshot?: StringNullableWithAggregatesFilter<"Booking"> | string | null
+    tenantEmailSnapshot?: StringNullableWithAggregatesFilter<"Booking"> | string | null
+    tenantUsernameSnapshot?: StringNullableWithAggregatesFilter<"Booking"> | string | null
+    fraudReviewStatus?: StringNullableWithAggregatesFilter<"Booking"> | string | null
+    tenantArchivedAt?: DateTimeNullableWithAggregatesFilter<"Booking"> | Date | string | null
     createdAt?: DateTimeWithAggregatesFilter<"Booking"> | Date | string
     updatedAt?: DateTimeWithAggregatesFilter<"Booking"> | Date | string
   }
@@ -4690,6 +4921,8 @@ export namespace Prisma {
     minPriceCents?: IntNullableFilter<"SearchHistory"> | number | null
     maxPriceCents?: IntNullableFilter<"SearchHistory"> | number | null
     maxDistanceKm?: IntNullableFilter<"SearchHistory"> | number | null
+    maxCampusMiles?: FloatNullableFilter<"SearchHistory"> | number | null
+    alertOnMatch?: BoolFilter<"SearchHistory"> | boolean
     latitude?: FloatNullableFilter<"SearchHistory"> | number | null
     longitude?: FloatNullableFilter<"SearchHistory"> | number | null
     filters?: JsonNullableFilter<"SearchHistory">
@@ -4703,6 +4936,8 @@ export namespace Prisma {
     minPriceCents?: SortOrderInput | SortOrder
     maxPriceCents?: SortOrderInput | SortOrder
     maxDistanceKm?: SortOrderInput | SortOrder
+    maxCampusMiles?: SortOrderInput | SortOrder
+    alertOnMatch?: SortOrder
     latitude?: SortOrderInput | SortOrder
     longitude?: SortOrderInput | SortOrder
     filters?: SortOrderInput | SortOrder
@@ -4719,6 +4954,8 @@ export namespace Prisma {
     minPriceCents?: IntNullableFilter<"SearchHistory"> | number | null
     maxPriceCents?: IntNullableFilter<"SearchHistory"> | number | null
     maxDistanceKm?: IntNullableFilter<"SearchHistory"> | number | null
+    maxCampusMiles?: FloatNullableFilter<"SearchHistory"> | number | null
+    alertOnMatch?: BoolFilter<"SearchHistory"> | boolean
     latitude?: FloatNullableFilter<"SearchHistory"> | number | null
     longitude?: FloatNullableFilter<"SearchHistory"> | number | null
     filters?: JsonNullableFilter<"SearchHistory">
@@ -4732,6 +4969,8 @@ export namespace Prisma {
     minPriceCents?: SortOrderInput | SortOrder
     maxPriceCents?: SortOrderInput | SortOrder
     maxDistanceKm?: SortOrderInput | SortOrder
+    maxCampusMiles?: SortOrderInput | SortOrder
+    alertOnMatch?: SortOrder
     latitude?: SortOrderInput | SortOrder
     longitude?: SortOrderInput | SortOrder
     filters?: SortOrderInput | SortOrder
@@ -4753,6 +4992,8 @@ export namespace Prisma {
     minPriceCents?: IntNullableWithAggregatesFilter<"SearchHistory"> | number | null
     maxPriceCents?: IntNullableWithAggregatesFilter<"SearchHistory"> | number | null
     maxDistanceKm?: IntNullableWithAggregatesFilter<"SearchHistory"> | number | null
+    maxCampusMiles?: FloatNullableWithAggregatesFilter<"SearchHistory"> | number | null
+    alertOnMatch?: BoolWithAggregatesFilter<"SearchHistory"> | boolean
     latitude?: FloatNullableWithAggregatesFilter<"SearchHistory"> | number | null
     longitude?: FloatNullableWithAggregatesFilter<"SearchHistory"> | number | null
     filters?: JsonNullableWithAggregatesFilter<"SearchHistory">
@@ -4837,6 +5078,16 @@ export namespace Prisma {
     confirmedAt?: Date | string | null
     cancelledAt?: Date | string | null
     completedAt?: Date | string | null
+    expiresAt?: Date | string | null
+    statusUpdatedAt?: Date | string
+    fraudScore?: number | null
+    fraudFlagged?: boolean
+    fraudSignals?: NullableJsonNullValueInput | InputJsonValue
+    listingTitleSnapshot?: string | null
+    tenantEmailSnapshot?: string | null
+    tenantUsernameSnapshot?: string | null
+    fraudReviewStatus?: string | null
+    tenantArchivedAt?: Date | string | null
     createdAt?: Date | string
     updatedAt?: Date | string
   }
@@ -4856,6 +5107,16 @@ export namespace Prisma {
     confirmedAt?: Date | string | null
     cancelledAt?: Date | string | null
     completedAt?: Date | string | null
+    expiresAt?: Date | string | null
+    statusUpdatedAt?: Date | string
+    fraudScore?: number | null
+    fraudFlagged?: boolean
+    fraudSignals?: NullableJsonNullValueInput | InputJsonValue
+    listingTitleSnapshot?: string | null
+    tenantEmailSnapshot?: string | null
+    tenantUsernameSnapshot?: string | null
+    fraudReviewStatus?: string | null
+    tenantArchivedAt?: Date | string | null
     createdAt?: Date | string
     updatedAt?: Date | string
   }
@@ -4875,6 +5136,16 @@ export namespace Prisma {
     confirmedAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     cancelledAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     completedAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    expiresAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    statusUpdatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
+    fraudScore?: NullableIntFieldUpdateOperationsInput | number | null
+    fraudFlagged?: BoolFieldUpdateOperationsInput | boolean
+    fraudSignals?: NullableJsonNullValueInput | InputJsonValue
+    listingTitleSnapshot?: NullableStringFieldUpdateOperationsInput | string | null
+    tenantEmailSnapshot?: NullableStringFieldUpdateOperationsInput | string | null
+    tenantUsernameSnapshot?: NullableStringFieldUpdateOperationsInput | string | null
+    fraudReviewStatus?: NullableStringFieldUpdateOperationsInput | string | null
+    tenantArchivedAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
   }
@@ -4894,6 +5165,16 @@ export namespace Prisma {
     confirmedAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     cancelledAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     completedAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    expiresAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    statusUpdatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
+    fraudScore?: NullableIntFieldUpdateOperationsInput | number | null
+    fraudFlagged?: BoolFieldUpdateOperationsInput | boolean
+    fraudSignals?: NullableJsonNullValueInput | InputJsonValue
+    listingTitleSnapshot?: NullableStringFieldUpdateOperationsInput | string | null
+    tenantEmailSnapshot?: NullableStringFieldUpdateOperationsInput | string | null
+    tenantUsernameSnapshot?: NullableStringFieldUpdateOperationsInput | string | null
+    fraudReviewStatus?: NullableStringFieldUpdateOperationsInput | string | null
+    tenantArchivedAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
   }
@@ -4913,6 +5194,16 @@ export namespace Prisma {
     confirmedAt?: Date | string | null
     cancelledAt?: Date | string | null
     completedAt?: Date | string | null
+    expiresAt?: Date | string | null
+    statusUpdatedAt?: Date | string
+    fraudScore?: number | null
+    fraudFlagged?: boolean
+    fraudSignals?: NullableJsonNullValueInput | InputJsonValue
+    listingTitleSnapshot?: string | null
+    tenantEmailSnapshot?: string | null
+    tenantUsernameSnapshot?: string | null
+    fraudReviewStatus?: string | null
+    tenantArchivedAt?: Date | string | null
     createdAt?: Date | string
     updatedAt?: Date | string
   }
@@ -4932,6 +5223,16 @@ export namespace Prisma {
     confirmedAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     cancelledAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     completedAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    expiresAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    statusUpdatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
+    fraudScore?: NullableIntFieldUpdateOperationsInput | number | null
+    fraudFlagged?: BoolFieldUpdateOperationsInput | boolean
+    fraudSignals?: NullableJsonNullValueInput | InputJsonValue
+    listingTitleSnapshot?: NullableStringFieldUpdateOperationsInput | string | null
+    tenantEmailSnapshot?: NullableStringFieldUpdateOperationsInput | string | null
+    tenantUsernameSnapshot?: NullableStringFieldUpdateOperationsInput | string | null
+    fraudReviewStatus?: NullableStringFieldUpdateOperationsInput | string | null
+    tenantArchivedAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
   }
@@ -4951,6 +5252,16 @@ export namespace Prisma {
     confirmedAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     cancelledAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     completedAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    expiresAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    statusUpdatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
+    fraudScore?: NullableIntFieldUpdateOperationsInput | number | null
+    fraudFlagged?: BoolFieldUpdateOperationsInput | boolean
+    fraudSignals?: NullableJsonNullValueInput | InputJsonValue
+    listingTitleSnapshot?: NullableStringFieldUpdateOperationsInput | string | null
+    tenantEmailSnapshot?: NullableStringFieldUpdateOperationsInput | string | null
+    tenantUsernameSnapshot?: NullableStringFieldUpdateOperationsInput | string | null
+    fraudReviewStatus?: NullableStringFieldUpdateOperationsInput | string | null
+    tenantArchivedAt?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
   }
@@ -4962,6 +5273,8 @@ export namespace Prisma {
     minPriceCents?: number | null
     maxPriceCents?: number | null
     maxDistanceKm?: number | null
+    maxCampusMiles?: number | null
+    alertOnMatch?: boolean
     latitude?: number | null
     longitude?: number | null
     filters?: NullableJsonNullValueInput | InputJsonValue
@@ -4975,6 +5288,8 @@ export namespace Prisma {
     minPriceCents?: number | null
     maxPriceCents?: number | null
     maxDistanceKm?: number | null
+    maxCampusMiles?: number | null
+    alertOnMatch?: boolean
     latitude?: number | null
     longitude?: number | null
     filters?: NullableJsonNullValueInput | InputJsonValue
@@ -4988,6 +5303,8 @@ export namespace Prisma {
     minPriceCents?: NullableIntFieldUpdateOperationsInput | number | null
     maxPriceCents?: NullableIntFieldUpdateOperationsInput | number | null
     maxDistanceKm?: NullableIntFieldUpdateOperationsInput | number | null
+    maxCampusMiles?: NullableFloatFieldUpdateOperationsInput | number | null
+    alertOnMatch?: BoolFieldUpdateOperationsInput | boolean
     latitude?: NullableFloatFieldUpdateOperationsInput | number | null
     longitude?: NullableFloatFieldUpdateOperationsInput | number | null
     filters?: NullableJsonNullValueInput | InputJsonValue
@@ -5001,6 +5318,8 @@ export namespace Prisma {
     minPriceCents?: NullableIntFieldUpdateOperationsInput | number | null
     maxPriceCents?: NullableIntFieldUpdateOperationsInput | number | null
     maxDistanceKm?: NullableIntFieldUpdateOperationsInput | number | null
+    maxCampusMiles?: NullableFloatFieldUpdateOperationsInput | number | null
+    alertOnMatch?: BoolFieldUpdateOperationsInput | boolean
     latitude?: NullableFloatFieldUpdateOperationsInput | number | null
     longitude?: NullableFloatFieldUpdateOperationsInput | number | null
     filters?: NullableJsonNullValueInput | InputJsonValue
@@ -5014,6 +5333,8 @@ export namespace Prisma {
     minPriceCents?: number | null
     maxPriceCents?: number | null
     maxDistanceKm?: number | null
+    maxCampusMiles?: number | null
+    alertOnMatch?: boolean
     latitude?: number | null
     longitude?: number | null
     filters?: NullableJsonNullValueInput | InputJsonValue
@@ -5027,6 +5348,8 @@ export namespace Prisma {
     minPriceCents?: NullableIntFieldUpdateOperationsInput | number | null
     maxPriceCents?: NullableIntFieldUpdateOperationsInput | number | null
     maxDistanceKm?: NullableIntFieldUpdateOperationsInput | number | null
+    maxCampusMiles?: NullableFloatFieldUpdateOperationsInput | number | null
+    alertOnMatch?: BoolFieldUpdateOperationsInput | boolean
     latitude?: NullableFloatFieldUpdateOperationsInput | number | null
     longitude?: NullableFloatFieldUpdateOperationsInput | number | null
     filters?: NullableJsonNullValueInput | InputJsonValue
@@ -5040,6 +5363,8 @@ export namespace Prisma {
     minPriceCents?: NullableIntFieldUpdateOperationsInput | number | null
     maxPriceCents?: NullableIntFieldUpdateOperationsInput | number | null
     maxDistanceKm?: NullableIntFieldUpdateOperationsInput | number | null
+    maxCampusMiles?: NullableFloatFieldUpdateOperationsInput | number | null
+    alertOnMatch?: BoolFieldUpdateOperationsInput | boolean
     latitude?: NullableFloatFieldUpdateOperationsInput | number | null
     longitude?: NullableFloatFieldUpdateOperationsInput | number | null
     filters?: NullableJsonNullValueInput | InputJsonValue
@@ -5198,6 +5523,45 @@ export namespace Prisma {
     not?: NestedDateTimeNullableFilter<$PrismaModel> | Date | string | null
   }
 
+  export type IntNullableFilter<$PrismaModel = never> = {
+    equals?: number | IntFieldRefInput<$PrismaModel> | null
+    in?: number[] | ListIntFieldRefInput<$PrismaModel> | null
+    notIn?: number[] | ListIntFieldRefInput<$PrismaModel> | null
+    lt?: number | IntFieldRefInput<$PrismaModel>
+    lte?: number | IntFieldRefInput<$PrismaModel>
+    gt?: number | IntFieldRefInput<$PrismaModel>
+    gte?: number | IntFieldRefInput<$PrismaModel>
+    not?: NestedIntNullableFilter<$PrismaModel> | number | null
+  }
+
+  export type BoolFilter<$PrismaModel = never> = {
+    equals?: boolean | BooleanFieldRefInput<$PrismaModel>
+    not?: NestedBoolFilter<$PrismaModel> | boolean
+  }
+  export type JsonNullableFilter<$PrismaModel = never> =
+    | PatchUndefined<
+        Either<Required<JsonNullableFilterBase<$PrismaModel>>, Exclude<keyof Required<JsonNullableFilterBase<$PrismaModel>>, 'path'>>,
+        Required<JsonNullableFilterBase<$PrismaModel>>
+      >
+    | OptionalFlat<Omit<Required<JsonNullableFilterBase<$PrismaModel>>, 'path'>>
+
+  export type JsonNullableFilterBase<$PrismaModel = never> = {
+    equals?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | JsonNullValueFilter
+    path?: string[]
+    mode?: QueryMode | EnumQueryModeFieldRefInput<$PrismaModel>
+    string_contains?: string | StringFieldRefInput<$PrismaModel>
+    string_starts_with?: string | StringFieldRefInput<$PrismaModel>
+    string_ends_with?: string | StringFieldRefInput<$PrismaModel>
+    array_starts_with?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | null
+    array_ends_with?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | null
+    array_contains?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | null
+    lt?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
+    lte?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
+    gt?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
+    gte?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
+    not?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | JsonNullValueFilter
+  }
+
   export type SortOrderInput = {
     sort: SortOrder
     nulls?: NullsOrder
@@ -5218,12 +5582,23 @@ export namespace Prisma {
     confirmedAt?: SortOrder
     cancelledAt?: SortOrder
     completedAt?: SortOrder
+    expiresAt?: SortOrder
+    statusUpdatedAt?: SortOrder
+    fraudScore?: SortOrder
+    fraudFlagged?: SortOrder
+    fraudSignals?: SortOrder
+    listingTitleSnapshot?: SortOrder
+    tenantEmailSnapshot?: SortOrder
+    tenantUsernameSnapshot?: SortOrder
+    fraudReviewStatus?: SortOrder
+    tenantArchivedAt?: SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
   }
 
   export type BookingAvgOrderByAggregateInput = {
     priceCentsSnapshot?: SortOrder
+    fraudScore?: SortOrder
   }
 
   export type BookingMaxOrderByAggregateInput = {
@@ -5241,6 +5616,15 @@ export namespace Prisma {
     confirmedAt?: SortOrder
     cancelledAt?: SortOrder
     completedAt?: SortOrder
+    expiresAt?: SortOrder
+    statusUpdatedAt?: SortOrder
+    fraudScore?: SortOrder
+    fraudFlagged?: SortOrder
+    listingTitleSnapshot?: SortOrder
+    tenantEmailSnapshot?: SortOrder
+    tenantUsernameSnapshot?: SortOrder
+    fraudReviewStatus?: SortOrder
+    tenantArchivedAt?: SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
   }
@@ -5260,12 +5644,22 @@ export namespace Prisma {
     confirmedAt?: SortOrder
     cancelledAt?: SortOrder
     completedAt?: SortOrder
+    expiresAt?: SortOrder
+    statusUpdatedAt?: SortOrder
+    fraudScore?: SortOrder
+    fraudFlagged?: SortOrder
+    listingTitleSnapshot?: SortOrder
+    tenantEmailSnapshot?: SortOrder
+    tenantUsernameSnapshot?: SortOrder
+    fraudReviewStatus?: SortOrder
+    tenantArchivedAt?: SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
   }
 
   export type BookingSumOrderByAggregateInput = {
     priceCentsSnapshot?: SortOrder
+    fraudScore?: SortOrder
   }
 
   export type UuidWithAggregatesFilter<$PrismaModel = never> = {
@@ -5373,104 +5767,6 @@ export namespace Prisma {
     _max?: NestedDateTimeNullableFilter<$PrismaModel>
   }
 
-  export type IntNullableFilter<$PrismaModel = never> = {
-    equals?: number | IntFieldRefInput<$PrismaModel> | null
-    in?: number[] | ListIntFieldRefInput<$PrismaModel> | null
-    notIn?: number[] | ListIntFieldRefInput<$PrismaModel> | null
-    lt?: number | IntFieldRefInput<$PrismaModel>
-    lte?: number | IntFieldRefInput<$PrismaModel>
-    gt?: number | IntFieldRefInput<$PrismaModel>
-    gte?: number | IntFieldRefInput<$PrismaModel>
-    not?: NestedIntNullableFilter<$PrismaModel> | number | null
-  }
-
-  export type FloatNullableFilter<$PrismaModel = never> = {
-    equals?: number | FloatFieldRefInput<$PrismaModel> | null
-    in?: number[] | ListFloatFieldRefInput<$PrismaModel> | null
-    notIn?: number[] | ListFloatFieldRefInput<$PrismaModel> | null
-    lt?: number | FloatFieldRefInput<$PrismaModel>
-    lte?: number | FloatFieldRefInput<$PrismaModel>
-    gt?: number | FloatFieldRefInput<$PrismaModel>
-    gte?: number | FloatFieldRefInput<$PrismaModel>
-    not?: NestedFloatNullableFilter<$PrismaModel> | number | null
-  }
-  export type JsonNullableFilter<$PrismaModel = never> =
-    | PatchUndefined<
-        Either<Required<JsonNullableFilterBase<$PrismaModel>>, Exclude<keyof Required<JsonNullableFilterBase<$PrismaModel>>, 'path'>>,
-        Required<JsonNullableFilterBase<$PrismaModel>>
-      >
-    | OptionalFlat<Omit<Required<JsonNullableFilterBase<$PrismaModel>>, 'path'>>
-
-  export type JsonNullableFilterBase<$PrismaModel = never> = {
-    equals?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | JsonNullValueFilter
-    path?: string[]
-    mode?: QueryMode | EnumQueryModeFieldRefInput<$PrismaModel>
-    string_contains?: string | StringFieldRefInput<$PrismaModel>
-    string_starts_with?: string | StringFieldRefInput<$PrismaModel>
-    string_ends_with?: string | StringFieldRefInput<$PrismaModel>
-    array_starts_with?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | null
-    array_ends_with?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | null
-    array_contains?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | null
-    lt?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
-    lte?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
-    gt?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
-    gte?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
-    not?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | JsonNullValueFilter
-  }
-
-  export type SearchHistoryCountOrderByAggregateInput = {
-    id?: SortOrder
-    userId?: SortOrder
-    query?: SortOrder
-    minPriceCents?: SortOrder
-    maxPriceCents?: SortOrder
-    maxDistanceKm?: SortOrder
-    latitude?: SortOrder
-    longitude?: SortOrder
-    filters?: SortOrder
-    createdAt?: SortOrder
-  }
-
-  export type SearchHistoryAvgOrderByAggregateInput = {
-    minPriceCents?: SortOrder
-    maxPriceCents?: SortOrder
-    maxDistanceKm?: SortOrder
-    latitude?: SortOrder
-    longitude?: SortOrder
-  }
-
-  export type SearchHistoryMaxOrderByAggregateInput = {
-    id?: SortOrder
-    userId?: SortOrder
-    query?: SortOrder
-    minPriceCents?: SortOrder
-    maxPriceCents?: SortOrder
-    maxDistanceKm?: SortOrder
-    latitude?: SortOrder
-    longitude?: SortOrder
-    createdAt?: SortOrder
-  }
-
-  export type SearchHistoryMinOrderByAggregateInput = {
-    id?: SortOrder
-    userId?: SortOrder
-    query?: SortOrder
-    minPriceCents?: SortOrder
-    maxPriceCents?: SortOrder
-    maxDistanceKm?: SortOrder
-    latitude?: SortOrder
-    longitude?: SortOrder
-    createdAt?: SortOrder
-  }
-
-  export type SearchHistorySumOrderByAggregateInput = {
-    minPriceCents?: SortOrder
-    maxPriceCents?: SortOrder
-    maxDistanceKm?: SortOrder
-    latitude?: SortOrder
-    longitude?: SortOrder
-  }
-
   export type IntNullableWithAggregatesFilter<$PrismaModel = never> = {
     equals?: number | IntFieldRefInput<$PrismaModel> | null
     in?: number[] | ListIntFieldRefInput<$PrismaModel> | null
@@ -5487,20 +5783,12 @@ export namespace Prisma {
     _max?: NestedIntNullableFilter<$PrismaModel>
   }
 
-  export type FloatNullableWithAggregatesFilter<$PrismaModel = never> = {
-    equals?: number | FloatFieldRefInput<$PrismaModel> | null
-    in?: number[] | ListFloatFieldRefInput<$PrismaModel> | null
-    notIn?: number[] | ListFloatFieldRefInput<$PrismaModel> | null
-    lt?: number | FloatFieldRefInput<$PrismaModel>
-    lte?: number | FloatFieldRefInput<$PrismaModel>
-    gt?: number | FloatFieldRefInput<$PrismaModel>
-    gte?: number | FloatFieldRefInput<$PrismaModel>
-    not?: NestedFloatNullableWithAggregatesFilter<$PrismaModel> | number | null
-    _count?: NestedIntNullableFilter<$PrismaModel>
-    _avg?: NestedFloatNullableFilter<$PrismaModel>
-    _sum?: NestedFloatNullableFilter<$PrismaModel>
-    _min?: NestedFloatNullableFilter<$PrismaModel>
-    _max?: NestedFloatNullableFilter<$PrismaModel>
+  export type BoolWithAggregatesFilter<$PrismaModel = never> = {
+    equals?: boolean | BooleanFieldRefInput<$PrismaModel>
+    not?: NestedBoolWithAggregatesFilter<$PrismaModel> | boolean
+    _count?: NestedIntFilter<$PrismaModel>
+    _min?: NestedBoolFilter<$PrismaModel>
+    _max?: NestedBoolFilter<$PrismaModel>
   }
   export type JsonNullableWithAggregatesFilter<$PrismaModel = never> =
     | PatchUndefined<
@@ -5529,9 +5817,92 @@ export namespace Prisma {
     _max?: NestedJsonNullableFilter<$PrismaModel>
   }
 
-  export type BoolFilter<$PrismaModel = never> = {
-    equals?: boolean | BooleanFieldRefInput<$PrismaModel>
-    not?: NestedBoolFilter<$PrismaModel> | boolean
+  export type FloatNullableFilter<$PrismaModel = never> = {
+    equals?: number | FloatFieldRefInput<$PrismaModel> | null
+    in?: number[] | ListFloatFieldRefInput<$PrismaModel> | null
+    notIn?: number[] | ListFloatFieldRefInput<$PrismaModel> | null
+    lt?: number | FloatFieldRefInput<$PrismaModel>
+    lte?: number | FloatFieldRefInput<$PrismaModel>
+    gt?: number | FloatFieldRefInput<$PrismaModel>
+    gte?: number | FloatFieldRefInput<$PrismaModel>
+    not?: NestedFloatNullableFilter<$PrismaModel> | number | null
+  }
+
+  export type SearchHistoryCountOrderByAggregateInput = {
+    id?: SortOrder
+    userId?: SortOrder
+    query?: SortOrder
+    minPriceCents?: SortOrder
+    maxPriceCents?: SortOrder
+    maxDistanceKm?: SortOrder
+    maxCampusMiles?: SortOrder
+    alertOnMatch?: SortOrder
+    latitude?: SortOrder
+    longitude?: SortOrder
+    filters?: SortOrder
+    createdAt?: SortOrder
+  }
+
+  export type SearchHistoryAvgOrderByAggregateInput = {
+    minPriceCents?: SortOrder
+    maxPriceCents?: SortOrder
+    maxDistanceKm?: SortOrder
+    maxCampusMiles?: SortOrder
+    latitude?: SortOrder
+    longitude?: SortOrder
+  }
+
+  export type SearchHistoryMaxOrderByAggregateInput = {
+    id?: SortOrder
+    userId?: SortOrder
+    query?: SortOrder
+    minPriceCents?: SortOrder
+    maxPriceCents?: SortOrder
+    maxDistanceKm?: SortOrder
+    maxCampusMiles?: SortOrder
+    alertOnMatch?: SortOrder
+    latitude?: SortOrder
+    longitude?: SortOrder
+    createdAt?: SortOrder
+  }
+
+  export type SearchHistoryMinOrderByAggregateInput = {
+    id?: SortOrder
+    userId?: SortOrder
+    query?: SortOrder
+    minPriceCents?: SortOrder
+    maxPriceCents?: SortOrder
+    maxDistanceKm?: SortOrder
+    maxCampusMiles?: SortOrder
+    alertOnMatch?: SortOrder
+    latitude?: SortOrder
+    longitude?: SortOrder
+    createdAt?: SortOrder
+  }
+
+  export type SearchHistorySumOrderByAggregateInput = {
+    minPriceCents?: SortOrder
+    maxPriceCents?: SortOrder
+    maxDistanceKm?: SortOrder
+    maxCampusMiles?: SortOrder
+    latitude?: SortOrder
+    longitude?: SortOrder
+  }
+
+  export type FloatNullableWithAggregatesFilter<$PrismaModel = never> = {
+    equals?: number | FloatFieldRefInput<$PrismaModel> | null
+    in?: number[] | ListFloatFieldRefInput<$PrismaModel> | null
+    notIn?: number[] | ListFloatFieldRefInput<$PrismaModel> | null
+    lt?: number | FloatFieldRefInput<$PrismaModel>
+    lte?: number | FloatFieldRefInput<$PrismaModel>
+    gt?: number | FloatFieldRefInput<$PrismaModel>
+    gte?: number | FloatFieldRefInput<$PrismaModel>
+    not?: NestedFloatNullableWithAggregatesFilter<$PrismaModel> | number | null
+    _count?: NestedIntNullableFilter<$PrismaModel>
+    _avg?: NestedFloatNullableFilter<$PrismaModel>
+    _sum?: NestedFloatNullableFilter<$PrismaModel>
+    _min?: NestedFloatNullableFilter<$PrismaModel>
+    _max?: NestedFloatNullableFilter<$PrismaModel>
   }
 
   export type WatchlistItemUserIdListingIdCompoundUniqueInput = {
@@ -5567,14 +5938,6 @@ export namespace Prisma {
     addedAt?: SortOrder
     removedAt?: SortOrder
     isActive?: SortOrder
-  }
-
-  export type BoolWithAggregatesFilter<$PrismaModel = never> = {
-    equals?: boolean | BooleanFieldRefInput<$PrismaModel>
-    not?: NestedBoolWithAggregatesFilter<$PrismaModel> | boolean
-    _count?: NestedIntFilter<$PrismaModel>
-    _min?: NestedBoolFilter<$PrismaModel>
-    _max?: NestedBoolFilter<$PrismaModel>
   }
 
   export type StringFieldUpdateOperationsInput = {
@@ -5613,16 +5976,16 @@ export namespace Prisma {
     divide?: number
   }
 
+  export type BoolFieldUpdateOperationsInput = {
+    set?: boolean
+  }
+
   export type NullableFloatFieldUpdateOperationsInput = {
     set?: number | null
     increment?: number
     decrement?: number
     multiply?: number
     divide?: number
-  }
-
-  export type BoolFieldUpdateOperationsInput = {
-    set?: boolean
   }
 
   export type NestedUuidFilter<$PrismaModel = never> = {
@@ -5702,6 +6065,22 @@ export namespace Prisma {
     gt?: Date | string | DateTimeFieldRefInput<$PrismaModel>
     gte?: Date | string | DateTimeFieldRefInput<$PrismaModel>
     not?: NestedDateTimeNullableFilter<$PrismaModel> | Date | string | null
+  }
+
+  export type NestedIntNullableFilter<$PrismaModel = never> = {
+    equals?: number | IntFieldRefInput<$PrismaModel> | null
+    in?: number[] | ListIntFieldRefInput<$PrismaModel> | null
+    notIn?: number[] | ListIntFieldRefInput<$PrismaModel> | null
+    lt?: number | IntFieldRefInput<$PrismaModel>
+    lte?: number | IntFieldRefInput<$PrismaModel>
+    gt?: number | IntFieldRefInput<$PrismaModel>
+    gte?: number | IntFieldRefInput<$PrismaModel>
+    not?: NestedIntNullableFilter<$PrismaModel> | number | null
+  }
+
+  export type NestedBoolFilter<$PrismaModel = never> = {
+    equals?: boolean | BooleanFieldRefInput<$PrismaModel>
+    not?: NestedBoolFilter<$PrismaModel> | boolean
   }
 
   export type NestedUuidWithAggregatesFilter<$PrismaModel = never> = {
@@ -5803,17 +6182,6 @@ export namespace Prisma {
     _max?: NestedStringNullableFilter<$PrismaModel>
   }
 
-  export type NestedIntNullableFilter<$PrismaModel = never> = {
-    equals?: number | IntFieldRefInput<$PrismaModel> | null
-    in?: number[] | ListIntFieldRefInput<$PrismaModel> | null
-    notIn?: number[] | ListIntFieldRefInput<$PrismaModel> | null
-    lt?: number | IntFieldRefInput<$PrismaModel>
-    lte?: number | IntFieldRefInput<$PrismaModel>
-    gt?: number | IntFieldRefInput<$PrismaModel>
-    gte?: number | IntFieldRefInput<$PrismaModel>
-    not?: NestedIntNullableFilter<$PrismaModel> | number | null
-  }
-
   export type NestedDateTimeNullableWithAggregatesFilter<$PrismaModel = never> = {
     equals?: Date | string | DateTimeFieldRefInput<$PrismaModel> | null
     in?: Date[] | string[] | ListDateTimeFieldRefInput<$PrismaModel> | null
@@ -5826,17 +6194,6 @@ export namespace Prisma {
     _count?: NestedIntNullableFilter<$PrismaModel>
     _min?: NestedDateTimeNullableFilter<$PrismaModel>
     _max?: NestedDateTimeNullableFilter<$PrismaModel>
-  }
-
-  export type NestedFloatNullableFilter<$PrismaModel = never> = {
-    equals?: number | FloatFieldRefInput<$PrismaModel> | null
-    in?: number[] | ListFloatFieldRefInput<$PrismaModel> | null
-    notIn?: number[] | ListFloatFieldRefInput<$PrismaModel> | null
-    lt?: number | FloatFieldRefInput<$PrismaModel>
-    lte?: number | FloatFieldRefInput<$PrismaModel>
-    gt?: number | FloatFieldRefInput<$PrismaModel>
-    gte?: number | FloatFieldRefInput<$PrismaModel>
-    not?: NestedFloatNullableFilter<$PrismaModel> | number | null
   }
 
   export type NestedIntNullableWithAggregatesFilter<$PrismaModel = never> = {
@@ -5855,7 +6212,7 @@ export namespace Prisma {
     _max?: NestedIntNullableFilter<$PrismaModel>
   }
 
-  export type NestedFloatNullableWithAggregatesFilter<$PrismaModel = never> = {
+  export type NestedFloatNullableFilter<$PrismaModel = never> = {
     equals?: number | FloatFieldRefInput<$PrismaModel> | null
     in?: number[] | ListFloatFieldRefInput<$PrismaModel> | null
     notIn?: number[] | ListFloatFieldRefInput<$PrismaModel> | null
@@ -5863,12 +6220,15 @@ export namespace Prisma {
     lte?: number | FloatFieldRefInput<$PrismaModel>
     gt?: number | FloatFieldRefInput<$PrismaModel>
     gte?: number | FloatFieldRefInput<$PrismaModel>
-    not?: NestedFloatNullableWithAggregatesFilter<$PrismaModel> | number | null
-    _count?: NestedIntNullableFilter<$PrismaModel>
-    _avg?: NestedFloatNullableFilter<$PrismaModel>
-    _sum?: NestedFloatNullableFilter<$PrismaModel>
-    _min?: NestedFloatNullableFilter<$PrismaModel>
-    _max?: NestedFloatNullableFilter<$PrismaModel>
+    not?: NestedFloatNullableFilter<$PrismaModel> | number | null
+  }
+
+  export type NestedBoolWithAggregatesFilter<$PrismaModel = never> = {
+    equals?: boolean | BooleanFieldRefInput<$PrismaModel>
+    not?: NestedBoolWithAggregatesFilter<$PrismaModel> | boolean
+    _count?: NestedIntFilter<$PrismaModel>
+    _min?: NestedBoolFilter<$PrismaModel>
+    _max?: NestedBoolFilter<$PrismaModel>
   }
   export type NestedJsonNullableFilter<$PrismaModel = never> =
     | PatchUndefined<
@@ -5894,17 +6254,20 @@ export namespace Prisma {
     not?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | JsonNullValueFilter
   }
 
-  export type NestedBoolFilter<$PrismaModel = never> = {
-    equals?: boolean | BooleanFieldRefInput<$PrismaModel>
-    not?: NestedBoolFilter<$PrismaModel> | boolean
-  }
-
-  export type NestedBoolWithAggregatesFilter<$PrismaModel = never> = {
-    equals?: boolean | BooleanFieldRefInput<$PrismaModel>
-    not?: NestedBoolWithAggregatesFilter<$PrismaModel> | boolean
-    _count?: NestedIntFilter<$PrismaModel>
-    _min?: NestedBoolFilter<$PrismaModel>
-    _max?: NestedBoolFilter<$PrismaModel>
+  export type NestedFloatNullableWithAggregatesFilter<$PrismaModel = never> = {
+    equals?: number | FloatFieldRefInput<$PrismaModel> | null
+    in?: number[] | ListFloatFieldRefInput<$PrismaModel> | null
+    notIn?: number[] | ListFloatFieldRefInput<$PrismaModel> | null
+    lt?: number | FloatFieldRefInput<$PrismaModel>
+    lte?: number | FloatFieldRefInput<$PrismaModel>
+    gt?: number | FloatFieldRefInput<$PrismaModel>
+    gte?: number | FloatFieldRefInput<$PrismaModel>
+    not?: NestedFloatNullableWithAggregatesFilter<$PrismaModel> | number | null
+    _count?: NestedIntNullableFilter<$PrismaModel>
+    _avg?: NestedFloatNullableFilter<$PrismaModel>
+    _sum?: NestedFloatNullableFilter<$PrismaModel>
+    _min?: NestedFloatNullableFilter<$PrismaModel>
+    _max?: NestedFloatNullableFilter<$PrismaModel>
   }
 
 

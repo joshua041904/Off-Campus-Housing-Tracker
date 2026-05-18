@@ -31,7 +31,7 @@ echo "=== Step 7 matrix (_run_all_suites in run-preflight-scale-and-all-suites.s
 # Discrete invocations (not file counts).
 cat <<'INV'
   bash/guards     verify-required-housing-pods.sh, _preflight_ci_transport_alignment_gates (transport scripts)
-  vitest          services/event-layer-verification (pnpm test)
+  vitest          services/event-layer-verification (pnpm test) + pnpm run coverage:phase-vi2-verify (7a0b2; skip: PREFLIGHT_SKIP_COVERAGE_PHASE_VI2_VERIFY=1)
   vitest (stack)  pnpm test:vitest-stack = integration:all + test:system + repo test (default PREFLIGHT_RUN_REPO_VITEST_STACK=1)
   vitest          services/messaging-service (pnpm test), services/media-service (pnpm test)
   bash            test-microservices-http2-http3-housing.sh, test-messaging-service-comprehensive.sh

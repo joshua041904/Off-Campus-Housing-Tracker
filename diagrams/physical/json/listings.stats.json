@@ -2,33 +2,82 @@
     "database": "listings",
     "table_stats": [
         {
-            "name": "listing_media",
+            "name": "community_comment_votes",
+            "schema": "listings",
+            "idx_scan": 91,
+            "seq_scan": 2,
+            "n_live_tup": 1
+        },
+        {
+            "name": "community_comments",
             "schema": "listings",
             "idx_scan": 0,
-            "seq_scan": 7,
+            "seq_scan": 292,
+            "n_live_tup": 3
+        },
+        {
+            "name": "community_post_images",
+            "schema": "listings",
+            "idx_scan": 235,
+            "seq_scan": 2,
+            "n_live_tup": 2
+        },
+        {
+            "name": "community_post_votes",
+            "schema": "listings",
+            "idx_scan": 12,
+            "seq_scan": 365,
+            "n_live_tup": 5
+        },
+        {
+            "name": "community_posts",
+            "schema": "listings",
+            "idx_scan": 0,
+            "seq_scan": 139,
+            "n_live_tup": 2
+        },
+        {
+            "name": "community_reports",
+            "schema": "listings",
+            "idx_scan": 0,
+            "seq_scan": 2,
+            "n_live_tup": 0
+        },
+        {
+            "name": "listing_media",
+            "schema": "listings",
+            "idx_scan": 40,
+            "seq_scan": 1125,
+            "n_live_tup": 0
+        },
+        {
+            "name": "listing_revisions",
+            "schema": "listings",
+            "idx_scan": 0,
+            "seq_scan": 2,
             "n_live_tup": 0
         },
         {
             "name": "listings",
             "schema": "listings",
-            "idx_scan": 48278,
-            "seq_scan": 12173,
-            "n_live_tup": 14
+            "idx_scan": 153,
+            "seq_scan": 55,
+            "n_live_tup": 554
         },
         {
             "name": "outbox_events",
             "schema": "listings",
             "idx_scan": 0,
-            "seq_scan": 4,
+            "seq_scan": 2,
             "n_live_tup": 0
         },
         {
             "name": "processed_events",
             "schema": "listings",
             "idx_scan": 0,
-            "seq_scan": 3,
+            "seq_scan": 2,
             "n_live_tup": 0
         }
     ],
-    "generated_at": "2026-04-03T20:12:06.00023+00:00"
+    "generated_at": "2026-05-10T18:39:34.670961+00:00"
 }

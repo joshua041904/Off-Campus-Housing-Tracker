@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   analyzeListingFeel,
+  formatListingFeelModelForUi,
   getDailyMetrics,
   getSearchSummaryInsights,
   getWatchlistInsights,
@@ -14,24 +15,50 @@ import { getStoredEmail, getStoredToken } from "@/lib/auth-storage";
 import { getSubFromJwt } from "@/lib/jwt-sub";
 import { Nav } from "@/components/Nav";
 
+function MetricsSummary({ m }: { m: DailyMetricsJson }) {
+  const rows: { label: string; value: string | number }[] = [
+    { label: "New users", value: m.new_users ?? "—" },
+    { label: "New listings", value: m.new_listings ?? "—" },
+    { label: "New bookings", value: m.new_bookings ?? "—" },
+    { label: "Completed bookings", value: m.completed_bookings ?? "—" },
+    { label: "Messages sent", value: m.messages_sent ?? "—" },
+    { label: "Listings flagged", value: m.listings_flagged ?? "—" },
+  ];
+  return (
+    <dl className="mt-4 grid gap-3 sm:grid-cols-2">
+      {rows.map(({ label, value }) => (
+        <div key={label} className="rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2">
+          <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</dt>
+          <dd className="text-lg font-semibold tabular-nums text-slate-900">{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 export default function AnalyticsPage() {
   const [email, setEmail] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [sub, setSub] = useState<string | null>(null);
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [metrics, setMetrics] = useState<DailyMetricsJson | null>(null);
-  const [insights, setInsights] = useState<{ watchlist_adds_30d?: number; notes?: string } | null>(null);
+  const [insights, setInsights] = useState<{
+    watchlist_adds_30d?: number;
+    watchlist_removes_30d?: number;
+  } | null>(null);
   const [title, setTitle] = useState("2BR near campus");
   const [description, setDescription] = useState("Quiet block, laundry in unit.");
   const [priceUsd, setPriceUsd] = useState("1200");
   const [audience, setAudience] = useState<"renter" | "landlord">("renter");
   const [feel, setFeel] = useState<string | null>(null);
+  const [feelMeta, setFeelMeta] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [metricsLoading, setMetricsLoading] = useState(false);
+  const [insightsLoading, setInsightsLoading] = useState(false);
+  const [feelLoading, setFeelLoading] = useState(false);
   const [searchSummary, setSearchSummary] = useState<{
     items: SearchSummaryItem[];
-    hint?: string;
-    notification_hook?: string;
+    search_history_available?: boolean;
   } | null>(null);
 
   useEffect(() => {
@@ -41,65 +68,75 @@ export default function AnalyticsPage() {
     setSub(getSubFromJwt(t));
   }, []);
 
+  const loadInsightsBundle = useCallback(async () => {
+    const t = getStoredToken();
+    const u = getSubFromJwt(t);
+    if (!t || !u) return;
+    setErr(null);
+    setInsightsLoading(true);
+    try {
+      const [w, s] = await Promise.all([
+        getWatchlistInsights(t, u),
+        getSearchSummaryInsights(t, u),
+      ]);
+      setInsights({
+        watchlist_adds_30d: w.watchlist_adds_30d,
+        watchlist_removes_30d: w.watchlist_removes_30d,
+      });
+      setSearchSummary({
+        items: s.items ?? [],
+        search_history_available: s.search_history_available !== false,
+      });
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : "Failed to load your insights.");
+    } finally {
+      setInsightsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!token || !sub) return;
+    void loadInsightsBundle();
+  }, [token, sub, loadInsightsBundle]);
+
   async function loadMetrics(e?: React.FormEvent) {
     e?.preventDefault();
     setErr(null);
-    setLoading(true);
+    setMetricsLoading(true);
     try {
       setMetrics(await getDailyMetrics(date));
     } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : "Failed");
+      setErr(e instanceof Error ? e.message : "Failed to load daily metrics.");
     } finally {
-      setLoading(false);
-    }
-  }
-
-  async function loadInsights(e: React.FormEvent) {
-    e.preventDefault();
-    if (!token || !sub) return;
-    setErr(null);
-    setLoading(true);
-    try {
-      const d = await getWatchlistInsights(token, sub);
-      setInsights({ watchlist_adds_30d: d.watchlist_adds_30d, notes: d.notes });
-    } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : "Failed");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function loadSearchSummary(e: React.FormEvent) {
-    e.preventDefault();
-    if (!token || !sub) return;
-    setErr(null);
-    setLoading(true);
-    try {
-      const d = await getSearchSummaryInsights(token, sub);
-      setSearchSummary({
-        items: d.items ?? [],
-        hint: d.hint,
-        notification_hook: d.notification_hook,
-      });
-    } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : "Failed");
-    } finally {
-      setLoading(false);
+      setMetricsLoading(false);
     }
   }
 
   async function runFeel(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
-    setLoading(true);
+    setFeelLoading(true);
+    setFeel(null);
+    setFeelMeta(null);
     try {
       const cents = Math.round(Number(priceUsd) * 100);
-      const r = await analyzeListingFeel(token, {
-        title: title.trim(),
-        description: description.trim(),
-        price_cents: cents,
-        audience,
-      });
+      const t = getStoredToken();
+      const r = await analyzeListingFeel(
+        t,
+        {
+          title: title.trim(),
+          description: description.trim(),
+          price_cents: cents,
+          audience,
+          analysis_depth: "quick",
+        },
+        /** Align with analytics quick Ollama budget (~120s in k8s) so the browser does not abort first. */
+        { timeoutMs: 130_000 },
+      );
+      if (r.error) {
+        setErr(r.error);
+        return;
+      }
       const raw = r.analysis_text;
       setFeel(
         typeof raw === "string"
@@ -108,10 +145,19 @@ export default function AnalyticsPage() {
             ? JSON.stringify(raw, null, 2)
             : "",
       );
+      const timing = r.listing_feel_timing;
+      const modelLabel = formatListingFeelModelForUi(r.model_used);
+      if (timing?.server_ms != null || modelLabel) {
+        const bits = [
+          modelLabel ? `Model: ${modelLabel}` : null,
+          timing?.server_ms != null ? `Server: ${Math.round(timing.server_ms)} ms` : null,
+        ].filter(Boolean);
+        setFeelMeta(bits.join(" · "));
+      }
     } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : "Failed");
+      setErr(e instanceof Error ? e.message : "Listing assistant failed.");
     } finally {
-      setLoading(false);
+      setFeelLoading(false);
     }
   }
 
@@ -119,14 +165,14 @@ export default function AnalyticsPage() {
     let cancelled = false;
     void (async () => {
       setErr(null);
-      setLoading(true);
+      setMetricsLoading(true);
       try {
         const m = await getDailyMetrics(date);
         if (!cancelled) setMetrics(m);
       } catch (e: unknown) {
-        if (!cancelled) setErr(e instanceof Error ? e.message : "Failed");
+        if (!cancelled) setErr(e instanceof Error ? e.message : "Failed to load daily metrics.");
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setMetricsLoading(false);
       }
     })();
     return () => {
@@ -142,8 +188,8 @@ export default function AnalyticsPage() {
           Analytics &amp; insights
         </h1>
         <p className="mt-2 text-sm text-slate-600">
-          Read-only aggregates from analytics-service. Listing “feel” uses Ollama when the cluster has{" "}
-          <code className="rounded bg-slate-200 px-1 text-xs text-slate-800">OLLAMA_BASE_URL</code>.
+          Platform activity for the selected day, plus your saved-search and watchlist trends when you are signed in.
+          Listing assistant runs a quick pass so the page stays responsive.
         </p>
 
         <section className="mt-8 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
@@ -157,70 +203,61 @@ export default function AnalyticsPage() {
             />
             <button
               type="submit"
-              disabled={loading}
+              disabled={metricsLoading}
               className="rounded-md bg-teal-600 px-4 py-2 font-medium text-white hover:bg-teal-500 disabled:opacity-50"
             >
-              Load
+              Refresh
             </button>
           </form>
-          {metrics && (
-            <pre className="mt-4 overflow-x-auto rounded-xl border border-slate-200 bg-slate-900 p-4 text-xs text-teal-100/95">
-              {JSON.stringify(metrics, null, 2)}
-            </pre>
-          )}
+          {metricsLoading && !metrics ? (
+            <p className="mt-4 text-sm text-slate-500">Loading metrics…</p>
+          ) : null}
+          {metrics && <MetricsSummary m={metrics} />}
         </section>
 
         {token && sub && (
           <section className="mt-8 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
-            <h2 className="text-lg font-medium text-slate-900">Watchlist funnel (30d)</h2>
-            <form onSubmit={loadInsights} className="mt-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-lg font-medium text-slate-900">Your activity</h2>
               <button
-                type="submit"
-                disabled={loading}
-                className="rounded-md border border-slate-300 bg-white px-4 py-2 font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                type="button"
+                disabled={insightsLoading}
+                onClick={() => void loadInsightsBundle()}
+                className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
               >
-                Load my stats
+                {insightsLoading ? "Refreshing…" : "Refresh"}
               </button>
-            </form>
-            {insights && (
-              <p className="mt-4 text-sm text-slate-600">
-                Adds (30d): <strong className="text-slate-900">{insights.watchlist_adds_30d ?? 0}</strong>
-                {insights.notes && <span className="mt-1 block text-xs text-slate-500">{insights.notes}</span>}
-              </p>
-            )}
-          </section>
-        )}
-
-        {token && sub && (
-          <section className="mt-8 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
-            <h2 className="text-lg font-medium text-slate-900">Past searches (analytics → booking read)</h2>
-            <p className="mt-1 text-xs text-slate-600">
-              Same rows as booking history, via analytics when{" "}
-              <code className="rounded bg-slate-200 px-1 text-slate-800">POSTGRES_URL_BOOKINGS</code> is set on
-              analytics-service. Feeds digest / notification work later.
+            </div>
+            <p className="mt-2 text-xs text-slate-500">
+              Watchlist adds/removes in the last 30 days, and your recent saved searches when that data is available.
             </p>
-            <form onSubmit={loadSearchSummary} className="mt-4">
-              <button
-                type="submit"
-                disabled={loading}
-                className="rounded-md border border-slate-300 bg-white px-4 py-2 font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-              >
-                Load my search summary
-              </button>
-            </form>
+            {insights && (
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 text-sm">
+                <div className="rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2">
+                  <p className="text-xs font-medium uppercase text-slate-500">Watchlist adds (30d)</p>
+                  <p className="text-xl font-semibold text-slate-900">{insights.watchlist_adds_30d ?? 0}</p>
+                </div>
+                <div className="rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2">
+                  <p className="text-xs font-medium uppercase text-slate-500">Watchlist removes (30d)</p>
+                  <p className="text-xl font-semibold text-slate-900">{insights.watchlist_removes_30d ?? 0}</p>
+                </div>
+              </div>
+            )}
             {searchSummary && (
-              <div className="mt-4 space-y-2 text-sm text-slate-700">
-                {searchSummary.hint && <p className="text-xs font-medium text-teal-800">{searchSummary.hint}</p>}
-                {searchSummary.notification_hook && (
-                  <p className="text-xs text-slate-500">{searchSummary.notification_hook}</p>
-                )}
-                {searchSummary.items.length === 0 ? (
-                  <p className="text-slate-500">No rows (or booking DB not wired).</p>
+              <div className="mt-6 border-t border-slate-100 pt-4">
+                <h3 className="text-sm font-semibold text-slate-800">Recent saved searches</h3>
+                {searchSummary.search_history_available === false ? (
+                  <p className="mt-2 text-sm text-slate-600">
+                    Saved search history is not available for your account right now. Your watchlist totals above still
+                    reflect recent activity.
+                  </p>
+                ) : searchSummary.items.length === 0 ? (
+                  <p className="mt-2 text-sm text-slate-600">No saved searches yet — run a search and save it from the listings page to build history here.</p>
                 ) : (
-                  <ul className="max-h-48 list-disc space-y-1 overflow-y-auto pl-5 text-xs">
-                    {searchSummary.items.slice(0, 10).map((it, i) => (
+                  <ul className="mt-2 max-h-52 list-disc space-y-1 overflow-y-auto pl-5 text-sm text-slate-700">
+                    {searchSummary.items.slice(0, 12).map((it, i) => (
                       <li key={i}>
-                        {(it.query || "—") as string}{" "}
+                        {(it.query || "Saved search") as string}{" "}
                         <span className="text-slate-500">
                           {it.created_at ? new Date(it.created_at).toLocaleString() : ""}
                         </span>
@@ -234,7 +271,11 @@ export default function AnalyticsPage() {
         )}
 
         <section className="mt-8 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
-          <h2 className="text-lg font-medium text-slate-900">Listing assistant (landlord / renter)</h2>
+          <h2 className="text-lg font-medium text-slate-900">Listing assistant</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Short, practical read on how this listing reads to renters or landlords. Uses the quick analysis mode so
+            results return faster.
+          </p>
           <form data-testid="analytics-listing-feel-form" onSubmit={runFeel} className="mt-4 space-y-3">
             <input
               value={title}
@@ -280,20 +321,21 @@ export default function AnalyticsPage() {
             </div>
             <button
               type="submit"
-              disabled={loading}
+              disabled={feelLoading}
               className="rounded-md bg-teal-600 px-4 py-2 font-medium text-white hover:bg-teal-500 disabled:opacity-50"
             >
-              Analyze
+              {feelLoading ? "Analyzing…" : "Analyze"}
             </button>
           </form>
-          {feel && (
+          {feelMeta ? <p className="mt-2 text-xs text-slate-500">{feelMeta}</p> : null}
+          {feel ? (
             <div
               data-testid="analytics-feel-output"
               className="mt-4 rounded-md border border-teal-100 bg-teal-50/60 p-4 text-sm text-slate-800 whitespace-pre-wrap"
             >
               {feel}
             </div>
-          )}
+          ) : null}
         </section>
 
         {err && <p className="mt-6 text-sm text-red-600">{err}</p>}

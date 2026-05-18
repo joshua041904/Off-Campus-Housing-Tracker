@@ -5,6 +5,7 @@
 # Usage: HOUSING_NS=off-campus-housing-tracker ./scripts/wait-for-housing-rollouts.sh
 # Env:
 #   ROLLOUT_TIMEOUT — kubectl rollout status timeout seconds (default 180)
+#   ROLLOUT_TIMEOUT_API_GATEWAY — api-gateway only (default 600s; readiness depends on auth-service)
 #   ROLLOUT_TIMEOUT_OLLAMA — timeout for deployment/ollama only (default 1200; first model pull is slow)
 #   ROLLOUT_TIMEOUT_OLLAMA_REDIS / ROLLOUT_TIMEOUT_OLLAMA_GATEWAY / ROLLOUT_TIMEOUT_OLLAMA_WORKER — gateway stack (defaults 300/900/600)
 #   BOOTSTRAP_SKIP_OLLAMA_GATEWAY_STACK=1 — skip ollama-gateway-redis / ollama-gateway / ollama-worker (not deployed)
@@ -23,7 +24,6 @@ SERVICES=(
   ollama-gateway-redis
   ollama-gateway
   ollama-worker
-  api-gateway
   auth-service
   listings-service
   booking-service
@@ -32,6 +32,7 @@ SERVICES=(
   analytics-service
   media-service
   notification-service
+  api-gateway
 )
 
 command -v kubectl >/dev/null 2>&1 || { echo "❌ kubectl required" >&2; exit 1; }
@@ -66,6 +67,7 @@ for svc in "${SERVICES[@]}"; do
     ollama-gateway-redis) _to="${ROLLOUT_TIMEOUT_OLLAMA_REDIS:-300}" ;;
     ollama-gateway) _to="${ROLLOUT_TIMEOUT_OLLAMA_GATEWAY:-900}" ;;
     ollama-worker) _to="${ROLLOUT_TIMEOUT_OLLAMA_WORKER:-600}" ;;
+    api-gateway) _to="${ROLLOUT_TIMEOUT_API_GATEWAY:-600}" ;;
   esac
   kubectl rollout status "deployment/$svc" -n "$NS" --timeout="${_to}s"
   desired="$(kubectl get deploy "$svc" -n "$NS" -o jsonpath='{.spec.replicas}' --request-timeout=15s)"

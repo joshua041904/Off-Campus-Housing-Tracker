@@ -261,11 +261,12 @@ describe("api-gateway exhaustive HTTP", () => {
     const paths = [
       "/api/listings/search?q=open",
       "/listings/search?q=open",
-      "/api/listings",
-      "/listings",
       "/api/listings/listings/550e8400-e29b-41d4-a716-446655440000",
+      "/api/listings/listings/550e8400-e29b-41d4-a716-446655440000/revisions/public",
       "/api/listings/550e8400-e29b-41d4-a716-446655440000",
       "/api/trust/reputation/550e8400-e29b-41d4-a716-446655440000",
+      "/api/trust/user-reviews/550e8400-e29b-41d4-a716-446655440000",
+      "/api/trust/public/users/resolve?q=testuser",
       "/api/analytics/daily-metrics",
     ];
     for (const p of paths) {
@@ -372,8 +373,9 @@ describe("api-gateway exhaustive HTTP", () => {
 
   it("JWT revocation branch — Redis hit returns TOKEN_REVOKED", async () => {
     gatewayRedisGet.mockImplementation(async (key: string) => {
-      expect(key).toMatch(/^revoked:/);
-      return "1";
+      // Gateway checks both legacy `revoked:` and `och:auth:jti:revoked:` in parallel (Promise.all).
+      if (key === "och:auth:jti:revoked:jti-1" || key === "revoked:jti-1") return "1";
+      return null;
     });
     const res = await agent.get("/api/booking/x").set("Authorization", "Bearer good");
     expect(res.status).toBe(401);

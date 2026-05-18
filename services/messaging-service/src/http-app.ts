@@ -4,14 +4,16 @@
  */
 import express, { type Express } from 'express'
 import type Redis from 'ioredis'
-import { createHttpConcurrencyGuard, httpCounter, register } from '@common/utils'
+import { createHttpConcurrencyGuard, httpCounter, register, initOchOutboxSurfaceUnsupported } from '@common/utils'
 import { inferNetProtoForSpan, mountDebugTraceHeaders, tracingMiddleware } from '@common/utils/otel'
-import { requireUser } from './lib/auth.js'
+import { requireUser, type AuthedRequest } from './lib/auth.js'
+import { getChatThreadsList, getMessagingUnreadCountHandler } from './routes/chat-threads.js'
 import forumRouter from './routes/forum.js'
 import messagesRouter from './routes/messages.js'
 
 export function createMessagingHttpApp(redis: Redis | null, cpuCores = 1): Express {
   const app = express()
+  initOchOutboxSurfaceUnsupported()
   app.use((req, res, next) => {
     res.on('finish', () =>
       httpCounter.inc({
@@ -44,6 +46,15 @@ export function createMessagingHttpApp(redis: Redis | null, cpuCores = 1): Expre
       defaultMax: 200,
       serviceLabel: 'messaging-service',
     }),
+  )
+
+  /** Inbox thread list (gateway strips /api/messaging → /threads or /mine). */
+  app.get('/threads', requireUser, (req, res) => void getChatThreadsList(req as AuthedRequest, res))
+  app.get('/mine', requireUser, (req, res) => void getChatThreadsList(req as AuthedRequest, res))
+
+  /** Must register before `/messages` router so this path is not swallowed by the messages app. */
+  app.get('/messages/unread-count', requireUser, (req, res) =>
+    void getMessagingUnreadCountHandler(req as AuthedRequest, res),
   )
 
   app.use('/forum', requireUser, forumRouter(redis, cpuCores))

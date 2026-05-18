@@ -22,6 +22,10 @@ vi.mock("@common/utils/kafka", () => ({
   ochKafkaTopicIsolationSuffix: (...args: unknown[]) => ochSuffixFn(...args),
 }));
 
+vi.mock("../src/realtime-publisher.js", () => ({
+  publishRealtimeNotification: vi.fn().mockResolvedValue(undefined),
+}));
+
 let capturedEachMessage:
   | ((args: {
       topic: string;
@@ -80,6 +84,20 @@ describe("notification kafka-consumer", () => {
   afterEach(() => {
     restoreEnv();
     vi.restoreAllMocks();
+  });
+
+  it("extractNotificationEnvelopeMeta returns null userId for comment.created", async () => {
+    const { extractNotificationEnvelopeMeta } = await import("../src/kafka-consumer.js");
+    const eid = randomUUID();
+    const buf = Buffer.from(
+      JSON.stringify({
+        metadata: { event_id: eid, event_type: "comment.created", aggregate_id: randomUUID() },
+        payload: { post_id: randomUUID(), author_id: randomUUID() },
+      }),
+    );
+    const meta = extractNotificationEnvelopeMeta(buf);
+    expect(meta?.userId).toBeNull();
+    expect(meta?.eventType).toBe("comment.created");
   });
 
   it("notificationKafkaTopics uses defaults and applies suffix except messaging.events.v1", async () => {
@@ -152,15 +170,23 @@ describe("notification kafka-consumer", () => {
     expect(poolQuery).not.toHaveBeenCalled();
   });
 
-  it("eachMessage returns when userId missing", async () => {
+  it("eachMessage marks processed and skips insert when userId missing", async () => {
     const { startNotificationConsumer } = await import("../src/kafka-consumer.js");
     const pool = { query: poolQuery } as import("pg").Pool;
     await startNotificationConsumer(pool);
+    poolQuery.mockResolvedValueOnce({ rowCount: 1 });
     await capturedEachMessage!({
       topic: "t",
       message: { value: Buffer.from(JSON.stringify({ type: "x", entity_id: "nope" })) },
     });
-    expect(poolQuery).not.toHaveBeenCalled();
+    const processed = poolQuery.mock.calls.find(
+      (c) => typeof c[0] === "string" && String(c[0]).includes("processed_events"),
+    );
+    expect(processed).toBeTruthy();
+    const notifInserts = poolQuery.mock.calls.filter(
+      (c) => typeof c[0] === "string" && String(c[0]).includes("INSERT INTO notification.notifications"),
+    );
+    expect(notifInserts.length).toBe(0);
   });
 
   it("eachMessage inserts when event is new and userId is uuid", async () => {
@@ -201,7 +227,7 @@ describe("notification kafka-consumer", () => {
     expect(notificationInserts.length).toBe(0);
   });
 
-  it("eachMessage logs when notification insert fails", async () => {
+  it("eachMessage logs when notification insert fails and rolls back processed_events", async () => {
     const uid = randomUUID();
     const err = vi.spyOn(console, "error").mockImplementation(() => {});
     const { startNotificationConsumer } = await import("../src/kafka-consumer.js");
@@ -209,6 +235,7 @@ describe("notification kafka-consumer", () => {
     await startNotificationConsumer(pool);
     poolQuery.mockResolvedValueOnce({ rowCount: 1 });
     poolQuery.mockRejectedValueOnce(new Error("insert boom"));
+    poolQuery.mockResolvedValueOnce({ rowCount: 1 });
     await capturedEachMessage!({
       topic: "t",
       message: {
@@ -216,6 +243,10 @@ describe("notification kafka-consumer", () => {
       },
     });
     expect(err).toHaveBeenCalled();
+    const deletes = poolQuery.mock.calls.filter(
+      (c) => typeof c[0] === "string" && String(c[0]).includes("DELETE FROM notification.processed_events"),
+    );
+    expect(deletes.length).toBeGreaterThanOrEqual(1);
     err.mockRestore();
   });
 

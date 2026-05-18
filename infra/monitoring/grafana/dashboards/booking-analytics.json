@@ -1,0 +1,93 @@
+{
+  "title": "OCH — Booking analytics",
+  "uid": "och-booking-analytics",
+  "schemaVersion": 39,
+  "version": 1,
+  "tags": ["och", "booking", "prometheus"],
+  "timezone": "browser",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Booking volume (req/s)",
+      "description": "New booking requests via POST /request",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(booking_requests_total[5m]))",
+          "legendFormat": "requests/s",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Fraud flag rate",
+      "description": "Flagged bookings per successful request (ratio)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(booking_fraud_flagged_total[5m])) / clamp_min(sum(rate(booking_requests_total[5m])), 1e-9)",
+          "legendFormat": "fraud / requests",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Booking status ingress rate",
+      "description": "Transitions into domain status labels",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum by(status) (rate(booking_status_total[5m]))",
+          "legendFormat": "{{status}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Booking expiration rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(booking_expired_total[5m]))",
+          "legendFormat": "expired/s",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Notification consume latency p95 (s)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(notification_consume_latency_bucket[5m])) by (le))",
+          "legendFormat": "p95",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "AI composite health (overlay)",
+      "description": "Recording rule ai_health_composite_score — correlate with booking panels above",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "expr": "ai_health_composite_score",
+          "legendFormat": "composite",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "time": { "from": "now-6h", "to": "now" }
+}

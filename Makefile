@@ -109,7 +109,12 @@ TARGET_IP ?=
 CI_MODE ?= 0
 HEADLESS ?= 0
 KUBECONFIG_COLIMA ?= $(HOME)/.colima/default/kubeconfig
-RESTORE_BACKUP_DIR ?= latest
+# Unset unless passed on the CLI or exported in the environment — avoids Make injecting `latest`,
+# which skipped cold-bootstrap's pinned-default / compgen logic. For infra-only restore: pass
+# RESTORE_BACKUP_DIR=latest or RESTORE_BACKUP_DIR=backups/all-8-<stamp> to infra-host / infra-cluster.
+RESTORE_BACKUP_DIR ?=
+# When `make cold-bootstrap` runs with RESTORE_BACKUP_DIR unset: use this dir if it exists, else newest all-8/all-7, else empty.
+COLD_BOOTSTRAP_DEFAULT_RESTORE ?= backups/all-8-20260517-152701
 # Default 1: append off-campus-housing.test → MetalLB IP via sudo when needed (set 0 for hints only).
 HOSTS_AUTO ?= 1
 EXTERNAL_IP ?=
@@ -323,12 +328,15 @@ deps: ## Install workspace deps + Playwright browser; ensure cluster script exec
 	  exit 1; \
 	fi; \
 	cd "$(REPO_ROOT)" && pnpm install && pnpm --filter webapp exec playwright install chromium && \
-	chmod +x scripts/setup-new-colima-cluster.sh scripts/ensure-edge-hosts.sh scripts/kafka-onboarding-reset.sh scripts/kafka-clean-slate.sh scripts/apply-kafka-kraft-staged.sh scripts/ensure-dev-root-ca.sh scripts/dev-onboard-zero-trust-preflight.sh scripts/kafka-refresh-tls-from-lb.sh scripts/wait-for-kafka-external-lb-ips.sh scripts/detect-k8s-environment.sh scripts/dev-onboard-local.sh scripts/dev-onboard-from-up-fast.sh scripts/dev-orchestrator.sh scripts/dev-up.sh scripts/dev-up-state-machine.sh scripts/dev-health-check.sh scripts/dev-down.sh scripts/dev-reset.sh scripts/bring-up-external-infra.sh scripts/ensure-observability-stack-ready.sh scripts/test-dev-cold-start.sh scripts/kafka-rolling-restart.sh scripts/kafka-tls-guard.sh scripts/kafka-after-rollout-verify-brokers.sh scripts/kafka-auto-heal-inter-broker-tls.sh scripts/kafka-tls-rotate-atomic.sh scripts/export-kafka-ca-metric.sh scripts/rollout-deferred-after-kafka-tls.sh scripts/kafka-quorum-stable.sh scripts/service-tls-alias-guard.sh scripts/edge-readiness-gate.sh scripts/generate-canonical-dev-tls.sh scripts/verify-kafka-no-static-advertised-env.sh scripts/check-kafka-config-drift.sh scripts/kafka-runtime-sync.sh scripts/kafka-sync-metallb.sh scripts/tests/kafka-alignment-suite.sh scripts/chaos-kafka-alignment-stochastic.sh scripts/golden-snapshot-verify.sh scripts/auth-outbox-inspect.sh scripts/auth-outbox-replay.sh scripts/wait-for-housing-service-endpoints.sh scripts/validate-cold-boot-proof.sh scripts/validate-preflight-proof.sh scripts/validate-idempotency-proof.sh scripts/validate-full-stack-proof.sh scripts/dev-kill-all.sh scripts/bootstrap-cluster.sh
+	chmod +x scripts/setup-new-colima-cluster.sh scripts/ensure-edge-hosts.sh scripts/kafka-onboarding-reset.sh scripts/kafka-clean-slate.sh scripts/apply-kafka-kraft-staged.sh scripts/ensure-dev-root-ca.sh scripts/dev-onboard-zero-trust-preflight.sh scripts/kafka-refresh-tls-from-lb.sh scripts/wait-for-kafka-external-lb-ips.sh scripts/detect-k8s-environment.sh scripts/dev-onboard-local.sh scripts/dev-onboard-from-up-fast.sh scripts/dev-orchestrator.sh scripts/dev-up.sh scripts/dev-up-state-machine.sh scripts/dev-health-check.sh scripts/dev-down.sh scripts/dev-reset.sh scripts/bring-up-external-infra.sh scripts/ensure-observability-stack-ready.sh scripts/test-dev-cold-start.sh scripts/kafka-rolling-restart.sh scripts/kafka-tls-guard.sh scripts/kafka-after-rollout-verify-brokers.sh scripts/kafka-auto-heal-inter-broker-tls.sh scripts/kafka-tls-rotate-atomic.sh scripts/export-kafka-ca-metric.sh scripts/rollout-deferred-after-kafka-tls.sh scripts/kafka-quorum-stable.sh scripts/service-tls-alias-guard.sh scripts/edge-readiness-gate.sh scripts/generate-canonical-dev-tls.sh scripts/verify-kafka-no-static-advertised-env.sh scripts/check-kafka-config-drift.sh scripts/kafka-runtime-sync.sh scripts/kafka-sync-metallb.sh scripts/tests/kafka-alignment-suite.sh scripts/chaos-kafka-alignment-stochastic.sh scripts/golden-snapshot-verify.sh scripts/auth-outbox-inspect.sh scripts/auth-outbox-replay.sh scripts/wait-for-housing-service-endpoints.sh scripts/validate-cold-boot-proof.sh scripts/validate-preflight-proof.sh scripts/validate-idempotency-proof.sh scripts/validate-full-stack-proof.sh scripts/dev-kill-all.sh scripts/bootstrap-cluster.sh scripts/check-curl-preflight-reqs.sh && \
+	bash scripts/check-curl-preflight-reqs.sh
 
 # ROLE: DEV — optional kubeconfig export helper
 kubeconfig-colima: ## Print/export Colima kubeconfig path for current shell
 	@echo "If kubectl cannot see Colima, run:"
 	@echo "  export KUBECONFIG=\"$(KUBECONFIG_COLIMA)\""
+	@echo "Bootstrap/cold-bootstrap align host kubectl to the VM bridge IP + k3s port (see scripts/lib/colima-kubeconfig.sh):"
+	@echo "  OCH_COLIMA_HOST_IP OCH_K8S_API_SERVER_OVERRIDE OCH_COLIMA_KUBECONFIG_ALIGN_HOST_API=0 (tunnel-only)"
 
 # ROLE: DEV — cluster bootstrap (Colima/k3s + MetalLB pool)
 cluster: ## Start Colima+k3s + MetalLB (METALLB_POOL empty = auto .240-.250 on VM subnet)
@@ -434,6 +442,7 @@ kafka-sync-metallb: ## Drift-aware: verify-only if aligned; else refresh TLS fro
 
 kafka-alignment-report-venv: ## Venv + matplotlib for generate-kafka-alignment-report.py (PEP 668–safe)
 	@test -x "$(KAFKA_ALIGNMENT_REPORT_VENV)/bin/python" || python3 -m venv "$(KAFKA_ALIGNMENT_REPORT_VENV)"
+	"$(KAFKA_ALIGNMENT_REPORT_VENV)/bin/pip" install -q --upgrade 'pip==26.1.1'
 	"$(KAFKA_ALIGNMENT_REPORT_VENV)/bin/pip" install -q -r "$(REPO_ROOT)/scripts/requirements-kafka-alignment-report.txt"
 
 kafka-alignment-suite: kafka-alignment-report-venv ## Alignment test suite (safe by default; full chaos: KAFKA_ALIGNMENT_TEST_MODE=1 make kafka-alignment-suite)
@@ -708,17 +717,18 @@ bootstrap: ensure-node20 ## Bootstrap v2: kill jobs + Colima reset + host/kube/C
 	@echo "Destructive cluster reset. Run:  BOOTSTRAP_CONFIRM=yes make bootstrap  (optional: BOOTSTRAP_FULL_WIPE=1 BOOTSTRAP_COMPOSE_DOWN=1 BOOTSTRAP_PRUNE_IMAGES=1 RESTORE_BACKUP_DIR=…)"
 	@chmod +x "$(SCRIPTS)/bootstrap-cluster.sh" "$(SCRIPTS)/dev-kill-all.sh" "$(SCRIPTS)/bring-up-external-infra.sh" "$(SCRIPTS)/restore-external-postgres-from-backup.sh" "$(SCRIPTS)/strict-tls-bootstrap.sh" "$(SCRIPTS)/ensure-housing-cluster-secrets.sh" "$(SCRIPTS)/deploy-dev.sh" "$(SCRIPTS)/wait-for-housing-service-endpoints.sh" "$(SCRIPTS)/rollout-caddy.sh" "$(SCRIPTS)/verify-app-runtime.sh" && cd "$(REPO_ROOT)" && bash "$(SCRIPTS)/bootstrap-cluster.sh"
 
-cold-bootstrap: ensure-node20 ## Full cold lab: pnpm install+build → Colima/bootstrap → inspect + cluster-doctor + Grafana JSON + failure summary (TTY: yes; CI: COLD_BOOTSTRAP_CONFIRM=yes). Restore: auto latest if backups/all-* exist
+cold-bootstrap: ensure-node20 ## Full cold lab: pnpm install+build → Colima/bootstrap → inspect + cluster-doctor + Grafana JSON + failure summary (TTY: yes; CI: COLD_BOOTSTRAP_CONFIRM=yes). Restore: see COLD_BOOTSTRAP_DEFAULT_RESTORE when unset
 	@echo "cold-bootstrap: interactive confirm on a TTY, or set COLD_BOOTSTRAP_CONFIRM=yes (non-interactive / CI)."
 	@echo "Disk TLS: bootstrap-cluster P1c runs DEV_CERTS_ENSURE_ONLY=1 dev-generate-certs.sh (CA + edge leaf + Kafka material if missing). BOOTSTRAP_SKIP_LOCAL_CRYPTO_INVARIANT=1 skips (not recommended)."
 	@echo "Workspace: kafka-alignment-report-venv (matplotlib), then pnpm install --frozen-lockfile + pnpm run build, then dist check. COLD_BOOTSTRAP_SKIP_WORKSPACE_BUILD=1 skips pnpm but still runs venv first + requires tools/kafka-contract/dist/index.js."
-	@echo "Restore: if RESTORE_BACKUP_DIR is unset and backups/all-8-* or backups/all-7-* exist → latest; if none → empty DBs. RESTORE_BACKUP_DIR=off skips restore. Pin: RESTORE_BACKUP_DIR=backups/all-8-<stamp>"
+	@echo "Restore: unset → if $(COLD_BOOTSTRAP_DEFAULT_RESTORE) exists use it; else if backups/all-8-* or all-7-* exist → latest; else empty DBs. Override: RESTORE_BACKUP_DIR=path|latest|off. Pin override: make variable COLD_BOOTSTRAP_DEFAULT_RESTORE=…"
 	@echo "Skip schema gate: BOOTSTRAP_SKIP_DB_SCHEMA_INSPECT=1"
 	@echo "Contract JSON: verify-bootstrap-state at end (skip: VERIFY_BOOTSTRAP_STATE_SKIP=1). Drift: make bootstrap-drift-check"
 	@echo "Edge transport: post-bootstrap runs UDP 443/nodePort invariant on caddy-h3; VERIFY_BOOTSTRAP_HTTP3_EDGE=1 (default here) runs scripts/verify-http3-and-runtime.mjs. Skip edge script: VERIFY_BOOTSTRAP_HTTP3_EDGE=0. Skip curl inside it: VERIFY_HTTP3_SKIP_CURL=1. Skip UDP invariant: VERIFY_BOOTSTRAP_SKIP_CADDY_UDP_NODEPORT_CHECK=1."
 	@echo "Timing regression gate runs inside bootstrap-cluster (before timing snapshot): FAIL_ON_REGRESSION=1 REGRESSION_THRESHOLD=1.2 … (needs ≥3 files in bench_logs/historical_timings/; skip: BOOTSTRAP_SKIP_REGRESSION_CHECK=1)."
 	@echo "After success: Grafana dashboard JSON + heuristic failure summary (skip: COLD_BOOTSTRAP_SKIP_OBSERVABILITY_ARTIFACTS=1)."
 	@set -euo pipefail; cd "$(REPO_ROOT)"; \
+	_cold_start_ms=$$(python3 -c 'import time; print(int(time.time()*1000))'); \
 	if [ "$${COLD_BOOTSTRAP_CONFIRM:-}" = "yes" ]; then :; \
 	elif [ -t 0 ]; then \
 	  printf 'Destructive: Colima VM will be deleted and the stack rebuilt. Type yes to continue: '; \
@@ -731,7 +741,10 @@ cold-bootstrap: ensure-node20 ## Full cold lab: pnpm install+build → Colima/bo
 	case "$$_rb" in \
 	  off|no|skip|OFF|NO|SKIP) export RESTORE_BACKUP_DIR=; echo "RESTORE_BACKUP_DIR disabled — no dump restore." ;; \
 	  "") \
-	    if compgen -G "backups/all-8-*" >/dev/null 2>&1 || compgen -G "backups/all-7-*" >/dev/null 2>&1; then \
+	    if [ -d "$(COLD_BOOTSTRAP_DEFAULT_RESTORE)" ]; then \
+	      export RESTORE_BACKUP_DIR="$(COLD_BOOTSTRAP_DEFAULT_RESTORE)"; \
+	      echo "Using RESTORE_BACKUP_DIR=$(COLD_BOOTSTRAP_DEFAULT_RESTORE) (cold-bootstrap default; override with RESTORE_BACKUP_DIR=…)."; \
+	    elif compgen -G "backups/all-8-*" >/dev/null 2>&1 || compgen -G "backups/all-7-*" >/dev/null 2>&1; then \
 	      export RESTORE_BACKUP_DIR=latest; echo "Using RESTORE_BACKUP_DIR=latest (newest backups/all-8-* or all-7-*)."; \
 	    else \
 	      export RESTORE_BACKUP_DIR=; echo "No backups/all-* — Postgres starts without dump restore."; \
@@ -767,6 +780,9 @@ cold-bootstrap: ensure-node20 ## Full cold lab: pnpm install+build → Colima/bo
 	else \
 	  chmod +x "$(SCRIPTS)/inspect-external-db-schemas.sh" && bash "$(SCRIPTS)/inspect-external-db-schemas.sh" bench_logs; \
 	fi; \
+	if [ -n "$${RESTORE_BACKUP_DIR:-}" ] && [ "$${RESTORE_BACKUP_DIR}" != "off" ] && [ "$${RESTORE_BACKUP_DIR}" != "no" ] && [ "$${RESTORE_BACKUP_DIR}" != "skip" ]; then \
+	  chmod +x "$(SCRIPTS)/verify-restore-data.sh" && bash "$(SCRIPTS)/verify-restore-data.sh" || exit 1; \
+	fi; \
 	$(MAKE) cluster-doctor; \
 	if [ "$${VERIFY_BOOTSTRAP_STATE_SKIP:-0}" != "1" ]; then \
 	  echo "=== verify-bootstrap-state (post-bootstrap contract + edge HTTP/3 checks) ==="; \
@@ -785,7 +801,16 @@ cold-bootstrap: ensure-node20 ## Full cold lab: pnpm install+build → Colima/bo
 	  echo "✅ observability artifacts refreshed (bootstrap_grafana_dashboard.json, bootstrap_failure_summary.*)"; \
 	else \
 	  echo "ℹ️  COLD_BOOTSTRAP_SKIP_OBSERVABILITY_ARTIFACTS=1 — skipping Grafana JSON + failure summary"; \
-	fi
+	fi; \
+	_cold_end_ms=$$(python3 -c 'import time; print(int(time.time()*1000))'); \
+	_cold_dur=$$(( (_cold_end_ms - _cold_start_ms) / 1000 )); \
+	_cold_min=$$(( _cold_dur / 60 )); \
+	_cold_sec=$$(( _cold_dur % 60 )); \
+	echo "⏱ cold-bootstrap wall clock: $${_cold_min}m $${_cold_sec}s"; \
+	mkdir -p bench_logs; \
+	python3 -c "import json; d={'kind':'suite_wall_timer','suite':'cold-bootstrap','duration_ms':int('$${_cold_end_ms}')-int('$${_cold_start_ms}'),'duration_human':'$${_cold_min}m $${_cold_sec}s'}; open('bench_logs/cold-bootstrap-last-timing.json','w').write(json.dumps(d,indent=2)+'\n')"; \
+	chmod +x "$(SCRIPTS)/export-och-wall-clock-prom.sh" "$(SCRIPTS)/lib/push-och-prom.sh" 2>/dev/null || true; \
+	OCH_PUSH_WALL_CLOCK=1 bash "$(SCRIPTS)/export-och-wall-clock-prom.sh" cold-bootstrap || true
 
 cold-bootstrap-timed: ensure-node20 ## Same as cold-bootstrap but writes bench_logs/cold-bootstrap-last-timing.json (duration + exit code)
 	@chmod +x "$(SCRIPTS)/run-cold-bootstrap-with-timer.sh" && cd "$(REPO_ROOT)" && bash "$(SCRIPTS)/run-cold-bootstrap-with-timer.sh" $(MAKE) cold-bootstrap
@@ -923,13 +948,13 @@ verify-http3-and-runtime: ensure-node20 ## Writes bench_logs/http3_edge_metrics.
 	@cd "$(REPO_ROOT)" && node "$(SCRIPTS)/verify-http3-and-runtime.mjs"
 
 # ROLE: DEV — host docker data-plane bring-up (no Compose Kafka; KRaft in cluster)
-infra-host: ## Bring up host external infra (Postgres/Redis/MinIO); RESTORE_BACKUP_DIR=latest restores newest backup
+infra-host: ## Bring up host external infra (Postgres/Redis/MinIO); pass RESTORE_BACKUP_DIR=latest or backups/all-8-* to restore dumps
 	@mkdir -p $(BENCH)
 	@export PGPASSWORD=postgres; \
 	SKIP_AUTO_RESTORE=$(SKIP_AUTO_RESTORE) RESTORE_BACKUP_DIR=$(RESTORE_BACKUP_DIR) "$(SCRIPTS)/bring-up-external-infra.sh"
 
 # ROLE: DEV — cluster deploy + restore (SKIP_CLUSTER=1 after `make cluster` avoids re-running setup-new-colima-cluster.sh)
-infra-cluster: ## Compose + DBs; RESTORE_BACKUP_DIR=latest skips SQL bootstrap (dump-only). FORCE_SQL_BOOTSTRAP=1 to layer infra/db SQL.
+infra-cluster: ## Compose + DBs; pass RESTORE_BACKUP_DIR=latest or path — dump restore skips SQL bootstrap. FORCE_SQL_BOOTSTRAP=1 to layer infra/db SQL.
 	@export PGPASSWORD=postgres; \
 	SKIP_CLUSTER=$(SKIP_CLUSTER) SKIP_BOOTSTRAP=$(SKIP_BOOTSTRAP) RESTORE_BACKUP_DIR=$(RESTORE_BACKUP_DIR) "$(SCRIPTS)/bring-up-cluster-and-infra.sh"
 
@@ -1347,9 +1372,22 @@ preflight-strict: ensure-node20 ## Strict preflight: Colima+MetalLB+Jaeger+OTel+
 preflight-lab: preflight-strict ## ONE canonical Colima lab command (same as preflight-strict; Kafka alignment chaos on; see header comments).
 	@true
 
-.PHONY: validate-observability
+.PHONY: validate-observability obs-verify-dashboards obs-smoke-trace obs-smoke-gateway-protocols obs-smoke-analytics
 validate-observability: ## Jaeger Step7 span-tree + overlap gates (needs JAEGER_QUERY_BASE; see docs/observability/och-observability-integrity-spec-v1.md)
 	cd "$(REPO_ROOT)" && pnpm run validate-observability
+
+obs-verify-dashboards: ensure-node20 ## Fail if required Grafana/Prometheus metrics are missing (PROMETHEUS_TLS_INSECURE=1 for dev CA)
+	@chmod +x "$(SCRIPTS)/obs-verify-dashboards.sh" "$(SCRIPTS)/lib/push-och-prom.sh" && \
+	  cd "$(REPO_ROOT)" && PROMETHEUS_TLS_INSECURE="$${PROMETHEUS_TLS_INSECURE:-1}" bash "$(SCRIPTS)/obs-verify-dashboards.sh"
+
+obs-smoke-trace: ## Full-trace smoke: /api/debug/full-trace → Jaeger gates → Pushgateway och_trace_smoke_*
+	@chmod +x "$(SCRIPTS)/obs-smoke-trace.sh" "$(SCRIPTS)/lib/push-och-prom.sh" && cd "$(REPO_ROOT)" && bash "$(SCRIPTS)/obs-smoke-trace.sh"
+
+obs-smoke-analytics: ## Bounded POST listing-feel-minimal + Pushgateway och_ai_smoke_*
+	@chmod +x "$(SCRIPTS)/obs-smoke-analytics.sh" "$(SCRIPTS)/lib/push-och-prom.sh" && cd "$(REPO_ROOT)" && bash "$(SCRIPTS)/obs-smoke-analytics.sh"
+
+obs-smoke-gateway-protocols: ## Force h1/h2/h3 readyz probes + push protocol smoke metrics
+	@chmod +x "$(SCRIPTS)/obs-smoke-gateway-protocols.sh" "$(SCRIPTS)/lib/push-och-prom.sh" && cd "$(REPO_ROOT)" && bash "$(SCRIPTS)/obs-smoke-gateway-protocols.sh"
 
 .PHONY: observe
 observe: ensure-node20 ## Phase-vi2 skew + analytics QA + k6 transport load; prints Jaeger/Grafana/Prometheus URLs (best-effort steps use || true)
@@ -1463,7 +1501,8 @@ transport-quic-v6-v7-prove: ## Single standalone run; strict jq on transport-sum
 	    else \
 	      echo "JAEGER_QUERY_BASE unset: skip QUIC-Jaeger correlation"; \
 	    fi ) && \
-	  echo "v6 + v7 strict gates passed on $$_dir"
+	  echo "v6 + v7 strict gates passed on $$_dir" && \
+	  bash "$(REPO_ROOT)/scripts/push-och-quic-forensic-prom.sh" "$$_dir" "$$_kl" || true
 
 # v7 invariant: reshaped JSON + capture window + spin metadata + cert/ALPN; optional Jaeger correlation when JAEGER_QUERY_BASE is set.
 transport-quic-v7-prove: ## Same capture as v6; transport-summary-v7.json + strict jq (ALPN h3, 1RTT space, VN=0)

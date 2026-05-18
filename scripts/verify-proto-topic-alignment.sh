@@ -50,6 +50,7 @@ for f in "$PROTO_EVENTS_ROOT"/*.proto; do
 done
 
 och_topic_list_contains "${ENV_PREFIX}.booking.events.v1${SUF}" || fail "Missing ${ENV_PREFIX}.booking.events.v1${SUF}"
+och_topic_list_contains "${ENV_PREFIX}.community.events.v1${SUF}" || fail "Missing ${ENV_PREFIX}.community.events.v1${SUF}"
 och_topic_list_contains "${ENV_PREFIX}.messaging.dlq${SUF}" || fail "Missing ${ENV_PREFIX}.messaging.dlq${SUF}"
 
 ok "proto/events ↔ Kafka topic naming contract OK (${#OCH_KAFKA_EVENT_TOPICS[@]} topics, ENV_PREFIX=$ENV_PREFIX)"

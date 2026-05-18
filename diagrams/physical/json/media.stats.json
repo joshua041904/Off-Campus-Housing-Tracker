@@ -5,16 +5,23 @@
             "name": "media_files",
             "schema": "media",
             "idx_scan": 0,
-            "seq_scan": 28,
-            "n_live_tup": 67
+            "seq_scan": 80,
+            "n_live_tup": 3
         },
         {
             "name": "outbox_events",
             "schema": "media",
             "idx_scan": 0,
-            "seq_scan": 4,
-            "n_live_tup": 67
+            "seq_scan": 2,
+            "n_live_tup": 2
+        },
+        {
+            "name": "processed_events",
+            "schema": "media",
+            "idx_scan": 0,
+            "seq_scan": 2,
+            "n_live_tup": 0
         }
     ],
-    "generated_at": "2026-04-03T20:12:23.57487+00:00"
+    "generated_at": "2026-05-10T18:39:42.606731+00:00"
 }

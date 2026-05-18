@@ -1,5 +1,9 @@
 node_modules
 .next
+.turbo
+.cache
 test-results
 playwright-report
+coverage
 *.log
+.env*.local

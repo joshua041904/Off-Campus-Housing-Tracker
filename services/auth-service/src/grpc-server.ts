@@ -9,6 +9,7 @@ import { randomUUID } from "node:crypto";
 import { resolveProtoPath } from "@common/utils/proto";
 import { verifyMFA } from "./lib/mfa.js";
 import { prisma } from "./lib/prisma.js"; // Use shared PrismaClient instance
+import { resolveLoginUserByEmail } from "./resolve-login-user.js";
 import {
   registerHealthService,
   createOchGrpcServerCredentialsForBind,
@@ -59,6 +60,20 @@ function classifyGrpcJwtError(err: unknown): { code: GrpcAuthErrorCode; message:
   }
 
   return { code: "INVALID_TOKEN", message: "Token is invalid" };
+}
+
+/** `auth.users.username` is NOT NULL — derive a unique CITEXT handle from the email local-part. */
+function allocateUsernameFromEmail(email: string): { username: string; displayUsername: string } {
+  const rawLocal = (email.includes("@") ? email.split("@")[0] : email) || "user";
+  const base =
+    rawLocal
+      .toLowerCase()
+      .replace(/[^a-z0-9_]+/g, "_")
+      .replace(/^_+|_+$/g, "") || "user";
+  const suffix = randomUUID().replace(/-/g, "").slice(0, 10);
+  const username = `${base}_${suffix}`.slice(0, 128);
+  const displayUsername = base.slice(0, 128);
+  return { username, displayUsername };
 }
 
 // gRPC logging middleware with detailed request/response logging
@@ -275,11 +290,12 @@ const authService = {
       }
       
       const insertStart = Date.now();
+      const { username, displayUsername } = allocateUsernameFromEmail(email);
       const user = await prisma.$queryRaw<
         Array<{ id: string; email: string; createdAt: Date }>
       >`
-        INSERT INTO auth.users (email, password_hash, created_at)
-        VALUES (${email}, ${passwordHash}, NOW())
+        INSERT INTO auth.users (email, password_hash, username, display_username, created_at)
+        VALUES (${email}, ${passwordHash}, ${username}, ${displayUsername}, NOW())
         RETURNING id, email, created_at as "createdAt"
       `.then((r: Array<{ id: string; email: string; createdAt: Date }>) => r[0]);
       const insertDuration = Date.now() - insertStart;
@@ -294,11 +310,17 @@ const authService = {
         emailVerified: false,
         phoneVerified: false,
         createdAt: user.createdAt,
+        username: String(username).trim().slice(0, 128),
       });
 
       const tokenStart = Date.now();
       const jti = randomUUID();
-      const token = signJwt({ sub: user.id, email: user.email, jti } as any);
+      const token = signJwt({
+        sub: user.id,
+        email: user.email,
+        jti,
+        username: String(username).trim().slice(0, 128),
+      } as any);
       const tokenDuration = Date.now() - tokenStart;
       console.log(`[gRPC] Register: signJwt took ${tokenDuration}ms`);
 
@@ -344,24 +366,22 @@ const authService = {
       } else {
         console.log(`[gRPC] Authenticate: Cache miss, fetching from database (took ${cacheDuration}ms)`);
         // Cache miss - fetch from database
-        const dbUser = await prisma.$queryRaw<Array<{ 
-          id: string; 
-          email: string; 
-          passwordHash: string; 
-          mfaEnabled: boolean;
-          emailVerified: boolean;
-          phoneVerified: boolean;
-          createdAt: Date 
-        }>>`
-          SELECT id, email, password_hash as "passwordHash", mfa_enabled as "mfaEnabled",
-                 email_verified as "emailVerified", phone_verified as "phoneVerified", created_at as "createdAt"
-          FROM auth.users
-          WHERE email = ${email} AND COALESCE(is_deleted, false) = false
-        `.then((r: Array<any>) => r[0] || null);
-        
+        const dbUser = await resolveLoginUserByEmail(prisma, email);
+
         if (dbUser) {
+          const un = String(dbUser.username ?? "").trim().slice(0, 128);
           // Cache the user for future lookups
           await cacheUser({
+            id: dbUser.id,
+            email,
+            passwordHash: dbUser.passwordHash,
+            mfaEnabled: dbUser.mfaEnabled,
+            emailVerified: dbUser.emailVerified,
+            phoneVerified: dbUser.phoneVerified,
+            createdAt: dbUser.createdAt,
+            ...(un ? { username: un } : {}),
+          });
+          user = {
             id: dbUser.id,
             email: dbUser.email,
             passwordHash: dbUser.passwordHash,
@@ -369,8 +389,8 @@ const authService = {
             emailVerified: dbUser.emailVerified,
             phoneVerified: dbUser.phoneVerified,
             createdAt: dbUser.createdAt,
-          });
-          user = dbUser;
+            ...(un ? { username: un } : {}),
+          };
         }
       }
 
@@ -435,7 +455,8 @@ const authService = {
       }
 
       const jti = randomUUID();
-      const token = signJwt({ sub: user.id, email: user.email, jti } as any);
+      const un = String((user as { username?: string }).username ?? "").trim().slice(0, 128);
+      const token = signJwt({ sub: user.id, email: user.email, jti, ...(un ? { username: un } : {}) } as any);
       
       console.log(`[gRPC] Token generated for user ${user.id}, token length: ${token.length}`);
 
@@ -591,12 +612,13 @@ const authService = {
 
       // Verify user exists and is not deleted
       const user = await prisma.$queryRaw<
-        Array<{ id: string; email: string | null; isDeleted: boolean }>
+        Array<{ id: string; email: string | null; isDeleted: boolean; username: string | null }>
       >`
-        SELECT id, email, COALESCE(is_deleted, false) as "isDeleted"
+        SELECT id, email, COALESCE(is_deleted, false) as "isDeleted",
+               COALESCE(NULLIF(TRIM(username::text), ''), NULLIF(TRIM(display_username::text), '')) AS username
         FROM auth.users
         WHERE id = ${userId}::uuid
-      `.then((r: Array<{ id: string; email: string | null; isDeleted: boolean }>) => r[0] || null);
+      `.then((r: Array<{ id: string; email: string | null; isDeleted: boolean; username: string | null }>) => r[0] || null);
       
       if (!user) {
         return callback(
@@ -611,7 +633,8 @@ const authService = {
 
       // Generate new token
       const newJti = randomUUID();
-      const newPayload: any = { sub: user.id, email: user.email ?? "", jti: newJti };
+      const un = String(user.username ?? "").trim().slice(0, 128);
+      const newPayload: any = { sub: user.id, email: user.email ?? "", jti: newJti, ...(un ? { username: un } : {}) };
       const newToken = signJwt(newPayload);
 
       const duration = Date.now() - startTime;

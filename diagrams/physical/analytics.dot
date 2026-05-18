@@ -11,9 +11,10 @@ digraph physical {
     style=filled;
     color=lightgrey;
     label="Schema: analytics";
-    "analytics_daily_metrics" [label="{daily_metrics|date : date\lnew_users : integer\lnew_listings : integer\lnew_bookings : integer\lcompleted_bookings : integer\lmessages_sent : integer\llistings_flagged : integer\lupdated_at : timestamp with time zone}", style=filled, fillcolor="#f1f8e9"];
+    "analytics_daily_metrics" [label="{daily_metrics|date : date\lnew_users : integer\lnew_listings : integer\lnew_bookings : integer\lcompleted_bookings : integer\lmessages_sent : integer\llistings_flagged : integer\lupdated_at : timestamp with time zone}", style=filled, fillcolor="#e8f5e9"];
     "analytics_events" [label="{events|id : uuid\levent_type : text\levent_version : integer\lpayload : jsonb\lsource_service : text\lcreated_at : timestamp with time zone\levent_id : uuid}", style=filled, fillcolor="#e8f5e9"];
-    "analytics_listing_feel_cache" [label="{listing_feel_cache|id : uuid\lcontent_hash : text\laudience : text\lmodel : text\lanalysis_text : text\lcreated_at : timestamp with time zone}", style=filled, fillcolor="#f1f8e9"];
+    "analytics_listing_feel_cache" [label="{listing_feel_cache|id : uuid\lcontent_hash : text\laudience : text\lmodel : text\lanalysis_text : text\lcreated_at : timestamp with time zone}", style=filled, fillcolor="#e8f5e9"];
+    "analytics_listing_search_index" [label="{listing_search_index|listing_id : uuid\ltitle : text\ldescription : text\lembedding : vector(384)\lcreated_at : timestamp with time zone\lsearch_tsv : tsvector}", style=filled, fillcolor="#e8f5e9"];
     "analytics_processed_events" [label="{processed_events|event_id : uuid\lprocessed_at : timestamp with time zone}", style=filled, fillcolor="#e8f5e9"];
     "analytics_projection_state" [label="{projection_state|projection_name : text\llast_processed_event_id : uuid\lupdated_at : timestamp with time zone}", style=filled, fillcolor="#e8f5e9"];
     "analytics_projection_versions" [label="{projection_versions|name : text\lversion : integer\lupdated_at : timestamp with time zone}", style=filled, fillcolor="#e8f5e9"];

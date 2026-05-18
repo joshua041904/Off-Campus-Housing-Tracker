@@ -9,11 +9,19 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE SCHEMA IF NOT EXISTS trust;
 
--- Migrate from previous single flags/reviews design: drop old objects so this script is idempotent
-DROP TABLE IF EXISTS trust.reviews CASCADE;
-DROP TABLE IF EXISTS trust.flags CASCADE;
-DROP TYPE IF EXISTS trust.flag_target_type CASCADE;
-DROP TYPE IF EXISTS trust.flag_status CASCADE;
+-- Migrate from previous single flags/reviews design (only when legacy tables exist, not on all-8 restore).
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'trust' AND table_name = 'flags'
+  ) THEN
+    DROP TABLE IF EXISTS trust.reviews CASCADE;
+    DROP TABLE IF EXISTS trust.flags CASCADE;
+    DROP TYPE IF EXISTS trust.flag_target_type CASCADE;
+    DROP TYPE IF EXISTS trust.flag_status CASCADE;
+  END IF;
+END $$;
 
 -- Flag status: moderation workflow (pending → reviewed → resolved | dismissed)
 DO $$

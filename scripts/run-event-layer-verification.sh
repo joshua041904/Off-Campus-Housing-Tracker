@@ -3,6 +3,7 @@
 #
 # Usage: ./scripts/run-event-layer-verification.sh
 #   SKIP_VITEST=1          skip pnpm test in event-layer-verification
+#   SKIP_COVERAGE_PHASE_VI2_VERIFY=1 or PREFLIGHT_SKIP_COVERAGE_PHASE_VI2_VERIFY=1 — skip repo-root pnpm run coverage:phase-vi2-verify after Vitest
 #   SKIP_PROTO_VERIFY=1    skip verify-proto-events-topics.sh
 #   SKIP_PARTITION_VERIFY=1 skip verify-kafka-event-topic-partitions.sh (or set SKIP_KAFKA_VERIFY=1 inside)
 #   RUN_K6_ADVERSARIAL=1   run scripts/load/k6-event-layer-adversarial.js (needs k6 + BASE_URL/CA like other k6 scripts)
@@ -24,6 +25,14 @@ if [[ "${SKIP_VITEST:-0}" != "1" ]]; then
   ok "Vitest complete"
 else
   warn "SKIP_VITEST=1"
+fi
+
+if [[ "${SKIP_COVERAGE_PHASE_VI2_VERIFY:-0}" != "1" ]] && [[ "${PREFLIGHT_SKIP_COVERAGE_PHASE_VI2_VERIFY:-0}" != "1" ]]; then
+  say "Coverage phase VI.2 verify (repo root: pnpm run coverage:phase-vi2-verify)"
+  ( cd "$REPO_ROOT" && ROLLUP_DISABLE_NATIVE=true pnpm run coverage:phase-vi2-verify )
+  ok "coverage:phase-vi2-verify complete"
+else
+  warn "SKIP_COVERAGE_PHASE_VI2_VERIFY=1"
 fi
 
 if [[ "${SKIP_PROTO_VERIFY:-0}" != "1" ]]; then

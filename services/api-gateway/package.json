@@ -12,9 +12,9 @@
     "test:watch": "ROLLUP_DISABLE_NATIVE=true vitest"
   },
   "dependencies": {
-    "@opentelemetry/api": "^1.9.0",
     "@common/utils": "workspace:*",
     "@grpc/grpc-js": "^1.9.0",
+    "@opentelemetry/api": "^1.9.0",
     "compression": "^1.7.4",
     "cors": "^2.8.5",
     "express": "^4.19.2",
@@ -22,12 +22,14 @@
     "helmet": "^7.1.0",
     "http-proxy-middleware": "^3.0.5",
     "prom-client": "^15.1.3",
-    "redis": "^4.7.1"
+    "redis": "^4.7.1",
+    "ws": "^8.20.0"
   },
   "devDependencies": {
     "@stryker-mutator/core": "^8.6.0",
     "@stryker-mutator/vitest-runner": "^8.6.0",
     "@types/supertest": "^6.0.2",
+    "@types/ws": "^8.18.1",
     "@vitest/coverage-v8": "2.1.9",
     "supertest": "^7.0.0",
     "tsx": "^4.16.2",

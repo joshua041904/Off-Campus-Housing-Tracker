@@ -1,7 +1,8 @@
+// Colima/k3s: Linux + OpenSSL 3 query engines (linux-arm64 + debian bookworm; same as auth-service).
 generator client {
   provider      = "prisma-client-js"
   output        = "../prisma/generated/client"
-  binaryTargets = ["native"]
+  binaryTargets = ["native", "linux-arm64-openssl-3.0.x", "debian-openssl-3.0.x"]
 }
 
 datasource db {
@@ -24,42 +25,61 @@ enum BookingStatus {
 }
 
 model Booking {
-  id                 String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  listingId          String        @map("listing_id") @db.Uuid
-  tenantId           String        @map("tenant_id") @db.Uuid
-  landlordId         String        @map("landlord_id") @db.Uuid
-  status             BookingStatus
-  startDate          DateTime      @map("start_date") @db.Date
-  endDate            DateTime      @map("end_date") @db.Date
-  priceCentsSnapshot Int           @map("price_cents_snapshot")
-  currencyCode       String        @map("currency_code") @db.VarChar(8)
+  id                     String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  listingId              String        @map("listing_id") @db.Uuid
+  tenantId               String        @map("tenant_id") @db.Uuid
+  landlordId             String        @map("landlord_id") @db.Uuid
+  status                 BookingStatus
+  startDate              DateTime      @map("start_date") @db.Date
+  endDate                DateTime      @map("end_date") @db.Date
+  priceCentsSnapshot     Int           @map("price_cents_snapshot")
+  currencyCode           String        @map("currency_code") @db.VarChar(8)
   /// Tenant-only editable text (move-in notes, special requests). Not the listing description.
-  tenantNotes        String?       @map("tenant_notes") @db.Text
-  cancellationReason String?       @map("cancellation_reason") @db.Text
-  confirmedAt        DateTime?     @map("confirmed_at")
-  cancelledAt        DateTime?     @map("cancelled_at")
-  completedAt        DateTime?     @map("completed_at")
-  createdAt          DateTime      @default(now()) @map("created_at")
-  updatedAt          DateTime      @updatedAt @map("updated_at")
+  tenantNotes            String?       @map("tenant_notes") @db.Text
+  cancellationReason     String?       @map("cancellation_reason") @db.Text
+  confirmedAt            DateTime?     @map("confirmed_at")
+  cancelledAt            DateTime?     @map("cancelled_at")
+  completedAt            DateTime?     @map("completed_at")
+  expiresAt              DateTime?     @map("expires_at") @db.Timestamptz(6)
+  statusUpdatedAt        DateTime      @default(now()) @map("status_updated_at") @db.Timestamptz(6)
+  fraudScore             Int?          @map("fraud_score")
+  fraudFlagged           Boolean       @default(false) @map("fraud_flagged")
+  fraudSignals           Json?         @map("fraud_signals")
+  listingTitleSnapshot   String?       @map("listing_title_snapshot") @db.VarChar(512)
+  tenantEmailSnapshot    String?       @map("tenant_email_snapshot") @db.VarChar(320)
+  /// Renter username/handle from gateway at request time (optional).
+  tenantUsernameSnapshot String?       @map("tenant_username_snapshot") @db.VarChar(64)
+  fraudReviewStatus      String?       @map("fraud_review_status") @db.VarChar(32)
+  tenantArchivedAt       DateTime?     @map("tenant_archived_at") @db.Timestamptz(6)
+  createdAt              DateTime      @default(now()) @map("created_at")
+  updatedAt              DateTime      @updatedAt @map("updated_at")
 
   @@index([tenantId], map: "idx_bookings_tenant_id")
   @@index([listingId], map: "idx_bookings_listing_id")
   @@index([status], map: "idx_bookings_status")
+  @@index([listingId, status], map: "idx_bookings_listing_status")
+  @@index([createdAt], map: "idx_bookings_created_at")
+  @@index([landlordId, fraudFlagged, createdAt(sort: Desc)], map: "idx_bookings_fraud_flagged_landlord")
+  @@index([tenantId, tenantArchivedAt], map: "idx_bookings_tenant_archived_at")
   @@map("bookings")
   @@schema("booking")
 }
 
 model SearchHistory {
-  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId        String   @map("user_id") @db.Uuid
-  query         String?  @db.VarChar(256)
-  minPriceCents Int?     @map("min_price_cents")
-  maxPriceCents Int?     @map("max_price_cents")
-  maxDistanceKm Int?     @map("max_distance_km")
-  latitude      Float?
-  longitude     Float?
-  filters       Json?
-  createdAt     DateTime @default(now()) @map("created_at")
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  query          String?  @db.VarChar(256)
+  minPriceCents  Int?     @map("min_price_cents")
+  maxPriceCents  Int?     @map("max_price_cents")
+  maxDistanceKm  Int?     @map("max_distance_km")
+  /// Max distance from campus in miles (saved-search alerts). Distinct from legacy maxDistanceKm.
+  maxCampusMiles Float?   @map("max_campus_miles")
+  /// When true, new active listings that match this row can trigger in-app notifications.
+  alertOnMatch   Boolean  @default(false) @map("alert_on_match")
+  latitude       Float?
+  longitude      Float?
+  filters        Json?
+  createdAt      DateTime @default(now()) @map("created_at")
 
   @@index([userId, createdAt(sort: Desc)], map: "idx_search_history_user_created")
   @@map("search_history")

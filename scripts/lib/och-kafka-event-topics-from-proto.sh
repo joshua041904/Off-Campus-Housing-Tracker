@@ -14,6 +14,7 @@
 #   - One top-level proto/events/<stem>.proto (except envelope.proto) → "${ENV_PREFIX}.<stem>.events${SUF}"
 #   - messaging.proto → messaging.events.v1 only (no env prefix; no isolation suffix; matches producers)
 #   - Always add "${ENV_PREFIX}.booking.events.v1${SUF}" (gRPC path; in addition to dev.booking.events from booking.proto)
+#   - Always add "${ENV_PREFIX}.community.events.v1${SUF}" (forum fan-out; listings community-kafka + notification-service; no community.proto)
 #   - Always add "${ENV_PREFIX}.messaging.dlq${SUF}"
 
 och_kafka_event_topics_fill() {
@@ -49,6 +50,7 @@ och_kafka_event_topics_fill() {
   done <<<"$sorted_names"
 
   tmp_topics+=("${ENV_PREFIX}.booking.events.v1${suf}")
+  tmp_topics+=("${ENV_PREFIX}.community.events.v1${suf}")
   tmp_topics+=("${ENV_PREFIX}.messaging.dlq${suf}")
   # Account lifecycle (deletion / anonymization); envelope payloads in proto/events/auth.proto
   tmp_topics+=("${ENV_PREFIX}.user.lifecycle.v1${suf}")

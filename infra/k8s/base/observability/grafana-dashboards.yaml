@@ -24,7 +24,7 @@ data:
           "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
           "targets": [
             {
-              "expr": "sum(rate(http_requests_total[5m])) by (service)",
+              "expr": "sum(rate(http_requests_total{service=~\"api-gateway|auth-service|listings-service|booking-service|messaging-service|notification-service|trust-service|analytics-service|media-service\"}[5m])) by (service)",
               "legendFormat": "{{service}}",
               "refId": "A"
             }
@@ -40,7 +40,7 @@ data:
           "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
           "targets": [
             {
-              "expr": "sum(rate(http_requests_total{code=~\"5..\"}[5m])) by (service) or on() vector(0)",
+              "expr": "sum(rate(http_requests_total{service=~\"api-gateway|auth-service|listings-service|booking-service|messaging-service|notification-service|trust-service|analytics-service|media-service\",code=~\"5..\"}[5m])) by (service) or on() vector(0)",
               "legendFormat": "{{service}}",
               "refId": "A"
             }
@@ -50,34 +50,96 @@ data:
         },
         {
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-          "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+          "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
           "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
           "id": 3,
           "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
           "targets": [
             {
-              "expr": "histogram_quantile(0.95, sum(rate(trace_service_latency_ms_bucket[5m])) by (le, service))",
-              "legendFormat": "p95 {{service}}",
+              "expr": "1000 * histogram_quantile(0.5, sum(rate(http_request_duration_seconds_bucket{route!=\"/metrics\"}[5m])) by (le, service))",
+              "legendFormat": "p50 {{service}}",
               "refId": "A"
+            },
+            {
+              "expr": "1000 * histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{route!=\"/metrics\"}[5m])) by (le, service))",
+              "legendFormat": "p95 {{service}}",
+              "refId": "B"
+            },
+            {
+              "expr": "1000 * histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{route!=\"/metrics\"}[5m])) by (le, service))",
+              "legendFormat": "p99 {{service}}",
+              "refId": "C"
+            },
+            {
+              "expr": "1000 * histogram_quantile(1.0, sum(rate(http_request_duration_seconds_bucket{route!=\"/metrics\"}[5m])) by (le, service))",
+              "legendFormat": "p100 {{service}}",
+              "refId": "D"
             }
           ],
-          "title": "Response Time (p95)",
+          "title": "Service Response Time (p50/p95/p99/p100)",
           "type": "timeseries"
         },
         {
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-          "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+          "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
           "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
           "id": 4,
           "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
           "targets": [
             {
-              "expr": "histogram_quantile(0.99, sum(rate(trace_service_latency_ms_bucket[5m])) by (le, service))",
-              "legendFormat": "p99 {{service}}",
+              "expr": "1000 * histogram_quantile(0.5, sum(rate(http_request_duration_seconds_bucket{service=\"api-gateway\",route!=\"/metrics\"}[5m])) by (le, proto))",
+              "legendFormat": "p50 {{proto}}",
+              "refId": "A"
+            },
+            {
+              "expr": "1000 * histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{service=\"api-gateway\",route!=\"/metrics\"}[5m])) by (le, proto))",
+              "legendFormat": "p95 {{proto}}",
+              "refId": "B"
+            },
+            {
+              "expr": "1000 * histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{service=\"api-gateway\",route!=\"/metrics\"}[5m])) by (le, proto))",
+              "legendFormat": "p99 {{proto}}",
+              "refId": "C"
+            },
+            {
+              "expr": "1000 * histogram_quantile(1.0, sum(rate(http_request_duration_seconds_bucket{service=\"api-gateway\",route!=\"/metrics\"}[5m])) by (le, proto))",
+              "legendFormat": "p100 {{proto}}",
+              "refId": "D"
+            }
+          ],
+          "title": "Gateway Response Time By Protocol (p50/p95/p99/p100)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+          "id": 5,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "sum(rate(http_requests_total{service=\"api-gateway\",route!=\"/metrics\"}[5m])) by (proto)",
+              "legendFormat": "{{proto}}",
               "refId": "A"
             }
           ],
-          "title": "Response Time (p99)",
+          "title": "Gateway Request Rate By Protocol",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+          "id": 6,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "topk(12, 1000 * histogram_quantile(1.0, sum(rate(http_request_duration_seconds_bucket{service=\"api-gateway\",route!=\"/metrics\"}[5m])) by (le, route)))",
+              "legendFormat": "{{route}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Gateway p100 By Route",
           "type": "timeseries"
         }
       ],
@@ -114,7 +176,14 @@ data:
       "fiscalYearStartMonth": 0,
       "graphTooltip": 0,
       "id": null,
-      "links": [],
+      "links": [
+        {
+          "title": "Open Jaeger",
+          "type": "link",
+          "url": "https://off-campus-housing.test/jaeger/",
+          "targetBlank": true
+        }
+      ],
       "liveNow": false,
       "panels": [
         {
@@ -130,7 +199,7 @@ data:
               "refId": "A"
             }
           ],
-          "title": "Trace Count",
+          "title": "Full-Trace Smoke Observations / s",
           "type": "timeseries"
         },
         {
@@ -141,12 +210,12 @@ data:
           "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
           "targets": [
             {
-              "expr": "sum(rate(trace_service_latency_ms_count{status=~\"5..\"}[5m])) by (service) or on() vector(0)",
-              "legendFormat": "{{service}}",
+              "expr": "sum(rate(trace_service_latency_ms_count{status!~\"2..\"}[5m])) by (service, status) or on() vector(0)",
+              "legendFormat": "{{service}} / {{status}}",
               "refId": "A"
             }
           ],
-          "title": "Error Rate",
+          "title": "Full-Trace Smoke Non-2xx / Error Rate",
           "type": "timeseries"
         }
       ],
@@ -172,7 +241,8 @@ data:
       "time": { "from": "now-6h", "to": "now" },
       "timepicker": {},
       "timezone": "browser",
-      "title": "Distributed Tracing",
+      "description": "Use Jaeger for raw traces. These Prometheus panels are driven by `/api/debug/full-trace` / `scripts/obs-smoke-trace.sh` smoke metrics and stay empty until the smoke route runs.",
+      "title": "Distributed Tracing (Jaeger source of truth + full-trace smoke metrics)",
       "uid": "och-distributed-tracing",
       "version": 1
     }

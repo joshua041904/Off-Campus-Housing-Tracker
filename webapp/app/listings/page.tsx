@@ -1,1254 +1,468 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ListingsGrid } from "@/components/listings/ListingsGrid";
+import { FilterBar } from "@/components/listings/FilterBar";
+import type { ListingFilters } from "@/components/listings/types";
+import { Nav } from "@/components/Nav";
 import {
-  createListing,
-  getListing,
-  searchListings,
+  enrichListingsWithHostReputation,
+  postSearchHistory,
+  requestBooking,
+  searchListingsPage,
+  watchlistAdd,
+  watchlistList,
+  watchlistRemove,
   type ListingJson,
 } from "@/lib/api";
-import { getStoredEmail, getStoredToken } from "@/lib/auth-storage";
-import { Nav } from "@/components/Nav";
-import { GoogleMapEmbed } from "@/components/GoogleMapEmbed";
+import { CardGridSkeleton } from "@/components/ui/DashboardSkeleton";
+import { getStoredEmail } from "@/lib/auth-storage";
+import { classifyFetchFailure, userSafeSearchMessage } from "@/lib/och-fetch-errors";
+import { ochPerfMark, ochPerfMeasure, logPerfDebug } from "@/lib/och-perf";
+import { useLoadSequenceGuard } from "@/lib/och-load-guard";
+import { useOchSession } from "@/lib/och-session";
 
-const AMENITY_OPTIONS = [
-  { slug: "garage", label: "Garage" },
-  { slug: "parking", label: "Parking" },
-  { slug: "in_unit_laundry", label: "In-unit laundry" },
-  { slug: "dishwasher", label: "Dishwasher" },
-] as const;
+const EBAY_PAGE_SIZES = new Set([24, 48, 72, 96, 120, 128, 240]);
 
-function ListingsHeaderSection() {
-  return (
-    <section className="max-w-3xl">
-      <p className="text-sm font-semibold uppercase tracking-[0.22em] text-teal-700">
-        Listings
-      </p>
-      <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
-        Browse off-campus housing
-      </h1>
-      <p className="mt-4 text-lg leading-8 text-slate-600">
-        Search listings by price, amenities, and recency to find options that
-        match your needs. You can also continue to your{" "}
-        <Link
-          href="/dashboard"
-          className="font-medium text-teal-700 hover:underline"
-        >
-          dashboard
-        </Link>{" "}
-        for watchlist and search history.
-      </p>
-    </section>
-  );
+function coercePageSize(raw: string): number {
+  const n = Number(raw);
+  return EBAY_PAGE_SIZES.has(n) ? n : 24;
 }
 
-function ListingsResultsSection({
-  items,
-  searchLoading,
-  searchError,
-}: {
-  items: ListingJson[];
-  searchLoading: boolean;
-  searchError: string | null;
-}) {
-  return (
-    <section
-      data-testid="listings-results"
-      className="mt-12"
-      aria-busy={searchLoading}
-      aria-live="polite"
-    >
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-sm font-semibold uppercase tracking-[0.22em] text-teal-700">
-            Results
-          </p>
-          <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">
-            Available listings
-          </h2>
-        </div>
-        <p
-          className="text-sm text-slate-500"
-          role="status"
-          aria-live="polite"
-          aria-atomic="true"
-        >
-          {searchLoading
-            ? "Updating results…"
-            : searchError
-              ? "0 Listings"
-              : `${items.length} listing${items.length === 1 ? "" : "s"} found`}
-        </p>
-      </div>
-      <div className="mt-8">
-        {searchLoading ? (
-          <div className="rounded-[1.75rem] border border-slate-200 bg-white px-6 py-12 text-center shadow-sm">
-            <p className="text-base font-medium text-slate-900">
-              Loading listings…
-            </p>
-            <p className="mt-2 text-sm text-slate-500">
-              We&apos;re updating the results for your current filters.
-            </p>
-          </div>
-        ) : searchError ? (
-          <div
-            role="alert"
-            className="rounded-[1.75rem] border border-red-200 bg-red-50 px-6 py-10 text-center shadow-sm"
-          >
-            <p className="text-base font-medium text-red-900">
-              Could not load listings
-            </p>
-            <p className="mt-2 text-sm text-red-700">{searchError}</p>
-          </div>
-        ) : items.length === 0 ? (
-          <div className="rounded-[1.75rem] border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center">
-            <p className="text-base font-medium text-slate-900">
-              No listings matched your current filters.
-            </p>
-            <p className="mt-2 text-sm text-slate-500">
-              Try adjusting your search terms, price range, or amenities to see
-              more options.
-            </p>
-          </div>
-        ) : (
-          <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
-            {items.map((row) => (
-              <ListingCard
-                key={row.id}
-                listing={row}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-    </section>
-  );
+function userIdFromJwt(token: string | null): string | null {
+  if (!token) return null;
+  try {
+    const payload = token.split(".")[1];
+    if (!payload) return null;
+    const json = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/"))) as Record<string, unknown>;
+    const id = String(json.user_id || json.sub || "");
+    return id || null;
+  } catch {
+    return null;
+  }
 }
 
-function ListingsFeedback({
-  msg,
-  err,
-}: {
-  msg: string | null;
-  err: string | null;
-}) {
-  return (
-    <>
-      {msg && (
-        <div
-          data-testid="listing-created-banner"
-          role="status"
-          aria-live="polite"
-          className="mt-6 rounded-[1.25rem] border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-medium text-emerald-800 shadow-sm"
-        >
-          {msg}
-        </div>
-      )}
-      {err && (
-        <div
-          data-testid="listings-api-error"
-          role="alert"
-          className="mt-4 rounded-[1.25rem] border border-red-200 bg-red-50 px-5 py-4 text-sm font-medium text-red-700 shadow-sm"
-        >
-          {err}
-        </div>
-      )}
-    </>
-  );
-}
-
-function ListingsSearchSection({
-  q,
-  setQ,
-  minPrice,
-  setMinPrice,
-  maxPrice,
-  setMaxPrice,
-  smokeFree,
-  setSmokeFree,
-  petFriendly,
-  setPetFriendly,
-  furnishedOnly,
-  setFurnishedOnly,
-  filterGarage,
-  setFilterGarage,
-  filterParking,
-  setFilterParking,
-  filterLaundry,
-  setFilterLaundry,
-  filterDishwasher,
-  setFilterDishwasher,
-  sortBy,
-  setSortBy,
-  newWithin,
-  setNewWithin,
-  searchLoading,
-  onSearch,
-  onResetFilters,
-}: {
-  q: string;
-  setQ: (v: string) => void;
-  minPrice: string;
-  setMinPrice: (v: string) => void;
-  maxPrice: string;
-  setMaxPrice: (v: string) => void;
-  smokeFree: boolean;
-  setSmokeFree: (v: boolean) => void;
-  petFriendly: boolean;
-  setPetFriendly: (v: boolean) => void;
-  furnishedOnly: boolean;
-  setFurnishedOnly: (v: boolean) => void;
-  filterGarage: boolean;
-  setFilterGarage: (v: boolean) => void;
-  filterParking: boolean;
-  setFilterParking: (v: boolean) => void;
-  filterLaundry: boolean;
-  setFilterLaundry: (v: boolean) => void;
-  filterDishwasher: boolean;
-  setFilterDishwasher: (v: boolean) => void;
-  sortBy: ListingSearchSort;
-  setSortBy: (v: ListingSearchSort) => void;
-  newWithin: string;
-  setNewWithin: (v: string) => void;
-  searchLoading: boolean;
-  onSearch: (e?: React.FormEvent) => Promise<void>;
-  onResetFilters: () => void;
-}) {
-  return (
-    <form
-      data-testid="listings-search-form"
-      onSubmit={onSearch}
-      className="mt-10 rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8"
-    >
-      <div className="max-w-2xl">
-        <p className="text-sm font-semibold uppercase tracking-[0.22em] text-teal-700">
-          Search and filter
-        </p>
-        <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">
-          Narrow down your options
-        </h2>
-        <p className="mt-3 text-sm leading-6 text-slate-600">
-          Use keywords, pricing, amenities, and sort options to find listings
-          that fit your budget and preferences.
-        </p>
-      </div>
-      <div className="mt-8">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-          Basics
-        </p>
-        <div className="mt-3 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <div className="md:col-span-2">
-            <label
-              htmlFor="listings-q"
-              className="text-xs font-medium uppercase tracking-wide text-slate-500"
-            >
-              Keywords
-            </label>
-            <input
-              id="listings-q"
-              data-testid="listings-search-q"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-slate-900 focus-visible:border-teal-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
-              placeholder="studio, laundry…"
-            />
-          </div>
-          <div>
-            <label
-              htmlFor="listings-min-price"
-              className="text-xs font-medium uppercase tracking-wide text-slate-500"
-            >
-              Min price (USD)
-            </label>
-            <input
-              id="listings-min-price"
-              type="number"
-              step="0.01"
-              value={minPrice}
-              onChange={(e) => setMinPrice(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 focus-visible:border-teal-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
-            />
-          </div>
-          <div>
-            <label
-              htmlFor="listings-max-price"
-              className="text-xs font-medium uppercase tracking-wide text-slate-500"
-            >
-              Max price (USD)
-            </label>
-            <input
-              id="listings-max-price"
-              type="number"
-              step="0.01"
-              value={maxPrice}
-              onChange={(e) => setMaxPrice(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 focus-visible:border-teal-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
-            />
-          </div>
-        </div>
-      </div>
-
-      <fieldset className="mt-8 border-0 p-0 m-0">
-        <legend className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-          Preferences and amenities
-        </legend>
-        <div className="mt-3 flex flex-wrap gap-3 text-sm">
-          <label className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2">
-            <input
-              type="checkbox"
-              checked={smokeFree}
-              onChange={(e) => setSmokeFree(e.target.checked)}
-            />
-            Smoke-free
-          </label>
-          <label className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2">
-            <input
-              type="checkbox"
-              checked={petFriendly}
-              onChange={(e) => setPetFriendly(e.target.checked)}
-            />
-            Pet-friendly
-          </label>
-          <label className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2">
-            <input
-              data-testid="listings-filter-furnished"
-              type="checkbox"
-              checked={furnishedOnly}
-              onChange={(e) => setFurnishedOnly(e.target.checked)}
-            />
-            Furnished only
-          </label>
-          <label className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2">
-            <input
-              data-testid="listings-filter-garage"
-              type="checkbox"
-              checked={filterGarage}
-              onChange={(e) => setFilterGarage(e.target.checked)}
-            />
-            Garage
-          </label>
-          <label className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2">
-            <input
-              data-testid="listings-filter-parking"
-              type="checkbox"
-              checked={filterParking}
-              onChange={(e) => setFilterParking(e.target.checked)}
-            />
-            Parking
-          </label>
-          <label className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2">
-            <input
-              data-testid="listings-filter-laundry"
-              type="checkbox"
-              checked={filterLaundry}
-              onChange={(e) => setFilterLaundry(e.target.checked)}
-            />
-            In-unit laundry
-          </label>
-          <label className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2">
-            <input
-              data-testid="listings-filter-dishwasher"
-              type="checkbox"
-              checked={filterDishwasher}
-              onChange={(e) => setFilterDishwasher(e.target.checked)}
-            />
-            Dishwasher
-          </label>
-        </div>
-      </fieldset>
-
-      <div className="mt-8">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-          Sorting and recency
-        </p>
-        <div className="mt-3 flex flex-wrap items-end gap-4">
-          <div>
-            <label
-              htmlFor="listings-sort"
-              className="text-xs font-medium uppercase tracking-wide text-slate-500"
-            >
-              Sort by
-            </label>
-            <select
-              id="listings-sort"
-              data-testid="listings-sort"
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as ListingSearchSort)}
-              className="mt-1 block rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm focus-visible:border-teal-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
-            >
-              <option value="created_desc">Newest (created)</option>
-              <option value="listed_desc">Listing date</option>
-              <option value="price_asc">Price: low to high</option>
-              <option value="price_desc">Price: high to low</option>
-            </select>
-          </div>
-          <div>
-            <label
-              htmlFor="listings-new-within"
-              className="text-xs font-medium uppercase tracking-wide text-slate-500"
-            >
-              Listed recently
-            </label>
-            <select
-              id="listings-new-within"
-              data-testid="listings-new-within"
-              value={newWithin}
-              onChange={(e) => setNewWithin(e.target.value)}
-              className="mt-1 block rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm focus-visible:border-teal-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
-            >
-              <option value="">Any time</option>
-              <option value="7">Last 7 days</option>
-              <option value="30">Last 30 days</option>
-              <option value="90">Last 90 days</option>
-            </select>
-          </div>
-          <button
-            type="submit"
-            disabled={searchLoading}
-            data-testid="listings-search-submit"
-            className="rounded-full bg-teal-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 disabled:opacity-50"
-          >
-            Search
-          </button>
-          <button
-            type="button"
-            onClick={onResetFilters}
-            disabled={searchLoading}
-            data-testid="listings-reset-filters"
-            className="rounded-full border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:opacity-50"
-          >
-            Reset filters
-          </button>
-        </div>
-      </div>
-    </form>
-  );
-}
-
-function ListingLookupSection({
-  detailId,
-  setDetailId,
-  detailLoading,
-  detail,
-  onLoadDetail,
-}: {
-  detailId: string;
-  setDetailId: (v: string) => void;
-  detailLoading: boolean;
-  detail: ListingJson | null;
-  onLoadDetail: (e: React.FormEvent) => Promise<void>;
-}) {
-  return (
-    <section className="mt-14 rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-      <p className="text-sm font-semibold uppercase tracking-[0.22em] text-teal-700">
-        Listing lookup
-      </p>
-      <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
-        Load a listing by ID
-      </h2>
-      <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
-        Use a listing ID to inspect a specific record directly. This is a
-        secondary utility for targeted lookups.
-      </p>
-      <form
-        onSubmit={onLoadDetail}
-        className="mt-6 flex flex-col gap-3 sm:flex-row"
-      >
-        <input
-          data-testid="listings-detail-id"
-          value={detailId}
-          onChange={(e) => setDetailId(e.target.value)}
-          placeholder="listing UUID"
-          className="flex-1 rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-mono text-sm text-slate-900"
-        />
-        <button
-          type="submit"
-          disabled={detailLoading}
-          data-testid="listings-detail-load"
-          className="rounded-full border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-800 transition hover:border-slate-400 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:opacity-50"
-        >
-          Load
-        </button>
-      </form>
-      {detail && (
-        <pre
-          data-testid="listings-detail-json"
-          className="mt-6 overflow-x-auto rounded-[1.25rem] bg-[#0f172a] p-5 text-xs leading-relaxed text-teal-100"
-        >
-          {JSON.stringify(detail, null, 2)}
-        </pre>
-      )}
-    </section>
-  );
-}
-
-function CreateListingSection({
-  title,
-  setTitle,
-  desc,
-  setDesc,
-  priceUsd,
-  setPriceUsd,
-  effectiveFrom,
-  setEffectiveFrom,
-  createLat,
-  setCreateLat,
-  createLng,
-  setCreateLng,
-  createSmokeFree,
-  setCreateSmokeFree,
-  createPetFriendly,
-  setCreatePetFriendly,
-  createFurnished,
-  setCreateFurnished,
-  createGarage,
-  setCreateGarage,
-  createParking,
-  setCreateParking,
-  createLaundry,
-  setCreateLaundry,
-  createDishwasher,
-  setCreateDishwasher,
-  createLoading,
-  onCreate,
-}: {
-  title: string;
-  setTitle: (v: string) => void;
-  desc: string;
-  setDesc: (v: string) => void;
-  priceUsd: string;
-  setPriceUsd: (v: string) => void;
-  effectiveFrom: string;
-  setEffectiveFrom: (v: string) => void;
-  createLat: string;
-  setCreateLat: (v: string) => void;
-  createLng: string;
-  setCreateLng: (v: string) => void;
-  createSmokeFree: boolean;
-  setCreateSmokeFree: (v: boolean) => void;
-  createPetFriendly: boolean;
-  setCreatePetFriendly: (v: boolean) => void;
-  createFurnished: boolean;
-  setCreateFurnished: (v: boolean) => void;
-  createGarage: boolean;
-  setCreateGarage: (v: boolean) => void;
-  createParking: boolean;
-  setCreateParking: (v: boolean) => void;
-  createLaundry: boolean;
-  setCreateLaundry: (v: boolean) => void;
-  createDishwasher: boolean;
-  setCreateDishwasher: (v: boolean) => void;
-  createLoading: boolean;
-  onCreate: (e: React.FormEvent) => Promise<void>;
-}) {
-  return (
-    <section className="mt-10 rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-      <p className="text-sm font-semibold uppercase tracking-[0.22em] text-teal-700">
-        Create listing
-      </p>
-      <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
-        Post a new listing
-      </h2>
-      <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
-        Add listing details, optional coordinates for map preview, and
-        structured amenities so listings can be searched and displayed
-        consistently.
-      </p>
-      <form onSubmit={onCreate} className="mt-6 grid gap-4 md:grid-cols-2">
-        <div className="md:col-span-2">
-          <label className="text-xs font-medium uppercase text-slate-500">
-            Title
-          </label>
-          <input
-            data-testid="listings-create-title"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 focus-visible:border-teal-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
-            required
-          />
-        </div>
-        <div className="md:col-span-2">
-          <label className="text-xs font-medium uppercase text-slate-500">
-            Description
-          </label>
-          <textarea
-            data-testid="listings-create-desc"
-            value={desc}
-            onChange={(e) => setDesc(e.target.value)}
-            rows={3}
-            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 focus-visible:border-teal-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
-          />
-        </div>
-        <div>
-          <label className="text-xs font-medium uppercase text-slate-500">
-            Price (USD)
-          </label>
-          <input
-            data-testid="listings-create-price"
-            type="number"
-            step="0.01"
-            value={priceUsd}
-            onChange={(e) => setPriceUsd(e.target.value)}
-            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 focus-visible:border-teal-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
-            required
-          />
-        </div>
-        <div>
-          <label className="text-xs font-medium uppercase text-slate-500">
-            Effective from
-          </label>
-          <input
-            data-testid="listings-create-effective-from"
-            type="date"
-            value={effectiveFrom}
-            onChange={(e) => setEffectiveFrom(e.target.value)}
-            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 focus-visible:border-teal-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
-            required
-          />
-        </div>
-        <div>
-          <label className="text-xs font-medium uppercase text-slate-500">
-            Latitude (optional)
-          </label>
-          <input
-            data-testid="listings-create-lat"
-            type="text"
-            inputMode="decimal"
-            placeholder="e.g. 42.3910"
-            value={createLat}
-            onChange={(e) => setCreateLat(e.target.value)}
-            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-mono text-sm"
-          />
-        </div>
-        <div>
-          <label className="text-xs font-medium uppercase text-slate-500">
-            Longitude (optional)
-          </label>
-          <input
-            data-testid="listings-create-lng"
-            type="text"
-            inputMode="decimal"
-            placeholder="e.g. -72.5267"
-            value={createLng}
-            onChange={(e) => setCreateLng(e.target.value)}
-            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-mono text-sm"
-          />
-        </div>
-        <div className="md:col-span-2 flex flex-wrap gap-4 text-sm">
-          <label className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2">
-            <input
-              type="checkbox"
-              checked={createSmokeFree}
-              onChange={(e) => setCreateSmokeFree(e.target.checked)}
-            />
-            Smoke-free
-          </label>
-          <label className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2">
-            <input
-              type="checkbox"
-              checked={createPetFriendly}
-              onChange={(e) => setCreatePetFriendly(e.target.checked)}
-            />
-            Pet-friendly
-          </label>
-          <label className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2">
-            <input
-              type="checkbox"
-              checked={createFurnished}
-              onChange={(e) => setCreateFurnished(e.target.checked)}
-            />
-            Furnished
-          </label>
-          {AMENITY_OPTIONS.map((a) => (
-            <label
-              key={a.slug}
-              className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2"
-            >
-              <input
-                type="checkbox"
-                checked={
-                  a.slug === "garage"
-                    ? createGarage
-                    : a.slug === "parking"
-                      ? createParking
-                      : a.slug === "in_unit_laundry"
-                        ? createLaundry
-                        : createDishwasher
-                }
-                onChange={(e) => {
-                  if (a.slug === "garage") setCreateGarage(e.target.checked);
-                  else if (a.slug === "parking")
-                    setCreateParking(e.target.checked);
-                  else if (a.slug === "in_unit_laundry")
-                    setCreateLaundry(e.target.checked);
-                  else setCreateDishwasher(e.target.checked);
-                }}
-              />
-              {a.label}
-            </label>
-          ))}
-        </div>
-        <div className="md:col-span-2">
-          <button
-            type="submit"
-            disabled={createLoading}
-            data-testid="listings-create-submit"
-            className="rounded-full bg-teal-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 disabled:opacity-50"
-          >
-            Create listing
-          </button>
-        </div>
-      </form>
-    </section>
-  );
-}
-
-function ListingsPageInner() {
-  const router = useRouter();
-  const searchParams = useSearchParams(); // eslint-disable-line @typescript-eslint/no-unused-vars
+export default function ListingsPage() {
+  const { token } = useOchSession();
   const [email, setEmail] = useState<string | null>(null);
-  const [token, setToken] = useState<string | null>(null);
-
-  const [filters, dispatchFilters] = useReducer(
-    filtersReducer,
-    DEFAULT_FILTERS,
-  );
-  const {
-    q,
-    minPrice,
-    maxPrice,
-    smokeFree,
-    petFriendly,
-    furnishedOnly,
-    filterGarage,
-    filterParking,
-    filterLaundry,
-    filterDishwasher,
-    sortBy,
-    newWithin,
-  } = filters;
-  const setQ = (v: string) =>
-    dispatchFilters({ type: "SET", payload: { q: v } });
-  const setMinPrice = (v: string) =>
-    dispatchFilters({ type: "SET", payload: { minPrice: v } });
-  const setMaxPrice = (v: string) =>
-    dispatchFilters({ type: "SET", payload: { maxPrice: v } });
-  const setSmokeFree = (v: boolean) =>
-    dispatchFilters({ type: "SET", payload: { smokeFree: v } });
-  const setPetFriendly = (v: boolean) =>
-    dispatchFilters({ type: "SET", payload: { petFriendly: v } });
-  const setFurnishedOnly = (v: boolean) =>
-    dispatchFilters({ type: "SET", payload: { furnishedOnly: v } });
-  const setFilterGarage = (v: boolean) =>
-    dispatchFilters({ type: "SET", payload: { filterGarage: v } });
-  const setFilterParking = (v: boolean) =>
-    dispatchFilters({ type: "SET", payload: { filterParking: v } });
-  const setFilterLaundry = (v: boolean) =>
-    dispatchFilters({ type: "SET", payload: { filterLaundry: v } });
-  const setFilterDishwasher = (v: boolean) =>
-    dispatchFilters({ type: "SET", payload: { filterDishwasher: v } });
-  const setSortBy = (v: ListingSearchSort) =>
-    dispatchFilters({ type: "SET", payload: { sortBy: v } });
-  const setNewWithin = (v: string) =>
-    dispatchFilters({ type: "SET", payload: { newWithin: v } });
-  const resetFilters = () => dispatchFilters({ type: "RESET" });
   const [items, setItems] = useState<ListingJson[]>([]);
-  const [detail, setDetail] = useState<ListingJson | null>(null);
-  const [detailId, setDetailId] = useState("");
+  const [listingsLoading, setListingsLoading] = useState(false);
+  const [listingsLoaded, setListingsLoaded] = useState(false);
+  const [reputationLoading, setReputationLoading] = useState(false);
+  const { beginLoad, isStale } = useLoadSequenceGuard();
+  const [quickBookingId, setQuickBookingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalCount, setTotalCount] = useState<number | null>(null);
+  const [totalPages, setTotalPages] = useState<number | null>(null);
+  const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+  const [saveSearchAlert, setSaveSearchAlert] = useState(false);
+  const [saveSearchBusy, setSaveSearchBusy] = useState(false);
+  const [saveSearchMsg, setSaveSearchMsg] = useState<string | null>(null);
+  const [filters, setFilters] = useState<ListingFilters>({
+    q: "",
+    minPrice: "",
+    maxPrice: "",
+    bedrooms: "",
+    bathrooms: "",
+    residenceType: "",
+    minSqft: "",
+    maxSqft: "",
+    campusWithinMiles: "",
+    city: "",
+    neighborhood: "",
+    amenities: [],
+    availableFrom: "",
+    occupancyStart: "",
+    occupancyEnd: "",
+    petFriendly: false,
+    furnishedOnly: false,
+    smokeFreeOnly: false,
+    utilitiesIncluded: false,
+    leaseMonthsMin: "",
+    sort: "created_desc",
+    pageSize: "24",
+    placeLabel: "",
+    searchLat: null,
+    searchLng: null,
+    radiusMiles: "",
+  });
 
-  // Search, detail load, and create each manage their own loading state.
-  const [searchLoading, setSearchLoading] = useState(false);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [createLoading, setCreateLoading] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
-
-  const [title, setTitle] = useState("");
-  const [desc, setDesc] = useState("");
-  const [priceUsd, setPriceUsd] = useState("");
-  const [effectiveFrom, setEffectiveFrom] = useState(() =>
-    new Date().toISOString().slice(0, 10),
-  );
-  const [createLat, setCreateLat] = useState("");
-  const [createLng, setCreateLng] = useState("");
-  const [createSmokeFree, setCreateSmokeFree] = useState(true);
-  const [createPetFriendly, setCreatePetFriendly] = useState(false);
-  const [createFurnished, setCreateFurnished] = useState(false);
-  const [createGarage, setCreateGarage] = useState(false);
-  const [createParking, setCreateParking] = useState(false);
-  const [createLaundry, setCreateLaundry] = useState(false);
-  const [createDishwasher, setCreateDishwasher] = useState(false);
+  const renterId = useMemo(() => userIdFromJwt(token), [token]);
+  const pageSizeNum = useMemo(() => coercePageSize(filters.pageSize), [filters.pageSize]);
+  const firstSearchRef = useRef(true);
 
   useEffect(() => {
-    setToken(getStoredToken());
     setEmail(getStoredEmail());
+    const sp = new URLSearchParams(window.location.search);
+    setFilters((prev) => ({
+      ...prev,
+      q: sp.get("q") ?? prev.q,
+      minPrice: sp.get("minPrice") ?? prev.minPrice,
+      maxPrice: sp.get("maxPrice") ?? prev.maxPrice,
+      bedrooms: sp.get("bedrooms") ?? prev.bedrooms,
+      bathrooms: sp.get("bathrooms") ?? prev.bathrooms,
+      occupancyStart: sp.get("available_start") ?? sp.get("occupancy_start") ?? prev.occupancyStart,
+      occupancyEnd: sp.get("available_end") ?? sp.get("occupancy_end") ?? prev.occupancyEnd,
+      leaseMonthsMin: sp.get("min_lease_months") ?? prev.leaseMonthsMin,
+      petFriendly: sp.get("pet_friendly") === "1" || sp.get("pet_friendly") === "true",
+      furnishedOnly: sp.get("furnished") === "1" || sp.get("furnished") === "true",
+      smokeFreeOnly: sp.get("smoke_free") === "1" || sp.get("smoke_free") === "true",
+      utilitiesIncluded: sp.get("utilities_included") === "1" || sp.get("utilities_included") === "true",
+      residenceType: sp.get("residence_type") ?? prev.residenceType,
+      minSqft: sp.get("min_sqft") ?? prev.minSqft,
+      maxSqft: sp.get("max_sqft") ?? prev.maxSqft,
+      campusWithinMiles: sp.get("campus_within_miles") ?? prev.campusWithinMiles,
+      city: sp.get("city") ?? prev.city,
+      neighborhood: sp.get("neighborhood") ?? prev.neighborhood,
+      sort: sp.get("sort") ?? prev.sort,
+      pageSize: sp.get("pageSize") ?? prev.pageSize,
+      radiusMiles: sp.get("radius_miles") ?? prev.radiusMiles,
+      placeLabel: sp.get("place") ?? prev.placeLabel,
+    }));
   }, []);
 
-  const debouncedFilters = useDebounce(filters, 300);
-
-  // Sync filter state → URL query params on every filter change
-  useEffect(() => {
-    const params = filtersToParams(debouncedFilters);
-    const qs = params.toString();
-    router.replace(qs ? `/listings?${qs}` : "/listings", { scroll: false });
-  }, [debouncedFilters]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const buildCreateAmenities = (): string[] => {
-    const parts: string[] = [];
-    if (createGarage) parts.push("garage");
-    if (createParking) parts.push("parking");
-    if (createLaundry) parts.push("in_unit_laundry");
-    if (createDishwasher) parts.push("dishwasher");
-    return parts;
-  };
-
-  const onSearch = useCallback(
-    async (e?: React.FormEvent) => {
-      e?.preventDefault();
-      setErr(null);
-      setSearchLoading(true);
+  const loadSearchPage = useCallback(
+    async (pageNum: number) => {
+      const seq = beginLoad();
+      setListingsLoading(true);
+      setError(null);
+      ochPerfMark("och:listings:start");
       try {
-        const minC = minPrice ? Math.round(Number(minPrice) * 100) : undefined;
-        const maxC = maxPrice ? Math.round(Number(maxPrice) * 100) : undefined;
-        const nw = newWithin ? Number(newWithin) : undefined;
-        const amenityParts: string[] = [];
-        if (filterGarage) amenityParts.push("garage");
-        if (filterParking) amenityParts.push("parking");
-        if (filterLaundry) amenityParts.push("in_unit_laundry");
-        if (filterDishwasher) amenityParts.push("dishwasher");
-        const amenitiesParam = amenityParts.length
-          ? amenityParts.join(",")
-          : undefined;
-        const list = await searchListings({
-          q: q.trim() || undefined,
-          min_price: minC,
-          max_price: maxC,
-          smoke_free: smokeFree,
-          pet_friendly: petFriendly,
-          furnished: furnishedOnly,
-          amenities: amenitiesParam,
-          new_within_days: nw != null && nw > 0 ? nw : undefined,
-          sort: sortBy || "created_desc",
+        const radiusNum = filters.radiusMiles ? Number(filters.radiusMiles) : NaN;
+        const hasCenter =
+          filters.searchLat != null &&
+          filters.searchLng != null &&
+          Number.isFinite(filters.searchLat) &&
+          Number.isFinite(filters.searchLng);
+        const campusCap = filters.campusWithinMiles ? Number(filters.campusWithinMiles) : NaN;
+        const amenitiesCsv = (() => {
+          const base = [...filters.amenities];
+          if (filters.utilitiesIncluded && !base.includes("utilities_included")) {
+            base.push("utilities_included");
+          }
+          return base.length ? base.join(",") : undefined;
+        })();
+        const pageRaw = await searchListingsPage({
+          q: filters.q.trim() || undefined,
+          minPrice: filters.minPrice ? Math.round(Number(filters.minPrice) * 100) : undefined,
+          maxPrice: filters.maxPrice ? Math.round(Number(filters.maxPrice) * 100) : undefined,
+          bedrooms: filters.bedrooms ? Number(filters.bedrooms) : undefined,
+          bathrooms: filters.bathrooms ? Number(filters.bathrooms) : undefined,
+          residence_type: filters.residenceType || undefined,
+          min_sqft: filters.minSqft ? Number(filters.minSqft) : undefined,
+          max_sqft: filters.maxSqft ? Number(filters.maxSqft) : undefined,
+          campus_within_miles:
+            Number.isFinite(campusCap) && campusCap > 0 ? campusCap : undefined,
+          city: filters.city.trim() || undefined,
+          neighborhood: filters.neighborhood.trim() || undefined,
+          pet_friendly: filters.petFriendly || undefined,
+          furnished: filters.furnishedOnly || undefined,
+          smoke_free: filters.smokeFreeOnly || undefined,
+          min_lease_months: filters.leaseMonthsMin ? Number(filters.leaseMonthsMin) : undefined,
+          amenities: amenitiesCsv,
+          occupancy_start: filters.occupancyStart || undefined,
+          occupancy_end: filters.occupancyEnd || undefined,
+          sort: filters.sort,
+          limit: pageSizeNum,
+          pageSize: pageSizeNum,
+          page: pageNum,
+          search_lat: hasCenter && Number.isFinite(radiusNum) && radiusNum > 0 ? filters.searchLat! : undefined,
+          search_lng: hasCenter && Number.isFinite(radiusNum) && radiusNum > 0 ? filters.searchLng! : undefined,
+          radius_miles: hasCenter && Number.isFinite(radiusNum) && radiusNum > 0 ? radiusNum : undefined,
         });
-        setItems(list);
+        if (isStale(seq)) return;
+        setItems(pageRaw.data);
+        ochPerfMark("och:listings:base-cards-rendered");
+        ochPerfMeasure("och:listings:base", "och:listings:request-start", "och:listings:base-cards-rendered");
+        setCurrentPage(pageNum);
+        const tc = pageRaw.totalCount ?? pageRaw.totalApprox ?? null;
+        setTotalCount(tc);
+        const tp =
+          pageRaw.totalPages ??
+          (tc != null && pageSizeNum > 0 ? Math.max(1, Math.ceil(tc / pageSizeNum)) : null);
+        setTotalPages(tp);
+        setReputationLoading(true);
+        void enrichListingsWithHostReputation(pageRaw.data)
+          .then((enriched) => {
+            if (isStale(seq)) return;
+            setItems(enriched);
+          })
+          .finally(() => {
+            if (!isStale(seq)) {
+              setReputationLoading(false);
+              ochPerfMark("och:listings:enrichment-complete");
+              ochPerfMeasure(
+                "och:listings:enrichment",
+                "och:listings:base-cards-rendered",
+                "och:listings:enrichment-complete",
+              );
+              logPerfDebug("listings:enrichment-done", { count: pageRaw.data.length });
+            }
+          });
       } catch (e: unknown) {
-        setErr(e instanceof Error ? e.message : "Search failed");
+        if (isStale(seq)) return;
+        setError(userSafeSearchMessage(classifyFetchFailure(e)));
         setItems([]);
+        setTotalCount(null);
+        setTotalPages(null);
       } finally {
-        setSearchLoading(false);
+        setListingsLoading(false);
+        if (!isStale(seq)) setListingsLoaded(true);
       }
     },
-    [
-      q,
-      minPrice,
-      maxPrice,
-      smokeFree,
-      petFriendly,
-      furnishedOnly,
-      filterGarage,
-      filterParking,
-      filterLaundry,
-      filterDishwasher,
-      sortBy,
-      newWithin,
-    ],
+    [filters, pageSizeNum, beginLoad, isStale],
   );
 
   useEffect(() => {
+    const t = setTimeout(() => {
+      setCurrentPage(1);
+      void loadSearchPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [filters, pageSizeNum, loadSearchPage]);
+
+  useEffect(() => {
+    if (!token) {
+      setSavedIds(new Set());
+      return;
+    }
     let cancelled = false;
-    void (async () => {
-      setSearchLoading(true);
-      setErr(null);
-      try {
-        const list = await searchListings({});
-        if (!cancelled) setItems(list);
-      } catch (e: unknown) {
-        if (!cancelled) {
-          setErr(e instanceof Error ? e.message : "Could not load listings");
-          setItems([]);
-        }
-      } finally {
-        if (!cancelled) setSearchLoading(false);
-      }
-    })();
+    watchlistList(token)
+      .then((rows) => {
+        if (cancelled) return;
+        const next = new Set(
+          rows
+            .map((row) => String((row as { listingId?: string; listing_id?: string }).listingId || (row as { listing_id?: string }).listing_id || ""))
+            .filter(Boolean),
+        );
+        setSavedIds(next);
+      })
+      .catch(() => {
+        if (!cancelled) setSavedIds(new Set());
+      });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [token]);
 
-  async function onLoadDetail(e: React.FormEvent) {
-    e.preventDefault();
-    if (!detailId.trim()) return;
-    setErr(null);
-    setDetailLoading(true);
-    try {
-      setDetail(await getListing(detailId.trim()));
-    } catch (e: unknown) {
-      setDetail(null);
-      setErr(e instanceof Error ? e.message : "Load failed");
-    } finally {
-      setDetailLoading(false);
-    }
-  }
+  useEffect(() => {
+    const sp = new URLSearchParams();
+    if (filters.q.trim()) sp.set("q", filters.q.trim());
+    if (filters.minPrice) sp.set("minPrice", filters.minPrice);
+    if (filters.maxPrice) sp.set("maxPrice", filters.maxPrice);
+    if (filters.bedrooms) sp.set("bedrooms", filters.bedrooms);
+    if (filters.bathrooms) sp.set("bathrooms", filters.bathrooms);
+    if (filters.occupancyStart) sp.set("available_start", filters.occupancyStart);
+    if (filters.occupancyEnd) sp.set("available_end", filters.occupancyEnd);
+    if (filters.leaseMonthsMin) sp.set("min_lease_months", filters.leaseMonthsMin);
+    if (filters.petFriendly) sp.set("pet_friendly", "1");
+    if (filters.furnishedOnly) sp.set("furnished", "1");
+    if (filters.smokeFreeOnly) sp.set("smoke_free", "1");
+    if (filters.utilitiesIncluded) sp.set("utilities_included", "1");
+    if (filters.residenceType) sp.set("residence_type", filters.residenceType);
+    if (filters.minSqft) sp.set("min_sqft", filters.minSqft);
+    if (filters.maxSqft) sp.set("max_sqft", filters.maxSqft);
+    if (filters.campusWithinMiles) sp.set("campus_within_miles", filters.campusWithinMiles);
+    if (filters.city.trim()) sp.set("city", filters.city.trim());
+    if (filters.neighborhood.trim()) sp.set("neighborhood", filters.neighborhood.trim());
+    if (filters.sort) sp.set("sort", filters.sort);
+    if (filters.pageSize) sp.set("pageSize", filters.pageSize);
+    if (filters.radiusMiles) sp.set("radius_miles", filters.radiusMiles);
+    if (filters.placeLabel) sp.set("place", filters.placeLabel);
+    const next = `${window.location.pathname}${sp.toString() ? `?${sp}` : ""}`;
+    window.history.replaceState(null, "", next);
+  }, [filters]);
 
-  async function onCreate(e: React.FormEvent) {
-    e.preventDefault();
-    if (!token) return;
-    setMsg(null);
-    setErr(null);
-    const cents = Math.round(Number(priceUsd) * 100);
-    if (
-      !title.trim() ||
-      !Number.isFinite(cents) ||
-      cents <= 0 ||
-      !effectiveFrom
-    ) {
-      setErr("Title, positive price, and effective-from date required.");
-      return;
-    }
-    const latN = createLat.trim() ? Number(createLat) : NaN;
-    const lngN = createLng.trim() ? Number(createLng) : NaN;
-    setCreateLoading(true);
-    try {
-      await createListing(token, {
-        title: title.trim(),
-        description: desc.trim(),
-        price_cents: cents,
-        effective_from: effectiveFrom,
-        smoke_free: createSmokeFree,
-        pet_friendly: createPetFriendly,
-        furnished: createFurnished,
-        amenities: buildCreateAmenities(),
-        latitude: Number.isFinite(latN) ? latN : null,
-        longitude: Number.isFinite(lngN) ? lngN : null,
-      });
-      setMsg("Listing created.");
-      setTitle("");
-      setDesc("");
-      setPriceUsd("");
-      setCreateLat("");
-      setCreateLng("");
-      await onSearch();
-    } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : "Create failed");
-    } finally {
-      setCreateLoading(false);
-    }
-  }
+  const onQuickBook = useCallback(
+    async (listing: ListingJson) => {
+      if (!token || !renterId) {
+        setError(null);
+        setNotice("Open listing details to complete booking (auth temporarily optional on browse).");
+        return;
+      }
+      setQuickBookingId(listing.id);
+      setError(null);
+      setNotice("Booking request sent (optimistic)...");
+      try {
+        const day = new Date(Date.now() + 3 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+        await requestBooking(token, {
+          listing_id: listing.id,
+          renter_id: renterId,
+          requested_date: day,
+          message: `Quick booking request from listings card (${listing.title})`,
+        });
+        setNotice("Booking request sent. Landlord has been notified.");
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : "Booking failed.");
+        setNotice(null);
+      } finally {
+        setQuickBookingId(null);
+      }
+    },
+    [renterId, token],
+  );
+
+  const onToggleSave = useCallback(
+    async (listing: ListingJson) => {
+      if (!token) {
+        setError("Please log in to save listings.");
+        return;
+      }
+      const isSaved = savedIds.has(listing.id);
+      try {
+        if (isSaved) await watchlistRemove(token, listing.id);
+        else await watchlistAdd(token, listing.id, "listings-grid");
+        setSavedIds((prev) => {
+          const next = new Set(prev);
+          if (isSaved) next.delete(listing.id);
+          else next.add(listing.id);
+          return next;
+        });
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : "Failed to update watchlist.");
+      }
+    },
+    [savedIds, token],
+  );
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-teal-50/30 text-slate-900">
-      <a
-        href="#listings-results"
-        className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:rounded-lg focus:bg-teal-700 focus:px-4 focus:py-2 focus:text-white focus:text-sm focus:font-semibold"
-      >
-        Skip to listings
-      </a>
       <Nav email={email} />
-      <main className="mx-auto max-w-5xl px-4 py-10">
-        <h1 className="font-serif text-3xl text-slate-900">Browse listings</h1>
-        <p className="mt-2 text-sm text-slate-600">
-          Filter by price, features, and recency. Listings with
-          latitude/longitude show a map when{" "}
-          <code className="rounded bg-slate-200 px-1 text-xs">
-            NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
-          </code>{" "}
-          is set.{" "}
-          <Link
-            href="/dashboard"
-            className="font-medium text-teal-700 hover:underline"
-          >
-            Dashboard
-          </Link>{" "}
-          for watchlist &amp; search history.
-        </p>
+      <main className="mx-auto max-w-7xl px-4 py-8">
+        <header className="mb-5">
+          <h1 className="font-serif text-3xl text-slate-900">Browse listings</h1>
+          <p className="mt-2 text-sm text-slate-600">
+            Card-based marketplace browse with server-side filtering, quick-book actions, and listing detail pages.
+          </p>
+          <p className="mt-2 rounded-md border border-amber-100 bg-amber-50/80 px-3 py-2 text-xs leading-relaxed text-amber-950">
+            <strong>Availability:</strong> Search now supports occupancy date ranges. Set start/end dates to hide listings
+            that are already booked for your requested window.
+          </p>
+        </header>
 
-        <ListingsSearchSection
-          q={q}
-          setQ={setQ}
-          minPrice={minPrice}
-          setMinPrice={setMinPrice}
-          maxPrice={maxPrice}
-          setMaxPrice={setMaxPrice}
-          smokeFree={smokeFree}
-          setSmokeFree={setSmokeFree}
-          petFriendly={petFriendly}
-          setPetFriendly={setPetFriendly}
-          furnishedOnly={furnishedOnly}
-          setFurnishedOnly={setFurnishedOnly}
-          filterGarage={filterGarage}
-          setFilterGarage={setFilterGarage}
-          filterParking={filterParking}
-          setFilterParking={setFilterParking}
-          filterLaundry={filterLaundry}
-          setFilterLaundry={setFilterLaundry}
-          filterDishwasher={filterDishwasher}
-          setFilterDishwasher={setFilterDishwasher}
-          sortBy={sortBy}
-          setSortBy={setSortBy}
-          newWithin={newWithin}
-          setNewWithin={setNewWithin}
-          searchLoading={searchLoading}
-          onSearch={onSearch}
-          onResetFilters={resetFilters}
-        />
-
-        <div
-          data-testid="listings-results"
-          className="mt-8 min-h-[3rem] space-y-3"
-          aria-busy={searchLoading}
-        >
-          {items.length === 0 && !searchLoading && (
-            <p className="text-sm text-slate-500">
-              No listings match (or empty index).
-            </p>
-          )}
-          {items.map((row) => (
-            <div
-              key={row.id}
-              className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm"
-            >
-              <div className="font-medium text-slate-900">{row.title}</div>
-              <div className="mt-1 text-slate-600">
-                ${(row.price_cents / 100).toFixed(2)} ·{" "}
-                <span className="font-mono text-xs text-slate-500">
-                  {row.id}
-                </span>
-                {row.listed_at && (
-                  <span className="ml-2 text-xs text-slate-500">
-                    Listed {row.listed_at}
-                  </span>
-                )}
-              </div>
-              {row.amenities && row.amenities.length > 0 && (
-                <p className="mt-1 text-xs text-slate-500">
-                  Features: {row.amenities.join(", ")}
-                </p>
-              )}
-              <div className="mt-3 max-w-md">
-                {row.latitude != null && row.longitude != null ? (
-                  <GoogleMapEmbed
-                    latitude={row.latitude}
-                    longitude={row.longitude}
-                    height={160}
-                    zoom={15}
-                  />
-                ) : (
-                  <p className="text-xs text-slate-500">
-                    No coordinates on this listing — add lat/lng when posting.
-                  </p>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <section className="mt-12 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
-          <h2 className="text-lg font-medium text-slate-900">Listing by ID</h2>
-          <form
-            onSubmit={onLoadDetail}
-            className="mt-4 flex flex-col gap-2 sm:flex-row"
-          >
-            <input
-              data-testid="listings-detail-id"
-              value={detailId}
-              onChange={(e) => setDetailId(e.target.value)}
-              placeholder="listing UUID"
-              className="flex-1 rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm"
-            />
-            <button
-              type="submit"
-              disabled={detailLoading}
-              data-testid="listings-detail-load"
-              className="rounded-md border border-slate-400 px-4 py-2 text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-            >
-              Load
-            </button>
-          </form>
-          {detail && (
-            <pre
-              data-testid="listings-detail-json"
-              className="mt-4 overflow-x-auto rounded-md bg-slate-900 p-4 text-xs text-teal-100"
-            >
-              {JSON.stringify(detail, null, 2)}
-            </pre>
-          )}
-        </section>
+        <form data-testid="listings-search-form" onSubmit={(e) => e.preventDefault()}>
+          <FilterBar
+            filters={filters}
+            onChange={setFilters}
+            onSubmit={async () => {
+              firstSearchRef.current = false;
+              await loadSearchPage(1);
+            }}
+            disabled={listingsLoading}
+          />
+        </form>
 
         {token ? (
-          <section className="mt-10 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
-            <h2 className="text-lg font-medium text-slate-900">
-              Post a listing
-            </h2>
-            <p className="mt-1 text-xs text-slate-500">
-              Lister side: set optional coordinates for map preview (e.g.
-              campus-adjacent). Features are stored in the DB as structured
-              amenities for both search and display.
+          <section className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm" data-testid="saved-search-panel">
+            <h2 className="text-sm font-semibold text-slate-900">Saved search &amp; alerts</h2>
+            <p className="mt-1 text-xs text-slate-600">
+              Store this filter set and optionally get notified when a <strong>new</strong> active listing matches it (price, residence type, sq ft, and max distance from campus in miles).
             </p>
-            <form
-              onSubmit={onCreate}
-              className="mt-4 grid gap-3 md:grid-cols-2"
+            <label className="mt-3 flex items-center gap-2 text-sm text-slate-800">
+              <input type="checkbox" checked={saveSearchAlert} onChange={(e) => setSaveSearchAlert(e.target.checked)} />
+              Email me / notify in-app when new listings match this search
+            </label>
+            <button
+              type="button"
+              disabled={saveSearchBusy}
+              onClick={async () => {
+                if (!token) return;
+                setSaveSearchBusy(true);
+                setSaveSearchMsg(null);
+                setError(null);
+                try {
+                  const minC = filters.minPrice ? Math.round(Number(filters.minPrice) * 100) : undefined;
+                  const maxC = filters.maxPrice ? Math.round(Number(filters.maxPrice) * 100) : undefined;
+                  const milesRaw = filters.campusWithinMiles ? Number(filters.campusWithinMiles) : NaN;
+                  const maxCampusMiles =
+                    typeof milesRaw === "number" && Number.isFinite(milesRaw) && milesRaw > 0 ? milesRaw : undefined;
+                  const filtersPayload: Record<string, unknown> = {};
+                  if (filters.residenceType) filtersPayload.residence_types = [filters.residenceType];
+                  if (filters.minSqft) filtersPayload.min_sqft = Number(filters.minSqft);
+                  if (filters.maxSqft) filtersPayload.max_sqft = Number(filters.maxSqft);
+                  if (filters.bedrooms) filtersPayload.min_bedrooms = Number(filters.bedrooms);
+                  await postSearchHistory(token, {
+                    query: filters.q.trim() || undefined,
+                    minPriceCents: minC,
+                    maxPriceCents: maxC,
+                    maxCampusMiles,
+                    alertOnMatch: saveSearchAlert,
+                    filters: Object.keys(filtersPayload).length ? filtersPayload : undefined,
+                  });
+                  setSaveSearchMsg("Saved search stored. New matches can trigger notifications when alerts are on.");
+                } catch (e: unknown) {
+                  setError(e instanceof Error ? e.message : "Could not save search");
+                } finally {
+                  setSaveSearchBusy(false);
+                }
+              }}
+              className="mt-3 rounded-md bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800 disabled:opacity-50"
             >
-              <div className="md:col-span-2">
-                <label className="text-xs font-medium uppercase text-slate-500">
-                  Title
-                </label>
-                <input
-                  data-testid="listings-create-title"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2"
-                  required
-                />
-              </div>
-              <div className="md:col-span-2">
-                <label className="text-xs font-medium uppercase text-slate-500">
-                  Description
-                </label>
-                <textarea
-                  data-testid="listings-create-desc"
-                  value={desc}
-                  onChange={(e) => setDesc(e.target.value)}
-                  rows={3}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-medium uppercase text-slate-500">
-                  Price (USD)
-                </label>
-                <input
-                  data-testid="listings-create-price"
-                  type="number"
-                  step="0.01"
-                  value={priceUsd}
-                  onChange={(e) => setPriceUsd(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2"
-                  required
-                />
-              </div>
-              <div>
-                <label className="text-xs font-medium uppercase text-slate-500">
-                  Effective from
-                </label>
-                <input
-                  data-testid="listings-create-effective-from"
-                  type="date"
-                  value={effectiveFrom}
-                  onChange={(e) => setEffectiveFrom(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2"
-                  required
-                />
-              </div>
-              <div>
-                <label className="text-xs font-medium uppercase text-slate-500">
-                  Latitude (optional)
-                </label>
-                <input
-                  data-testid="listings-create-lat"
-                  type="text"
-                  inputMode="decimal"
-                  placeholder="e.g. 42.3910"
-                  value={createLat}
-                  onChange={(e) => setCreateLat(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-medium uppercase text-slate-500">
-                  Longitude (optional)
-                </label>
-                <input
-                  data-testid="listings-create-lng"
-                  type="text"
-                  inputMode="decimal"
-                  placeholder="e.g. -72.5267"
-                  value={createLng}
-                  onChange={(e) => setCreateLng(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm"
-                />
-              </div>
-              <div className="md:col-span-2 flex flex-wrap gap-4 text-sm">
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={createSmokeFree}
-                    onChange={(e) => setCreateSmokeFree(e.target.checked)}
-                  />
-                  Smoke-free
-                </label>
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={createPetFriendly}
-                    onChange={(e) => setCreatePetFriendly(e.target.checked)}
-                  />
-                  Pet-friendly
-                </label>
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={createFurnished}
-                    onChange={(e) => setCreateFurnished(e.target.checked)}
-                  />
-                  Furnished
-                </label>
-                {AMENITY_OPTIONS.map((a) => (
-                  <label
-                    key={a.slug}
-                    className="flex items-center gap-2"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={
-                        a.slug === "garage"
-                          ? createGarage
-                          : a.slug === "parking"
-                            ? createParking
-                            : a.slug === "in_unit_laundry"
-                              ? createLaundry
-                              : createDishwasher
-                      }
-                      onChange={(e) => {
-                        if (a.slug === "garage")
-                          setCreateGarage(e.target.checked);
-                        else if (a.slug === "parking")
-                          setCreateParking(e.target.checked);
-                        else if (a.slug === "in_unit_laundry")
-                          setCreateLaundry(e.target.checked);
-                        else setCreateDishwasher(e.target.checked);
-                      }}
-                    />
-                    {a.label}
-                  </label>
-                ))}
-              </div>
-              <div className="md:col-span-2">
-                <button
-                  type="submit"
-                  disabled={createLoading}
-                  data-testid="listings-create-submit"
-                  className="rounded-md bg-teal-700 px-4 py-2 font-medium text-white hover:bg-teal-600 disabled:opacity-50"
-                >
-                  Create listing
-                </button>
-              </div>
-            </form>
+              {saveSearchBusy ? "Saving…" : "Save current search"}
+            </button>
+            {saveSearchMsg ? <p className="mt-2 text-xs text-emerald-800">{saveSearchMsg}</p> : null}
           </section>
-        ) : (
-          <p className="mt-8 text-sm text-slate-600">
-            <Link
-              href="/login"
-              className="font-medium text-teal-700 hover:underline"
-            >
-              Log in
-            </Link>{" "}
-            to post a listing.
-          </p>
-        )}
+        ) : null}
 
-        <ListingsFeedback msg={msg} err={err} />
+        {notice ? <p data-testid="listing-created-banner" className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{notice}</p> : null}
+        {error ? <p data-testid="listings-api-error" className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
+
+        <section data-testid="listings-results" aria-busy={listingsLoading} className="space-y-4">
+          {totalCount != null ? (
+            <p className="text-xs text-slate-500">
+              {totalCount.toLocaleString()} result{totalCount === 1 ? "" : "s"}
+              {totalPages != null ? ` · Page ${currentPage} of ${totalPages}` : ` · Page ${currentPage}`}
+            </p>
+          ) : null}
+          {listingsLoading ? <CardGridSkeleton rows={6} data-testid="listings-grid-skeleton" /> : null}
+          {!listingsLoading ? (
+            <ListingsGrid
+              items={items}
+              listingsLoaded={listingsLoaded && !error}
+              onQuickBook={onQuickBook}
+              quickBookingId={quickBookingId}
+              savedIds={savedIds}
+              onToggleSave={onToggleSave}
+            />
+          ) : null}
+          {reputationLoading ? (
+            <p className="text-center text-xs text-slate-400" data-testid="listings-reputation-loading">
+              Updating host ratings…
+            </p>
+          ) : null}
+          <div className="flex flex-wrap items-center justify-center gap-3 py-4">
+            <button
+              type="button"
+              onClick={() => {
+                if (currentPage <= 1 || listingsLoading) return;
+                void loadSearchPage(currentPage - 1);
+              }}
+              disabled={listingsLoading || currentPage <= 1}
+              className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              ← Previous
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (listingsLoading) return;
+                if (totalPages != null && currentPage >= totalPages) return;
+                if (items.length < pageSizeNum) return;
+                void loadSearchPage(currentPage + 1);
+              }}
+              disabled={
+                listingsLoading ||
+                (totalPages != null ? currentPage >= totalPages : items.length < pageSizeNum)
+              }
+              className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              Next →
+            </button>
+          </div>
+        </section>
+
       </main>
     </div>
   );

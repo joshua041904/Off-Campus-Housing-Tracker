@@ -97,7 +97,7 @@ export type MessagingRateLimitOptions = {
 
 /** @throws Error RATE_LIMIT_EXCEEDED_PER_MINUTE | RATE_LIMIT_EXCEEDED_PER_DAY | RATE_LIMIT_UNAVAILABLE */
 export async function checkMessagingSendRateLimit(userId: string, opts: MessagingRateLimitOptions = {}): Promise<void> {
-  const prefix = opts.keyPrefix ?? "rate:msg:";
+  const prefix = opts.keyPrefix ?? "messaging:rate:send:";
   const maxPerMinute = opts.maxPerMinute ?? 30;
   const maxPerDay = opts.maxPerDay ?? 500;
   const windowSec = opts.windowSec ?? 60;

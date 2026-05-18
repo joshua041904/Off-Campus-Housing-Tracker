@@ -6,7 +6,9 @@ metadata:
   annotations:
     nginx.ingress.kubernetes.io/ssl-redirect: "false"
     nginx.ingress.kubernetes.io/proxy-body-size: "10m"
-    # Prefix paths only: /api and /auth before / (catch-all to nginx). Regex+rewrite removed — avoids /auth falling through to static nginx.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    # Prefix paths only: /api, /ws, /auth before / (catch-all to nginx). Regex+rewrite removed — avoids /auth falling through to static nginx.
     # Enable HTTP/2
     nginx.ingress.kubernetes.io/http2-push-preload: "true"
     # Force HTTP/2 upstream (no HTTP/1.1 fallback)
@@ -22,6 +24,14 @@ spec:
   - http:
       paths:
       - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: api-gateway
+            port:
+              number: 4020
+      # Realtime notifications (api-gateway attaches WebSocketServer on /ws).
+      - path: /ws
         pathType: Prefix
         backend:
           service:
@@ -48,6 +58,13 @@ spec:
     http:
       paths:
       - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: api-gateway
+            port:
+              number: 4020
+      - path: /ws
         pathType: Prefix
         backend:
           service:

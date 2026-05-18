@@ -58,9 +58,11 @@ check_table "$VERIFY_LISTINGS_PORT" listings listings outbox_events 2>/dev/null 
 check_table "$VERIFY_LISTINGS_PORT" listings listings processed_events 2>/dev/null || true
 ok "listings"
 
-# Bookings: outbox
+# Bookings: bookings, outbox, processed_events
 check_db_reachable "$VERIFY_BOOKINGS_PORT" bookings || fail "bookings DB unreachable"
-check_table "$VERIFY_BOOKINGS_PORT" bookings bookings outbox_events 2>/dev/null || check_table "$VERIFY_BOOKINGS_PORT" bookings public outbox_events || true
+check_table "$VERIFY_BOOKINGS_PORT" bookings booking bookings || fail "booking.bookings missing"
+check_table "$VERIFY_BOOKINGS_PORT" bookings booking outbox_events || fail "booking.outbox_events missing"
+check_table "$VERIFY_BOOKINGS_PORT" bookings booking processed_events || fail "booking.processed_events missing"
 ok "bookings"
 
 # Messaging: messages, outbox_events, conversations

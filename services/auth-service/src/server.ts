@@ -13,6 +13,7 @@ import {
   encodeUserAccountDeletedEnvelope,
   USER_ACCOUNT_DELETED_V1,
   userLifecycleV1Topic,
+  initOchOutboxSurfaceSupported,
 } from "@common/utils";
 import { inferNetProtoForSpan, mountDebugTraceHeaders, tracingMiddleware } from "@common/utils/otel";
 import {
@@ -27,6 +28,7 @@ import { setupVerificationRoutes } from "./routes/verification.js";
 import passkeyRouter from "./routes/passkey.js";
 import { getMockSmsProvider } from "./lib/sms-providers.js";
 import { prisma } from "./lib/prisma.js"; // Use shared PrismaClient instance
+import { resolveLoginUserByEmail } from "./resolve-login-user.js";
 import {
   hashPassword,
   comparePassword,
@@ -45,6 +47,7 @@ import {
 } from "./lib/revocation.js";
 
 const app: Express = express();
+initOchOutboxSurfaceSupported();
 // Prisma is now imported from shared module to avoid connection pool exhaustion
 
 /** Extend the shared JwtPayload with fields we also put/read */
@@ -326,6 +329,17 @@ app.post("/register", async (req: Request, res: Response) => {
       RETURNING id, email, created_at
     `.then((r: Array<{ id: string; email: string; created_at: Date }>) => r[0]);
 
+    let handle = "";
+    try {
+      const handleRows = await prisma.$queryRaw<Array<{ username: string | null }>>`
+      SELECT COALESCE(NULLIF(TRIM(username::text), ''), NULLIF(TRIM(display_username::text), '')) AS username
+      FROM auth.users WHERE id = ${user.id}::uuid LIMIT 1
+    `;
+      handle = String(handleRows[0]?.username ?? "").trim().slice(0, 128);
+    } catch {
+      handle = "";
+    }
+
     // Cache the newly created user
     await cacheUser({
       id: user.id,
@@ -335,6 +349,7 @@ app.post("/register", async (req: Request, res: Response) => {
       emailVerified: !sendVerification,
       phoneVerified: false,
       createdAt: user.created_at,
+      ...(handle ? { username: handle } : {}),
     });
 
     // Send verification email if requested
@@ -350,7 +365,12 @@ app.post("/register", async (req: Request, res: Response) => {
     }
 
     const jti = randomUUID();
-    const payload: WithJti = { sub: user.id, email: user.email, jti };
+    const payload: WithJti = {
+      sub: user.id,
+      email: user.email,
+      jti,
+      ...(handle ? { username: handle } : {}),
+    };
     const token = signJwt(payload);
     logAuthEvent("register_succeeded", {
       userId: user.id,
@@ -404,27 +424,21 @@ app.post("/login", async (req: Request, res: Response) => {
         cacheDurationMs: cacheDuration,
       });
 
-      const dbUser = await prisma.$queryRaw<
-        Array<{
-          id: string;
-          email: string;
-          passwordHash: string;
-          mfaEnabled: boolean;
-          emailVerified: boolean;
-          phoneVerified: boolean;
-          createdAt: Date;
-          isDeleted: boolean;
-        }>
-      >`
-        SELECT id, email, password_hash as "passwordHash", mfa_enabled as "mfaEnabled",
-               email_verified as "emailVerified", phone_verified as "phoneVerified", created_at as "createdAt",
-               COALESCE(is_deleted, false) as "isDeleted"
-        FROM auth.users
-        WHERE email = ${email} AND COALESCE(is_deleted, false) = false
-      `.then((r: Array<any>) => r[0] || null);
+      const dbUser = await resolveLoginUserByEmail(prisma, email);
 
       if (dbUser) {
+        const un = String(dbUser.username ?? "").trim().slice(0, 128);
         await cacheUser({
+          id: dbUser.id,
+          email,
+          passwordHash: dbUser.passwordHash,
+          mfaEnabled: dbUser.mfaEnabled,
+          emailVerified: dbUser.emailVerified,
+          phoneVerified: dbUser.phoneVerified,
+          createdAt: dbUser.createdAt,
+          ...(un ? { username: un } : {}),
+        });
+        user = {
           id: dbUser.id,
           email: dbUser.email,
           passwordHash: dbUser.passwordHash,
@@ -432,8 +446,8 @@ app.post("/login", async (req: Request, res: Response) => {
           emailVerified: dbUser.emailVerified,
           phoneVerified: dbUser.phoneVerified,
           createdAt: dbUser.createdAt,
-        });
-        user = dbUser;
+          ...(un ? { username: un } : {}),
+        };
       }
     }
 
@@ -475,7 +489,8 @@ app.post("/login", async (req: Request, res: Response) => {
     }
 
     const jti = randomUUID();
-    const payload: WithJti = { sub: user.id, email: user.email, jti };
+    const un = String((user as { username?: string }).username ?? "").trim().slice(0, 128);
+    const payload: WithJti = { sub: user.id, email: user.email, jti, ...(un ? { username: un } : {}) };
     const token = signJwt(payload);
 
     logAuthEvent("login_succeeded", {
@@ -688,13 +703,14 @@ app.post("/refresh", async (req: Request, res: Response) => {
 
     // Verify user exists
     const user = await prisma.$queryRaw<
-      Array<{ id: string; email: string | null; is_deleted: boolean }>
+      Array<{ id: string; email: string | null; is_deleted: boolean; username: string | null }>
     >`
-      SELECT id, email, COALESCE(is_deleted, false) as is_deleted
+      SELECT id, email, COALESCE(is_deleted, false) as is_deleted,
+             COALESCE(NULLIF(TRIM(username::text), ''), NULLIF(TRIM(display_username::text), '')) AS username
       FROM auth.users
       WHERE id = ${userId}::uuid
     `.then(
-      (r: Array<{ id: string; email: string | null; is_deleted: boolean }>) =>
+      (r: Array<{ id: string; email: string | null; is_deleted: boolean; username: string | null }>) =>
         r[0] || null,
     );
 
@@ -712,10 +728,12 @@ app.post("/refresh", async (req: Request, res: Response) => {
 
     // Generate new token
     const newJti = randomUUID();
+    const un = String(user.username ?? "").trim().slice(0, 128);
     const newPayload: WithJti = {
       sub: user.id,
       email: user.email ?? "",
       jti: newJti,
+      ...(un ? { username: un } : {}),
     };
     const newToken = signJwt(newPayload);
 

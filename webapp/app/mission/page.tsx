@@ -1,10 +1,20 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { Nav } from "@/components/Nav";
+import { getStoredEmail } from "@/lib/auth-storage";
 
 export default function MissionPage() {
+  const [email, setEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    setEmail(getStoredEmail());
+  }, []);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-emerald-50/50 text-slate-900">
-      <Nav />
+      <Nav email={email} />
       <main className="mx-auto max-w-3xl px-4 py-16">
         <p className="text-sm font-semibold uppercase tracking-[0.2em] text-teal-600">Why we built this</p>
         <h1 className="mt-4 font-serif text-4xl font-medium text-slate-900" data-testid="mission-heading">
@@ -39,7 +49,7 @@ export default function MissionPage() {
             href="/dashboard"
             className="rounded-lg border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-50"
           >
-            Dashboard (after login)
+            Dashboard
           </Link>
           <Link
             href="/"

@@ -8,15 +8,19 @@ vi.mock("@common/utils/otel", () => ({
   buildKafkaMessageHeaders: vi.fn(() => ({})),
 }));
 
-vi.mock("@common/utils", () => ({
-  kafka: {
-    producer: vi.fn(() => ({
-      connect,
-      send,
-      disconnect,
-    })),
-  },
-}));
+vi.mock("@common/utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@common/utils")>();
+  return {
+    ...actual,
+    kafka: {
+      producer: vi.fn(() => ({
+        connect,
+        send,
+        disconnect,
+      })),
+    },
+  };
+});
 
 vi.mock("../src/lib/auth-outbox-metrics.js", () => ({
   setAuthOutboxUnpublishedCount: vi.fn(),

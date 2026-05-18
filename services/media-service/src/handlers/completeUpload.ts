@@ -12,8 +12,12 @@ export async function completeUpload(mediaId: string): Promise<boolean> {
   const row = await getById(mediaId)
   if (!row) return false
   if (row.status === 'uploaded') return true
-  const exists = await objectExists(row.object_key)
-  if (!exists) return false
+  if (row.object_key.startsWith('inline/')) {
+    if (row.inline_byte_len < 1) return false
+  } else {
+    const exists = await objectExists(row.object_key)
+    if (!exists) return false
+  }
   const client = await pool.connect()
   try {
     await client.query('BEGIN')

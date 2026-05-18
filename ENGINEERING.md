@@ -722,7 +722,7 @@ Auction Monitor Service (4008)
 More broadly:
 
 1. **API Gateway → Backend Services (housing)**: **Either** gRPC client calls **or** HTTP proxy to `http://<service>:<http-port>` depending on route implementation in `services/api-gateway/src/server.ts`.
-   - **JWT boundary:** After public mounts (gateway `/healthz`, gRPC-backed register/login, etc.), a single guard runs before proxies. **Public** traffic is `OPEN_ROUTES` in `server.ts` (e.g. `GET /api/listings/search`, `GET /api/auth/healthz`, `GET /api/analytics/daily-metrics`, trust reputation) **plus** any **`GET` whose path ends in `/healthz`** (per-service liveness). Everything else needs `Authorization: Bearer` so the gateway can inject `x-user-id`.
+   - **JWT boundary:** After public mounts (gateway `/healthz`, gRPC-backed register/login, etc.), a single guard runs before proxies. **Public** traffic is `OPEN_ROUTES` in `server.ts` (e.g. `GET /api/listings/search`, `GET /api/auth/healthz`, `GET /api/analytics/daily-metrics`, trust reputation, **`GET /api/media/public/:id` and `GET /media/public/:id`** for signed inline images — `<img>` has no `Authorization`) **plus** any **`GET` whose path ends in `/healthz`** (per-service liveness). Everything else needs `Authorization: Bearer` so the gateway can inject `x-user-id`.
 2. **Service-to-Service**: Often direct gRPC (strict mTLS) on `5xxxx` ports; some flows also use Kafka (see **Event contracts** below).
 3. **Envoy gRPC Routing**: Where deployed, Envoy handles gRPC with first-class support (e.g. port 10000)
    - **Never routes through HTTP handlers**: Envoy has native gRPC awareness

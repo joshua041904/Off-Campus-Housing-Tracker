@@ -31,13 +31,28 @@ if [[ "${DO_DOCKER_UP:-0}" == "1" ]]; then
 fi
 
 say "Setting up all housing DBs from infra/db (per infra/db/README.md)..."
+say "Auth (5441) infra SQL…"
+"$SCRIPT_DIR/ensure-auth-outbox.sh" 2>/dev/null || true
+for auth_sql in 02-auth-user-profile-fields.sql 13-auth-username-citext-not-null.sql; do
+  if [[ -f "$REPO_ROOT/infra/db/$auth_sql" ]]; then
+    psql -h "$PGHOST" -p "${AUTH_DB_PORT:-5441}" -U postgres -d auth -v ON_ERROR_STOP=1 -f "$REPO_ROOT/infra/db/$auth_sql" || true
+    ok "Auth $auth_sql"
+  fi
+done
 
 # Auth (5441): Prisma + optional restore; no infra/db SQL to run here.
 warn "Auth (5441): skipped — use scripts/restore-auth-from-legacy-dump.sh for legacy dump; schema is Prisma-managed."
 
-# Listings (5442): 01 + 02 (trigram/pgbench)
+# Listings (5442): core + community migrations
 say "Listings (5442)..."
 "$SCRIPT_DIR/ensure-listings-schema.sh"
+"$SCRIPT_DIR/run-listings-community-migrations.sh"
+for extra in 18-listing-revision-changes.sql 19-listings-pricing-hold.sql; do
+  if [[ -f "$REPO_ROOT/infra/db/$extra" ]]; then
+    psql -h "$PGHOST" -p "${LISTINGS_DB_PORT:-5442}" -U postgres -d listings -v ON_ERROR_STOP=1 -f "$REPO_ROOT/infra/db/$extra"
+    ok "Listings $extra"
+  fi
+done
 ok "Listings done."
 
 # Booking (5443)
@@ -63,6 +78,12 @@ ok "Trust done."
 # Analytics (5447)
 say "Analytics (5447)..."
 "$SCRIPT_DIR/ensure-analytics-schema.sh"
+for extra in 04-analytics-user-listing-engagement.sql 04-analytics-watchlist-engagement.sql 07-analytics-pgvector-hybrid-search.sql; do
+  if [[ -f "$REPO_ROOT/infra/db/$extra" ]]; then
+    psql -h "$PGHOST" -p "${ANALYTICS_DB_PORT:-5447}" -U postgres -d analytics -v ON_ERROR_STOP=1 -f "$REPO_ROOT/infra/db/$extra"
+    ok "Analytics $extra"
+  fi
+done
 ok "Analytics done."
 
 # Media (5448)

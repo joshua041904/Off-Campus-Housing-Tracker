@@ -34,6 +34,7 @@
 #
 # Env:
 #   BOOTSTRAP_CONFIRM=yes       — required.
+#   BOOTSTRAP_SKIP_CURL_PREFLIGHT=1 — skip scripts/check-curl-preflight-reqs.sh (still require HTTP/3 in curl --version).
 #   BOOTSTRAP_FULL_WIPE=1       — Colima factory reset (stop, delete -f, rm ~/.colima) + clear .build-cache before start.
 #   BOOTSTRAP_SKIP_COLIMA_AUTO_RECOVER=1 — skip pre-start guard that deletes Colima when status shows a corrupted runtime (Ctrl+C mid-k3s).
 #   BOOTSTRAP_SKIP_INFRA=1      — skip bring-up-external-infra.sh.
@@ -124,7 +125,7 @@ if [[ -s "$REPO_ROOT/tools/kafka-contract/dist/index.js" ]]; then
   _och_bootstrap_phase_guard --complete A.workspace 2>/dev/null || true
 fi
 
-chmod +x "$SCRIPT_DIR/dev-kill-all.sh" "$SCRIPT_DIR/colima-factory-reset.sh" "$SCRIPT_DIR/trust-dev-root-ca-host.sh" "$SCRIPT_DIR/trust-dev-root-ca-linux.sh" "$SCRIPT_DIR/lib/trust-dev-root-ca-macos.sh" "$SCRIPT_DIR/bring-up-external-infra.sh" "$SCRIPT_DIR/restore-external-postgres-from-backup.sh" \
+chmod +x "$SCRIPT_DIR/check-curl-preflight-reqs.sh" "$SCRIPT_DIR/dev-kill-all.sh" "$SCRIPT_DIR/colima-factory-reset.sh" "$SCRIPT_DIR/trust-dev-root-ca-host.sh" "$SCRIPT_DIR/trust-dev-root-ca-linux.sh" "$SCRIPT_DIR/lib/trust-dev-root-ca-macos.sh" "$SCRIPT_DIR/bring-up-external-infra.sh" "$SCRIPT_DIR/restore-external-postgres-from-backup.sh" \
   "$SCRIPT_DIR/strict-tls-bootstrap.sh" \
   "$SCRIPT_DIR/ensure-housing-cluster-secrets.sh" "$SCRIPT_DIR/deploy-dev.sh" "$SCRIPT_DIR/apply-ollama-gateway-stack.sh" "$SCRIPT_DIR/wait-for-housing-service-endpoints.sh" "$SCRIPT_DIR/verify-ollama.sh" "$SCRIPT_DIR/verify-ollama-gateway.sh" \
   "$SCRIPT_DIR/verify-http3.sh" "$SCRIPT_DIR/verify-google-maps.sh" \
@@ -148,6 +149,11 @@ source "$SCRIPT_DIR/lib/och-housing-docker-services-default.sh"
 source "$SCRIPT_DIR/lib/bootstrap-phase-rollbacks.sh"
 # shellcheck source=scripts/lib/bootstrap-phase-timings.sh
 source "$SCRIPT_DIR/lib/bootstrap-phase-timings.sh"
+# shellcheck source=scripts/lib/och-run-id.sh
+source "$SCRIPT_DIR/lib/och-run-id.sh"
+BOOTSTRAP_RUN_ID="$(och_ensure_run_id "$REPO_ROOT")"
+export BOOTSTRAP_RUN_ID VERIFY_BOOTSTRAP_RUN_ID="$BOOTSTRAP_RUN_ID" VERIFY_APP_RUNTIME_RUN_ID="$BOOTSTRAP_RUN_ID"
+echo "bootstrap run_id=${BOOTSTRAP_RUN_ID}"
 
 REPO_ROOT_BOOT_GRAPH="$REPO_ROOT/infra/bootstrap_invariants.graph.json"
 REPO_ROOT_BOOT_PROGRESS="$REPO_ROOT/bench_logs/bootstrap_state_progress.json"
@@ -237,6 +243,11 @@ if _och_should_skip_to_post_c_infra; then
   command -v docker >/dev/null 2>&1 || { bad "docker not on PATH"; exit 1; }
   docker info >/dev/null 2>&1 || { bad "docker info failed (point DOCKER_HOST at Colima if needed)"; exit 1; }
   command -v curl >/dev/null 2>&1 || { bad "curl not on PATH"; exit 1; }
+  if [[ "${BOOTSTRAP_SKIP_CURL_PREFLIGHT:-0}" == "1" ]]; then
+    curl --version 2>/dev/null | grep -qiE 'HTTP3|HTTP/3' || { bad "curl missing HTTP3 in curl --version"; exit 1; }
+  else
+    bash "$SCRIPT_DIR/check-curl-preflight-reqs.sh" || { bad "curl preflight (>= ${MIN_CURL_VERSION:-8.19.0} + HTTP/3) failed"; exit 1; }
+  fi
   command -v openssl >/dev/null 2>&1 || { bad "openssl not on PATH"; exit 1; }
   command -v kubectl >/dev/null 2>&1 || { bad "kubectl not on PATH"; exit 1; }
   # shellcheck source=scripts/lib/ensure-colima-docker-context.sh
@@ -346,8 +357,13 @@ done
 ok "docker info"
 
 command -v curl >/dev/null 2>&1 || { bad "curl not on PATH"; exit 1; }
-curl --version 2>/dev/null | grep -qiE 'HTTP3|HTTP/3' || { bad "curl missing HTTP3 in curl --version"; exit 1; }
-ok "curl HTTP/3 capability"
+if [[ "${BOOTSTRAP_SKIP_CURL_PREFLIGHT:-0}" == "1" ]]; then
+  curl --version 2>/dev/null | grep -qiE 'HTTP3|HTTP/3' || { bad "curl missing HTTP3 in curl --version"; exit 1; }
+  ok "curl HTTP/3 capability (BOOTSTRAP_SKIP_CURL_PREFLIGHT=1 — skipped version gate)"
+else
+  bash "$SCRIPT_DIR/check-curl-preflight-reqs.sh" || { bad "curl preflight failed (need curl >= ${MIN_CURL_VERSION:-8.19.0} with HTTP/3; brew install curl + PATH)"; exit 1; }
+  ok "curl ${MIN_CURL_VERSION:-8.19.0}+ with HTTP/3"
+fi
 
 command -v openssl >/dev/null 2>&1 || { bad "openssl not on PATH"; exit 1; }
 openssl version >/dev/null
@@ -888,4 +904,14 @@ if [[ "${BOOTSTRAP_SKIP_TIMING_HISTORY:-0}" != "1" ]]; then
   node "$SCRIPT_DIR/optimize-bootstrap-order.mjs" >/dev/null 2>&1 || true
 fi
 
-say "✅ Bootstrap v2 complete."
+say "[P9b] Push bootstrap + app-runtime metrics to Pushgateway (Grafana DAG dashboards)"
+bash "$SCRIPT_DIR/export-bootstrap-phase-metrics.sh" >/dev/null 2>&1 || true
+if [[ -f "$REPO_ROOT/bench_logs/app_runtime_metrics.prom" ]]; then
+  OCH_PUSHGATEWAY_JOB=app-runtime OCH_PUSHGATEWAY_INSTANCE="$BOOTSTRAP_RUN_ID" \
+    bash "$SCRIPT_DIR/lib/push-och-prom.sh" "$REPO_ROOT/bench_logs/app_runtime_metrics.prom" >/dev/null 2>&1 || true
+fi
+if [[ -f "$REPO_ROOT/bench_logs/cold-bootstrap-last-timing.json" ]]; then
+  bash "$SCRIPT_DIR/export-och-wall-clock-prom.sh" cold-bootstrap >/dev/null 2>&1 || true
+fi
+
+say "✅ Bootstrap v2 complete (run_id=${BOOTSTRAP_RUN_ID})."

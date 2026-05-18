@@ -9,7 +9,7 @@ metadata:
 data:
   auth-outbox.json: |
     {
-      "title": "OCH — Auth transactional outbox",
+      "title": "OCH — Auth transactional outbox (legacy — use OCH Transactional Outbox)",
       "uid": "och-auth-outbox",
       "schemaVersion": 39,
       "version": 1,

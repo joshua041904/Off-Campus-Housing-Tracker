@@ -6,6 +6,10 @@ import {
   createOchGrpcServerCredentialsForBind,
 } from "@common/utils";
 import { pool } from "./db.js";
+import {
+  assertBookingEligibleForPeerReview,
+  loadBookingForPeerReviewGate,
+} from "./peer-review-booking-gate.js";
 
 // Logs per-request gRPC latency and marks requests over 100ms as slow.
 function logGrpcTiming(method: string, start: number) {
@@ -201,21 +205,42 @@ export const trustGrpcHandlersForTest = {
       });
       return;
     }
-    pool
-      .query(
-        `INSERT INTO trust.reviews (booking_id, reviewer_id, target_type, target_id, rating, comment)
+    void (async () => {
+      try {
+        const bookingHttp = (process.env.BOOKING_HTTP || "").trim();
+        if (bookingHttp) {
+          const snap = await loadBookingForPeerReviewGate(bookingId, reviewerId);
+          if (!snap) {
+            logGrpcTiming("SubmitReview", start);
+            cb({
+              code: grpc.status.NOT_FOUND,
+              message: "booking not found or inaccessible for this account",
+            });
+            return;
+          }
+          const gate = assertBookingEligibleForPeerReview(snap, reviewerId, revieweeId);
+          if (!gate.ok) {
+            logGrpcTiming("SubmitReview", start);
+            cb({
+              code:
+                gate.status === 403 ? grpc.status.PERMISSION_DENIED : grpc.status.INVALID_ARGUMENT,
+              message: gate.message,
+            });
+            return;
+          }
+        }
+        const r = await pool.query(
+          `INSERT INTO trust.reviews (booking_id, reviewer_id, target_type, target_id, rating, comment)
          VALUES ($1::uuid, $2::uuid, 'user'::trust.review_target_type, $3::uuid, $4, $5) RETURNING id`,
-        [bookingId, reviewerId, revieweeId, rating, comment || null],
-      )
-      .then((r) => {
+          [bookingId, reviewerId, revieweeId, rating, comment || null],
+        );
         logGrpcTiming("SubmitReview", start);
         cb(null, { review_id: r.rows[0].id });
-      })
-      .catch((e) => {
+      } catch (e) {
         console.error("[SubmitReview]", e);
         if (
-          String(e?.message || "").includes("unique") ||
-          String(e?.code) === "23505"
+          String((e as { message?: string })?.message || "").includes("unique") ||
+          String((e as { code?: string })?.code) === "23505"
         ) {
           logGrpcTiming("SubmitReview", start);
           cb({ code: grpc.status.ALREADY_EXISTS, message: "duplicate review" });
@@ -223,7 +248,8 @@ export const trustGrpcHandlersForTest = {
         }
         logGrpcTiming("SubmitReview", start);
         cb({ code: grpc.status.INTERNAL, message: "failed" });
-      });
+      }
+    })();
   },
 
   SubmitPeerReview(
@@ -247,21 +273,42 @@ export const trustGrpcHandlersForTest = {
       return;
     }
     const meta = `[${side}] ${comment}`.slice(0, 4000);
-    pool
-      .query(
-        `INSERT INTO trust.reviews (booking_id, reviewer_id, target_type, target_id, rating, comment)
+    void (async () => {
+      try {
+        const bookingHttp = (process.env.BOOKING_HTTP || "").trim();
+        if (bookingHttp) {
+          const snap = await loadBookingForPeerReviewGate(bookingId, reviewerId);
+          if (!snap) {
+            logGrpcTiming("SubmitPeerReview", start);
+            cb({
+              code: grpc.status.NOT_FOUND,
+              message: "booking not found or inaccessible for this account",
+            });
+            return;
+          }
+          const gate = assertBookingEligibleForPeerReview(snap, reviewerId, revieweeId);
+          if (!gate.ok) {
+            logGrpcTiming("SubmitPeerReview", start);
+            cb({
+              code:
+                gate.status === 403 ? grpc.status.PERMISSION_DENIED : grpc.status.INVALID_ARGUMENT,
+              message: gate.message,
+            });
+            return;
+          }
+        }
+        const r = await pool.query(
+          `INSERT INTO trust.reviews (booking_id, reviewer_id, target_type, target_id, rating, comment)
          VALUES ($1::uuid, $2::uuid, 'user'::trust.review_target_type, $3::uuid, $4, $5) RETURNING id`,
-        [bookingId, reviewerId, revieweeId, rating, meta || null],
-      )
-      .then((r) => {
+          [bookingId, reviewerId, revieweeId, rating, meta || null],
+        );
         logGrpcTiming("SubmitPeerReview", start);
         cb(null, { review_id: r.rows[0].id });
-      })
-      .catch((e) => {
+      } catch (e) {
         console.error("[SubmitPeerReview]", e);
         if (
-          String(e?.message || "").includes("unique") ||
-          String(e?.code) === "23505"
+          String((e as { message?: string })?.message || "").includes("unique") ||
+          String((e as { code?: string })?.code) === "23505"
         ) {
           logGrpcTiming("SubmitPeerReview", start);
           cb({ code: grpc.status.ALREADY_EXISTS, message: "duplicate review" });
@@ -269,7 +316,8 @@ export const trustGrpcHandlersForTest = {
         }
         logGrpcTiming("SubmitPeerReview", start);
         cb({ code: grpc.status.INTERNAL, message: "failed" });
-      });
+      }
+    })();
   },
 
   GetReputation(

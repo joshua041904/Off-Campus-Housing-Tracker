@@ -135,6 +135,16 @@ exports.Prisma.BookingScalarFieldEnum = {
   confirmedAt: 'confirmedAt',
   cancelledAt: 'cancelledAt',
   completedAt: 'completedAt',
+  expiresAt: 'expiresAt',
+  statusUpdatedAt: 'statusUpdatedAt',
+  fraudScore: 'fraudScore',
+  fraudFlagged: 'fraudFlagged',
+  fraudSignals: 'fraudSignals',
+  listingTitleSnapshot: 'listingTitleSnapshot',
+  tenantEmailSnapshot: 'tenantEmailSnapshot',
+  tenantUsernameSnapshot: 'tenantUsernameSnapshot',
+  fraudReviewStatus: 'fraudReviewStatus',
+  tenantArchivedAt: 'tenantArchivedAt',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 };
@@ -146,6 +156,8 @@ exports.Prisma.SearchHistoryScalarFieldEnum = {
   minPriceCents: 'minPriceCents',
   maxPriceCents: 'maxPriceCents',
   maxDistanceKm: 'maxDistanceKm',
+  maxCampusMiles: 'maxCampusMiles',
+  alertOnMatch: 'alertOnMatch',
   latitude: 'latitude',
   longitude: 'longitude',
   filters: 'filters',
@@ -177,15 +189,15 @@ exports.Prisma.QueryMode = {
   insensitive: 'insensitive'
 };
 
-exports.Prisma.NullsOrder = {
-  first: 'first',
-  last: 'last'
-};
-
 exports.Prisma.JsonNullValueFilter = {
   DbNull: Prisma.DbNull,
   JsonNull: Prisma.JsonNull,
   AnyNull: Prisma.AnyNull
+};
+
+exports.Prisma.NullsOrder = {
+  first: 'first',
+  last: 'last'
 };
 exports.BookingStatus = exports.$Enums.BookingStatus = {
   created: 'created',

@@ -29,10 +29,8 @@ fi
 tmp_json="$(mktemp)"
 trap 'rm -f "$tmp_json"' EXIT
 
-if ! tshark "${tls_args[@]}" -r "$PCAP" -Y quic -T json >"$tmp_json" 2>/dev/null; then
-  echo '{"valid":false,"error":"tshark decode failed"}'
-  exit 1
-fi
+# tshark often exits 14 (SIGPIPE) after writing full JSON; validate output, not exit code.
+tshark "${tls_args[@]}" -r "$PCAP" -Y quic -T json >"$tmp_json" 2>/dev/null || true
 if [[ ! -s "$tmp_json" ]] || [[ "$(jq 'length' "$tmp_json" 2>/dev/null || echo 0)" == "0" ]]; then
   echo '{"valid":false,"error":"no quic frames"}'
   exit 1

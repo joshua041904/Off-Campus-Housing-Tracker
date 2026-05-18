@@ -15,6 +15,15 @@ services:
       - "4318:4318"
     restart: unless-stopped
 
+  # SMTP sink for dev/staging: messaging-service uses SMTP_HOST=host.docker.internal:1025 (see app-secrets).
+  # Web UI: http://localhost:8025 — verify external-contact emails land here after Send email.
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    restart: unless-stopped
+
   redis:
     image: redis:7-alpine
     command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lfu

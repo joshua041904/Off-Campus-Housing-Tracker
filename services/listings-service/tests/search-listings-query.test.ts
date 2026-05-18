@@ -33,41 +33,44 @@ describe("parseAmenitySlugs", () => {
 });
 
 describe("buildListingsSearchQuery", () => {
-  it("defaults sort to created_desc", () => {
+  it("defaults sort to created_desc via parameterized CASE ordering", () => {
     const { sql, params } = buildListingsSearchQuery({});
-    expect(sql).toContain("ORDER BY created_at DESC, id ASC");
-    expect(params.length).toBe(0);
+    expect(sql).toContain("WITH filtered AS");
+    expect(sql).toContain("CASE WHEN $");
+    expect(sql).toContain("created_at DESC");
+    expect(sql).toContain("id ASC");
+    expect(params[params.length - 1]).toBe(3);
     expect(sql).toContain("status::text = 'active'");
     expect(sql).toContain("LIMIT 50");
     expect(sql).toContain("OFFSET 0");
   });
 
   it("uses deterministic tie-breaker for created_desc", () => {
-    const { sql } = buildListingsSearchQuery({ sort: "created_desc" });
-    expect(sql).toContain("ORDER BY created_at DESC, id ASC");
+    const { sql, params } = buildListingsSearchQuery({ sort: "created_desc" });
+    expect(sql).toContain("created_at DESC");
+    expect(sql).toContain("id ASC");
+    expect(params[params.length - 1]).toBe(3);
   });
 
   it("falls back unknown sort to created_desc", () => {
-    const { sql } = buildListingsSearchQuery({ sort: "not_a_real_sort" });
-    expect(sql).toContain("ORDER BY created_at DESC, id ASC");
+    const { sql, params } = buildListingsSearchQuery({ sort: "not_a_real_sort" });
+    expect(sql).toContain("created_at DESC");
+    expect(params[params.length - 1]).toBe(3);
   });
 
   it("uses deterministic ordering for listed_desc", () => {
-    const { sql } = buildListingsSearchQuery({ sort: "listed_desc" });
-    expect(sql).toContain(
-      "ORDER BY listed_at DESC NULLS LAST, created_at DESC, id ASC",
-    );
+    const { sql, params } = buildListingsSearchQuery({ sort: "listed_desc" });
+    expect(sql).toContain("listed_at END DESC NULLS LAST");
+    expect(params[params.length - 1]).toBe(4);
   });
 
   it("uses deterministic tie-breaker for price sorts", () => {
     const lowToHigh = buildListingsSearchQuery({ sort: "price_asc" }).sql;
     const highToLow = buildListingsSearchQuery({ sort: "price_desc" }).sql;
-    expect(lowToHigh).toContain(
-      "ORDER BY price_cents ASC NULLS LAST, created_at DESC, id ASC",
-    );
-    expect(highToLow).toContain(
-      "ORDER BY price_cents DESC NULLS LAST, created_at DESC, id ASC",
-    );
+    expect(lowToHigh).toContain("price_cents END ASC NULLS LAST");
+    expect(highToLow).toContain("price_cents END DESC NULLS LAST");
+    expect(lowToHigh).toContain("created_at DESC");
+    expect(highToLow).toContain("id ASC");
   });
 
   it("adds ILIKE for q and escapes percent/underscore", () => {
@@ -123,17 +126,21 @@ describe("buildListingsSearchQuery", () => {
   });
 
   it("uses deterministic ordering for price_asc", () => {
-    const { sql } = buildListingsSearchQuery({ sort: "price_asc" });
-    expect(sql).toContain(
-      "ORDER BY price_cents ASC NULLS LAST, created_at DESC, id ASC",
-    );
+    const { sql, params } = buildListingsSearchQuery({ sort: "price_asc" });
+    expect(sql).toContain("price_cents END ASC NULLS LAST");
+    expect(params[params.length - 1]).toBe(1);
   });
 
   it("uses deterministic ordering for price_desc", () => {
-    const { sql } = buildListingsSearchQuery({ sort: "price_desc" });
-    expect(sql).toContain(
-      "ORDER BY price_cents DESC NULLS LAST, created_at DESC, id ASC",
-    );
+    const { sql, params } = buildListingsSearchQuery({ sort: "price_desc" });
+    expect(sql).toContain("price_cents END DESC NULLS LAST");
+    expect(params[params.length - 1]).toBe(2);
+  });
+
+  it("uses distance sort CASE arm", () => {
+    const { sql, params } = buildListingsSearchQuery({ sort: "distance_asc" });
+    expect(sql).toContain("pow(coalesce(latitude");
+    expect(params[params.length - 1]).toBe(5);
   });
 
   it("applies custom limit and offset", () => {
@@ -144,7 +151,7 @@ describe("buildListingsSearchQuery", () => {
 
   it("clamps limit to max", () => {
     const { sql } = buildListingsSearchQuery({ limit: 9999 });
-    expect(sql).toContain("LIMIT 100");
+    expect(sql).toContain("LIMIT 240");
   });
 
   it("defaults offset to 0 when omitted", () => {
@@ -161,5 +168,27 @@ describe("buildListingsSearchQuery", () => {
   it("falls back to default offset when invalid", () => {
     const { sql } = buildListingsSearchQuery({ offset: -1 });
     expect(sql).toContain("OFFSET 0");
+  });
+
+  it("filters by residence_type ANY", () => {
+    const { sql, params } = buildListingsSearchQuery({
+      residenceTypes: ["apartment", "condo"],
+    });
+    expect(sql).toContain("residence_type = ANY");
+    const arr = params.find((p) => Array.isArray(p)) as string[] | undefined;
+    expect(arr?.sort()).toEqual(["apartment", "condo"].sort());
+  });
+
+  it("filters campusWithinMiles using haversine to campus", () => {
+    const { sql, params } = buildListingsSearchQuery({ campusWithinMiles: 1.5 });
+    expect(sql).toContain("3959.0 * acos");
+    expect(params.some((p) => p === 1.5)).toBe(true);
+  });
+
+  it("filters min and max sqft", () => {
+    const { sql, params } = buildListingsSearchQuery({ minSqft: 500, maxSqft: 1200 });
+    expect(sql).toContain("size_sqft");
+    expect(params).toContain(500);
+    expect(params).toContain(1200);
   });
 });

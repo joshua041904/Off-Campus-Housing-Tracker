@@ -4,31 +4,45 @@
         {
             "name": "bookings",
             "schema": "booking",
-            "idx_scan": 6,
-            "seq_scan": 30,
-            "n_live_tup": 49
+            "idx_scan": 558,
+            "seq_scan": 1493,
+            "n_live_tup": 0
         },
         {
             "name": "outbox_events",
             "schema": "booking",
             "idx_scan": 0,
-            "seq_scan": 4,
+            "seq_scan": 2,
+            "n_live_tup": 0
+        },
+        {
+            "name": "processed_events",
+            "schema": "booking",
+            "idx_scan": 0,
+            "seq_scan": 2,
             "n_live_tup": 0
         },
         {
             "name": "search_history",
             "schema": "booking",
-            "idx_scan": 2815,
-            "seq_scan": 4,
-            "n_live_tup": 8894
+            "idx_scan": 0,
+            "seq_scan": 47,
+            "n_live_tup": 0
         },
         {
             "name": "watchlist_items",
             "schema": "booking",
-            "idx_scan": 8814,
-            "seq_scan": 5,
-            "n_live_tup": 1085
+            "idx_scan": 1,
+            "seq_scan": 544,
+            "n_live_tup": 1
+        },
+        {
+            "name": "_prisma_migrations",
+            "schema": "public",
+            "idx_scan": 0,
+            "seq_scan": 2,
+            "n_live_tup": 0
         }
     ],
-    "generated_at": "2026-04-03T20:12:09.490657+00:00"
+    "generated_at": "2026-05-10T18:39:36.677637+00:00"
 }

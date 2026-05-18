@@ -9,21 +9,63 @@
   "panels": [
     {
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "none", "decimals": 0 }, "overrides": [] },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "id": 100,
+      "options": { "colorMode": "value" },
+      "targets": [{ "expr": "count(app_runtime_critical_path_ms{run_id=~\"$run_id\"}) or vector(0)", "refId": "A" }],
+      "title": "Diagnostic — app_runtime series for run_id",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "id": 101,
+      "targets": [{ "expr": "max(och_bootstrap_run_info) or vector(0)", "refId": "A" }],
+      "title": "Diagnostic — bootstrap run_info",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "id": 102,
+      "targets": [{ "expr": "max(och_bootstrap_wall_clock_seconds{phase=\"cold-bootstrap\"}) or vector(0)", "refId": "A" }],
+      "title": "Diagnostic — cold-bootstrap wall clock (s)",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "id": 103,
+      "targets": [{ "expr": "time() - max(timestamp(app_runtime_critical_path_ms{run_id=~\"$run_id\"}))", "refId": "A" }],
+      "title": "Diagnostic — last app_runtime sample age",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "fieldConfig": {
         "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 12, "lineWidth": 2 }, "unit": "ms" },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
       "id": 1,
       "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
       "targets": [
         {
-          "expr": "app_runtime_critical_path_ms",
+          "expr": "app_runtime_critical_path_ms{run_id=~\"$run_id\"}",
           "legendFormat": "{{namespace}} / {{mode}} / {{phase}}",
           "refId": "A"
+        },
+        {
+          "expr": "bootstrap_critical_path_ms{run_id=~\"$run_id\"}",
+          "legendFormat": "bootstrap DAG {{run_id}}",
+          "refId": "B"
         }
       ],
-      "title": "G.app_runtime — DAG critical path (ms)",
+      "title": "DAG critical path (ms)",
       "type": "timeseries"
     },
     {
@@ -32,12 +74,12 @@
         "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 12, "lineWidth": 2 }, "unit": "ms" },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
       "id": 2,
       "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
       "targets": [
         {
-          "expr": "app_runtime_latency_ms",
+          "expr": "app_runtime_latency_ms{run_id=~\"$run_id\"}",
           "legendFormat": "{{service}}",
           "refId": "A"
         }
@@ -51,12 +93,12 @@
         "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 12, "lineWidth": 2 }, "unit": "ms" },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
       "id": 3,
       "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
       "targets": [
         {
-          "expr": "app_runtime_service_critical_path_ms",
+          "expr": "app_runtime_service_critical_path_ms{run_id=~\"$run_id\"}",
           "legendFormat": "{{service}}",
           "refId": "A"
         }
@@ -70,17 +112,36 @@
         "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 12, "lineWidth": 2 }, "unit": "ms" },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
       "id": 4,
       "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
       "targets": [
         {
-          "expr": "app_runtime_dependency_latency_ms",
+          "expr": "app_runtime_dependency_latency_ms{run_id=~\"$run_id\"}",
           "legendFormat": "{{from}} → {{to}}",
           "refId": "A"
         }
       ],
       "title": "Dependency edges (ms = dependent service wall time)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "bars", "fillOpacity": 80 }, "unit": "ms" },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 20 },
+      "id": 5,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "expr": "bootstrap_phase_duration_ms{run_id=~\"$run_id\"}",
+          "legendFormat": "{{phase}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Bootstrap phase wall time (ms)",
       "type": "timeseries"
     }
   ],
@@ -98,8 +159,16 @@
         "options": [],
         "query": "prometheus",
         "refresh": 1,
-        "regex": "",
         "type": "datasource"
+      },
+      {
+        "name": "run_id",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "query": "label_values(app_runtime_critical_path_ms, run_id)",
+        "includeAll": true,
+        "multi": false,
+        "current": { "text": "All", "value": "$__all" }
       }
     ]
   },
@@ -108,5 +177,5 @@
   "timezone": "browser",
   "title": "OCH — Bootstrap / app runtime (DAG)",
   "uid": "och-bootstrap-runtime",
-  "version": 1
+  "version": 2
 }

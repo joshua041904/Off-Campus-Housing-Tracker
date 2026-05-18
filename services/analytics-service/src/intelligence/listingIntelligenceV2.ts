@@ -138,6 +138,20 @@ function v2NumCtx(): number {
   return Number.isFinite(n) ? Math.min(8192, Math.max(512, Math.floor(n))) : 2048;
 }
 
+/** Smaller KV cache for quick passes — materially faster on CPU-bound Ollama. */
+function v2NumCtxForDepth(depth: AnalysisDepth): number {
+  const base = v2NumCtx();
+  if (depth === "quick") {
+    const q = Number(process.env.ANALYTICS_LI_V2_NUM_CTX_QUICK ?? "1536");
+    const n = Number.isFinite(q) ? Math.floor(q) : 1536;
+    return Math.min(base, Math.max(512, Math.min(4096, n)));
+  }
+  if (depth === "deep") {
+    return Math.min(8192, Math.max(base, 3072));
+  }
+  return base;
+}
+
 function dualPassEnabled(): boolean {
   const qaFast = process.env.ANALYTICS_QA_FAST_MODE === "1" || process.env.ANALYTICS_QA_FAST_MODE === "true";
   const devFast = process.env.ANALYTICS_DEV_FAST_MODE === "1" || process.env.ANALYTICS_DEV_FAST_MODE === "true";
@@ -178,6 +192,7 @@ async function ollamaGenerateJson(params: {
   system: string;
   prompt: string;
   numPredict: number;
+  numCtx?: number;
   timeoutMs: number;
   fetchOnce: typeof fetch;
 }): Promise<{ output: ListingIntelligenceOutput | null; latency_ms: number }> {
@@ -185,7 +200,11 @@ async function ollamaGenerateJson(params: {
     span.setAttribute("ai.model", params.model);
     span.setAttribute("ai.temperature", v2Temperature());
     span.setAttribute("ai.tokens_input", Math.round((params.system.length + params.prompt.length) / 4));
-    const effectiveMs = getOllamaGenerateTimeoutMs();
+    const globalCap = getOllamaGenerateTimeoutMs();
+    /** Per-request ceiling from listing-feel (quick caps via `listingFeelUpstreamTimeoutMs`, default ~120s in k8s). */
+    const requested = Math.floor(params.timeoutMs);
+    const sane = Number.isFinite(requested) && requested > 0 ? requested : globalCap;
+    const effectiveMs = Math.min(globalCap, Math.max(250, sane));
     const controller = new AbortController();
     const softTimer = setTimeout(() => {
       console.warn("[analytics-li-v2] Ollama /api/generate still in flight (>5s soft threshold)");
@@ -217,7 +236,7 @@ async function ollamaGenerateJson(params: {
           system: params.system,
           prompt: userPrompt,
           options: {
-            num_ctx: v2NumCtx(),
+            num_ctx: params.numCtx ?? v2NumCtx(),
             num_predict: params.numPredict,
             temperature: v2Temperature(),
             top_p: v2TopP(),
@@ -268,7 +287,7 @@ async function ollamaGenerateJson(params: {
         analyticsLiV2SchemaRepairTotal.inc();
         const repair = `\n\nSCHEMA_REPAIR: Previous JSON failed validation (${first.reason.slice(0, 800)}).
 Return ONLY valid JSON matching the contract. Arrays (value_drivers, risk_flags, missing_information, negotiation_leverage) must be JSON arrays of strings only — no objects inside array elements.`;
-        const remain = Math.max(8_000, effectiveMs - (Date.now() - wall0));
+        const remain = Math.max(4_000, effectiveMs - (Date.now() - wall0));
         const repairSig = AbortSignal.timeout(remain);
         timeoutStage = "schema_repair";
         const second = await fetchAndCoerce(`${params.prompt}${repair}`, repairSig);
@@ -345,7 +364,15 @@ export async function runListingIntelligenceV2(input: {
   const wall0 = Date.now();
   const depth = parseDepth(input.analysis_depth);
   const devFast = isAnalyticsDevFastMode();
-  const { text: descGuarded, truncated } = truncateListingInput(String(input.description || ""));
+  const quickCapRaw = Number(process.env.ANALYTICS_LISTING_INPUT_MAX_CHARS_QUICK ?? "3200");
+  const quickCap = Number.isFinite(quickCapRaw)
+    ? Math.min(8000, Math.max(1500, Math.floor(quickCapRaw)))
+    : 3200;
+  const { text: descGuarded, truncated } = truncateListingInput(
+    String(input.description || ""),
+    depth === "quick" ? quickCap : undefined,
+  );
+  const numCtx = v2NumCtxForDepth(depth);
   const { system, prompt, primary_mode, secondary_lens } = buildListingIntelligencePrompts({
     audience: input.audience,
     title: input.title,
@@ -383,6 +410,7 @@ export async function runListingIntelligenceV2(input: {
         system,
         prompt,
         numPredict,
+        numCtx,
         timeoutMs: input.timeoutMs,
         fetchOnce: input.fetchOnce,
       }),
@@ -392,6 +420,7 @@ export async function runListingIntelligenceV2(input: {
         system,
         prompt,
         numPredict,
+        numCtx,
         timeoutMs: input.timeoutMs,
         fetchOnce: input.fetchOnce,
       }),
@@ -410,6 +439,7 @@ export async function runListingIntelligenceV2(input: {
       system,
       prompt,
       numPredict,
+      numCtx,
       timeoutMs: input.timeoutMs,
       fetchOnce: input.fetchOnce,
     });
@@ -417,13 +447,14 @@ export async function runListingIntelligenceV2(input: {
     if (!first.output) return null;
     outputs = [first.output];
 
-    if (dualPassEnabled()) {
+    if (dualPassEnabled() && depth !== "quick") {
       const second = await ollamaGenerateJson({
         baseUrl: input.baseUrl,
         model: input.primaryModel,
         system,
         prompt,
         numPredict,
+        numCtx,
         timeoutMs: input.timeoutMs,
         fetchOnce: input.fetchOnce,
       });
@@ -476,13 +507,16 @@ export async function runListingIntelligenceV2(input: {
       `${input.listing_id || input.title}|${cp.promptVersion}|${input.primaryModel}|${canaryModel}`,
       cp.canaryPercent,
     );
-  if (canaryEnabled && (shadowMode || shouldSampleCanary) && !devFast) {
+  // Shadow mode must still respect sampling: ANALYTICS_CANARY_PERCENT=0 means no extra canary model call.
+  // Quick insight skips canary entirely (one fast pass; no 3b shadow fan-out on CPU Ollama).
+  if (canaryEnabled && shouldSampleCanary && !devFast && depth !== "quick") {
     const canaryRes = await ollamaGenerateJson({
       baseUrl: input.baseUrl,
       model: canaryModel,
       system,
       prompt,
       numPredict,
+      numCtx,
       timeoutMs: input.timeoutMs,
       fetchOnce: input.fetchOnce,
     });
@@ -533,7 +567,7 @@ export async function runListingIntelligenceV2(input: {
     latencyDegraded,
   });
 
-  const metaEval = devFast
+  const metaEval = devFast || depth === "quick"
     ? null
     : await aiTracer.startActiveSpan("analytics.meta_eval", async (span) => {
         span.setAttribute("ai.model", input.primaryModel);
@@ -549,7 +583,7 @@ export async function runListingIntelligenceV2(input: {
       });
 
   const verdictEntropy = quickVerdictEntropy(merged.verdict);
-  if (!devFast && verdictEntropy != null) {
+  if (!devFast && depth !== "quick" && verdictEntropy != null) {
     await aiTracer.startActiveSpan("analytics.entropy.compute", async (span) => {
       span.setAttribute("ai.entropy", verdictEntropy);
       span.setAttribute("ai.model", modelsUsed.join("+"));
@@ -594,6 +628,7 @@ export async function runListingIntelligenceV2(input: {
     numericCheck0.conflict &&
     process.env.ANALYTICS_NUMERIC_RECONCILE_RETRY !== "0" &&
     !devFast &&
+    depth !== "quick" &&
     !useEnsemble &&
     outputs.length < 2
   ) {
@@ -606,6 +641,7 @@ export async function runListingIntelligenceV2(input: {
         system: `${system}${repair}`,
         prompt,
         numPredict,
+        numCtx,
         timeoutMs: input.timeoutMs,
         fetchOnce: input.fetchOnce,
       });

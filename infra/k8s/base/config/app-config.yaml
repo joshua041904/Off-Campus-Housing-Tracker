@@ -14,6 +14,12 @@ data:
   # Access sent messages via: GET /api/auth/sms/mock/messages
   SMS_PROVIDER: "mock"  # Mock provider - FREE, works immediately, no setup needed
   SMS_USE_MOCK: "true"  # Force mock mode (FREE - logs to console, accessible via API)
+  # messaging-service — explicit transport modes (see services/messaging-service/src/lib/delivery-modes.ts).
+  # Email: test_sink | self_hosted_smtp | provider | unconfigured (legacy OCH_SMTP_DELIVERY_MODE / SMTP_DELIVERY_MODE still read).
+  # auto = infer: mailpit/mailhog/port 1025 → test_sink, else self_hosted_smtp.
+  EMAIL_DELIVERY_MODE: "test_sink"
+  # SMS: mock | self_hosted_gateway | provider | unconfigured (legacy SMS_USE_MOCK / Twilio env still affect auto).
+  SMS_DELIVERY_MODE: "mock"
   NEXT_PUBLIC_GATEWAY_URL: http://localhost:8080
 
   GATEWAY_PORT: "4020"
@@ -72,6 +78,8 @@ data:
   # Cross-service HTTP (pods resolve cluster DNS). Used by analytics/booking/messaging for listing lookup + saves.
   LISTINGS_HTTP: "http://listings-service.off-campus-housing-tracker.svc.cluster.local:4012"
   BOOKING_HTTP: "http://booking-service.off-campus-housing-tracker.svc.cluster.local:4013"
+  # booking-service → trust-service: public username/display for tenant_id on booking lists (no JWT).
+  TRUST_HTTP: "http://trust-service.off-campus-housing-tracker.svc.cluster.local:4016"
 
   # analytics-service listing-feel: HTTP to Ollama. In-cluster pods use Linux binaries (no Apple Metal).
   # For Metal on Apple Silicon: run `ollama serve` on the Mac and apply overlays/dev/patches/analytics-service-ollama-host-metal.yaml
@@ -80,8 +88,14 @@ data:
   OLLAMA_MODEL: "llama3.2:1b"
   # Optional larger model (CPU-heavy on Colima): "llama3.2:3b" — raise ollama Deployment CPU/memory + init pull timeout.
   # Keep llama.cpp runner loaded after idle so first /api/generate is not a full 30–60s model boot (listing-feel + gateway timeouts).
-  OLLAMA_KEEP_ALIVE: "10m"
+  # Keep runner loaded longer to reduce cold-load latency on CPU-only in-cluster Ollama (listing-feel).
+  OLLAMA_KEEP_ALIVE: "24h"
   OLLAMA_LOAD_TIMEOUT: "5m"
+  # analytics-service boot: await real /api/generate warmup (must exceed worst-case cold load on Metal).
+  ANALYTICS_OLLAMA_WARMUP_GENERATE_TIMEOUT_MS: "180000"
+  # Periodic tiny generate so first real user prompt does not always pay full cold KV cost (CPU Ollama).
+  ANALYTICS_OLLAMA_KEEP_WARM_INTERVAL_MS: "180000"
+  ANALYTICS_OLLAMA_KEEP_WARM_GENERATE_TIMEOUT_MS: "45000"
   OLLAMA_NUM_PARALLEL: "2"
   OLLAMA_MAX_QUEUE: "16"
 
@@ -92,9 +106,23 @@ data:
   ANALYTICS_LISTING_FEEL_TOP_P: "0.9"
   ANALYTICS_LISTING_FEEL_REPEAT_PENALTY: "1.15"
   ANALYTICS_OLLAMA_TIMEOUT_MS: "300000"
+  # When listing-feel requests analysis_depth=quick, Ollama HTTP budget is min(ANALYTICS_OLLAMA_TIMEOUT_MS, this).
+  # Host-metal Ollama + num_predict quick can exceed 180s on CPU; align with webapp listing-feel fetch (240s) so we don't abort mid-generate.
+  ANALYTICS_LISTING_FEEL_QUICK_TIMEOUT_MS: "240000"
+  # Smaller KV cache for listing-feel quick + LI v2 quick (faster on CPU Ollama).
+  ANALYTICS_LISTING_FEEL_NUM_CTX_QUICK: "1536"
+  ANALYTICS_LI_V2_NUM_CTX_QUICK: "512"
+  # Quick legacy listing-feel: tighter predict budget + prompt caps so medium realistic prompts finish under edge timeouts.
+  ANALYTICS_LISTING_FEEL_NUM_PREDICT_QUICK: "300"
+  ANALYTICS_LISTING_FEEL_DESCRIPTION_MAX_CHARS_QUICK: "1750"
+  # Shorter description window for analysis_depth=quick (less prompt latency).
+  ANALYTICS_LISTING_INPUT_MAX_CHARS_QUICK: "2600"
   ANALYTICS_OLLAMA_RETRIES: "1"
   # Structured JSON listing intelligence (modes, depth, optional ensemble). Legacy bullet path when unset/0.
   ANALYTICS_LISTING_INTELLIGENCE_V2: "1"
+  # Quick: legacy single /api/generate (smaller num_predict) — avoids v2 JSON + repair hitting multi-minute
+  # budgets on CPU-only in-cluster Ollama when edge HAProxy/Caddy limits apply.
+  ANALYTICS_LI_V2_QUICK: "0"
   # Phase-A AI control plane defaults: observe-only until runbooks and confidence gates are validated.
   ANALYTICS_CONTROL_PLANE_MODE: "observe"   # off | observe | enforce
   ANALYTICS_CONTROL_PLANE_INTERVAL_MS: "30000"
@@ -112,6 +140,7 @@ data:
   ANALYTICS_PROMPT_ROLLBACK_MIN_QUALITY: "45"
   ANALYTICS_CANARY_PERCENT: "0"
   ANALYTICS_CANARY_MODEL: "llama3.2:3b"
+  # Shadow/compare mode still honors ANALYTICS_CANARY_PERCENT (0 = no extra canary /api/generate).
   ANALYTICS_CANARY_SHADOW: "1"
   ANALYTICS_ARBITRATION_WEIGHT_QUALITY: "0.4"
   ANALYTICS_ARBITRATION_WEIGHT_LATENCY: "0.2"
@@ -132,12 +161,10 @@ data:
   # ANALYTICS_ENSEMBLE_ENABLED: "0"
   # ANALYTICS_META_EVAL: "0"
 
-  # OpenTelemetry → Jaeger (OTLP HTTP). In pods, `KUBERNETES_SERVICE_HOST` is set, so the shared SDK
-  # defaults to the in-cluster Jaeger Service unless you override or disable it.
-  # Jaeger: observability namespace, OTLP HTTP 4318 (see infra/k8s/base/observability/jaeger-deploy.yaml).
+  # OpenTelemetry → OTLP HTTP (otel-collector in observability NS; forwards traces to Jaeger per collector config).
   # Query UI: https://off-campus-housing.test/jaeger (Caddy → jaeger:16686; QUERY_BASE_PATH=/jaeger) or MetalLB http://<ip>:16686.
   # Fallback laptop: kubectl -n observability port-forward svc/jaeger 16686:16686 → http://127.0.0.1:16686
-  OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger.observability.svc.cluster.local:4318"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability.svc.cluster.local:4318"
   # W3C tracecontext+baggage are configured in code (CompositePropagator). OTEL_PROPAGATORS is documented for operators / autoinstrumentation parity only.
   OTEL_PROPAGATORS: "tracecontext,baggage"
   # Jaeger Step7 / load labs: sample every root trace so downstream gRPC/Kafka spans are not dropped by ratio sampling.

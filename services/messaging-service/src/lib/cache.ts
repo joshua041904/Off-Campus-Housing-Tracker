@@ -22,6 +22,36 @@ async function ensureSingleflightScript(r: Redis): Promise<string> {
   return sha
 }
 
+/** Run singleflight Lua via EVALSHA; on NOSCRIPT reload once; final fallback EVAL (cold Redis / FLUSHDB). */
+async function evalSingleflight(
+  r: Redis,
+  dataKey: string,
+  lockKey: string,
+  ttlSec: number,
+): Promise<[string, string] | null> {
+  const argv = [String(ttlSec), String(Date.now()), String(SF_STALE_MS)] as const
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const sha = await ensureSingleflightScript(r)
+      return (await (r as any).evalsha(sha, 2, dataKey, lockKey, ...argv)) as [string, string]
+    } catch (err: unknown) {
+      const msg = String((err as { message?: unknown })?.message ?? err)
+      if (msg.includes('NOSCRIPT')) {
+        singleflightSha = undefined
+        continue
+      }
+      console.error('[cache singleflight]', err)
+      return null
+    }
+  }
+  try {
+    return (await (r as any).eval(SINGLEFLIGHT_SCRIPT, 2, dataKey, lockKey, ...argv)) as [string, string]
+  } catch (err: unknown) {
+    console.error('[cache singleflight eval]', err)
+    return null
+  }
+}
+
 const sha1 = (s: string) => crypto.createHash('sha1').update(s).digest('hex')
 
 function jitter(ms: number) {
@@ -91,30 +121,19 @@ export async function cached<T>(
 ): Promise<T> {
   if (!r || ttlMs <= 0) return compute()
 
-  const lockKey = `sf:lock:${key}`
+  const lockKey = `messaging:sf:lock:${sha1(key)}`
   const ttlSec = Math.ceil(ttlMs / 1000)
   let state: string | null = null
   let payload: string | null = null
 
   try {
-    const sha = await ensureSingleflightScript(r)
-    const res = (await r.evalsha(
-      sha,
-      2,
-      key,
-      lockKey,
-      String(ttlSec),
-      String(Date.now()),
-      String(SF_STALE_MS)
-    )) as unknown as [string, string]
-    state = res?.[0] ?? null
-    payload = res?.[1] ?? null
-  } catch (err: any) {
-    if (err?.message?.includes('NOSCRIPT')) {
-      singleflightSha = undefined
-    } else {
-      console.error('[cache singleflight]', err)
+    const res = await evalSingleflight(r, key, lockKey, ttlSec)
+    if (res) {
+      state = res[0] ?? null
+      payload = res[1] ?? null
     }
+  } catch {
+    /* evalSingleflight logs */
   }
 
   if (state === 'hit' && payload) {
@@ -199,4 +218,23 @@ export function makeMessagesKey(
 
 export function makeThreadKey(threadId: string, includeArchived?: boolean): string {
   return ckey(['messaging', 'thread', threadId, includeArchived ? 'ia1' : 'ia0'])
+}
+
+/** After forum vote changes, drop cached post body, comments tree, and post list pages. */
+export async function invalidateForumVoteCaches(r: Redis | null, postId: string): Promise<void> {
+  if (!r) return
+  try {
+    await r.del(makePostKey(postId)).catch(() => {})
+    await r.del(makeCommentsKey(postId)).catch(() => {})
+    const stream = r.scanStream({ match: 'messaging:posts:list:*', count: 200 })
+    await new Promise<void>((resolve, reject) => {
+      stream.on('data', (keys: string[]) => {
+        if (keys?.length) void r.del(...keys).catch(() => {})
+      })
+      stream.on('end', () => resolve())
+      stream.on('error', reject)
+    })
+  } catch (e) {
+    console.warn('[cache] invalidateForumVoteCaches', e)
+  }
 }

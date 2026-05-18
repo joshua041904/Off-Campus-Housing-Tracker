@@ -80,9 +80,6 @@ coverage/
 .nyc_output/
 *.tgz
 
-# Record-platform cluster verifier tarball (scripts/package-record-platform-cluster-verifier-bundle.sh → default $HOME; ignore copies dropped in repo)
-record-platform-och-cluster-verifier-bundle-*.tar.gz
-
 # Local dev only (copy from docs/PR_REVIEW_GRPC_HANDLER_PASTE.example.txt if you want this path)
 docs/PR_REVIEW_GRPC_HANDLER_PASTE.txt
 
