@@ -206,6 +206,36 @@ while IFS= read -r line; do
   echo "" >> "$REPORT_FILE"
 done <<< "$DB_LIST"
 
+# Cross-DB data sanity (restore regression: notifications without bookings)
+any_data_regression=0
+if psql -h "$PGHOST" -p 5443 -U "$PGUSER" -d bookings -tAc "SELECT 1" &>/dev/null && \
+   psql -h "$PGHOST" -p 5445 -U "$PGUSER" -d notification -tAc "SELECT 1" &>/dev/null; then
+  _bk_count="$(psql -h "$PGHOST" -p 5443 -U "$PGUSER" -d bookings -tA -c "SELECT count(*) FROM booking.bookings" 2>/dev/null || echo 0)"
+  _nb_count="$(psql -h "$PGHOST" -p 5445 -U "$PGUSER" -d notification -tA -c "SELECT count(*) FROM notification.notifications WHERE event_type ILIKE 'booking.%'" 2>/dev/null || echo 0)"
+  {
+    echo "---"
+    echo ""
+    echo "## Cross-DB data check"
+    echo ""
+    echo "- \`booking.bookings\` rows: **$_bk_count**"
+    echo "- \`notification\` booking.* rows: **$_nb_count**"
+    echo ""
+  } >> "$REPORT_FILE"
+  if [[ "${_nb_count:-0}" -gt 0 && "${_bk_count:-0}" -eq 0 ]]; then
+    any_data_regression=1
+    all_match=1
+    {
+      echo "❌ **Data regression** — landlord/notifications reference bookings but \`booking.bookings\` is empty."
+      echo "Re-run: \`PGPASSWORD=postgres ./scripts/restore-external-postgres-from-backup.sh backups/all-8-<stamp>\`"
+      echo "(Do **not** run \`DROP_IF_EXISTS=true bootstrap-all-dbs.sh\` after a restore — it wipes row data.)"
+      echo ""
+    } >> "$REPORT_FILE"
+  else
+    echo "✅ Bookings/notification row counts are consistent." >> "$REPORT_FILE"
+    echo "" >> "$REPORT_FILE"
+  fi
+fi
+
 # Summary
 {
   echo "---"
@@ -220,6 +250,9 @@ done <<< "$DB_LIST"
     fi
     if [[ $any_schema_mismatch -ne 0 ]]; then
       echo "❌ One or more DBs are missing expected tables. Fix bootstrap/migrations/restore before running tests."
+    fi
+    if [[ $any_data_regression -ne 0 ]]; then
+      echo "❌ Restored notification data exists without booking rows — re-run all-8 restore (see Cross-DB data check)."
     fi
     if [[ $any_connect_fail -eq 0 && $any_schema_mismatch -eq 0 ]]; then
       echo "❌ Inspection failed (see sections above)."

@@ -1,3 +1,5 @@
+import { clearReadOverlay } from "./notification-read-overlay";
+
 const KEY = "och_token";
 const EMAIL_KEY = "och_email";
 
@@ -12,6 +14,7 @@ export function getStoredToken(): string | null {
 
 export function setStoredToken(token: string): void {
   window.localStorage.setItem(KEY, token);
+  window.dispatchEvent(new Event("och:auth-changed"));
 }
 
 export function getStoredEmail(): string | null {
@@ -30,4 +33,6 @@ export function setStoredEmail(email: string): void {
 export function clearStoredToken(): void {
   window.localStorage.removeItem(KEY);
   window.localStorage.removeItem(EMAIL_KEY);
+  clearReadOverlay();
+  window.dispatchEvent(new Event("och:auth-changed"));
 }

@@ -1,6 +1,7 @@
 import * as grpc from "@grpc/grpc-js";
 import { context, propagation, trace, SpanStatusCode, type Span } from "@opentelemetry/api";
 import { grpcMetadataGetter } from "./grpc-metadata.js";
+import { normalizeEdgeProto } from "./net-protocol.js";
 import { logGrpcServerInterceptorFinish } from "./interceptor-log.js";
 import { isOchTraceDebugLogEnabled, logTraceDebug } from "./trace-debug-log.js";
 
@@ -30,7 +31,16 @@ export function createGrpcServerTracingInterceptor(): grpc.ServerInterceptor {
           onReceiveMetadata: (metadata, nextMeta) => {
             const extracted = propagation.extract(context.active(), metadata, metadataGetter);
             state.span = tracer.startSpan(`gRPC ${methodDescriptor.path}`, {}, extracted);
-            state.span.setAttribute("net.proto", "h2");
+            state.span.setAttribute("rpc.system", "grpc");
+            state.span.setAttribute("network.protocol.name", "grpc");
+            state.span.setAttribute("network.protocol.version", "2");
+            state.span.setAttribute("och.upstream_proto", "grpc");
+            const edgeHdr = metadataGetter.get(metadata, "x-och-edge-proto");
+            const edgeRaw = Array.isArray(edgeHdr) ? edgeHdr[0] : edgeHdr;
+            const edge = normalizeEdgeProto(edgeRaw != null ? String(edgeRaw) : undefined);
+            if (edge !== "unknown") {
+              state.span.setAttribute("och.edge_proto", edge);
+            }
             const dbg = metadataGetter.get(metadata, "x-debug-replay");
             const dbgVal = Array.isArray(dbg) ? dbg[0] : dbg;
             const d = String(dbgVal ?? "")

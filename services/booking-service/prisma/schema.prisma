@@ -1,7 +1,8 @@
+// Colima/k3s: Linux + OpenSSL 3 query engines (linux-arm64 + debian bookworm; same as auth-service).
 generator client {
   provider      = "prisma-client-js"
   output        = "../prisma/generated/client"
-  binaryTargets = ["native"]
+  binaryTargets = ["native", "linux-arm64-openssl-3.0.x", "debian-openssl-3.0.x"]
 }
 
 datasource db {
@@ -39,6 +40,17 @@ model Booking {
   confirmedAt DateTime? @map("confirmed_at")
   cancelledAt DateTime? @map("cancelled_at")
   completedAt DateTime? @map("completed_at")
+  expiresAt DateTime? @map("expires_at") @db.Timestamptz(6)
+  statusUpdatedAt DateTime @default(now()) @map("status_updated_at") @db.Timestamptz(6)
+  fraudScore Int? @map("fraud_score")
+  fraudFlagged Boolean @default(false) @map("fraud_flagged")
+  fraudSignals Json? @map("fraud_signals")
+  listingTitleSnapshot String? @map("listing_title_snapshot") @db.VarChar(512)
+  tenantEmailSnapshot String? @map("tenant_email_snapshot") @db.VarChar(320)
+  /// Renter username/handle from gateway at request time (optional).
+  tenantUsernameSnapshot String? @map("tenant_username_snapshot") @db.VarChar(64)
+  fraudReviewStatus String? @map("fraud_review_status") @db.VarChar(32)
+  tenantArchivedAt DateTime? @map("tenant_archived_at") @db.Timestamptz(6)
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
@@ -47,6 +59,10 @@ model Booking {
   @@index([tenantId], map: "idx_bookings_tenant_id")
   @@index([listingId], map: "idx_bookings_listing_id")
   @@index([status], map: "idx_bookings_status")
+  @@index([listingId, status], map: "idx_bookings_listing_status")
+  @@index([createdAt], map: "idx_bookings_created_at")
+  @@index([landlordId, fraudFlagged, createdAt(sort: Desc)], map: "idx_bookings_fraud_flagged_landlord")
+  @@index([tenantId, tenantArchivedAt], map: "idx_bookings_tenant_archived_at")
 }
 
 model SearchHistory {
@@ -56,6 +72,10 @@ model SearchHistory {
   minPriceCents Int?     @map("min_price_cents")
   maxPriceCents Int?     @map("max_price_cents")
   maxDistanceKm Int?     @map("max_distance_km")
+  /// Max distance from campus in miles (saved-search alerts). Distinct from legacy maxDistanceKm.
+  maxCampusMiles Float?  @map("max_campus_miles")
+  /// When true, new active listings that match this row can trigger in-app notifications.
+  alertOnMatch  Boolean  @default(false) @map("alert_on_match")
   latitude      Float?
   longitude     Float?
   filters       Json?

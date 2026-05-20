@@ -60,6 +60,9 @@ function defaultPool(sql: string): Promise<{ rows: unknown[] }> {
   if (norm.includes("FROM trust.reputation")) {
     return Promise.resolve({ rows: [{ reputation_score: 72 }] });
   }
+  if (norm.includes("FROM trust.reviews") && norm.includes("COUNT")) {
+    return Promise.resolve({ rows: [{ c: 0, avg: null }] });
+  }
   return Promise.resolve({ rows: [] });
 }
 
@@ -101,6 +104,18 @@ describe("createTrustHttpApp", () => {
     const res = await request(app).get("/metrics").expect(200);
     expect(res.headers["content-type"]).toMatch(/openmetrics|text/);
     expect(res.text.length).toBeGreaterThan(0);
+  });
+
+  it("GET /public/users/resolve — 400 without q", async () => {
+    const app = createTrustHttpApp();
+    const res = await request(app).get("/public/users/resolve").expect(400);
+    expect(String(res.body.error || "")).toMatch(/q query/i);
+  });
+
+  it("GET /public/users/resolve — 503 when auth read pool is not configured", async () => {
+    const app = createTrustHttpApp();
+    const res = await request(app).get("/public/users/resolve?q=alice").expect(503);
+    expect(String(res.body.error || "")).toMatch(/unavailable/i);
   });
 
   it("POST /flag-listing — 401 without x-user-id", async () => {
@@ -347,7 +362,12 @@ describe("createTrustHttpApp", () => {
   it("GET /reputation/:userId — 200 with score", async () => {
     const app = createTrustHttpApp();
     const res = await request(app).get(`/reputation/${targetUser}`).expect(200);
-    expect(res.body.data).toMatchObject({ user_id: targetUser, score: 72 });
+    expect(res.body.data).toMatchObject({
+      user_id: targetUser,
+      score: 72,
+      review_count: 0,
+      avg_rating: null,
+    });
   });
 
   it("GET /reputation/:userId — 200 score 0 when no row", async () => {
@@ -373,5 +393,38 @@ describe("createTrustHttpApp", () => {
     });
     const app = createTrustHttpApp();
     await request(app).get(`/reputation/${targetUser}`).expect(500);
+  });
+
+  it("GET /user-reviews/:userId — 400 invalid uuid", async () => {
+    const app = createTrustHttpApp();
+    await request(app).get("/user-reviews/not-uuid").expect(400);
+  });
+
+  it("GET /user-reviews/:userId — 200 lists rows (received)", async () => {
+    poolQuery.mockImplementation((sql: string) => {
+      const norm = sql.replace(/\s+/g, " ").trim();
+      if (norm.includes("FROM trust.reviews") && norm.includes("ORDER BY created_at DESC")) {
+        return Promise.resolve({
+          rows: [
+            {
+              id: randomUUID(),
+              booking_id: bookingId,
+              reviewer_id: reporter,
+              target_type: "user",
+              target_id: targetUser,
+              rating: 4,
+              comment: "Solid stay",
+              created_at: "2024-06-01T12:00:00.000Z",
+            },
+          ],
+        });
+      }
+      return defaultPool(sql);
+    });
+    const app = createTrustHttpApp();
+    const res = await request(app).get(`/user-reviews/${targetUser}`).expect(200);
+    expect(res.body.data.direction).toBe("received");
+    expect(res.body.data.items).toHaveLength(1);
+    expect(res.body.data.items[0].rating).toBe(4);
   });
 });

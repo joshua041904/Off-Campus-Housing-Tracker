@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" role="img" aria-label="Studio">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#fef3c7"/>
+      <stop offset="100%" stop-color="#fde68a"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="600" fill="url(#bg)"/>
+  <rect x="200" y="160" width="400" height="280" rx="20" fill="#fffbeb" stroke="#b45309" stroke-width="4"/>
+  <circle cx="400" cy="300" r="56" fill="#fcd34d"/>
+  <text x="400" y="520" text-anchor="middle" fill="#b45309" font-family="system-ui,sans-serif" font-size="28" font-weight="600">Studio</text>
+</svg>

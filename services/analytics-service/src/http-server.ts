@@ -1,6 +1,6 @@
 import express, { type Application, type NextFunction, type Request, type Response } from "express";
 import { trace, SpanStatusCode } from "@opentelemetry/api";
-import { httpCounter, register, createHttpConcurrencyGuard } from "@common/utils";
+import { httpCounter, register, createHttpConcurrencyGuard, initOchOutboxSurfaceUnsupported } from "@common/utils";
 import { checkKafkaConnectivity } from "@common/utils/kafka";
 import { inferNetProtoForSpan, mountDebugTraceHeaders, tracingMiddleware } from "@common/utils/otel";
 import { withCircuitBreaker } from "./circuitBreaker.js";
@@ -19,7 +19,9 @@ import { detectNumericContradictionInProse } from "./intelligence/analysisConsis
 import { isAIFailure } from "./aiFailure.js";
 import { classifyListingFeelHttpFailure } from "./listingFeelFailure.js";
 import { warmupOllamaFromEnv } from "./ollamaWarmup.js";
+import { startOllamaKeepWarmScheduler } from "./ollamaKeepWarm.js";
 import { getAiControlPlaneState, getPromptVersion, patchAiControlPlaneState } from "./intelligence/aiControlPlaneRuntime.js";
+import { buildListingFeelTimingTransport } from "./listing-feel-timing-transport.js";
 
 const aiTracer = trace.getTracer("och-analytics-ai");
 
@@ -35,16 +37,9 @@ function listingFeelExposeErrors(): boolean {
   );
 }
 
-/** No soft-degraded bullets — return 502 `generation_failed` with real error detail (pipe debugging). */
-function listingFeelNoDegradedMask(): boolean {
-  return (
-    process.env.ANALYTICS_LISTING_FEEL_NO_DEGRADED_MASK === "1" ||
-    process.env.ANALYTICS_LISTING_FEEL_NO_DEGRADED_MASK === "true"
-  );
-}
-
+/** Return bare 502 only when explicitly debugging; default is always soft-degraded 200 for UX. */
 function listingFeelBareErrors502(): boolean {
-  return listingFeelExposeErrors() || listingFeelNoDegradedMask();
+  return listingFeelExposeErrors();
 }
 
 function listingFeelErrorDetail(e: unknown): { detail: string; error_name?: string } {
@@ -186,6 +181,7 @@ function internalListingIngestGuard(req: Request, res: Response, next: NextFunct
 
 export function createAnalyticsHttpApp(): Application {
   const app = express();
+  initOchOutboxSurfaceUnsupported();
   app.use(tracingMiddleware);
   mountDebugTraceHeaders(app);
   app.use(express.json({ limit: "512kb" }));
@@ -393,7 +389,6 @@ export function createAnalyticsHttpApp(): Application {
         user_id: uid,
         watchlist_adds_30d: r.rows[0]?.a ?? 0,
         watchlist_removes_30d: r.rows[0]?.r ?? 0,
-        notes: "Projected from domain events; run infra/db/04-analytics-watchlist-engagement.sql and consumers.",
       });
     } catch (e) {
       console.error("[watchlist insights]", e);
@@ -434,20 +429,21 @@ export function createAnalyticsHttpApp(): Application {
       res.json({
         user_id: uid,
         items: [] as unknown[],
-        hint: "Set POSTGRES_URL_BOOKINGS on analytics-service for search-history insights (read-only).",
+        search_history_available: false,
       });
       return;
     }
     try {
       const r = await bookingReadPool.query(
-        `SELECT query, min_price_cents, max_price_cents, max_distance_km, latitude, longitude, created_at
+        `SELECT query, min_price_cents, max_price_cents, max_distance_km, max_campus_miles, alert_on_match,
+                latitude, longitude, filters, created_at
          FROM booking.search_history WHERE user_id = $1::uuid ORDER BY created_at DESC LIMIT 20`,
         [uid]
       );
       res.json({
         user_id: uid,
         items: r.rows,
-        notification_hook: "notification-service can consume dev.analytics.events for digest pushes (planned).",
+        search_history_available: true,
       });
     } catch (e) {
       console.error("[search-summary]", e);
@@ -463,6 +459,7 @@ export function createAnalyticsHttpApp(): Application {
     const price_cents = Number(body.price_cents ?? 0);
     const audience = String(body.audience || "renter");
     const analysis_depth = body.analysis_depth;
+    const listing_id = body.listing_id != null && String(body.listing_id).trim() ? String(body.listing_id).trim() : null;
     if (!title || !Number.isFinite(price_cents)) {
       res.status(400).json({ error: "title and price_cents required" });
       return;
@@ -472,7 +469,14 @@ export function createAnalyticsHttpApp(): Application {
     try {
       const out = await aiTracer.startActiveSpan("analytics.http.listing_feel", async (span) => {
         span.setAttribute("http.route", "/insights/listing-feel");
-        const o = await analyzeListingFeelText({ title, description, price_cents, audience, analysis_depth });
+        const o = await analyzeListingFeelText({
+          title,
+          description,
+          price_cents,
+          audience,
+          analysis_depth,
+          listing_id,
+        });
         span.setAttribute("ai.model", o.model_used);
         span.setAttribute("ai.fallback", String(o.model_used === "none" || o.model_used === "rule-based-fallback"));
         span.setStatus({ code: SpanStatusCode.OK });
@@ -516,7 +520,31 @@ export function createAnalyticsHttpApp(): Application {
       } catch (telErr) {
         console.warn("[listing-feel] telemetry/quality gate failed (non-fatal)", telErr);
       }
-      res.json(out);
+      const httpOverheadMs = Math.max(0, wallMs - (out.listing_feel_timing?.server_ms ?? 0));
+      const serializeT0 = Date.now();
+      const response_bytes_approx = Buffer.byteLength(JSON.stringify(out), "utf8");
+      const response_serialize_ms = Date.now() - serializeT0;
+      const listing_feel_timing = buildListingFeelTimingTransport({
+        pipelineTiming: out.listing_feel_timing,
+        requestWallMs: wallMs,
+        handlerWallMs: wallMs,
+        responseSerializeMs: response_serialize_ms,
+        modelUsed: out.model_used,
+        httpPath: req.path,
+      });
+      const listing_feel_timing_full = {
+        http_handler_wall_ms: wallMs,
+        http_gateway_overhead_ms: httpOverheadMs,
+        ...listing_feel_timing,
+        response_bytes_approx,
+      };
+      try {
+        const hdr = JSON.stringify(listing_feel_timing_full);
+        if (hdr.length <= 3900) res.setHeader("X-OCH-Listing-Feel-Timing", hdr);
+      } catch {
+        /* ignore header errors */
+      }
+      res.json({ ...out, listing_feel_timing: listing_feel_timing_full });
     } catch (e) {
       console.error("[listing-feel]", e);
       const wallMs = Date.now() - t0;
@@ -539,6 +567,12 @@ export function createAnalyticsHttpApp(): Application {
           error: "listing_feel_hard_fail",
           failure_code: fc.code,
           failure_detail: fc.detail,
+          listing_feel_timing: {
+            request_wall_ms: wallMs,
+            handler_wall_ms: wallMs,
+            failure_code: fc.code,
+            http_path: req.path,
+          },
         });
       }
       if (listingFeelBareErrors502()) {
@@ -551,6 +585,13 @@ export function createAnalyticsHttpApp(): Application {
           ...(error_name ? { error_name } : {}),
           ...(isAIFailure(e) ? { meta: e.meta } : {}),
           duration_ms: wallMs,
+          listing_feel_timing: {
+            request_wall_ms: wallMs,
+            handler_wall_ms: wallMs,
+            failure_code: fc.code,
+            http_path: req.path,
+            ollama_base_url: (process.env.OLLAMA_BASE_URL || "").replace(/\/$/, ""),
+          },
         });
       }
       if (strictEnv) {
@@ -561,6 +602,14 @@ export function createAnalyticsHttpApp(): Application {
         failure_code: fc.code,
         failure_detail: fc.detail,
       });
+      const degradedTiming = {
+        request_wall_ms: wallMs,
+        handler_wall_ms: wallMs,
+        failure_code: fc.code,
+        failure_detail: fc.detail,
+        http_path: req.path,
+        ollama_base_url: (process.env.OLLAMA_BASE_URL || "").replace(/\/$/, ""),
+      };
       try {
         recordAnalyzeTelemetry({
           route: "listing_feel",
@@ -581,7 +630,7 @@ export function createAnalyticsHttpApp(): Application {
       } catch {
         /* ignore secondary telemetry errors */
       }
-      res.status(200).json(degraded);
+      res.status(200).json({ ...degraded, listing_feel_timing: degradedTiming });
     }
   });
 
@@ -656,14 +705,24 @@ export function createAnalyticsHttpApp(): Application {
       res.status(400).json({ error: "invalid listing id" });
       return;
     }
-    const t0 = Date.now();
+    const handlerT0 = Date.now();
+    const tFetch0 = Date.now();
     let lj: Record<string, unknown> | null;
     try {
       lj = await fetchListingJsonForAnalyze(listingId);
     } catch {
-      res.status(502).json({ error: "listing upstream failed" });
+      res.status(502).json({
+        error: "listing upstream failed",
+        listing_feel_timing: {
+          request_wall_ms: Date.now() - handlerT0,
+          handler_wall_ms: Date.now() - handlerT0,
+          failure_stage: "listing_fetch",
+          http_path: req.path,
+        },
+      });
       return;
     }
+    const listing_fetch_ms = Date.now() - tFetch0;
     if (!lj) {
       res.status(404).json({ error: "listing not found" });
       return;
@@ -696,6 +755,7 @@ export function createAnalyticsHttpApp(): Application {
       const out = await aiTracer.startActiveSpan("analytics.http.analyze_listing", async (span) => {
         span.setAttribute("http.route", "/insights/listing/:listingId/analyze");
         span.setAttribute("listing.id", listingId);
+        const analyzeT0 = Date.now();
         const o = await analyzeListingFeelText({
           title,
           description,
@@ -705,7 +765,8 @@ export function createAnalyticsHttpApp(): Application {
           listing_facts,
           listing_id: listingId,
         });
-        const wallMs = Date.now() - t0;
+        const analyzePipelineMs = Date.now() - analyzeT0;
+        const wallMs = Date.now() - handlerT0;
         const fallbackUsed =
           String(o.model_used).includes("fallback") ||
           o.model_used === "none" ||
@@ -720,6 +781,8 @@ export function createAnalyticsHttpApp(): Application {
         if (ent != null) span.setAttribute("ai.entropy", ent);
         if (conf != null) span.setAttribute("ai.confidence", conf);
         span.setAttribute("ai.latency_ms", wallMs);
+        span.setAttribute("ai.analyze_pipeline_ms", analyzePipelineMs);
+        span.setAttribute("ai.listing_fetch_ms", listing_fetch_ms);
         span.setStatus({ code: SpanStatusCode.OK });
         recordAnalyzeTelemetry({
           route: "analyze_listing",
@@ -750,7 +813,7 @@ export function createAnalyticsHttpApp(): Application {
           span.setAttribute("ai.quality_low", gate.low);
           span.setStatus({ code: SpanStatusCode.OK });
         });
-        return { o, wallMs, fallbackUsed, ent };
+        return { o, wallMs, fallbackUsed, ent, analyzePipelineMs };
       });
       let intelligence: unknown = null;
       if (out.o.intelligence_json) {
@@ -760,7 +823,8 @@ export function createAnalyticsHttpApp(): Application {
           intelligence = null;
         }
       }
-      res.json({
+      const serializeT0 = Date.now();
+      const payloadBody = {
         listing_id: listingId,
         analysis_text: out.o.analysis_text,
         model_used: out.o.model_used,
@@ -772,14 +836,48 @@ export function createAnalyticsHttpApp(): Application {
         _meta: {
           fallback_used: out.fallbackUsed,
           request_latency_ms: out.wallMs,
+          analyze_pipeline_ms: out.analyzePipelineMs,
+          listing_fetch_ms,
           ...(out.o.generation_meta ?? {}),
           latency_ms: out.o.generation_meta?.latency_ms ?? out.wallMs,
         },
+      };
+      const response_serialize_ms = Date.now() - serializeT0;
+      const listing_feel_timing = buildListingFeelTimingTransport({
+        pipelineTiming: out.o.listing_feel_timing,
+        requestWallMs: out.wallMs,
+        handlerWallMs: out.wallMs,
+        responseSerializeMs: response_serialize_ms,
+        modelUsed: out.o.model_used,
+        httpPath: req.path,
+        listingFetchMs: listing_fetch_ms,
       });
+      const listing_feel_timing_full = {
+        ...listing_feel_timing,
+        analyze_pipeline_ms: out.analyzePipelineMs,
+        prompt_build_ms: out.o.listing_feel_timing?.prompt_build_ms,
+        ollama_http_ms: listing_feel_timing.ollama_http_ms,
+      };
+      try {
+        const hdr = JSON.stringify(listing_feel_timing_full);
+        if (hdr.length <= 3900) res.setHeader("X-OCH-Listing-Feel-Timing", hdr);
+      } catch {
+        /* ignore */
+      }
+      res.json({ ...payloadBody, listing_feel_timing: listing_feel_timing_full });
     } catch (e) {
       console.error("[listing-analyze]", e);
-      const wallMs = Date.now() - t0;
+      const wallMs = Date.now() - handlerT0;
       const fc = classifyListingFeelHttpFailure(e);
+      const failTiming = {
+        request_wall_ms: wallMs,
+        handler_wall_ms: wallMs,
+        failure_code: fc.code,
+        failure_detail: fc.detail,
+        listing_fetch_ms,
+        http_path: req.path,
+        ollama_base_url: (process.env.OLLAMA_BASE_URL || "").replace(/\/$/, ""),
+      };
       if (listingFeelBareErrors502()) {
         try {
           analyticsListingFeelCatchTotal.inc({ code: fc.code });
@@ -796,10 +894,11 @@ export function createAnalyticsHttpApp(): Application {
           ...(isAIFailure(e) ? { meta: e.meta } : {}),
           listing_id: listingId,
           duration_ms: wallMs,
+          listing_feel_timing: failTiming,
         });
         return;
       }
-      res.status(500).json({ error: String((e as Error)?.message || "internal") });
+      res.status(500).json({ error: String((e as Error)?.message || "internal"), listing_feel_timing: failTiming });
     }
   };
 
@@ -872,10 +971,18 @@ export function createAnalyticsHttpApp(): Application {
   return app;
 }
 
-export function startAnalyticsHttpServer(port: number): void {
+export async function startAnalyticsHttpServer(port: number): Promise<void> {
+  await warmupOllamaFromEnv();
   const app = createAnalyticsHttpApp();
-  app.listen(port, "0.0.0.0", () => {
-    console.log(`[analytics HTTP] listening on ${port}`);
-    void warmupOllamaFromEnv();
+  await new Promise<void>((resolve) => {
+    app.listen(port, "0.0.0.0", () => {
+      console.log(`[analytics HTTP] listening on ${port}`);
+      resolve();
+    });
   });
+  const stopKeepWarm = startOllamaKeepWarmScheduler();
+  if (stopKeepWarm) {
+    process.on("SIGTERM", stopKeepWarm);
+    process.on("SIGINT", stopKeepWarm);
+  }
 }

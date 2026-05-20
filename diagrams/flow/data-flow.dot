@@ -3,7 +3,7 @@ digraph dataflow {
   graph [fontname="Helvetica", fontsize=11];
   node [fontname="Helvetica"];
   edge [fontname="Helvetica", fontsize=9];
-  graph [rankdir=LR, fontsize=11, label="Cross-service data flow (curated: HTTP/gRPC + Kafka)", labelloc=t];
+  graph [rankdir=LR, fontsize=11, label="Cross-service data flow (HTTP/gRPC + Kafka + OTEL + Prometheus + Ollama)", labelloc=t];
   node [shape=box, style=rounded, fontname="Helvetica"];
   edge [fontname="Helvetica", fontsize=9];
   subgraph cluster_edge {
@@ -25,6 +25,12 @@ digraph dataflow {
     media [label="Media", shape=box, style="rounded,filled", fillcolor="#ccffcc"];
     event_layer [label="Event layer", shape=box, style="rounded,filled", fillcolor="#c8e6c9"];
   }
+  subgraph cluster_llm {
+    label="Optional LLM";
+    style=rounded;
+    ollama [label="Ollama
+(listing-feel)", shape=box, style="rounded,filled", fillcolor="#e8eaf6"];
+  }
   subgraph cluster_data {
     label="Data plane";
     style=rounded;
@@ -41,12 +47,25 @@ digraph dataflow {
       }
     }
   }
+  subgraph cluster_observe {
+    label="Observability";
+    style=rounded;
+    prometheus [label="Prometheus
++ alert rules", shape=box, style="rounded,filled", fillcolor="#eceff1"];
+    jaeger [label="Jaeger
+(OTLP traces)", shape=box, style="rounded,filled", fillcolor="#fff3e0"];
+  }
   caddy -> gateway [label="TLS terminate"];
-  gateway -> auth [label="HTTP/gRPC"];
-  gateway -> listings [label="HTTP/gRPC"];
-  gateway -> bookings [label="HTTP/gRPC"];
-  gateway -> messaging [label="HTTP/gRPC"];
-  gateway -> media [label="HTTP/gRPC"];
+  gateway -> auth [label="HTTP/gRPC + OTEL
+(gRPC interceptors)"];
+  gateway -> listings [label="HTTP/gRPC + OTEL
+(gRPC interceptors)"];
+  gateway -> bookings [label="HTTP/gRPC + OTEL
+(gRPC interceptors)"];
+  gateway -> messaging [label="HTTP/gRPC + OTEL
+(gRPC interceptors)"];
+  gateway -> media [label="HTTP/gRPC + OTEL
+(gRPC interceptors)"];
   listings -> postgres_fleet [label="SQL"];
   bookings -> postgres_fleet [label="SQL"];
   messaging -> postgres_fleet [label="SQL"];
@@ -62,4 +81,12 @@ digraph dataflow {
   kb0 -> analytics [style=dashed, label="consume"];
   kb0 -> notification [style=dashed, label="consume"];
   kb0 -> trust [style=dashed, label="consume"];
+  analytics -> ollama [style=dashed, label="HTTP
+(listing-feel)"];
+  gateway -> prometheus [style=dotted, color="#666666", label="/metrics scrape"];
+  gateway -> jaeger [style=dotted, color="#666666", label="OTLP traces"];
+  kb0 -> jaeger [style=dotted, color="#666666", label="trace headers
+on records"];
+  postgres_fleet -> prometheus [style=dotted, color="#666666", label="exporter / sql metrics"];
+  analytics -> prometheus [style=dotted, color="#666666", label="/metrics"];
 }

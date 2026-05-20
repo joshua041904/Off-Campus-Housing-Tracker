@@ -1,7 +1,8 @@
 import { Router, type Request, type Response } from 'express'
 import type Redis from 'ioredis'
 import type { AuthedRequest } from '../lib/auth.js'
-import { cached, makePostKey, makePostsListKey, makeCommentsKey } from '../lib/cache.js'
+import { cached, invalidateForumVoteCaches, makeCommentsKey, makePostsListKey } from '../lib/cache.js'
+import { applyCommentVote, applyPostVote } from '../lib/forumVotes.js'
 import { pool } from '../lib/db.js'
 import { kafka } from '@common/utils/kafka'
 import { buildMetadata, sendMessagingEvent } from '../kafkaMessagingEvents.js'
@@ -117,6 +118,7 @@ export default function forumRouter(redis: Redis | null, cpuCores: number) {
         created_at: createdAt,
       })
 
+      void invalidateForumVoteCaches(redis, post.id)
       res.status(201).json(post)
     } catch (err: any) {
       console.error('[messaging] Error creating post:', err)
@@ -197,39 +199,35 @@ export default function forumRouter(redis: Redis | null, cpuCores: number) {
     }
   })
 
-  // GET /forum/posts/:postId - Get post details
-  router.get('/posts/:postId', async (req: Request, res: Response) => {
+  // GET /forum/posts/:postId - Get post details (no Redis cache: includes per-user vote state)
+  router.get('/posts/:postId', async (req: AuthedRequest, res: Response) => {
     const { postId } = req.params
+    const userId = req.userId
 
-    const cacheKey = makePostKey(postId)
-    const result = await cached(
-      redis,
-      cacheKey,
-      120_000, // 2 minute cache
-      async () => {
-        try {
-          const query = `
-            SELECT 
-              id, user_id, title, content, flair, upload_type, upvotes, downvotes,
-              comment_count, is_pinned, is_locked, created_at, updated_at
-            FROM forum.posts
-            WHERE id = $1
-          `
-          const { rows } = await pool.query(query, [postId])
+    try {
+      const query = `
+        SELECT 
+          p.id, p.user_id, p.title, p.content, p.flair, p.upload_type, p.upvotes, p.downvotes,
+          p.comment_count, p.is_pinned, p.is_locked, p.created_at, p.updated_at,
+          (SELECT v.vote_type FROM forum.post_votes v WHERE v.post_id = p.id AND v.user_id = $2::uuid) AS user_vote
+        FROM forum.posts p
+        WHERE p.id = $1::uuid
+      `
+      const { rows } = await pool.query(query, [postId, userId])
 
-          if (rows.length === 0) {
-            throw new Error('Post not found')
-          }
-
-          return rows[0]
-        } catch (err) {
-          console.error('[messaging] Error fetching post:', err)
-          throw err
-        }
+      if (rows.length === 0) {
+        res.status(404).json({ error: 'Post not found' })
+        return
       }
-    )
 
-    res.json(result)
+      const row = rows[0] as Record<string, unknown>
+      const uv = row.user_vote === 'up' || row.user_vote === 'down' ? row.user_vote : null
+      const { user_vote: _ignore, ...rest } = row
+      res.json({ ...rest, user_vote: uv })
+    } catch (err) {
+      console.error('[messaging] Error fetching post:', err)
+      res.status(500).json({ error: 'Failed to fetch post' })
+    }
   })
 
   // PUT /forum/posts/:postId - Update post (author only)
@@ -273,6 +271,7 @@ export default function forumRouter(redis: Redis | null, cpuCores: number) {
       `
       const { rows } = await pool.query(updateQuery, [title, content, flair, validUploadType, postId])
 
+      void invalidateForumVoteCaches(redis, postId)
       res.json(rows[0])
     } catch (err) {
       console.error('[messaging] Error updating post:', err)
@@ -299,6 +298,7 @@ export default function forumRouter(redis: Redis | null, cpuCores: number) {
       }
 
       await pool.query('DELETE FROM forum.posts WHERE id = $1', [postId])
+      void invalidateForumVoteCaches(redis, postId)
       res.status(204).end()
     } catch (err) {
       console.error('[messaging] Error deleting post:', err)
@@ -308,40 +308,41 @@ export default function forumRouter(redis: Redis | null, cpuCores: number) {
 
   // POST /forum/posts/:postId/vote - Upvote/downvote post
   router.post('/posts/:postId/vote', async (req: AuthedRequest, res: Response) => {
-    const { postId } = req.params
-    const { vote } = req.body // 'up' or 'down'
+    const postId = req.params.postId
     const userId = req.userId
+    const { vote } = req.body // 'up' or 'down'
+
+    if (!userId) {
+      return res.status(401).json({ error: 'auth required' })
+    }
+    if (!postId) {
+      return res.status(400).json({ error: 'postId required' })
+    }
 
     if (!vote || !['up', 'down'].includes(vote)) {
       return res.status(400).json({ error: 'vote must be "up" or "down"' })
     }
 
+    const client = await pool.connect()
     try {
-      // Upsert vote (ON CONFLICT updates existing vote)
-      await pool.query(
-        `INSERT INTO forum.post_votes (post_id, user_id, vote_type)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (post_id, user_id) 
-         DO UPDATE SET vote_type = $3, created_at = now()`,
-        [postId, userId, vote]
-      )
-
-      // Get updated vote counts
-      const { rows } = await pool.query(
-        'SELECT upvotes, downvotes FROM forum.posts WHERE id = $1',
-        [postId]
-      )
-
+      await client.query('BEGIN')
+      const out = await applyPostVote(client, postId, userId, vote as 'up' | 'down')
+      await client.query('COMMIT')
+      void invalidateForumVoteCaches(redis, postId)
       res.json({
-        post_id: postId,
-        user_id: userId,
-        vote,
-        upvotes: rows[0]?.upvotes || 0,
-        downvotes: rows[0]?.downvotes || 0,
+        post_id: out.post_id,
+        user_id: out.user_id,
+        vote: out.user_vote,
+        upvotes: out.upvotes,
+        downvotes: out.downvotes,
+        user_vote: out.user_vote,
       })
     } catch (err) {
+      await client.query('ROLLBACK').catch(() => {})
       console.error('[messaging] Error voting on post:', err)
       res.status(500).json({ error: 'Failed to vote on post' })
+    } finally {
+      client.release()
     }
   })
 
@@ -446,6 +447,7 @@ export default function forumRouter(redis: Redis | null, cpuCores: number) {
         created_at: createdAt,
       })
 
+      void invalidateForumVoteCaches(redis, postId)
       res.status(201).json(comment)
     } catch (err: any) {
       console.error('[messaging] Error creating comment:', err)
@@ -500,7 +502,7 @@ export default function forumRouter(redis: Redis | null, cpuCores: number) {
     try {
       // Verify author owns the comment
       const checkQuery = await pool.query(
-        'SELECT user_id FROM forum.comments WHERE id = $1',
+        'SELECT user_id, post_id FROM forum.comments WHERE id = $1',
         [commentId]
       )
       if (checkQuery.rows.length === 0) {
@@ -510,7 +512,9 @@ export default function forumRouter(redis: Redis | null, cpuCores: number) {
         return res.status(403).json({ error: 'You can only delete your own comments' })
       }
 
+      const pid = String(checkQuery.rows[0].post_id || '')
       await pool.query('DELETE FROM forum.comments WHERE id = $1', [commentId])
+      void invalidateForumVoteCaches(redis, pid)
       res.status(204).end()
     } catch (err) {
       console.error('[messaging] Error deleting comment:', err)
@@ -520,40 +524,46 @@ export default function forumRouter(redis: Redis | null, cpuCores: number) {
 
   // POST /forum/comments/:commentId/vote - Vote on comment
   router.post('/comments/:commentId/vote', async (req: AuthedRequest, res: Response) => {
-    const { commentId } = req.params
-    const { vote } = req.body
+    const commentId = req.params.commentId
     const userId = req.userId
+    const { vote } = req.body
+
+    if (!userId) {
+      return res.status(401).json({ error: 'auth required' })
+    }
+    if (!commentId) {
+      return res.status(400).json({ error: 'commentId required' })
+    }
 
     if (!vote || !['up', 'down'].includes(vote)) {
       return res.status(400).json({ error: 'vote must be "up" or "down"' })
     }
 
+    const client = await pool.connect()
     try {
-      // Upsert vote
-      await pool.query(
-        `INSERT INTO forum.comment_votes (comment_id, user_id, vote_type)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (comment_id, user_id) 
-         DO UPDATE SET vote_type = $3, created_at = now()`,
-        [commentId, userId, vote]
-      )
-
-      // Get updated vote counts
-      const { rows } = await pool.query(
-        'SELECT upvotes, downvotes FROM forum.comments WHERE id = $1',
-        [commentId]
-      )
-
+      await client.query('BEGIN')
+      const out = await applyCommentVote(client, commentId, userId, vote as 'up' | 'down')
+      await client.query('COMMIT')
+      void invalidateForumVoteCaches(redis, out.post_id)
       res.json({
-        comment_id: commentId,
-        user_id: userId,
-        vote,
-        upvotes: rows[0]?.upvotes || 0,
-        downvotes: rows[0]?.downvotes || 0,
+        comment_id: out.comment_id,
+        user_id: out.user_id,
+        vote: out.user_vote,
+        upvotes: out.upvotes,
+        downvotes: out.downvotes,
+        user_vote: out.user_vote,
       })
-    } catch (err) {
+    } catch (err: unknown) {
+      await client.query('ROLLBACK').catch(() => {})
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg === 'COMMENT_NOT_FOUND') {
+        res.status(404).json({ error: 'Comment not found' })
+        return
+      }
       console.error('[messaging] Error voting on comment:', err)
-      res.status(500).json({ error: 'Failed to vote on comment'       })
+      res.status(500).json({ error: 'Failed to vote on comment' })
+    } finally {
+      client.release()
     }
   })
 

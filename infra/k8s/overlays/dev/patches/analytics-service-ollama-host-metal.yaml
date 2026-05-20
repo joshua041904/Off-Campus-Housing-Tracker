@@ -1,12 +1,8 @@
-# Dev overlay (Mac / Colima): analytics talks to host Ollama (Apple Silicon uses Metal automatically in the native macOS `ollama` binary), not in-cluster Linux Ollama (CPU-only in the VM).
-# Prerequisites: `ollama serve` on the Mac; pods resolve host.docker.internal (see scripts/colima-apply-host-aliases.sh).
+# Dev overlay (Mac / Colima): analytics uses host `ollama serve` (Metal) instead of in-cluster Linux Ollama (CPU).
+# Pods must resolve host.docker.internal (Colima/Docker Desktop; see scripts/colima-apply-host-aliases.sh).
 #
-# ANALYTICS_DEV_FAST_MODE=1 disables Listing Intelligence v2 in-process (plain `/api/generate` like `ollama run`).
-# To exercise JSON v2 + repair on host Metal anyway, add: ANALYTICS_LI_V2_IN_DEV_FAST: "1"
-#
-# For deliberate in-cluster CPU Ollama testing, remove this entry from overlays/dev/kustomization.yaml patches:
-#   - path: patches/analytics-service-ollama-host-metal.yaml
-# or temporarily: make ollama-env-cluster
+# Intentionally does NOT set ANALYTICS_DEV_FAST_MODE — keep app-config / Listing Intelligence v2 behavior;
+# only the upstream HTTP target changes.
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -21,22 +17,3 @@ spec:
           env:
             - name: OLLAMA_BASE_URL
               value: "http://host.docker.internal:11434"
-            - name: ANALYTICS_DEV_FAST_MODE
-              value: "1"
-            - name: ANALYTICS_DEV_FAST_MAX_GENERATION_TOKENS
-              value: "560"
-            - name: ANALYTICS_LISTING_FEEL_NUM_PREDICT
-              value: "560"
-            - name: ANALYTICS_LISTING_FEEL_NUM_CTX
-              value: "2048"
-            - name: ANALYTICS_OLLAMA_TIMEOUT_MS
-              value: "90000"
-            # Pipe debugging: real 502 errors, no soft-degraded 200; optional no client abort + minimal Ollama endpoint
-            - name: ANALYTICS_LISTING_FEEL_NO_DEGRADED_MASK
-              value: "1"
-            - name: ANALYTICS_LISTING_FEEL_NO_RULE_FALLBACK
-              value: "1"
-            - name: ANALYTICS_LISTING_FEEL_FETCH_NO_ABORT
-              value: "1"
-            - name: ANALYTICS_LISTING_FEEL_MINIMAL_ENDPOINT
-              value: "1"

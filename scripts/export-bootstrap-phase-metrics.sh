@@ -6,6 +6,9 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=scripts/lib/och-run-id.sh
+source "$ROOT/scripts/lib/och-run-id.sh"
+RUN_ID="${VERIFY_BOOTSTRAP_RUN_ID:-$(och_read_run_id "$ROOT")}"
 TIMING="${VERIFY_BOOTSTRAP_TIMING_JSON:-$ROOT/bench_logs/bootstrap_phase_timings.json}"
 OUT="${VERIFY_BOOTSTRAP_PROM_OUT:-$ROOT/bench_logs/bootstrap_phase_metrics.prom}"
 GRAPH="${VERIFY_BOOTSTRAP_GRAPH:-$ROOT/infra/bootstrap_invariants.graph.json}"
@@ -16,12 +19,14 @@ OUT_TMP="${OUT}.tmp.$$"
 export OUT_TMP
 trap 'rm -f "$OUT_TMP"' EXIT
 
-TIMING="$TIMING" OUT_TMP="$OUT_TMP" GRAPH="$GRAPH" python3 <<'PY'
+TIMING="$TIMING" OUT_TMP="$OUT_TMP" GRAPH="$GRAPH" RUN_ID="$RUN_ID" python3 <<'PY'
 import json, os, re
 
 timing_path = os.environ["TIMING"]
 out_path = os.environ["OUT_TMP"]
 graph_path = os.environ.get("GRAPH", "")
+run_id = (os.environ.get("RUN_ID") or "unknown").strip() or "unknown"
+run_esc = run_id.replace("\\", "\\\\").replace('"', '\\"')
 safe_label = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 try:
@@ -44,7 +49,7 @@ for k, v in data.items():
         continue
     ms = int(v)
     esc = k.replace("\\", "\\\\").replace('"', '\\"')
-    lines.append(f'bootstrap_phase_duration_ms{{phase="{esc}"}} {ms}')
+    lines.append(f'bootstrap_phase_duration_ms{{phase="{esc}",run_id="{run_esc}",status="ok"}} {ms}')
     pairs.append((k, ms))
 
 # Longest weighted path in the invariant DAG (sum of phase ms on chain) + chain length (nodes).
@@ -142,12 +147,12 @@ if pairs:
 
 if cp_tip:
     esc = cp_tip.replace("\\", "\\\\").replace('"', '\\"')
-    lines.append(f"bootstrap_critical_path_ms {cp_sum}")
-    lines.append(f"bootstrap_critical_path_length_nodes {cp_len}")
-    lines.append(f'bootstrap_critical_path_phase_info{{phase="{esc}"}} 1')
+    lines.append(f'bootstrap_critical_path_ms{{run_id="{run_esc}"}} {cp_sum}')
+    lines.append(f'bootstrap_critical_path_length_nodes{{run_id="{run_esc}"}} {cp_len}')
+    lines.append(f'bootstrap_critical_path_phase_info{{phase="{esc}",run_id="{run_esc}"}} 1')
 else:
-    lines.append("bootstrap_critical_path_ms 0")
-    lines.append("bootstrap_critical_path_length_nodes 0")
+    lines.append(f'bootstrap_critical_path_ms{{run_id="{run_esc}"}} 0')
+    lines.append(f'bootstrap_critical_path_length_nodes{{run_id="{run_esc}"}} 0')
 
 with open(out_path, "w", encoding="utf-8") as fh:
     fh.write("\n".join(lines) + "\n")
@@ -180,3 +185,10 @@ trap - EXIT
 rm -f "$OUT_TMP"
 
 echo "$OUT"
+
+if [[ "${OCH_PUSH_BOOTSTRAP_PHASE:-1}" == "1" ]] && [[ -f "$OUT" ]]; then
+  chmod +x "$ROOT/scripts/lib/push-och-prom.sh" 2>/dev/null || true
+  OCH_PUSHGATEWAY_JOB="${OCH_PUSHGATEWAY_JOB:-bootstrap-phase}" \
+    OCH_PUSHGATEWAY_INSTANCE="${OCH_PUSHGATEWAY_INSTANCE:-$RUN_ID}" \
+    bash "$ROOT/scripts/lib/push-och-prom.sh" "$OUT" || echo "export-bootstrap-phase-metrics: push skipped/failed (non-fatal)" >&2
+fi

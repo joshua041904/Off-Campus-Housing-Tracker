@@ -29,7 +29,12 @@ export async function setJtiRevoked(
     return;
   }
   if (!redis) return;
-  await redis.set(`revoked:${jti}`, "1", { EX: ttl });
+  const legacy = `revoked:${jti}`;
+  const canonical = `och:auth:jti:revoked:${jti}`;
+  await Promise.all([
+    redis.set(canonical, "1", { EX: ttl }),
+    redis.set(legacy, "1", { EX: ttl }),
+  ]);
 }
 
 export async function isJtiRevoked(
@@ -48,8 +53,11 @@ export async function isJtiRevoked(
   }
   if (!redis) return false;
   try {
-    const revoked = await redis.get(`revoked:${jti}`);
-    return Boolean(revoked);
+    const [a, b] = await Promise.all([
+      redis.get(`och:auth:jti:revoked:${jti}`),
+      redis.get(`revoked:${jti}`),
+    ]);
+    return Boolean(a || b);
   } catch {
     return false;
   }

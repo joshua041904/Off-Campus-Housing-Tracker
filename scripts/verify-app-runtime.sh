@@ -25,6 +25,10 @@ cd "$REPO_ROOT"
 CONFIG="${VERIFY_APP_RUNTIME_CONFIG:-$REPO_ROOT/infra/app_runtime_services.json}"
 PROM_OUT="${VERIFY_APP_RUNTIME_PROM_OUT:-$REPO_ROOT/bench_logs/app_runtime_metrics.prom}"
 HISTORY_OUT="${VERIFY_APP_RUNTIME_HISTORY:-$REPO_ROOT/bench_logs/app_runtime_history.jsonl}"
+# shellcheck source=scripts/lib/och-run-id.sh
+source "$REPO_ROOT/scripts/lib/och-run-id.sh"
+RUN_ID="${VERIFY_APP_RUNTIME_RUN_ID:-$(och_read_run_id "$REPO_ROOT")}"
+export RUN_ID
 
 # cold | warm | unknown — used only for JSONL history / cold-vs-warm reports (not gating).
 case "${VERIFY_APP_RUNTIME_PHASE:-}" in
@@ -359,7 +363,7 @@ svc_json_from_legacy_line() {
 _write_prom_file() {
   local tmp_dir="$1" out="$2"
   mkdir -p "$(dirname "$out")"
-  METRIC_TMP_DIR="$tmp_dir" OUT="$out" NS="$NS" MODE="${VERIFY_APP_RUNTIME_MODE:-normal}" PHASE="$APP_RUNTIME_PHASE" \
+  METRIC_TMP_DIR="$tmp_dir" OUT="$out" NS="$NS" MODE="${VERIFY_APP_RUNTIME_MODE:-normal}" PHASE="$APP_RUNTIME_PHASE" RUN_ID="$RUN_ID" \
     APP_RUNTIME_CFG="${APP_RUNTIME_CFG:-}" APP_RUNTIME_LEGACY_SERVICES="${APP_RUNTIME_LEGACY_SERVICES:-0}" python3 <<'PY'
 import collections, glob, json, math, os
 
@@ -397,6 +401,7 @@ out = os.environ["OUT"]
 ns = esc_label(os.environ["NS"])
 mode = esc_label((os.environ.get("MODE") or "normal").strip() or "normal")
 phase = esc_label((os.environ.get("PHASE") or "unknown").strip() or "unknown")
+run_id = esc_label((os.environ.get("RUN_ID") or "unknown").strip() or "unknown")
 tmpdir = os.environ["METRIC_TMP_DIR"]
 lines = [
     "# HELP app_runtime_ready Service passed rollout + configured readiness probe (1=ok, 0=fail).",
@@ -426,15 +431,15 @@ for path in sorted(glob.glob(os.path.join(tmpdir, "*.json"))):
     lat = int(d["latency_ms"])
     latencies.append(lat)
     rows.append((name, ready, lat))
-    lines.append(f'app_runtime_ready{{service="{name}",namespace="{ns}"}} {ready}')
-    lines.append(f'app_runtime_latency_ms{{service="{name}",namespace="{ns}"}} {lat}')
+    lines.append(f'app_runtime_ready{{service="{name}",namespace="{ns}",run_id="{run_id}"}} {ready}')
+    lines.append(f'app_runtime_latency_ms{{service="{name}",namespace="{ns}",run_id="{run_id}"}} {lat}')
     prot = str(d.get("protocol") or "").strip().lower()
     if ready == 1 and prot in ("http", "grpc"):
         lines.append(
-            f'app_runtime_health_used_protocol{{service="{name}",namespace="{ns}",protocol="{prot}",mode="{mode}",phase="{phase}"}} 1'
+            f'app_runtime_health_used_protocol{{service="{name}",namespace="{ns}",protocol="{prot}",mode="{mode}",phase="{phase}",run_id="{run_id}"}} 1'
         )
     sec = lat / 1000.0
-    inner = f'service="{name}",namespace="{ns}",mode="{mode}",phase="{phase}"'
+    inner = f'service="{name}",namespace="{ns}",mode="{mode}",phase="{phase}",run_id="{run_id}"'
     lines.extend(histogram_triplet_lines("app_runtime_service_latency_seconds", inner, sec))
 
 latencies.sort()
@@ -450,10 +455,10 @@ lines.extend(
     [
         "# HELP app_runtime_latency_percentile_ms Nearest-rank percentile of per-service wall times (ms) in this run (all services).",
         "# TYPE app_runtime_latency_percentile_ms gauge",
-        f'app_runtime_latency_percentile_ms{{quantile="0.50",namespace="{ns}",mode="{mode}"}} {p50}',
-        f'app_runtime_latency_percentile_ms{{quantile="0.95",namespace="{ns}",mode="{mode}"}} {p95}',
-        f'app_runtime_latency_percentile_ms{{quantile="0.99",namespace="{ns}",mode="{mode}"}} {p99}',
-        f'app_runtime_latency_percentile_ms{{quantile="1.00",namespace="{ns}",mode="{mode}"}} {p100}',
+        f'app_runtime_latency_percentile_ms{{quantile="0.50",namespace="{ns}",mode="{mode}",run_id="{run_id}"}} {p50}',
+        f'app_runtime_latency_percentile_ms{{quantile="0.95",namespace="{ns}",mode="{mode}",run_id="{run_id}"}} {p95}',
+        f'app_runtime_latency_percentile_ms{{quantile="0.99",namespace="{ns}",mode="{mode}",run_id="{run_id}"}} {p99}',
+        f'app_runtime_latency_percentile_ms{{quantile="1.00",namespace="{ns}",mode="{mode}",run_id="{run_id}"}} {p100}',
     ]
 )
 
@@ -463,7 +468,7 @@ lines.append(
 )
 lines.append("# TYPE app_runtime_run_latency_distribution_seconds histogram")
 lat_sec = [x / 1000.0 for x in latencies]
-run_inner = f'namespace="{ns}",mode="{mode}",phase="{phase}"'
+run_inner = f'namespace="{ns}",mode="{mode}",phase="{phase}",run_id="{run_id}"'
 if lat_sec:
     prev_c = 0
     for b in BUCKETS_SEC:
@@ -529,18 +534,18 @@ if cfg_path and os.path.isfile(cfg_path) and not legacy:
             mx = max((cp[d] for d in pred), default=0)
             cp[u] = dur.get(u, 0) + mx
     dag_max = max(cp.values()) if cp else 0
-    lines.append(f'app_runtime_critical_path_ms{{namespace="{ns}",mode="{mode}",phase="{phase}"}} {dag_max}')
+    lines.append(f'app_runtime_critical_path_ms{{namespace="{ns}",mode="{mode}",phase="{phase}",run_id="{run_id}"}} {dag_max}')
     for n in nodes:
         cpn = esc_label(n)
         lines.append(
-            f'app_runtime_service_critical_path_ms{{service="{cpn}",namespace="{ns}",mode="{mode}",phase="{phase}"}} {cp.get(n, 0)}'
+            f'app_runtime_service_critical_path_ms{{service="{cpn}",namespace="{ns}",mode="{mode}",phase="{phase}",run_id="{run_id}"}} {cp.get(n, 0)}'
         )
     for n in nodes:
         for d in deps.get(n, []):
             dn = esc_label(d)
             nn = esc_label(n)
             lines.append(
-                f'app_runtime_dependency_latency_ms{{from="{dn}",to="{nn}",namespace="{ns}",mode="{mode}",phase="{phase}"}} {dur.get(n, 0)}'
+                f'app_runtime_dependency_latency_ms{{from="{dn}",to="{nn}",namespace="{ns}",mode="{mode}",phase="{phase}",run_id="{run_id}"}} {dur.get(n, 0)}'
             )
     dag_payload = {"critical_path_ms": dag_max, "service_critical_path_ms": cp, "namespace": ns}
 
@@ -754,6 +759,13 @@ while true; do
 done
 
 _write_prom_file "$TMP_DIR" "$PROM_OUT"
+if [[ "${OCH_PUSH_APP_RUNTIME:-1}" == "1" ]] && [[ -f "$PROM_OUT" ]]; then
+  chmod +x "$REPO_ROOT/scripts/lib/push-och-prom.sh" 2>/dev/null || true
+  OCH_PUSHGATEWAY_JOB="${OCH_PUSHGATEWAY_JOB:-app-runtime}" \
+    OCH_PUSHGATEWAY_INSTANCE="${OCH_PUSHGATEWAY_INSTANCE:-$RUN_ID}" \
+    bash "$REPO_ROOT/scripts/lib/push-och-prom.sh" "$PROM_OUT" >/dev/null \
+      || echo "verify-app-runtime: pushgateway push skipped/failed (non-fatal)" >&2
+fi
 
 errors=("${_wave_errors[@]}")
 if [[ "${#errors[@]}" -eq 0 ]]; then

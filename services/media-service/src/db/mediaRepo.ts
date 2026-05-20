@@ -60,6 +60,8 @@ export interface MediaRow {
   status: 'pending' | 'uploaded' | 'failed'
   created_at: Date
   updated_at: Date
+  /** Bytes stored in DB when object_key starts with inline/ */
+  inline_byte_len: number
 }
 
 export async function insertPending(
@@ -87,7 +89,8 @@ export async function setUploaded(id: string, client?: pg.PoolClient): Promise<v
 
 export async function getById(id: string): Promise<MediaRow | null> {
   const r = await pool.query(
-    `SELECT id, user_id, object_key, filename, content_type, size_bytes, status, created_at, updated_at
+    `SELECT id, user_id, object_key, filename, content_type, size_bytes, status, created_at, updated_at,
+            COALESCE(octet_length(inline_bytes), 0)::int AS inline_byte_len
      FROM media.media_files WHERE id = $1`,
     [id]
   )
@@ -103,7 +106,26 @@ export async function getById(id: string): Promise<MediaRow | null> {
     status: row.status,
     created_at: row.created_at,
     updated_at: row.updated_at,
+    inline_byte_len: Number(row.inline_byte_len ?? 0),
   }
+}
+
+export async function saveInlineBytes(id: string, bytes: Buffer): Promise<void> {
+  await pool.query(`UPDATE media.media_files SET inline_bytes = $2, updated_at = now() WHERE id = $1`, [
+    id,
+    bytes,
+  ])
+}
+
+export async function loadInlineBytes(id: string): Promise<{ contentType: string; bytes: Buffer } | null> {
+  const r = await pool.query<{ content_type: string; inline_bytes: Buffer }>(
+    `SELECT content_type, inline_bytes FROM media.media_files WHERE id = $1 AND status = 'uploaded'`,
+    [id]
+  )
+  if (r.rows.length === 0) return null
+  const row = r.rows[0]
+  if (!row.inline_bytes || row.inline_bytes.length === 0) return null
+  return { contentType: row.content_type, bytes: row.inline_bytes }
 }
 
 export async function checkConnection(): Promise<boolean> {

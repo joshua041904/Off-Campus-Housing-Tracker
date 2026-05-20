@@ -4,31 +4,31 @@
         {
             "name": "notifications",
             "schema": "notification",
-            "idx_scan": 0,
-            "seq_scan": 11,
-            "n_live_tup": 36
+            "idx_scan": 28,
+            "seq_scan": 2,
+            "n_live_tup": 40
         },
         {
             "name": "outbox_events",
             "schema": "notification",
             "idx_scan": 0,
-            "seq_scan": 4,
+            "seq_scan": 2,
             "n_live_tup": 0
         },
         {
             "name": "processed_events",
             "schema": "notification",
-            "idx_scan": 36,
-            "seq_scan": 3,
-            "n_live_tup": 36
+            "idx_scan": 40,
+            "seq_scan": 2,
+            "n_live_tup": 40
         },
         {
             "name": "user_preferences",
             "schema": "notification",
-            "idx_scan": 9,
-            "seq_scan": 12,
-            "n_live_tup": 7
+            "idx_scan": 0,
+            "seq_scan": 2,
+            "n_live_tup": 0
         }
     ],
-    "generated_at": "2026-04-03T20:12:16.517912+00:00"
+    "generated_at": "2026-05-10T18:39:39.542276+00:00"
 }

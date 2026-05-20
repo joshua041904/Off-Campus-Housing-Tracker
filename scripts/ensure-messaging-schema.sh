@@ -20,6 +20,11 @@ if ! psql -h "$PGHOST" -p "$PGPORT" -U postgres -d messaging -tAc "SELECT 1" >/d
   exit 1
 fi
 psql -h "$PGHOST" -p "$PGPORT" -U postgres -d messaging -v ON_ERROR_STOP=1 -f "$SQL"
+SQL3="$REPO_ROOT/infra/db/03-messages-dm-schema.sql"
+if [[ -f "$SQL3" ]]; then
+  psql -h "$PGHOST" -p "$PGPORT" -U postgres -d messaging -v ON_ERROR_STOP=1 -f "$SQL3"
+  echo "✅ Messaging DM schema (03) applied."
+fi
 SQL2="$REPO_ROOT/infra/db/02-messaging-outbox.sql"
 if [[ -f "$SQL2" ]]; then
   psql -h "$PGHOST" -p "$PGPORT" -U postgres -d messaging -v ON_ERROR_STOP=1 -f "$SQL2"
@@ -35,4 +40,31 @@ if [[ -f "$SQL5" ]]; then
   psql -h "$PGHOST" -p "$PGPORT" -U postgres -d messaging -v ON_ERROR_STOP=1 -f "$SQL5"
   echo "✅ Messaging processed_events (05) applied."
 fi
+SQL16="$REPO_ROOT/infra/db/16-messaging-human-dm-thread-backfill.sql"
+if [[ -f "$SQL16" ]]; then
+  psql -h "$PGHOST" -p "$PGPORT" -U postgres -d messaging -v ON_ERROR_STOP=1 -f "$SQL16"
+  echo "✅ Human DM thread_id backfill (16) applied."
+fi
+SQL15="$REPO_ROOT/infra/db/15-messaging-external-contact-history.sql"
+if [[ -f "$SQL15" ]]; then
+  psql -h "$PGHOST" -p "$PGPORT" -U postgres -d messaging -v ON_ERROR_STOP=1 -f "$SQL15"
+  echo "✅ External contact history table (15) applied."
+fi
+SQL20="$REPO_ROOT/infra/db/20-messaging-external-contact-delivery.sql"
+if [[ -f "$SQL20" ]]; then
+  psql -h "$PGHOST" -p "$PGPORT" -U postgres -d messaging -v ON_ERROR_STOP=1 -f "$SQL20"
+  echo "✅ External contact delivery columns (20) applied."
+fi
+for extra in \
+  05-messaging-rate-limit.sql \
+  06-messages-auth-username-mirror.sql \
+  21-messaging-message-reactions.sql \
+  22-messaging-message-deleted-edited.sql \
+  23-messaging-user-hidden-messages.sql; do
+  path="$REPO_ROOT/infra/db/$extra"
+  if [[ -f "$path" ]]; then
+    psql -h "$PGHOST" -p "$PGPORT" -U postgres -d messaging -v ON_ERROR_STOP=1 -f "$path"
+    echo "✅ Messaging $extra applied."
+  fi
+done
 echo "✅ Messaging schema applied (port $PGPORT, database messaging)."

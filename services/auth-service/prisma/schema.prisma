@@ -4,10 +4,11 @@ datasource db {
   schemas  = ["auth"]
 }
 
+// Colima/k3s: node:20-bookworm — arm64 needs linux-arm64-openssl-3.0.x; amd64 needs debian-openssl-3.0.x. "native" alone can mismatch OpenSSL in-cluster.
 generator client {
   provider      = "prisma-client-js"
   output        = "./generated/client"
-  binaryTargets = ["native"]
+  binaryTargets = ["native", "linux-arm64-openssl-3.0.x", "debian-openssl-3.0.x"]
 }
 
 model User {

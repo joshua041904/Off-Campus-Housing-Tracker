@@ -4,7 +4,7 @@ import { startBookingUserLifecycleConsumer } from "./user-lifecycle-consumer.js"
 import { prisma } from "./lib/prisma.js";
 import { BOOKING_EVENTS_TOPIC, startGrpcServer } from "./grpc-server.js";
 import { userLifecycleV1Topic } from "@common/utils";
-import { createBookingHttpApp, disconnectBookingHttpKafkaProducer } from "./http-app.js";
+import { createBookingHttpApp, disconnectBookingHttpKafkaProducer, startBookingExpirationCron } from "./http-app.js";
 
 const HTTP_PORT = Number(process.env.HTTP_PORT || "4013");
 const GRPC_PORT = Number(process.env.GRPC_PORT || "50063");
@@ -18,6 +18,10 @@ async function main() {
     console.log(`[booking] HTTP server listening on port ${HTTP_PORT}`);
   });
   startGrpcServer(GRPC_PORT);
+  const cronMs = Math.max(30_000, Number(process.env.BOOKING_EXPIRATION_CRON_MS || "60000"));
+  const cron = startBookingExpirationCron(cronMs);
+  process.on("SIGTERM", () => clearInterval(cron));
+  process.on("SIGINT", () => clearInterval(cron));
   setImmediate(() => {
     void startBookingUserLifecycleConsumer().catch((e) =>
       console.error("[booking-service] user lifecycle consumer:", e),

@@ -29,6 +29,20 @@ Avoid repeating the same idea across sections. confidence_score is 0-100; risk_s
 Arrays: 2-5 items each unless depth is quick (then 1-3 each). No duplicate strings in arrays.
 market_positioning, value_drivers, negotiation_leverage, risk_flags, missing_information are REQUIRED (non-empty strings / string arrays).`;
 
+/** Shorter contract for analysis_depth=quick — less prompt text, smaller target JSON, faster CPU inference. */
+export const JSON_CONTRACT_QUICK = `Return STRICT JSON only (no markdown, no prose outside the JSON).
+
+Rules: arrays are JSON string arrays only (no objects inside arrays). No HTML in strings. Unknown market facts → use "Insufficient data" in a string; never invent averages. Finish every sentence; no cut-off clauses.
+
+Shape (integers for scores):
+{"verdict":"2-3 sentences: bottom-line stance + why","market_positioning":"one paragraph: price/value vs what the listing actually shows","value_drivers":["2-4 items"],"pricing_signal":"","risk_flags":["2-4 items"],"missing_information":["2-4 items: include concrete questions to verify before signing"],"negotiation_leverage":["2-4 items"],"negotiation_strategy":"","confidence_score":0,"risk_severity_index":0,"pricing_pressure_score":0}
+
+Renter framing: verdict must state recommend / cautious / avoid (pick one) with one clear reason. Landlord framing: verdict must address pricing posture + conversion risk in one breath.
+
+Arrays: 2-4 strings each (quick mode still complete). confidence_score 0-100; risk_severity_index and pricing_pressure_score 0-10.`;
+
+const JSON_CONTRACT_SLOT = "<<<OCH_JSON_CONTRACT>>>";
+
 const landlordStrategic = `You are a senior real-estate revenue strategist.
 Analyze listings like a pricing and yield advisor.
 
@@ -39,7 +53,7 @@ MODE (landlord / offensive framing — materially different from renter mode):
 
 Focus: competitive positioning, conversion weaknesses, pricing risk, presentation gaps, concrete improvements.
 No fluff. No repeated ideas. If a point is implied once, deepen it instead of restating.
-${JSON_CONTRACT}`;
+${JSON_CONTRACT_SLOT}`;
 
 const renterDefensive = `You are a tenant risk analyst (renter advocate).
 
@@ -50,19 +64,19 @@ MODE (renter / defensive framing — materially different from landlord mode):
 
 Focus: hidden costs, asymmetric risk, what to verify before signing.
 No repeated headings. No generic filler.
-${JSON_CONTRACT}`;
+${JSON_CONTRACT_SLOT}`;
 
 const marketQuant = `You are a quantitative housing analyst.
 Use economic framing: price vs amenities, demand proxies, liquidity, comparability. Avoid emotional language.
-${JSON_CONTRACT}`;
+${JSON_CONTRACT_SLOT}`;
 
 const conversionOptimization = `You are a listing conversion strategist.
 Focus: clarity, trust signals, psychological friction, missing proof, differentiation vs competitors.
-${JSON_CONTRACT}`;
+${JSON_CONTRACT_SLOT}`;
 
 const riskAudit = `You are a housing risk and compliance auditor.
 Focus: legal/regulatory exposure, ambiguous lease language, financial traps, structural risks.
-${JSON_CONTRACT}`;
+${JSON_CONTRACT_SLOT}`;
 
 const MODE_SYSTEM: Record<AnalysisMode, string> = {
   landlord_strategic: landlordStrategic,
@@ -127,7 +141,7 @@ export function maxTokensForDepth(depth: AnalysisDepth): number {
   let n: number;
   switch (depth) {
     case "quick":
-      n = clampNumPredict(240);
+      n = clampNumPredict(520);
       break;
     case "deep":
       n = clampNumPredict(700);
@@ -155,10 +169,17 @@ export function buildListingIntelligencePrompts(input: {
   const secondary_lens = useDeterministic
     ? pickSecondaryLensDeterministic(input.title, input.description, input.audience)
     : pickSecondaryLens(input.audience);
-  const system = `${MODE_SYSTEM[primary_mode]}
+  const contract = input.depth === "quick" ? JSON_CONTRACT_QUICK : JSON_CONTRACT;
+  const modeBody = MODE_SYSTEM[primary_mode].replace(JSON_CONTRACT_SLOT, contract);
+  const lensBlock =
+    input.depth === "quick"
+      ? ""
+      : `Secondary lens (lightly weave 1–2 cross-references, no duplicated sections): perspective of "${secondary_lens}".
 
-Secondary lens (lightly weave 1–2 cross-references, no duplicated sections): perspective of "${secondary_lens}".
-Vary phrasing across runs; do not repeat boilerplate openers.
+`;
+  const system = `${modeBody}
+
+${lensBlock}Vary phrasing across runs; do not repeat boilerplate openers.
 ${depthInstructions(input.depth)}
 ${reasoningModeAddendum()}`;
 

@@ -1,5 +1,5 @@
 import { Gauge } from "prom-client";
-import { register } from "@common/utils";
+import { register, setOchOutboxUnpublishedCount } from "@common/utils";
 
 let gauge: Gauge | undefined;
 
@@ -21,4 +21,5 @@ export function authOutboxUnpublishedGauge(): Gauge {
 
 export function setAuthOutboxUnpublishedCount(count: number): void {
   authOutboxUnpublishedGauge().set(count);
+  setOchOutboxUnpublishedCount(count);
 }

@@ -1,4 +1,6 @@
-# syntax=docker/dockerfile:1
+# No `# syntax=docker/dockerfile:1` here: that image pull can hang or fail on Colima/BuildKit
+# ("unable to lease content: lease does not exist"). Cache mounts work with default BuildKit
+# without pulling the external Dockerfile frontend (same pattern as notification-service).
 
 # ---------- deps ----------
 FROM node:20-alpine AS deps

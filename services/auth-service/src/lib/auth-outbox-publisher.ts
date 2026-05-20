@@ -3,7 +3,7 @@
  * Safe under at-least-once: consumers dedupe by envelope event_id.
  */
 import type { PrismaClient } from "../../prisma/generated/client";
-import { kafka } from "@common/utils";
+import { kafka, setOchOutboxOldestUnpublishedAgeSeconds, incOchOutboxPublishAttempt, incOchOutboxPublishFailure, incOchOutboxPublishSuccess } from "@common/utils";
 import { buildKafkaMessageHeaders } from "@common/utils/otel";
 import { setAuthOutboxUnpublishedCount } from "./auth-outbox-metrics.js";
 
@@ -33,12 +33,16 @@ async function ensureProducer(): Promise<void> {
 }
 
 async function refreshUnpublishedCount(prisma: Pick<PrismaClient, "$queryRaw">): Promise<number> {
-  const r = await prisma.$queryRaw<Array<{ c: bigint }>>`
-    SELECT COUNT(*)::bigint AS c FROM auth.auth_outbox WHERE published_at IS NULL
+  const r = await prisma.$queryRaw<Array<{ c: bigint; oldest_sec: number | null }>>`
+    SELECT COUNT(*)::bigint AS c,
+      COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(created_at)))::double precision, 0)::double precision AS oldest_sec
+    FROM auth.auth_outbox WHERE published_at IS NULL
   `;
   const n = Number(r[0]?.c ?? 0);
   const v = Number.isFinite(n) ? n : 0;
+  const oldest = Number(r[0]?.oldest_sec ?? 0);
   setAuthOutboxUnpublishedCount(v);
+  setOchOutboxOldestUnpublishedAgeSeconds(Number.isFinite(oldest) && oldest > 0 ? oldest : 0);
   return v;
 }
 
@@ -92,6 +96,7 @@ export async function runAuthOutboxPublisherTick(prisma: PrismaClient): Promise<
   let failed = 0;
   for (const row of rows) {
     const buf = Buffer.isBuffer(row.payload) ? row.payload : Buffer.from(row.payload as Uint8Array);
+    incOchOutboxPublishAttempt();
     try {
       await producer.send({
         topic: row.topic,
@@ -101,8 +106,10 @@ export async function runAuthOutboxPublisherTick(prisma: PrismaClient): Promise<
         UPDATE auth.auth_outbox SET published_at = NOW() WHERE id = ${row.id}::uuid
       `;
       published += 1;
+      incOchOutboxPublishSuccess();
     } catch (e) {
       failed += 1;
+      incOchOutboxPublishFailure();
       console.error("[auth-outbox] publish failed for", row.id, e);
       await prisma.$executeRaw`
         UPDATE auth.auth_outbox SET retry_count = retry_count + 1 WHERE id = ${row.id}::uuid

@@ -30,4 +30,29 @@ if [[ -f "$SQL3" ]]; then
   psql -h "$PGHOST" -p "$PGPORT" -U postgres -d bookings -v ON_ERROR_STOP=1 -f "$SQL3"
   echo "✅ Booking outbox (03) applied."
 fi
+SQL06="$REPO_ROOT/infra/db/06-booking-processed-events.sql"
+if [[ -f "$SQL06" ]]; then
+  psql -h "$PGHOST" -p "$PGPORT" -U postgres -d bookings -v ON_ERROR_STOP=1 -f "$SQL06"
+  echo "✅ Booking processed_events (06) applied."
+fi
+SQL04="$REPO_ROOT/infra/db/04-booking-search-history.sql"
+if [[ -f "$SQL04" ]]; then
+  psql -h "$PGHOST" -p "$PGPORT" -U postgres -d bookings -v ON_ERROR_STOP=1 -f "$SQL04"
+  echo "✅ Booking search history (04) applied."
+fi
+SQL05="$REPO_ROOT/infra/db/05-booking-prisma-columns.sql"
+if [[ -f "$SQL05" ]]; then
+  psql -h "$PGHOST" -p "$PGPORT" -U postgres -d bookings -v ON_ERROR_STOP=1 -f "$SQL05"
+  echo "✅ Booking Prisma columns (05) applied."
+fi
+SQL19="$REPO_ROOT/infra/db/19-booking-search-history-alerts.sql"
+if [[ -f "$SQL19" ]]; then
+  psql -h "$PGHOST" -p "$PGPORT" -U postgres -d bookings -v ON_ERROR_STOP=1 -f "$SQL19"
+  echo "✅ Booking search-history alerts (19) applied."
+fi
+SQL20="$REPO_ROOT/infra/db/20-booking-tenant-username-snapshot.sql"
+if [[ -f "$SQL20" ]]; then
+  psql -h "$PGHOST" -p "$PGPORT" -U postgres -d bookings -v ON_ERROR_STOP=1 -f "$SQL20"
+  echo "✅ Booking tenant username snapshot (20) applied."
+fi
 echo "✅ Booking schema applied (port $PGPORT, database bookings)."

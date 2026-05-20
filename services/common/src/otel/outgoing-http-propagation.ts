@@ -102,7 +102,14 @@ export async function tracedFetch(url: string | URL, init: TracedFetchInit = {})
 
   return httpClientTracer().startActiveSpan(
     "HTTP GET",
-    { attributes: { "url.full": href } },
+    {
+      attributes: {
+        "url.full": href,
+        "network.protocol.name": "http",
+        "network.protocol.version": "unknown",
+        "och.upstream_proto": "unknown",
+      },
+    },
     parentCtx,
     async (span) => {
       try {

@@ -47,11 +47,11 @@ data:
           "title": "p95 Analytics Latency (5m)",
           "gridPos": { "x": 0, "y": 6, "w": 8, "h": 6 },
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-          "fieldConfig": { "defaults": { "unit": "s" } },
+          "fieldConfig": { "defaults": { "unit": "ms" } },
           "targets": [
             {
               "refId": "A",
-              "expr": "histogram_quantile(0.95, sum(rate(analytics_latency_seconds_bucket[5m])) by (le))"
+              "expr": "1000 * histogram_quantile(0.95, sum(rate(analytics_latency_seconds_bucket[5m])) by (le))"
             }
           ]
         },
@@ -86,8 +86,8 @@ data:
           "targets": [
             {
               "refId": "A",
-              "expr": "sum(rate(analytics_latency_seconds_sum[5m])) / clamp_min(sum(rate(analytics_latency_seconds_count[5m])), 1e-9)",
-              "legendFormat": "mean latency (s)"
+              "expr": "1000 * sum(rate(analytics_latency_seconds_sum[5m])) / clamp_min(sum(rate(analytics_latency_seconds_count[5m])), 1e-9)",
+              "legendFormat": "mean latency (ms)"
             }
           ]
         },

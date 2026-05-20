@@ -87,8 +87,45 @@ describe("HTTP tracing middleware", () => {
     const spans = exporter.getFinishedSpans();
     expect(spans).toHaveLength(1);
     expect(spans[0].name).toBe("HTTP GET /healthz");
-    expect(spans[0].attributes["net.proto"]).toBe("h1");
+    expect(spans[0].attributes["och.edge_proto"]).toBe("unknown");
+    expect(spans[0].attributes["och.upstream_proto"]).toBe("h1");
+    expect(spans[0].attributes["network.protocol.name"]).toBe("http");
+    expect(spans[0].attributes["network.protocol.version"]).toBe("unknown");
+    expect(spans[0].attributes["net.proto"]).toBe("unknown");
     expect(spans[0].endTime).not.toEqual([0, 0]);
+  });
+
+  it("maps X-OCH-Edge-Proto to edge span attributes (not Node hop)", async () => {
+    const req = {
+      method: "GET",
+      path: "/healthz",
+      httpVersion: "1.1",
+      headers: { "x-och-edge-proto": "HTTP/2.0" } as Request["headers"],
+      get(name: string) {
+        const k = name.toLowerCase();
+        const h = (this as Request).headers;
+        const v = h[k];
+        if (typeof v === "string") return v;
+        if (Array.isArray(v)) return v[0];
+        return undefined;
+      },
+    } as Request;
+
+    const res = new EventEmitter() as Response;
+    (res as Response & { statusCode: number }).statusCode = 200;
+
+    const next: NextFunction = () => {
+      queueMicrotask(() => res.emit("finish"));
+    };
+
+    tracingMiddleware(req, res, next);
+    await new Promise<void>((r) => setImmediate(r));
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+    expect(spans[0].attributes["och.edge_proto"]).toBe("h2");
+    expect(spans[0].attributes["och.upstream_proto"]).toBe("h1");
+    expect(spans[0].attributes["network.protocol.version"]).toBe("2");
+    expect(spans[0].attributes["net.proto"]).toBe("h2");
   });
 
   it("stashes span context on req so W3C inject survives Express async await", async () => {

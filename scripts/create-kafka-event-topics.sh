@@ -50,7 +50,7 @@ say() { printf "\n\033[1m%s\033[0m\n" "$*"; }
 ok() { echo "✅ $*"; }
 die() { echo "❌ $*" >&2; exit 1; }
 
-# Topic names derived from proto/events/*.proto (+ explicit booking.events.v1 + messaging.dlq). See scripts/lib/och-kafka-event-topics-from-proto.sh
+# Topic names derived from proto/events/*.proto (+ explicit booking.events.v1 + community.events.v1 + messaging.dlq). See scripts/lib/och-kafka-event-topics-from-proto.sh
 # shellcheck source=lib/och-kafka-event-topics-from-proto.sh
 source "$SCRIPT_DIR/lib/och-kafka-event-topics-from-proto.sh"
 och_kafka_event_topics_fill || die "Could not build topic list from proto/events"

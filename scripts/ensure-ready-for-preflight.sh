@@ -43,16 +43,20 @@ else
   fi
 fi
 
-# --- 2. curl HTTP/3 capability (PATH curl; no package-manager assumptions) ---
-say "2. Checking curl HTTP/3 support (curl --version)..."
-if command -v curl >/dev/null 2>&1; then
-  if curl --version 2>/dev/null | grep -qiE 'HTTP3|HTTP/3'; then
-    ok "curl reports HTTP/3 support ($(command -v curl))"
-  else
-    warn "curl on PATH does not report HTTP3 in curl --version; HTTP/3 edge checks may be skipped or fail ($(command -v curl))"
-  fi
+# --- 2. curl HTTP/3 + minimum version (PATH curl; no package-manager assumptions) ---
+say "2. Checking curl (>= ${MIN_CURL_VERSION:-8.19.0} + HTTP/3)..."
+if [[ -x "$SCRIPT_DIR/check-curl-preflight-reqs.sh" ]]; then
+  bash "$SCRIPT_DIR/check-curl-preflight-reqs.sh" || warn "check-curl-preflight-reqs.sh failed — install brew curl + PATH (see README / Runbook.md item 91)"
 else
-  warn "curl not in PATH"
+  if command -v curl >/dev/null 2>&1; then
+    if curl --version 2>/dev/null | grep -qiE 'HTTP3|HTTP/3'; then
+      ok "curl reports HTTP/3 support ($(command -v curl))"
+    else
+      warn "curl on PATH does not report HTTP3 in curl --version; HTTP/3 edge checks may be skipped or fail ($(command -v curl))"
+    fi
+  else
+    warn "curl not in PATH"
+  fi
 fi
 
 # --- 3. Ensure Kubernetes API (k3d or Colima) ---

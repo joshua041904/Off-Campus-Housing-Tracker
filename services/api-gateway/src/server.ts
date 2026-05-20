@@ -19,9 +19,9 @@ import compression from "compression";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
 import { createProxyMiddleware } from "http-proxy-middleware";
-import { register, httpCounter, createHttpConcurrencyGuard } from "@common/utils";
+import { register, httpCounter, createHttpConcurrencyGuard, initOchOutboxSurfaceUnsupported } from "@common/utils";
 import {
-  inferNetProtoForSpan,
+  edgeProtoFromRequestHeaders,
   injectTraceContextIntoClientRequest,
   mountDebugTraceHeaders,
   tracingMiddleware,
@@ -43,6 +43,7 @@ import { createClusterWeightBudgetMiddleware } from "./cluster-weight-budget.js"
 import { startWatchdogThrottlePoller } from "./watchdog-throttle-poll.js";
 import { mountFullTraceDebug } from "./full-trace-debug-handler.js";
 import { routeCoverageMiddleware } from "./route-coverage-middleware.js";
+import { setupRealtimeWebSocket } from "./realtime-websocket.js";
 
 /** HTTP/1.1 keep-alive to housing upstreams: high concurrency from Caddy H2/H3 multiplexing + Playwright workers. */
 const _gwMaxSockets = Number.parseInt(process.env.GATEWAY_HTTP_AGENT_MAX_SOCKETS ?? "1000", 10);
@@ -114,13 +115,22 @@ function extractBearer(req: Request): string | undefined {
   return s.slice(i + "bearer ".length).trim() || undefined;
 }
 
+const UUID_RX_GATEWAY_USER =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 function injectIdentityHeadersIfAny(req: AuthedRequest, _res: Response, next: NextFunction) {
   delete (req.headers as any)["x-user-id"];
   delete (req.headers as any)["x-user-email"];
   delete (req.headers as any)["x-user-jti"];
-  if (req.user?.sub) (req.headers as any)["x-user-id"] = req.user.sub;
-  if ((req.user as any)?.email) (req.headers as any)["x-user-email"] = (req.user as any).email;
-  if ((req.user as any)?.jti) (req.headers as any)["x-user-jti"] = (req.user as any).jti;
+  const u = req.user as { sub?: string; user_id?: string; email?: string; jti?: string; username?: string } | undefined;
+  const rawId = String(u?.sub || u?.user_id || "").trim();
+  const userId =
+    rawId && UUID_RX_GATEWAY_USER.test(rawId) ? rawId.toLowerCase() : rawId;
+  if (userId) (req.headers as any)["x-user-id"] = userId;
+  if (u?.email) (req.headers as any)["x-user-email"] = u.email;
+  if (u?.jti) (req.headers as any)["x-user-jti"] = u.jti;
+  const un = String(u?.username ?? "").trim();
+  if (un) (req.headers as any)["x-user-username"] = un.slice(0, 128);
   next();
 }
 
@@ -207,15 +217,37 @@ function isGetHealthzBypass(req: Request): boolean {
   return /\/healthz\/?$/.test(p);
 }
 
-/** Entire analytics HTTP surface is public at the gateway (no JWT). Quotas belong in rate limits / upstream, not here. */
+/**
+ * Only specific analytics routes skip the gateway JWT guard.
+ * Previously `/api/analytics/*` always bypassed JWT, so `req.user` was never set and
+ * `injectIdentityHeadersIfAny` forwarded no `x-user-id` — upstream `requireSelfUser` then 403'd
+ * on `/insights/search-summary/:userId` even with a valid browser Bearer.
+ *
+ * User-specific analytics GETs must run through the normal JWT path so `x-user-id` matches JWT `sub`.
+ */
 function isPublicAnalyticsNamespaceBypass(req: Request): boolean {
   const p = gatewayPathOnly(req);
-  return (
-    p.startsWith("/api/analytics/") ||
-    p === "/api/analytics" ||
-    p.startsWith("/analytics/") ||
-    p === "/analytics"
-  );
+  const method = req.method;
+  if (method === "GET" && /^\/(?:api\/)?analytics\/(?:healthz|health|readyz|metrics)\/?$/i.test(p)) {
+    return true;
+  }
+  if (method === "GET" && /^\/(?:api\/)?analytics\/daily-metrics\/?$/i.test(p)) {
+    return true;
+  }
+  if (method === "POST") {
+    if (
+      /^\/(?:api\/)?analytics\/(?:v\d+\/)?insights\/(?:listing-feel-minimal|listing-feel|hybrid-search)\/?$/i.test(p)
+    ) {
+      return true;
+    }
+    if (
+      /^\/(?:api\/)?analytics\/(?:v\d+\/)?insights\/listing\/[^/]+\/analyze\/?$/i.test(p) ||
+      /^\/(?:api\/)?analytics\/(?:v\d+\/)?listing\/[^/]+\/analyze\/?$/i.test(p)
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 const LISTING_INSIGHTS_UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}";
@@ -261,16 +293,40 @@ const OPEN_ROUTES = [
   { method: "GET", pattern: /^\/(?:api\/)?listings\/?$/ },
   { method: "GET", pattern: /^\/(?:api\/)?listings\/search\/?$/ },
   { method: "GET", pattern: /^\/(?:api\/)?listings\/listings\/[^/]+\/?$/ },
+  { method: "GET", pattern: /^\/(?:api\/)?listings\/listings\/[^/]+\/meta\/?$/ },
+  { method: "GET", pattern: /^\/(?:api\/)?listings\/listings\/[^/]+\/watch-count\/?$/ },
+  { method: "GET", pattern: /^\/(?:api\/)?listings\/listings\/[^/]+\/revisions\/public\/?$/ },
+  {
+    method: "GET",
+    pattern:
+      /^\/(?:api\/)?listings\/debug\/redis-booking-count\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/?$/i,
+  },
   { method: "GET", pattern: /^\/(?:api\/)?listings\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/?$/i },
+  { method: "GET", pattern: /^\/(?:api\/)?community\/posts\/?$/ },
+  { method: "GET", pattern: /^\/(?:api\/)?community\/posts\/[^/]+\/comments\/?$/i },
+  { method: "GET", pattern: /^\/(?:api\/)?community\/posts\/[^/]+\/?$/i },
   // Public reputation lookup (trust HTTP).
   { method: "GET", pattern: /^\/(?:api\/)?trust\/reputation\/[^/]+\/?$/ },
+  { method: "GET", pattern: /^\/(?:api\/)?trust\/user-reviews\/[^/]+\/?$/ },
+  // Public handle → user id (username / display); no JWT.
+  { method: "GET", pattern: /^\/(?:api\/)?trust\/public\/users\/resolve\/?$/ },
   // Step7 / trace-contract: multi-service fan-out under one trace id (no JWT).
   { method: "GET", pattern: /^\/(?:api\/)?debug\/full-trace\/?$/ },
   { method: "GET", pattern: /^\/(?:api\/)?debug\/headers\/?$/ },
   { method: "GET", pattern: /^\/(?:api\/)?booking\/healthz\/?$/ },
+  // Public listing occupancy probe (booking-service); used by listing detail date picker without JWT.
+  {
+    method: "GET",
+    pattern: new RegExp(
+      `^\\/(?:api\\/)?bookings\\/listings\\/${LISTING_INSIGHTS_UUID}\\/availability\\/?$`,
+      "i",
+    ),
+  },
   { method: "GET", pattern: /^\/(?:api\/)?messaging\/healthz\/?$/ },
   { method: "GET", pattern: /^\/(?:api\/)?trust\/healthz\/?$/ },
   { method: "GET", pattern: /^\/(?:api\/)?media\/healthz\/?$/ },
+  // Signed inline image reads (<img src> has no Authorization header).
+  { method: "GET", pattern: /^\/(?:api\/)?media\/public\/[^/?]+\/?$/i },
   { method: "GET", pattern: /^\/(?:api\/)?notification\/healthz\/?$/ },
 ];
 
@@ -278,6 +334,59 @@ function isOpenRoute(req: Request): boolean {
   const method = req.method;
   const path = gatewayPathOnly(req);
   return OPEN_ROUTES.some((r) => r.method === method && r.pattern.test(path));
+}
+
+/** Community browse GETs are open, but a valid Bearer still forwards x-user-id for optional fields (e.g. votes). */
+function attachOptionalJwtUserForCommunity(req: AuthedRequest, _res: Response, next: NextFunction): void {
+  const p = gatewayPathOnly(req);
+  const community =
+    p === "/community" ||
+    p.startsWith("/community/") ||
+    p === "/api/community" ||
+    p.startsWith("/api/community/");
+  if (!community || req.method !== "GET" || req.user?.sub) {
+    next();
+    return;
+  }
+  const token = extractBearer(req);
+  if (!token) {
+    next();
+    return;
+  }
+  try {
+    const payload = verifyJwt(token) as TokenPayload;
+    if (payload?.sub) req.user = payload as AuthedRequest["user"];
+  } catch {
+    /* keep public */
+  }
+  next();
+}
+
+/** Listing detail GET is open, but a Bearer still forwards x-user-id so landlords can load paused/draft rows for manage UI. */
+function attachOptionalJwtUserForListingDetailGet(req: AuthedRequest, _res: Response, next: NextFunction): void {
+  const p = gatewayPathOnly(req);
+  const uuid = "[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}";
+  const listingDetailGet =
+    req.method === "GET" &&
+    new RegExp(`^\\/(?:api\\/)?listings\\/listings\\/${uuid}\\/?$`, "i").test(p);
+  const listingRevisionsPublicGet =
+    req.method === "GET" && new RegExp(`^\\/(?:api\\/)?listings\\/listings\\/${uuid}\\/revisions\\/public\\/?$`, "i").test(p);
+  if ((!listingDetailGet && !listingRevisionsPublicGet) || req.user?.sub) {
+    next();
+    return;
+  }
+  const token = extractBearer(req);
+  if (!token) {
+    next();
+    return;
+  }
+  try {
+    const payload = verifyJwt(token) as TokenPayload;
+    if (payload?.sub) req.user = payload as AuthedRequest["user"];
+  } catch {
+    /* keep public */
+  }
+  next();
 }
 
 /**
@@ -353,7 +462,38 @@ const skipGatewayHttpListen =
   process.env.VITEST === "true" || process.env.API_GATEWAY_TEST_IMPORT === "1";
 
 const app: Express = express();
+initOchOutboxSurfaceUnsupported();
+/**
+ * Client hint: prefer Caddy `X-OCH-Edge-Proto` (real browser/curl ↔ edge protocol).
+ * When absent (e.g. direct port-forward to gateway), do not infer edge from the Caddy→gateway hop — report unknown.
+ */
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const raw = req.headers["x-och-edge-proto"];
+  const v = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof v === "string" && v.trim()) {
+    res.setHeader("x-edge-proto", v.trim());
+  } else {
+    res.setHeader("x-edge-proto", "unknown");
+  }
+  if (process.env.OCH_EDGE_PROTO_DEBUG === "1" || process.env.OCH_EDGE_PROTO_DEBUG === "true") {
+    res.setHeader("X-OCH-Debug-Edge-Proto", edgeProtoFromRequestHeaders(req));
+  }
+  next();
+});
 app.use(tracingMiddleware);
+// Count every response (including early `app.get` health/readyz/metrics) with edge `proto` from Caddy header.
+app.use((req: Request, res: Response, next: NextFunction) => {
+  res.on("finish", () =>
+    httpCounter.inc({
+      service: process.env.OTEL_SERVICE_NAME?.trim() || "api-gateway",
+      route: req.path,
+      method: req.method,
+      code: res.statusCode,
+      proto: edgeProtoFromRequestHeaders(req),
+    }),
+  );
+  next();
+});
 app.use(routeCoverageMiddleware());
 app.disable("x-powered-by");
 app.set("trust proxy", 1);
@@ -430,9 +570,10 @@ app.use(
       "traceparent",
       "tracestate",
       "baggage",
+      "x-och-edge-proto",
       "x-suite",
     ],
-    exposedHeaders: ["X-Trace-Id"],
+    exposedHeaders: ["X-Trace-Id", "X-OCH-Debug-Edge-Proto"],
   })
 );
 app.use(compression() as any);
@@ -500,18 +641,6 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
   }
   next();
 });
-app.use((req: Request, res: Response, next: NextFunction) => {
-  res.on("finish", () =>
-    httpCounter.inc({
-      service: "gateway",
-      route: req.path,
-      method: req.method,
-      code: res.statusCode,
-      proto: inferNetProtoForSpan(req),
-    }),
-  );
-  next();
-});
 
 const limiter = rateLimit({
   windowMs: 60_000,
@@ -549,6 +678,8 @@ const limiter = rateLimit({
       req.path === "/debug/full-trace" ||
       req.path === "/api/debug/headers" ||
       req.path === "/debug/headers" ||
+      /^\/api\/listings\/debug\/redis-booking-count\//i.test(req.path) ||
+      /^\/listings\/debug\/redis-booking-count\//i.test(req.path) ||
       req.get("x-loadtest") === "1"
     );
   },
@@ -810,7 +941,9 @@ const KNOWN_API_FIRST_SEGMENTS = new Set([
   "readyz",
   "auth",
   "listings",
+  "community",
   "booking",
+  "bookings",
   "messaging",
   "forum",
   "messages",
@@ -823,6 +956,7 @@ const KNOWN_API_FIRST_SEGMENTS = new Set([
 app.use((req: Request, res: Response, next: NextFunction) => {
   if (req.method === "OPTIONS") return next();
   const path = gatewayPathOnly(req);
+  if (path.startsWith("/api/community/") || path === "/api/community") return next();
   if (!path.startsWith("/api")) return next();
   if (path === "/api" || path === "/api/") {
     res.status(404).json({ error: "not found" });
@@ -854,7 +988,14 @@ app.use(async (req: AuthedRequest, res: Response, next: NextFunction) => {
     const payload = verifyJwt(token) as TokenPayload & { jti?: string };
     if (payload?.jti) {
       try {
-        const revoked = await Promise.race([redis.get(`revoked:${payload.jti}`), new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 500))]) as string | null;
+        const jti = payload.jti;
+        const revoked = await Promise.race([
+          Promise.all([
+            redis.get(`och:auth:jti:revoked:${jti}`),
+            redis.get(`revoked:${jti}`),
+          ]).then(([a, b]) => a || b),
+          new Promise<null>((_, rej) => setTimeout(() => rej(new Error("timeout")), 500)),
+        ]).catch(() => null) as string | null;
         if (revoked) return res.status(401).json({
           code: "TOKEN_REVOKED",
           message: "Token has been revoked",
@@ -873,8 +1014,16 @@ app.use(async (req: AuthedRequest, res: Response, next: NextFunction) => {
   }
 });
 
+app.use(attachOptionalJwtUserForCommunity);
+app.use(attachOptionalJwtUserForListingDetailGet);
+
 // ----- Protected HTTP proxies (housing services) -----
-const proxyOpts = (target: string, pathRewrite: Record<string, string>, proxyTimeoutMs = 15000) => ({
+const HOUSING_PROXY_TIMEOUT_MS = Math.min(
+  60_000,
+  Math.max(15_000, Number(process.env.GATEWAY_HOUSING_PROXY_TIMEOUT_MS) || 25_000),
+);
+
+const proxyOpts = (target: string, pathRewrite: Record<string, string>, proxyTimeoutMs = HOUSING_PROXY_TIMEOUT_MS) => ({
   target,
   changeOrigin: true,
   pathRewrite,
@@ -904,8 +1053,31 @@ app.use("/api/auth", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddlewar
 app.use("/listings", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(LISTINGS_HTTP, { "^/listings": "" }) as any));
 app.use("/api/listings", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(LISTINGS_HTTP, { "^/api/listings": "" }) as any));
 
+const communityProxyOpts = {
+  target: LISTINGS_HTTP,
+  changeOrigin: true,
+  pathRewrite: (path: string) => `/community${path.startsWith("/") ? path : `/${path}`}`,
+  proxyTimeout: 15000,
+  agent: keepAliveAgent,
+  on: {
+    error(err: any, _req: Request, res: Response) {
+      console.error("[gw] proxy error:", err?.message);
+      sendJson502(res as NodeServerResponse, "upstream error");
+    },
+    proxyReq(proxyReq: ClientRequest, req: Request) {
+      injectTraceContextIntoClientRequest(proxyReq, req);
+      const tid = (req as GatewayRequest).traceId;
+      if (tid) proxyReq.setHeader("X-Trace-Id", tid);
+    },
+  },
+};
+app.use("/community", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(communityProxyOpts as any));
+app.use("/api/community", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(communityProxyOpts as any));
+
 app.use("/booking", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(BOOKING_HTTP, { "^/booking": "" }) as any));
 app.use("/api/booking", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(BOOKING_HTTP, { "^/api/booking": "" }) as any));
+app.use("/dashboard", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(BOOKING_HTTP, { "^/dashboard": "/dashboard" }) as any));
+app.use("/api/dashboard", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(BOOKING_HTTP, { "^/api/dashboard": "/dashboard" }) as any));
 app.use("/bookings", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(BOOKING_HTTP, { "^/bookings": "" }) as any));
 app.use("/api/bookings", injectIdentityHeadersIfAny, proxyLoad, createProxyMiddleware(proxyOpts(BOOKING_HTTP, { "^/api/bookings": "" }) as any));
 
@@ -1040,6 +1212,7 @@ async function startGateway() {
       console.log(
         `[gateway] listening on :${gatewayPort} (liveness /healthz; readiness /readyz until auth upstream OK)`
       );
+      setupRealtimeWebSocket(srv, redis);
       resolve();
     });
     srv.on("error", reject);

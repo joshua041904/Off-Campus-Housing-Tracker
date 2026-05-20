@@ -75,7 +75,12 @@ bootstrap_bookings() {
   run_psql "$BOOKINGS_DB_PORT" bookings \
     01-booking-schema.sql \
     02-booking-state-machine.sql \
-    03-booking-outbox.sql
+    03-booking-outbox.sql \
+    06-booking-processed-events.sql \
+    04-booking-search-history.sql \
+    05-booking-prisma-columns.sql \
+    19-booking-search-history-alerts.sql \
+    20-booking-tenant-username-snapshot.sql
 }
 
 # 4) messaging
@@ -128,7 +133,8 @@ bootstrap_media() {
   [[ "$DROP_IF_EXISTS" == "true" ]] && drop_and_create_db "$MEDIA_DB_PORT" media
   run_psql "$MEDIA_DB_PORT" media \
     01-media-schema.sql \
-    02-media-outbox.sql
+    02-media-outbox.sql \
+    03-media-inline-bytes.sql
 }
 
 # When auth dump exists, auth is dump-first: restore-auth-db.sh will drop/restore/outbox. Do not bootstrap auth.

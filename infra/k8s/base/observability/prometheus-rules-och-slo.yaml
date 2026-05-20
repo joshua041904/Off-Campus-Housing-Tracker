@@ -136,7 +136,7 @@ data:
         for: 5m
         labels:
           severity: warning
-          och.dev/layer: transport-edge
+          och_dev_layer: transport-edge
         annotations:
           summary: "API gateway 5xx share elevated (possible Caddy→gateway saturation / upstream 502)"
           description: "gateway http_requests_total 5xx ratio (5m) > 5%. Check Caddy upstream pools, gateway keep-alive, DB pools, and concurrent HTTP/3 load (scripts/transport/http3-concurrent-curl-stress.sh)."
@@ -145,7 +145,7 @@ data:
         for: 3m
         labels:
           severity: warning
-          och.dev/layer: transport-edge
+          och_dev_layer: transport-edge
         annotations:
           summary: "API gateway 502 spike (bad gateway / upstream reset)"
           description: "502 ratio over 5m > 2%. Often multiplexing + upstream limits under Playwright/k6; verify Caddy transport buffers and gateway GATEWAY_HTTP_AGENT_MAX_SOCKETS."
@@ -155,7 +155,7 @@ data:
         for: 5m
         labels:
           severity: warning
-          och.dev/layer: transport-quic
+          och_dev_layer: transport-quic
         annotations:
           summary: "Envoy HTTP/3 downstream reset rate high"
           description: "If you terminate QUIC on Envoy, investigate stream/flow-control limits. Default stack uses Caddy for HTTP/3 — this alert is inert until those series exist."
@@ -164,7 +164,28 @@ data:
         for: 5m
         labels:
           severity: warning
-          och.dev/layer: transport-envoy
+          och_dev_layer: transport-envoy
         annotations:
           summary: "Envoy cluster connection overflow"
           description: "Upstream connection pool saturation — tune circuit_breakers / max_connections or reduce client concurrency."
+
+    - name: och-gateway-edge-protocol-recording
+      interval: 30s
+      rules:
+      - record: och:gateway_http_unknown_proto_ratio_5m
+        expr: |
+          sum(rate(http_requests_total{service="api-gateway",proto="unknown"}[5m]))
+          /
+          clamp_min(sum(rate(http_requests_total{service="api-gateway"}[5m])), 1e-9)
+
+    - name: och-gateway-edge-protocol-alerts
+      rules:
+      - alert: OCHApiGatewayHighUnknownEdgeProto
+        expr: och:gateway_http_unknown_proto_ratio_5m > 0.05
+        for: 15m
+        labels:
+          severity: warning
+          och_dev_layer: transport-edge
+        annotations:
+          summary: "api-gateway edge protocol mostly unknown (>5% over 5m)"
+          description: "Unknown `proto` share of api-gateway request counters is high (>5% over 5m). Verify Caddy stamps `X-OCH-Edge-Proto` from `{http.request.proto}` (not TLS version), forwards it on `header_up`, and that in-cluster callers either send the header or use a path that does not need edge semantics. See scripts/obs-smoke-gateway-protocols.sh."

@@ -14,6 +14,8 @@
 #   DEPLOY_KUBECTL_APPLY_VALIDATE=strict|warn — pass --validate=… to kubectl apply (kubectl version dependent)
 #   DEPLOY_KUBECTL_APPLY_VERBOSE=N — kubectl --v=N (e.g. 6) on apply for API tracing
 #   DEPLOY_KUBECTL_APPLY_ISOLATE=1 — apply multi-doc YAML one document at a time (scripts/kubectl-apply-yaml-stream-split.py)
+#   ROLLOUT_TIMEOUT_API_GATEWAY — kubectl duration for api-gateway only (default 600s; /readyz waits for auth gRPC)
+#   ROLLOUT_TIMEOUT_BACKENDS — duration for each backend Deployment (default 300s)
 
 set -euo pipefail
 
@@ -241,15 +243,25 @@ fi
 kubectl rollout status deployment/envoy-test -n envoy-test --timeout=120s 2>/dev/null || true
 
 # 7) Wait for deployments in app namespace
+# api-gateway GET /readyz returns 503 until auth-service gRPC+mTLS health succeeds — never wait for
+# api-gateway before auth (would wedge rollout / progressDeadline). Backends first, gateway last.
 say "Waiting for deployments (readiness)..."
-for dep in api-gateway auth-service listings-service booking-service messaging-service trust-service analytics-service media-service notification-service; do
+BE_TO="${ROLLOUT_TIMEOUT_BACKENDS:-300s}"
+GW_TO="${ROLLOUT_TIMEOUT_API_GATEWAY:-600s}"
+for dep in auth-service listings-service booking-service messaging-service trust-service analytics-service media-service notification-service; do
   if ! kubectl get deployment -n "$NS" "$dep" &>/dev/null 2>&1; then
     warn "deployment/$dep missing in $NS after kustomize apply — cluster will not serve traffic correctly."
     exit 1
   fi
-  kubectl rollout status deployment/"$dep" -n "$NS" --timeout=300s
+  kubectl rollout status deployment/"$dep" -n "$NS" --timeout="$BE_TO"
   ok "$dep ready"
 done
+if ! kubectl get deployment -n "$NS" api-gateway &>/dev/null 2>&1; then
+  warn "deployment/api-gateway missing in $NS after kustomize apply — cluster will not serve traffic correctly."
+  exit 1
+fi
+kubectl rollout status deployment/api-gateway -n "$NS" --timeout="$GW_TO"
+ok "api-gateway ready"
 
 # 7b) Deployment Available ≠ Service Endpoints populated (kube-dns / kube-proxy lag on single-node k3s).
 if [[ -f "$SCRIPT_DIR/wait-for-housing-service-endpoints.sh" ]]; then

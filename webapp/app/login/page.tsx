@@ -37,7 +37,7 @@ export default function LoginPage() {
       <main className="mx-auto max-w-md px-4 py-16">
         <div className="rounded-xl border border-slate-200 bg-white/90 p-8 shadow-sm backdrop-blur-sm">
           <h1 className="font-serif text-3xl text-slate-900">Log in</h1>
-          <p className="mt-2 text-sm text-slate-600">Use your api-gateway auth account (JWT).</p>
+          <p className="mt-2 text-sm text-slate-600">Sign in to your OCH Housing account.</p>
           <form data-testid="login-form" onSubmit={onSubmit} className="mt-8 space-y-4">
             <div>
               <label className="block text-sm font-medium text-slate-600" htmlFor="email">

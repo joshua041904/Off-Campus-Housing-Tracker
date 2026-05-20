@@ -11,8 +11,9 @@ digraph physical {
     style=filled;
     color=lightgrey;
     label="Schema: media";
-    "media_media_files" [label="{media_files|id : uuid\luser_id : uuid\lobject_key : text\lfilename : text\lcontent_type : text\lsize_bytes : bigint\lstatus : text\lcreated_at : timestamp with time zone\lupdated_at : timestamp with time zone}", style=filled, fillcolor="#f1f8e9"];
-    "media_outbox_events" [label="{outbox_events|id : uuid\laggregate_id : text\ltype : text\lversion : integer\lpayload : bytea\lcreated_at : timestamp with time zone\lpublished : boolean}", style=filled, fillcolor="#f1f8e9"];
+    "media_media_files" [label="{media_files|id : uuid\luser_id : uuid\lobject_key : text\lfilename : text\lcontent_type : text\lsize_bytes : bigint\lstatus : text\lcreated_at : timestamp with time zone\lupdated_at : timestamp with time zone\linline_bytes : bytea}", style=filled, fillcolor="#f1f8e9"];
+    "media_outbox_events" [label="{outbox_events|id : uuid\laggregate_id : text\ltype : text\lversion : integer\lpayload : bytea\lcreated_at : timestamp with time zone\lpublished : boolean}", style=filled, fillcolor="#e8f5e9"];
+    "media_processed_events" [label="{processed_events|event_id : uuid\lprocessed_at : timestamp with time zone}", style=filled, fillcolor="#e8f5e9"];
   }
 
 }

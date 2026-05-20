@@ -25,7 +25,7 @@ async function main() {
   }
   startSkewGaugePoller();
   startAiControlPlaneController();
-  startAnalyticsHttpServer(HTTP_PORT);
+  await startAnalyticsHttpServer(HTTP_PORT);
   startGrpcServer(GRPC_PORT);
   // Ollama Deployment already warms the model; a second /api/generate here can abort mid-load if timed out.
   void startListingEventsConsumer(pool).catch((e) => console.error("[analytics] listing events consumer:", e));

@@ -8,6 +8,8 @@ metadata:
     app: api-gateway
 spec:
   replicas: 1
+  # Cold bootstrap: /readyz stays 503 until auth-service gRPC succeeds; allow extra time vs default 600s.
+  progressDeadlineSeconds: 1200
   strategy:
     type: RollingUpdate
     rollingUpdate:

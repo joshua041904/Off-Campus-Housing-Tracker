@@ -1,561 +1,83 @@
 "use client";
 
-import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { getReputation, reportAbuse, submitPeerReview } from "@/lib/api";
+import {
+  getReputation,
+  listMyBookings,
+  listUserTrustReviews,
+  reportAbuse,
+  resolveTrustPublicUserHandle,
+  searchMessagingUsers,
+  submitPeerReview,
+  type TenantBookingSummary,
+  type TrustReviewRow,
+} from "@/lib/api";
 import { getStoredEmail, getStoredToken } from "@/lib/auth-storage";
-import { getSubFromJwt } from "@/lib/jwt-sub";
+import { getSubFromJwt, getUsernameFromJwt } from "@/lib/jwt-sub";
 import { Nav } from "@/components/Nav";
-import { trackTrustEvent } from "@/lib/track";
+import { prettyBookingTitle } from "@/lib/listing-display";
+import { handleHintFromEmail, formatBookingCounterpartyHint, formatIdentityPriority } from "@/lib/user-display";
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-// ---------------------------------------------------------------------------
-// Trust page state — single source of truth
-// ---------------------------------------------------------------------------
-type FeedbackState = { type: "success" | "error" | null; message: string };
+async function resolveOchUserId(token: string | null, raw: string): Promise<string> {
+  const q = raw.trim();
+  if (!q) throw new Error("Enter a username or user id.");
+  if (UUID_RE.test(q)) return q;
+  if (!token) throw new Error("Sign in to resolve a username to an id.");
+  const hits = await searchMessagingUsers(token, q);
+  const want = q.replace(/^@+/, "").toLowerCase();
+  const exact =
+    hits.find((h) => h.username?.toLowerCase() === want) ||
+    hits.find((h) => (h.display_name || "").trim().toLowerCase() === want);
+  const pick = exact || hits[0];
+  if (!pick?.id) throw new Error(`No user found for “${raw.trim()}”. Try another spelling.`);
+  return pick.id;
+}
 
-type TrustState = {
-  // Auth
-  email: string | null;
-  token: string | null;
-  mySub: string | null;
-  // Reputation
-  repUserId: string;
-  repScore: number | null;
-  // Report abuse
-  abuseType: "listing" | "user";
-  abuseTarget: string;
-  abuseCategory: string;
-  abuseDetails: string;
-  // Peer review
-  bookingId: string;
-  revieweeId: string;
-  side: string;
-  rating: number;
-  comment: string;
-  // Shared
-  loading: boolean;
-  feedback: FeedbackState;
-};
-
-const DEFAULT_TRUST_STATE: TrustState = {
-  email: null,
-  token: null,
-  mySub: null,
-  repUserId: "",
-  repScore: null,
-  abuseType: "listing",
-  abuseTarget: "",
-  abuseCategory: "spam",
-  abuseDetails: "",
-  bookingId: "",
-  revieweeId: "",
-  side: "guest",
-  rating: 5,
-  comment: "",
-  loading: false,
-  feedback: { type: null, message: "" },
-};
-
-type TrustAction =
-  | { type: "SET_AUTH"; email: string | null; token: string | null; mySub: string | null }
-  | { type: "SET"; payload: Partial<TrustState> }
-  | { type: "SET_LOADING"; loading: boolean }
-  | { type: "SET_FEEDBACK"; feedback: FeedbackState }
-  | { type: "CLEAR_FEEDBACK" }
-  | { type: "RESET_REPORT" }
-  | { type: "RESET_REVIEW" };
-
-function trustReducer(state: TrustState, action: TrustAction): TrustState {
-  switch (action.type) {
-    case "SET_AUTH":
-      return { ...state, email: action.email, token: action.token, mySub: action.mySub };
-    case "SET":
-      return { ...state, ...action.payload };
-    case "SET_LOADING":
-      return { ...state, loading: action.loading };
-    case "SET_FEEDBACK":
-      return { ...state, feedback: action.feedback };
-    case "CLEAR_FEEDBACK":
-      return { ...state, feedback: { type: null, message: "" } };
-    case "RESET_REPORT":
-      return { ...state, abuseTarget: "", abuseDetails: "" };
-    case "RESET_REVIEW":
-      return { ...state, comment: "" };
-    default:
-      return state;
+async function resolveReputationUserId(raw: string): Promise<string> {
+  const q = raw.trim();
+  if (!q) throw new Error("Enter a username, @handle, or user id.");
+  if (UUID_RE.test(q)) return q;
+  const matches = await resolveTrustPublicUserHandle(q);
+  if (matches.length === 0) {
+    throw new Error(`No user found for “${q.trim()}”. Try another spelling or exact @username.`);
   }
-}
-
-const TrustHeaderSection = memo(function TrustHeaderSection() {
-  return (
-    <section className="max-w-3xl">
-      <p className="text-sm font-semibold uppercase tracking-[0.22em] text-teal-700">
-        Trust & safety
-      </p>
-      <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
-        Manage trust, safety, and reputation
-      </h1>
-      <p className="mt-4 text-lg leading-8 text-slate-600">
-        Report abuse, submit peer reviews, and look up user reputation. These
-        tools help maintain a safe and trustworthy housing community.
-      </p>
-    </section>
-  );
-});
-TrustHeaderSection.displayName = "TrustHeaderSection";
-
-function SkeletonLine({ className = "" }: { className?: string }) {
-  return (
-    <div
-      aria-hidden="true"
-      className={`animate-pulse rounded-md bg-slate-200 ${className}`}
-    />
-  );
-}
-
-function ReputationSkeleton() {
-  return (
-    <div
-      data-testid="trust-reputation-skeleton"
-      className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-4"
-      aria-hidden="true"
-    >
-      <SkeletonLine className="h-4 w-32" />
-
-      <SkeletonLine className="mt-3 h-7 w-24" />
-
-      <SkeletonLine className="mt-3 h-3 w-48" />
-    </div>
-  );
-}
-
-function ReputationSection({
-  repUserId,
-  setRepUserId,
-  onReputation,
-  loading,
-  mySub,
-  repScore,
-  repError,
-}: {
-  repUserId: string;
-  setRepUserId: (v: string) => void;
-  onReputation: (e: React.FormEvent) => Promise<void>;
-  loading: boolean;
-  mySub: string | null;
-  repScore: number | null;
-  repError: string | null;
-}) {
-  return (
-    <section className="mt-10 rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-      <p className="text-sm font-semibold uppercase tracking-[0.22em] text-teal-700">
-        Reputation
-      </p>
-      <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
-        Look up a user’s reputation
-      </h2>
-      <form
-        data-testid="trust-reputation-form"
-        onSubmit={onReputation}
-        aria-busy={loading}
-        className="mt-4 flex flex-col gap-3 sm:flex-row"
-      >
-        <label
-          htmlFor="trust-reputation-user-id"
-          className="sr-only"
-        >
-          User UUID
-        </label>
-        <input
-          id="trust-reputation-user-id"
-          data-testid="trust-reputation-user-id"
-          value={repUserId}
-          onChange={(e) => setRepUserId(e.target.value)}
-          placeholder="user UUID"
-          aria-describedby={repError ? "rep-error" : undefined}
-          aria-invalid={repError ? true : undefined}
-          className={"flex-1 rounded-md border px-3 py-2 font-mono text-sm text-slate-900 shadow-sm bg-white " + (repError ? "border-red-400" : "border-slate-300")}
-        />
-        <button
-          type="submit"
-          disabled={loading}
-          aria-disabled={loading}
-          data-testid="trust-reputation-submit"
-          className="rounded-md bg-teal-600 px-4 py-2 font-medium text-white hover:bg-teal-500 disabled:opacity-50"
-        >
-          {loading ? "Looking up…" : "Look up"}
-        </button>
-      </form>
-      {repError && (
-        <p id="rep-error" role="alert" aria-live="assertive" className="mt-2 text-xs text-red-600">
-          {repError}
-        </p>
-      )}
-      {mySub && (
-        <button
-          type="button"
-          className="mt-2 text-xs font-medium text-teal-700 hover:underline"
-          onClick={() => setRepUserId(mySub)}
-        >
-          Use my account id
-        </button>
-      )}
-      {loading ? (
-        <ReputationSkeleton />
-      ) : (
-        repScore != null && (
-          <p
-            data-testid="trust-reputation-score"
-            className="mt-4 text-sm text-slate-600"
-          >
-            Score: <strong className="text-teal-800">{repScore}</strong>
-          </p>
-        )
-      )}
-    </section>
-  );
-});
-ReputationSection.displayName = "ReputationSection";
-
-const ReportAbuseSection = memo(function ReportAbuseSection({
-  abuseType,
-  setAbuseType,
-  abuseTarget,
-  setAbuseTarget,
-  abuseCategory,
-  setAbuseCategory,
-  abuseDetails,
-  setAbuseDetails,
-  onReport,
-  loading,
-}: {
-  abuseType: "listing" | "user";
-  setAbuseType: (v: "listing" | "user") => void;
-  abuseTarget: string;
-  setAbuseTarget: (v: string) => void;
-  abuseCategory: string;
-  setAbuseCategory: (v: string) => void;
-  abuseDetails: string;
-  setAbuseDetails: (v: string) => void;
-  onReport: (e: React.FormEvent) => Promise<void>;
-  loading: boolean;
-  abuseError: string | null;
-}) {
-  return (
-    <section className="mt-10 rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-      <p className="text-sm font-semibold uppercase tracking-[0.22em] text-teal-700">
-        Moderation
-      </p>
-      <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
-        Report abuse
-      </h2>
-      <form
-        onSubmit={onReport}
-        aria-busy={loading}
-        className="mt-4 space-y-3"
-      >
-        <fieldset className="flex gap-4 text-sm text-slate-700">
-          <legend className="sr-only">Abuse target type</legend>
-          <label className="flex items-center gap-2">
-            <input
-              type="radio"
-              name="abuseType"
-              checked={abuseType === "listing"}
-              onChange={() => setAbuseType("listing")}
-            />
-            Listing
-          </label>
-
-          <label className="flex items-center gap-2">
-            <input
-              type="radio"
-              name="abuseType"
-              checked={abuseType === "user"}
-              onChange={() => setAbuseType("user")}
-            />
-            User
-          </label>
-        </fieldset>
-        <label
-          htmlFor="trust-abuse-target"
-          className="sr-only"
-        >
-          Target UUID
-        </label>
-        <input
-          id="trust-abuse-target"
-          value={abuseTarget}
-          onChange={(e) => setAbuseTarget(e.target.value)}
-          placeholder="target UUID"
-          className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 shadow-sm"
-          required
-        />
-        <label
-          htmlFor="trust-abuse-category"
-          className="sr-only"
-        >
-          Abuse category
-        </label>
-        <input
-          id="trust-abuse-category"
-          value={abuseCategory}
-          onChange={(e) => setAbuseCategory(e.target.value)}
-          placeholder="category"
-          className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm"
-        />
-        <label
-          htmlFor="trust-abuse-details"
-          className="sr-only"
-        >
-          Abuse details
-        </label>
-        <textarea
-          id="trust-abuse-details"
-          value={abuseDetails}
-          onChange={(e) => setAbuseDetails(e.target.value)}
-          placeholder="details (optional)"
-          rows={3}
-          className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm"
-        />
-        <button
-          type="submit"
-          disabled={loading}
-          aria-disabled={loading}
-          className="rounded-md border border-red-200 bg-red-50 px-4 py-2 font-medium text-red-800 hover:bg-red-100 disabled:opacity-50"
-        >
-          {loading ? "Submitting report…" : "Submit report"}
-        </button>
-      </form>
-    </section>
-  );
-});
-ReportAbuseSection.displayName = "ReportAbuseSection";
-
-const PeerReviewSection = memo(function PeerReviewSection({
-  bookingId,
-  setBookingId,
-  revieweeId,
-  setRevieweeId,
-  side,
-  setSide,
-  rating,
-  setRating,
-  comment,
-  setComment,
-  onPeerReview,
-  loading,
-  reviewError,
-}: {
-  bookingId: string;
-  setBookingId: (v: string) => void;
-  revieweeId: string;
-  setRevieweeId: (v: string) => void;
-  side: string;
-  setSide: (v: string) => void;
-  rating: number;
-  setRating: (v: number) => void;
-  comment: string;
-  setComment: (v: string) => void;
-  onPeerReview: (e: React.FormEvent) => Promise<void>;
-  loading: boolean;
-  reviewError: string | null;
-}) {
-  return (
-    <section className="mt-10 rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-      <p className="text-sm font-semibold uppercase tracking-[0.22em] text-teal-700">
-        Reviews
-      </p>
-      <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
-        Submit a peer review
-      </h2>
-      <p className="mt-1 text-xs text-slate-600">
-        After a booking — both sides can leave a review (unique per
-        booking/reviewer).
-      </p>
-      <form
-        onSubmit={onPeerReview}
-        aria-busy={loading}
-        className="mt-4 space-y-3"
-      >
-        <label
-          htmlFor="trust-booking-id"
-          className="sr-only"
-        >
-          Booking UUID
-        </label>
-        <input
-          id="trust-booking-id"
-          value={bookingId}
-          onChange={(e) => setBookingId(e.target.value)}
-          placeholder="booking UUID"
-          aria-describedby={reviewError ? "review-error" : undefined}
-          aria-invalid={reviewError ? true : undefined}
-          className={"w-full rounded-md border px-3 py-2 font-mono text-sm text-slate-900 shadow-sm bg-white " + (reviewError ? "border-red-400" : "border-slate-300")}
-          required
-        />
-        {reviewError && (
-          <p id="review-error" role="alert" aria-live="assertive" className="text-xs text-red-600">
-            {reviewError}
-          </p>
-        )}
-        <label
-          htmlFor="trust-reviewee-id"
-          className="sr-only"
-        >
-          Reviewee user UUID
-        </label>
-        <input
-          id="trust-reviewee-id"
-          value={revieweeId}
-          onChange={(e) => setRevieweeId(e.target.value)}
-          placeholder="reviewee user UUID"
-          className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 shadow-sm"
-          required
-        />
-        <label
-          htmlFor="trust-review-side"
-          className="sr-only"
-        >
-          Review side
-        </label>
-        <input
-          id="trust-review-side"
-          value={side}
-          onChange={(e) => setSide(e.target.value)}
-          placeholder="side label e.g. guest | host"
-          className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm"
-        />
-        <div>
-          <label
-            htmlFor="trust-review-rating"
-            className="text-xs text-slate-600"
-          >
-            Rating 1–5
-          </label>
-          <input
-            id="trust-review-rating"
-            type="number"
-            min={1}
-            max={5}
-            value={rating}
-            onChange={(e) => setRating(Number(e.target.value))}
-            className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 shadow-sm"
-          />
-        </div>
-        <label
-          htmlFor="trust-review-comment"
-          className="sr-only"
-        >
-          Review comment
-        </label>
-        <textarea
-          id="trust-review-comment"
-          value={comment}
-          onChange={(e) => setComment(e.target.value)}
-          placeholder="comment"
-          rows={2}
-          className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm"
-        />
-        <button
-          type="submit"
-          disabled={loading}
-          aria-disabled={loading}
-          className="rounded-md bg-slate-700 px-4 py-2 font-medium text-white hover:bg-slate-600 disabled:opacity-50"
-        >
-          {loading ? "Submitting review…" : "Submit review"}
-        </button>
-      </form>
-    </section>
-  );
-});
-PeerReviewSection.displayName = "PeerReviewSection";
-
-const TrustLoginPrompt = memo(function TrustLoginPrompt() {
-  return (
-    <div className="mt-10 rounded-[1.25rem] border border-slate-200 bg-white px-5 py-4 text-sm text-slate-600 shadow-sm">
-      <Link href="/login" className="font-medium text-teal-700 hover:underline">
-        Log in
-      </Link>{" "}
-      to report abuse or submit peer reviews.
-    </div>
-  );
-});
-TrustLoginPrompt.displayName = "TrustLoginPrompt";
-
-const TrustFeedback = memo(function TrustFeedback({
-  feedback,
-  feedbackRef,
-}: {
-  feedback: { type: "success" | "error" | null; message: string };
-  feedbackRef: React.RefObject<HTMLDivElement>;
-}) {
-  if (!feedback.type) return null;
-
-  if (feedback.type === "success") {
-    return (
-      <div
-        ref={feedbackRef}
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
-        tabIndex={-1}
-        className="mt-6 rounded-[1.25rem] border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-medium text-emerald-800 shadow-sm"
-      >
-        {feedback.message}
-      </div>
+  if (matches.length > 1) {
+    const labels = matches
+      .slice(0, 5)
+      .map((m) => m.username || m.display_name || m.id)
+      .join(", ");
+    throw new Error(
+      `Multiple matches (${labels}${matches.length > 5 ? ", …" : ""}). Narrow your search (e.g. exact @username).`,
     );
   }
-
-  return (
-    <div
-      ref={feedbackRef}
-      role="alert"
-      aria-atomic="true"
-      tabIndex={-1}
-      className="mt-4 rounded-[1.25rem] border border-red-200 bg-red-50 px-5 py-4 text-sm font-medium text-red-700 shadow-sm"
-    >
-      {feedback.message}
-    </div>
-  );
-});
-TrustFeedback.displayName = "TrustFeedback";
+  return matches[0].id;
+}
 
 export default function TrustPage() {
-  const [state, dispatch] = useReducer(trustReducer, DEFAULT_TRUST_STATE);
-  const { email, token, mySub, repUserId, repScore, abuseType, abuseTarget,
-    abuseCategory, abuseDetails, bookingId, revieweeId, side, rating, comment,
-    loading, feedback } = state;
-  const setRepUserId = (v: string) => dispatch({ type: "SET", payload: { repUserId: v } });
-  const setAbuseType = (v: "listing" | "user") => dispatch({ type: "SET", payload: { abuseType: v } });
-  const setAbuseTarget = (v: string) => dispatch({ type: "SET", payload: { abuseTarget: v } });
-  const setAbuseCategory = (v: string) => dispatch({ type: "SET", payload: { abuseCategory: v } });
-  const setAbuseDetails = (v: string) => dispatch({ type: "SET", payload: { abuseDetails: v } });
-  const setBookingId = (v: string) => dispatch({ type: "SET", payload: { bookingId: v } });
-  const setRevieweeId = (v: string) => dispatch({ type: "SET", payload: { revieweeId: v } });
-  const setSide = (v: string) => dispatch({ type: "SET", payload: { side: v } });
-  const setRating = (v: number) => dispatch({ type: "SET", payload: { rating: v } });
-  const setComment = (v: string) => dispatch({ type: "SET", payload: { comment: v } });
-  const feedbackRef = useRef<HTMLDivElement | null>(null);
   const [email, setEmail] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [mySub, setMySub] = useState<string | null>(null);
 
-  const [repUserId, setRepUserId] = useState("");
+  const [repQuery, setRepQuery] = useState("");
   const [repScore, setRepScore] = useState<number | null>(null);
-  const [repError, setRepError] = useState<string | null>(null);
+  const [repResolvedId, setRepResolvedId] = useState<string | null>(null);
+  const [repAvg, setRepAvg] = useState<number | null>(null);
+  const [repCount, setRepCount] = useState<number | null>(null);
+  const [repReviews, setRepReviews] = useState<TrustReviewRow[]>([]);
 
   const [abuseType, setAbuseType] = useState<"listing" | "user">("listing");
-  const [abuseError, setAbuseError] = useState<string | null>(null);
   const [abuseTarget, setAbuseTarget] = useState("");
   const [abuseCategory, setAbuseCategory] = useState("spam");
   const [abuseDetails, setAbuseDetails] = useState("");
 
+  const [myBookings, setMyBookings] = useState<TenantBookingSummary[]>([]);
   const [bookingId, setBookingId] = useState("");
-  const [reviewError, setReviewError] = useState<string | null>(null);
-  const [revieweeId, setRevieweeId] = useState("");
-  const [side, setSide] = useState("guest");
+  const [revieweeQuery, setRevieweeQuery] = useState("");
+  const [side, setSide] = useState("");
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
 
@@ -565,105 +87,141 @@ export default function TrustPage() {
 
   useEffect(() => {
     const t = getStoredToken();
+    setToken(t);
+    setEmail(getStoredEmail());
     const sub = getSubFromJwt(t);
-    dispatch({ type: "SET_AUTH", email: getStoredEmail(), token: t, mySub: sub });
-    if (sub) dispatch({ type: "SET", payload: { repUserId: sub } });
+    setMySub(sub);
   }, []);
 
   useEffect(() => {
-    if (!feedback.type) return;
-
-    feedbackRef.current?.focus();
-  }, [feedback.type]);
-
-  const onReputation = useCallback(async function onReputation(e: React.FormEvent) {
-    e.preventDefault();
-    if (loading) return;
-    dispatch({ type: "CLEAR_FEEDBACK" });
-    dispatch({ type: "SET_LOADING", loading: true });
-    try {
-      const r = await getReputation(repUserId.trim());
-      dispatch({ type: "SET", payload: { repScore: r.score } });
-      dispatch({ type: "SET_FEEDBACK", feedback: { type: "success", message: `Reputation for ${r.user_id}: ${r.score}` } });
-    } catch (e: unknown) {
-      dispatch({ type: "SET", payload: { repScore: null } });
-      dispatch({ type: "SET_FEEDBACK", feedback: { type: "error", message: e instanceof Error ? e.message : "Lookup failed" } });
-    if (!repUserId.trim()) {
-      setRepError("Please enter a user UUID.");
+    if (!token) {
+      setMyBookings([]);
       return;
     }
-    setRepError(null);
-    setFeedback({ type: null, message: "" });
+    let cancelled = false;
+    listMyBookings(token, { peerReviewEligible: true, includeArchived: true, role: "either" })
+      .then((rows) => {
+        if (!cancelled) setMyBookings(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setMyBookings([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  useEffect(() => {
+    if (!bookingId || !mySub) return;
+    const b = myBookings.find((x) => String(x.booking_id) === String(bookingId));
+    if (!b) return;
+    const hint = formatBookingCounterpartyHint(b, mySub);
+    setRevieweeQuery(hint);
+    const tenant = String(b.tenant_id ?? "").trim().toLowerCase();
+    const me = String(mySub).trim().toLowerCase();
+    setSide(tenant === me ? "landlord" : "tenant");
+    let cancelled = false;
+    const otherId =
+      tenant === me ? String(b.landlord_id ?? "").trim() : String(b.tenant_id ?? "").trim();
+    if (!UUID_RE.test(otherId)) return;
+    void (async () => {
+      try {
+        const matches = await resolveTrustPublicUserHandle(otherId);
+        if (cancelled) return;
+        const un = matches[0]?.username || matches[0]?.display_name;
+        if (un) {
+          const q = String(un).startsWith("@") ? String(un) : `@${un}`;
+          setRevieweeQuery(q);
+        }
+      } catch {
+        /* keep booking-derived hint */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [bookingId, myBookings, mySub]);
+
+  async function onReputation(e: React.FormEvent) {
+    e.preventDefault();
+    if (!repQuery.trim()) return;
+    setErr(null);
     setLoading(true);
     try {
-      const r = await getReputation(repUserId.trim());
+      const id = UUID_RE.test(repQuery.trim())
+        ? repQuery.trim()
+        : await resolveReputationUserId(repQuery);
+      const r = await getReputation(id);
       setRepScore(r.score);
-      trackTrustEvent({ type: "reputation_lookup", userId: repUserId.trim() });
-      setFeedback({
-        type: "success",
-        message: `Reputation for ${r.user_id}: ${r.score}`,
-      });
+      setRepResolvedId(id);
+      setRepAvg(r.avg_rating ?? null);
+      setRepCount(r.review_count ?? 0);
+      const rev = await listUserTrustReviews(id, { limit: 30 }).catch(() => ({ items: [] as TrustReviewRow[] }));
+      setRepReviews(rev.items);
+      const label = UUID_RE.test(repQuery.trim()) ? "user id" : repQuery.trim();
+      setMsg(`Reputation for ${label}: ${r.score}`);
     } catch (e: unknown) {
       setRepScore(null);
-      setRepError(e instanceof Error ? e.message : "Lookup failed");
-      setFeedback({
-        type: "error",
-        message: e instanceof Error ? e.message : "Lookup failed",
-      });
+      setRepResolvedId(null);
+      setRepAvg(null);
+      setRepCount(null);
+      setRepReviews([]);
+      setErr(e instanceof Error ? e.message : "Lookup failed");
     } finally {
-      dispatch({ type: "SET_LOADING", loading: false });
+      setLoading(false);
     }
-  }, [repUserId, loading]);
+  }
 
-  const onReport = useCallback(async function onReport(e: React.FormEvent) {
+  async function onReport(e: React.FormEvent) {
     e.preventDefault();
     if (!token) return;
-    dispatch({ type: "CLEAR_FEEDBACK" });
-    dispatch({ type: "SET_LOADING", loading: true });
-    if (!abuseTarget.trim()) {
-      setAbuseError("Please enter a target UUID.");
-      return;
-    }
-    setAbuseError(null);
-    setFeedback({ type: null, message: "" });
+    setMsg(null);
+    setErr(null);
     setLoading(true);
     try {
+      const raw = abuseTarget.trim();
+      const target_id =
+        abuseType === "listing" ? raw : await resolveOchUserId(token, raw);
       await reportAbuse(token, {
         abuse_target_type: abuseType,
-        target_id: abuseTarget.trim(),
+        target_id,
         category: abuseCategory,
         details: abuseDetails,
       });
-      dispatch({ type: "SET_FEEDBACK", feedback: { type: "success", message: "Report submitted." } });
-      dispatch({ type: "RESET_REPORT" });
+      setMsg("Report submitted.");
+      setAbuseDetails("");
     } catch (e: unknown) {
-      dispatch({ type: "SET_FEEDBACK", feedback: { type: "error", message: e instanceof Error ? e.message : "Report failed" } });
+      setErr(e instanceof Error ? e.message : "Report failed");
     } finally {
-      dispatch({ type: "SET_LOADING", loading: false });
+      setLoading(false);
     }
-  }, [token, abuseType, abuseTarget, abuseCategory, abuseDetails, loading]);
+  }
 
-  const onPeerReview = useCallback(async function onPeerReview(e: React.FormEvent) {
+  async function onPeerReview(e: React.FormEvent) {
     e.preventDefault();
     if (!token) return;
-    dispatch({ type: "CLEAR_FEEDBACK" });
-    dispatch({ type: "SET_LOADING", loading: true });
+    setMsg(null);
+    setErr(null);
+    setLoading(true);
     try {
+      const bid = bookingId.trim();
+      if (!UUID_RE.test(bid)) throw new Error("Choose a booking from the list (only eligible stays appear).");
+      const reviewee_id = await resolveOchUserId(token, revieweeQuery);
       await submitPeerReview(token, {
-        booking_id: bookingId.trim(),
-        reviewee_id: revieweeId.trim(),
+        booking_id: bid,
+        reviewee_id,
         side,
         rating,
         comment,
       });
-      dispatch({ type: "SET_FEEDBACK", feedback: { type: "success", message: "Peer review submitted." } });
-      dispatch({ type: "RESET_REVIEW" });
+      setMsg("Peer review submitted.");
+      setComment("");
     } catch (e: unknown) {
-      dispatch({ type: "SET_FEEDBACK", feedback: { type: "error", message: e instanceof Error ? e.message : "Review failed" } });
+      setErr(e instanceof Error ? e.message : "Review failed");
     } finally {
-      dispatch({ type: "SET_LOADING", loading: false });
+      setLoading(false);
     }
-  }, [token, bookingId, revieweeId, side, rating, comment, loading]);
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-emerald-50/50 text-slate-900">
@@ -671,49 +229,228 @@ export default function TrustPage() {
       <main className="mx-auto max-w-3xl px-4 py-10">
         <h1 className="font-serif text-3xl text-slate-900">Trust &amp; safety</h1>
         <p className="mt-2 text-sm text-slate-600">
-          Report abuse and submit peer reviews via gateway → trust-service. Reputation lookup is public.
+          Report abuse and submit peer reviews via gateway → trust-service. Reputation lookup is username-first (public
+          directory); messaging search is still used where signed-in resolution is needed.
         </p>
 
-        <ReputationSection
-          repUserId={repUserId}
-          setRepUserId={setRepUserId}
-          onReputation={onReputation}
-          loading={loading}
-          mySub={mySub}
-          repScore={repScore}
-          repError={repError}
-        />
+        <section className="mt-10 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
+          <h2 className="text-lg font-medium text-slate-900">Reputation</h2>
+          <form data-testid="trust-reputation-form" onSubmit={onReputation} className="mt-4 flex flex-col gap-3 sm:flex-row">
+            <input
+              data-testid="trust-reputation-query"
+              value={repQuery}
+              onChange={(e) => setRepQuery(e.target.value)}
+              placeholder="Username, @handle, or display name"
+              className="flex-1 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm"
+            />
+            <button
+              type="submit"
+              disabled={loading}
+              data-testid="trust-reputation-submit"
+              className="rounded-md bg-teal-600 px-4 py-2 font-medium text-white hover:bg-teal-500 disabled:opacity-50"
+            >
+              Look up
+            </button>
+          </form>
+          {token && (
+            <button
+              type="button"
+              className="mt-2 text-xs font-medium text-teal-700 hover:underline"
+              onClick={() => {
+                setErr(null);
+                const un = getUsernameFromJwt(token);
+                if (un) setRepQuery(un.startsWith("@") ? un : `@${un}`);
+                else setErr("Your session has no username claim; type your @handle manually.");
+              }}
+            >
+              Use my @username from session
+            </button>
+          )}
+          {repScore != null && (
+            <p data-testid="trust-reputation-score" className="mt-4 text-sm text-slate-600">
+              Score: <strong className="text-teal-800">{repScore}</strong>
+              {repCount != null && repCount > 0 ? (
+                <>
+                  {" "}
+                  · Avg peer rating:{" "}
+                  <strong className="text-teal-800">
+                    {repAvg != null ? repAvg.toFixed(1) : "—"}
+                  </strong>{" "}
+                  / 5 ({repCount} reviews)
+                </>
+              ) : null}
+            </p>
+          )}
+          {repResolvedId ? (
+            <div className="mt-4 rounded-lg border border-slate-100 bg-slate-50/80 p-4">
+              <p className="text-xs font-medium text-slate-700">Recent peer reviews (public)</p>
+              <Link
+                href={`/users/${encodeURIComponent(repResolvedId)}/feedback`}
+                className="mt-2 inline-block text-xs font-medium text-teal-800 hover:underline"
+              >
+                Open full feedback page
+              </Link>
+              {repReviews.length === 0 ? (
+                <p className="mt-2 text-xs text-slate-500">No written reviews yet for this user.</p>
+              ) : (
+                <ul className="mt-3 space-y-2">
+                  {repReviews.map((rv) => (
+                    <li key={rv.id} className="rounded-md border border-slate-200 bg-white p-2 text-xs text-slate-700">
+                      <span className="font-semibold text-amber-800">★ {Number(rv.rating) || 0}</span>
+                      {rv.comment ? (
+                        <span className="mt-1 block text-slate-700">{String(rv.comment).slice(0, 400)}</span>
+                      ) : null}
+                      <span className="mt-1 block text-[10px] text-slate-400">
+                        From{" "}
+                        {formatIdentityPriority({
+                          username: rv.reviewer_username ?? null,
+                          display_name: rv.reviewer_display_name ?? null,
+                          email: null,
+                          id: rv.reviewer_id,
+                        })}{" "}
+                        · booking {rv.booking_id.slice(0, 8)}… · {new Date(rv.created_at).toLocaleString()}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ) : null}
+        </section>
 
         {token ? (
           <>
-            <ReportAbuseSection
-              abuseType={abuseType}
-              setAbuseType={setAbuseType}
-              abuseTarget={abuseTarget}
-              setAbuseTarget={setAbuseTarget}
-              abuseCategory={abuseCategory}
-              setAbuseCategory={setAbuseCategory}
-              abuseDetails={abuseDetails}
-              setAbuseDetails={setAbuseDetails}
-              onReport={onReport}
-              loading={loading}
-              abuseError={abuseError}
-            />
-            <PeerReviewSection
-              bookingId={bookingId}
-              setBookingId={setBookingId}
-              revieweeId={revieweeId}
-              setRevieweeId={setRevieweeId}
-              side={side}
-              setSide={setSide}
-              rating={rating}
-              setRating={setRating}
-              comment={comment}
-              setComment={setComment}
-              onPeerReview={onPeerReview}
-              loading={loading}
-              reviewError={reviewError}
-            />
+            <section className="mt-8 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
+              <h2 className="text-lg font-medium text-slate-900">Report abuse</h2>
+              <form onSubmit={onReport} className="mt-4 space-y-3">
+                <div className="flex gap-4 text-sm text-slate-700">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="abuseType"
+                      checked={abuseType === "listing"}
+                      onChange={() => setAbuseType("listing")}
+                    />
+                    Listing
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="abuseType"
+                      checked={abuseType === "user"}
+                      onChange={() => setAbuseType("user")}
+                    />
+                    User
+                  </label>
+                </div>
+                <input
+                  value={abuseTarget}
+                  onChange={(e) => setAbuseTarget(e.target.value)}
+                  placeholder={
+                    abuseType === "listing"
+                      ? "Listing ID (from the listing page URL)"
+                      : "@username or display name"
+                  }
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm"
+                  required
+                />
+                <input
+                  value={abuseCategory}
+                  onChange={(e) => setAbuseCategory(e.target.value)}
+                  placeholder="category"
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm"
+                />
+                <textarea
+                  value={abuseDetails}
+                  onChange={(e) => setAbuseDetails(e.target.value)}
+                  placeholder="details (optional)"
+                  rows={3}
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm"
+                />
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="rounded-md border border-red-200 bg-red-50 px-4 py-2 font-medium text-red-800 hover:bg-red-100 disabled:opacity-50"
+                >
+                  Submit report
+                </button>
+              </form>
+            </section>
+
+            <section className="mt-8 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
+              <h2 className="text-lg font-medium text-slate-900">Peer review</h2>
+              <p className="mt-1 text-xs text-slate-600">
+                The booking list comes from{" "}
+                <code className="rounded bg-slate-100 px-1">GET /bookings/mine?peer_review_eligible=1</code> —{" "}
+                <strong className="font-medium">APPROVED</strong> bookings (landlord accepted),{" "}
+                <strong className="font-medium">CONFIRMED</strong> stays, and <strong className="font-medium">COMPLETED</strong> stays.
+                Cancelled, rejected, expired, and withdrawn-style requests are excluded. After you pick a booking, the
+                other party is pre-filled from booking snapshots (handle, email hint, or short id), then refined from the
+                public user directory when available. Public feedback uses the same peer-review-eligible booking rule.
+              </p>
+              <form onSubmit={onPeerReview} className="mt-4 space-y-3">
+                <label className="block text-xs font-medium text-slate-600">Booking</label>
+                <select
+                  value={bookingId}
+                  onChange={(e) => setBookingId(e.target.value)}
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm"
+                  required
+                >
+                  <option value="">Select…</option>
+                  {myBookings.map((b) => {
+                    const renterHint =
+                      formatBookingCounterpartyHint(b, mySub || "") ||
+                      handleHintFromEmail(b.tenant_email) ||
+                      "Other party";
+                    return (
+                      <option key={b.booking_id} value={b.booking_id}>
+                        {prettyBookingTitle(b.listing?.title ?? b.listing_title)} · {b.status} · {renterHint} ·{" "}
+                        {b.startDate}
+                      </option>
+                    );
+                  })}
+                </select>
+                <label className="block text-xs font-medium text-slate-600">Reviewee (other party)</label>
+                <input
+                  value={revieweeQuery}
+                  onChange={(e) => setRevieweeQuery(e.target.value)}
+                  placeholder="Pre-filled from booking, or @username / display name"
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm"
+                  required
+                />
+                <input
+                  value={side}
+                  onChange={(e) => setSide(e.target.value)}
+                  placeholder="Optional: tenant | landlord | host (defaults from booking)"
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm"
+                />
+                <div>
+                  <label className="text-xs text-slate-600">Rating 1–5</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={5}
+                    value={rating}
+                    onChange={(e) => setRating(Number(e.target.value))}
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 shadow-sm"
+                  />
+                </div>
+                <textarea
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                  placeholder="comment"
+                  rows={2}
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm"
+                />
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="rounded-md bg-slate-700 px-4 py-2 font-medium text-white hover:bg-slate-600 disabled:opacity-50"
+                >
+                  Submit review
+                </button>
+              </form>
+            </section>
           </>
         ) : (
           <p className="mt-8 text-sm text-slate-600">

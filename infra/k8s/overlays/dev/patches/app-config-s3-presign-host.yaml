@@ -1,0 +1,9 @@
+# Presigned S3/MinIO URLs must use a host reachable from the developer machine browser
+# (Playwright, curl). In-cluster DNS name `minio` is not resolvable on the host.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: off-campus-housing-tracker
+data:
+  S3_PRESIGN_ENDPOINT: "http://127.0.0.1:9000"

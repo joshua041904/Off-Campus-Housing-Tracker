@@ -158,6 +158,60 @@
             ]
         },
         {
+            "name": "listing_search_index",
+            "schema": "analytics",
+            "columns": [
+                {
+                    "name": "listing_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "title",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "description",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "embedding",
+                    "type": "vector(384)",
+                    "nullable": false
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "search_tsv",
+                    "type": "tsvector",
+                    "nullable": true
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE INDEX idx_listing_search_created_at ON analytics.listing_search_index USING btree (created_at DESC)",
+                    "name": "idx_listing_search_created_at"
+                },
+                {
+                    "def": "CREATE INDEX idx_listing_search_embedding_ivfflat ON analytics.listing_search_index USING ivfflat (embedding vector_cosine_ops) WITH (lists='100')",
+                    "name": "idx_listing_search_embedding_ivfflat"
+                },
+                {
+                    "def": "CREATE INDEX idx_listing_search_tsv ON analytics.listing_search_index USING gin (search_tsv)",
+                    "name": "idx_listing_search_tsv"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX listing_search_index_pkey ON analytics.listing_search_index USING btree (listing_id)",
+                    "name": "listing_search_index_pkey"
+                }
+            ]
+        },
+        {
             "name": "processed_events",
             "schema": "analytics",
             "columns": [
@@ -503,5 +557,5 @@
             "from_schema": "analytics"
         }
     ],
-    "generated_at": "2026-04-03T20:12:20.5144+00:00"
+    "generated_at": "2026-05-10T18:39:40.889274+00:00"
 }

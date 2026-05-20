@@ -94,6 +94,7 @@ describe.skipIf(skip || !dbReady)("booking HTTP — full surface", () => {
         listingId: randomUUID(),
         startDate: start,
         endDate: end,
+        landlordId: otherUser,
         priceCents: 5000,
       });
     expect(create.status, create.text).toBe(201);
@@ -153,15 +154,21 @@ describe.skipIf(skip || !dbReady)("booking HTTP — full surface", () => {
     expect(res.status).toBe(400);
   });
 
-  it("GET /:bookingId 403 for non-tenant", async () => {
+  it("GET /:bookingId 403 for unrelated user", async () => {
+    const stranger = randomUUID();
     const create = await request(app)
       .post("/create")
       .set("x-user-id", tenantId)
-      .send({ listingId: randomUUID(), startDate: start, endDate: end });
+      .send({
+        listingId: randomUUID(),
+        startDate: start,
+        endDate: end,
+        landlordId: otherUser,
+      });
     expect(create.status).toBe(201);
     const bookingId = create.body.id as string;
 
-    const res = await request(app).get(`/${bookingId}`).set("x-user-id", otherUser);
+    const res = await request(app).get(`/${bookingId}`).set("x-user-id", stranger);
     expect(res.status).toBe(403);
   });
 
@@ -169,7 +176,7 @@ describe.skipIf(skip || !dbReady)("booking HTTP — full surface", () => {
     const create = await request(app)
       .post("/create")
       .set("x-user-id", tenantId)
-      .send({ listingId: randomUUID(), startDate: start, endDate: end });
+      .send({ listingId: randomUUID(), startDate: start, endDate: end, landlordId: otherUser });
     const bookingId = create.body.id as string;
 
     const res = await request(app).patch(`/${bookingId}`).set("x-user-id", tenantId).send({});
@@ -185,6 +192,7 @@ describe.skipIf(skip || !dbReady)("booking HTTP — full surface", () => {
         listingId,
         startDate: start,
         endDate: end,
+        landlordId: otherUser,
         priceCents: 10000,
       });
     expect(create.status, create.text).toBe(201);
@@ -237,7 +245,7 @@ describe.skipIf(skip || !dbReady)("booking HTTP — full surface", () => {
     const create = await request(app)
       .post("/create")
       .set("x-user-id", tenantId)
-      .send({ listingId: randomUUID(), startDate: start, endDate: end });
+      .send({ listingId: randomUUID(), startDate: start, endDate: end, landlordId: otherUser });
     expect(create.status).toBe(201);
     const bookingId = create.body.id as string;
 
@@ -249,15 +257,16 @@ describe.skipIf(skip || !dbReady)("booking HTTP — full surface", () => {
   });
 
   it("POST /cancel 403 for unrelated user", async () => {
+    const stranger = randomUUID();
     const create = await request(app)
       .post("/create")
       .set("x-user-id", tenantId)
-      .send({ listingId: randomUUID(), startDate: start, endDate: end });
+      .send({ listingId: randomUUID(), startDate: start, endDate: end, landlordId: otherUser });
     const bookingId = create.body.id as string;
 
     const bad = await request(app)
       .post("/cancel")
-      .set("x-user-id", otherUser)
+      .set("x-user-id", stranger)
       .send({ bookingId });
     expect(bad.status).toBe(403);
   });

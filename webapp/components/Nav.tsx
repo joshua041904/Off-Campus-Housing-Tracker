@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { clearStoredToken } from "@/lib/auth-storage";
+import { formatUserDisplayName, handleHintFromEmail } from "@/lib/user-display";
+import { NavAccountBadges } from "@/components/NavAccountBadges";
 
 export function Nav({ email }: { email?: string | null }) {
   const router = useRouter();
@@ -16,6 +18,9 @@ export function Nav({ email }: { email?: string | null }) {
           <Link href="/listings" className="hover:text-teal-700">
             Listings
           </Link>
+          <Link href="/community" className="hover:text-teal-700">
+            Community
+          </Link>
           <Link href="/mission" className="hover:text-teal-700">
             Mission
           </Link>
@@ -27,9 +32,19 @@ export function Nav({ email }: { email?: string | null }) {
           </Link>
           {email ? (
             <>
-              <span className="hidden max-w-[200px] truncate text-slate-500 sm:inline" title={email ?? ""}>
-                {email}
+              <span
+                className="hidden max-w-[200px] truncate text-slate-500 sm:inline"
+                title={email ?? ""}
+              >
+                {formatUserDisplayName(null, handleHintFromEmail(email), email.split("@")[0] || "Account")}
               </span>
+              <Link href="/dashboard/landlord" className="hover:text-teal-700" title="Your landlord listings and notifications">
+                My listings
+              </Link>
+              <NavAccountBadges />
+              <Link href="/dashboard/messages" className="hover:text-teal-700" title="In-app messages and external email/SMS">
+                Messages
+              </Link>
               <Link href="/dashboard" className="hover:text-teal-700">
                 Dashboard
               </Link>

@@ -3,7 +3,17 @@ import * as grpc from '@grpc/grpc-js'
 import * as protoLoader from '@grpc/proto-loader'
 import os from 'os'
 import { pool } from './lib/db.js'
-import { makeRedis, cached, makePostKey, makePostsListKey, makeCommentsKey, makeMessagesKey, makeThreadKey } from './lib/cache.js'
+import {
+  makeRedis,
+  cached,
+  makePostKey,
+  makePostsListKey,
+  makeCommentsKey,
+  makeMessagesKey,
+  makeThreadKey,
+  invalidateForumVoteCaches,
+} from './lib/cache.js'
+import { applyCommentVote, applyPostVote } from './lib/forumVotes.js'
 import { kafka } from '@common/utils/kafka'
 import { registerHealthService, createOchGrpcServerCredentialsForBind } from '@common/utils'
 import { resolveProtoPath } from '@common/utils/proto'
@@ -166,27 +176,26 @@ export const messagingGrpcHandlers = {
       callback({ code: 3, message: 'post_id, user_id, and vote (up/down) required' })
       return
     }
+    const client = await pool.connect()
     try {
-      await pool.query(
-        `INSERT INTO forum.post_votes (post_id, user_id, vote_type)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (post_id, user_id) DO UPDATE SET vote_type = $3, created_at = now()`,
-        [post_id, user_id, vote]
-      )
-      const { rows } = await pool.query(
-        'SELECT upvotes, downvotes FROM forum.posts WHERE id = $1',
-        [post_id]
-      )
+      await client.query('BEGIN')
+      const out = await applyPostVote(client, post_id, user_id, vote as 'up' | 'down')
+      await client.query('COMMIT')
+      void invalidateForumVoteCaches(redis, post_id)
       callback(null, {
         post_id,
         user_id,
-        vote,
-        upvotes: rows[0]?.upvotes ?? (vote === 'up' ? 1 : 0),
-        downvotes: rows[0]?.downvotes ?? (vote === 'down' ? 1 : 0),
+        vote: out.user_vote,
+        upvotes: out.upvotes,
+        downvotes: out.downvotes,
+        user_vote: out.user_vote,
       })
     } catch (err: any) {
+      await client.query('ROLLBACK').catch(() => {})
       console.error('[gRPC] VotePost error:', err)
       callback({ code: 13, message: err.message || 'Failed to vote on post' })
+    } finally {
+      client.release()
     }
   },
 
@@ -261,27 +270,31 @@ export const messagingGrpcHandlers = {
       callback({ code: 3, message: 'comment_id, user_id, and vote (up/down) required' })
       return
     }
+    const client = await pool.connect()
     try {
-      await pool.query(
-        `INSERT INTO forum.comment_votes (comment_id, user_id, vote_type)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (comment_id, user_id) DO UPDATE SET vote_type = $3, created_at = now()`,
-        [comment_id, user_id, vote]
-      )
-      const { rows } = await pool.query(
-        'SELECT upvotes, downvotes FROM forum.comments WHERE id = $1',
-        [comment_id]
-      )
+      await client.query('BEGIN')
+      const out = await applyCommentVote(client, comment_id, user_id, vote as 'up' | 'down')
+      await client.query('COMMIT')
+      void invalidateForumVoteCaches(redis, out.post_id)
       callback(null, {
         comment_id,
         user_id,
-        vote,
-        upvotes: rows[0]?.upvotes ?? (vote === 'up' ? 1 : 0),
-        downvotes: rows[0]?.downvotes ?? (vote === 'down' ? 1 : 0),
+        vote: out.user_vote,
+        upvotes: out.upvotes,
+        downvotes: out.downvotes,
+        user_vote: out.user_vote,
       })
     } catch (err: any) {
+      await client.query('ROLLBACK').catch(() => {})
+      const msg = err?.message || String(err)
+      if (msg === 'COMMENT_NOT_FOUND') {
+        callback({ code: 5, message: 'comment not found' })
+        return
+      }
       console.error('[gRPC] VoteComment error:', err)
-      callback({ code: 13, message: err.message || 'Failed to vote on comment' })
+      callback({ code: 13, message: msg || 'Failed to vote on comment' })
+    } finally {
+      client.release()
     }
   },
 

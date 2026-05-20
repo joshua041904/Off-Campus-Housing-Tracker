@@ -48,6 +48,11 @@
                     "name": "updated_at",
                     "type": "timestamp with time zone",
                     "nullable": false
+                },
+                {
+                    "name": "inline_bytes",
+                    "type": "bytea",
+                    "nullable": true
                 }
             ],
             "indexes": [
@@ -115,10 +120,32 @@
                     "name": "outbox_events_pkey"
                 }
             ]
+        },
+        {
+            "name": "processed_events",
+            "schema": "media",
+            "columns": [
+                {
+                    "name": "event_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "processed_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX processed_events_pkey ON media.processed_events USING btree (event_id)",
+                    "name": "processed_events_pkey"
+                }
+            ]
         }
     ],
     "database": "media",
     "foreign_keys": [
     ],
-    "generated_at": "2026-04-03T20:12:22.792549+00:00"
+    "generated_at": "2026-05-10T18:39:42.234912+00:00"
 }

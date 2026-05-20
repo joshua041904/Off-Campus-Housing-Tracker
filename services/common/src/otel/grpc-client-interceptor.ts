@@ -18,6 +18,10 @@ export function createGrpcClientTracingInterceptor(): grpc.Interceptor {
         // context.active() here matches the stashed span after Express `await`; bare clients still use ALS.
         const parent = context.active();
         const span = tracer.startSpan(`gRPC ${path}`, {}, parent);
+        span.setAttribute("rpc.system", "grpc");
+        span.setAttribute("network.protocol.name", "grpc");
+        span.setAttribute("network.protocol.version", "2");
+        span.setAttribute("och.upstream_proto", "grpc");
         const spanCtx = trace.setSpan(parent, span);
         const startHr = process.hrtime.bigint();
         propagation.inject(spanCtx, metadata, metadataSetter);

@@ -17,22 +17,56 @@ data:
       "tags": ["och", "analytics", "llm", "slo"],
       "panels": [
         {
+          "id": 100,
+          "type": "stat",
+          "title": "Diagnostic — analytics_latency_seconds scraped",
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "targets": [{ "refId": "A", "expr": "count(analytics_latency_seconds_count) or vector(0)" }]
+        },
+        {
+          "id": 101,
+          "type": "stat",
+          "title": "Diagnostic — analytics-service up",
+          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "targets": [{ "refId": "A", "expr": "max(up{job=\"housing-analytics-service\"}) or vector(0)" }]
+        },
+        {
+          "id": 102,
+          "type": "stat",
+          "title": "Diagnostic — request rate (/s)",
+          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "targets": [{ "refId": "A", "expr": "sum(rate(analytics_requests_total[5m])) or vector(0)" }]
+        },
+        {
+          "id": 103,
+          "type": "stat",
+          "title": "Diagnostic — ai_health_composite (recording rule)",
+          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "targets": [{ "refId": "A", "expr": "ai_health_composite_score or vector(0)" }]
+        },
+        {
           "id": 1,
           "type": "timeseries",
-          "title": "Analytics Latency p50/p95/p99 (ms)",
-          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+          "title": "Analytics Latency p50/p95/p99/p100 (ms)",
+          "description": "Traffic-dependent: series appear only after analyze/listing-feel work completes. Seed with `make obs-smoke-analytics` (bounded POST). NaN when no samples in the selected window.",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
           "targets": [
-            { "refId": "A", "expr": "histogram_quantile(0.5, sum(rate(analytics_generation_latency_ms_bucket[5m])) by (le))", "legendFormat": "p50" },
-            { "refId": "B", "expr": "histogram_quantile(0.95, sum(rate(analytics_generation_latency_ms_bucket[5m])) by (le))", "legendFormat": "p95" },
-            { "refId": "C", "expr": "histogram_quantile(0.99, sum(rate(analytics_generation_latency_ms_bucket[5m])) by (le))", "legendFormat": "p99" }
+            { "refId": "A", "expr": "1000 * histogram_quantile(0.5, sum(rate(analytics_latency_seconds_bucket[5m])) by (le))", "legendFormat": "p50" },
+            { "refId": "B", "expr": "1000 * histogram_quantile(0.95, sum(rate(analytics_latency_seconds_bucket[5m])) by (le))", "legendFormat": "p95" },
+            { "refId": "C", "expr": "1000 * histogram_quantile(0.99, sum(rate(analytics_latency_seconds_bucket[5m])) by (le))", "legendFormat": "p99" },
+            { "refId": "D", "expr": "1000 * histogram_quantile(1.0, sum(rate(analytics_latency_seconds_bucket[5m])) by (le))", "legendFormat": "p100" }
           ]
         },
         {
           "id": 2,
           "type": "timeseries",
           "title": "Fallback Rate (/s)",
-          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
           "targets": [
             { "refId": "A", "expr": "sum(rate(analytics_fallback_total[5m]))", "legendFormat": "fallback/s" }
@@ -42,27 +76,27 @@ data:
           "id": 3,
           "type": "timeseries",
           "title": "Entropy (avg over 5m)",
-          "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+          "gridPos": { "h": 8, "w": 8, "x": 0, "y": 12 },
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
           "targets": [
-            { "refId": "A", "expr": "sum(rate(analytics_generation_entropy_sum[5m])) / clamp_min(sum(rate(analytics_generation_entropy_count[5m])), 1e-9)", "legendFormat": "entropy" }
+            { "refId": "A", "expr": "analytics_entropy_value or (sum(rate(analytics_generation_entropy_sum[5m])) / clamp_min(sum(rate(analytics_generation_entropy_count[5m])), 1e-9))", "legendFormat": "entropy" }
           ]
         },
         {
           "id": 4,
           "type": "timeseries",
-          "title": "Estimated Tokens (avg over 5m)",
-          "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+          "title": "Estimated Tokens (/s)",
+          "gridPos": { "h": 8, "w": 8, "x": 8, "y": 12 },
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
           "targets": [
-            { "refId": "A", "expr": "sum(rate(analytics_generation_tokens_estimated_sum[5m])) / clamp_min(sum(rate(analytics_generation_tokens_estimated_count[5m])), 1e-9)", "legendFormat": "tokens" }
+            { "refId": "A", "expr": "sum(rate(analytics_tokens_generated_total[5m])) or sum(rate(analytics_generation_tokens_estimated_count[5m]))", "legendFormat": "tokens/s" }
           ]
         },
         {
           "id": 5,
           "type": "timeseries",
           "title": "Truncation Rate (/s)",
-          "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+          "gridPos": { "h": 8, "w": 8, "x": 16, "y": 12 },
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
           "targets": [
             { "refId": "A", "expr": "sum(rate(analytics_generation_truncated_total[5m]))", "legendFormat": "truncations/s" }
@@ -71,28 +105,31 @@ data:
         {
           "id": 6,
           "type": "timeseries",
-          "title": "Gateway p95 latency (s)",
-          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+          "title": "Gateway p50/p95/p99/p100 latency by protocol (ms)",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
           "targets": [
-            { "refId": "A", "expr": "histogram_quantile(0.95, sum(rate(trace_service_latency_ms_bucket{service=\"api-gateway\"}[5m])) by (le))", "legendFormat": "gateway p95" }
+            { "refId": "A", "expr": "1000 * histogram_quantile(0.5, sum(rate(http_request_duration_seconds_bucket{service=\"api-gateway\",route!=\"/metrics\"}[5m])) by (le, proto))", "legendFormat": "p50 {{proto}}" },
+            { "refId": "B", "expr": "1000 * histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{service=\"api-gateway\",route!=\"/metrics\"}[5m])) by (le, proto))", "legendFormat": "p95 {{proto}}" },
+            { "refId": "C", "expr": "1000 * histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{service=\"api-gateway\",route!=\"/metrics\"}[5m])) by (le, proto))", "legendFormat": "p99 {{proto}}" },
+            { "refId": "D", "expr": "1000 * histogram_quantile(1.0, sum(rate(http_request_duration_seconds_bucket{service=\"api-gateway\",route!=\"/metrics\"}[5m])) by (le, proto))", "legendFormat": "p100 {{proto}}" }
           ]
         },
         {
           "id": 7,
           "type": "timeseries",
           "title": "QA Suite Runtime (seconds)",
-          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
           "targets": [
-            { "refId": "A", "expr": "analytics_qa_run_duration_seconds or on() vector(0)", "legendFormat": "qa runtime" }
+            { "refId": "A", "expr": "qa_suite_duration_seconds_sum / clamp_min(qa_suite_duration_seconds_count, 1) or on() vector(0)", "legendFormat": "qa runtime" }
           ]
         },
         {
           "id": 8,
           "type": "stat",
           "title": "Fallback / generation requests (5m ratio)",
-          "gridPos": { "h": 4, "w": 8, "x": 0, "y": 24 },
+          "gridPos": { "h": 4, "w": 8, "x": 0, "y": 28 },
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
           "fieldConfig": {
             "defaults": {
@@ -118,12 +155,12 @@ data:
           "id": 10,
           "type": "timeseries",
           "title": "Confidence score (v2, avg over 5m)",
-          "gridPos": { "h": 8, "w": 16, "x": 8, "y": 24 },
+          "gridPos": { "h": 8, "w": 16, "x": 8, "y": 28 },
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
           "targets": [
             {
               "refId": "A",
-              "expr": "sum(rate(analytics_generation_confidence_sum[5m])) / clamp_min(sum(rate(analytics_generation_confidence_count[5m])), 1e-9)",
+              "expr": "analytics_confidence_score or (sum(rate(analytics_generation_confidence_sum[5m])) / clamp_min(sum(rate(analytics_generation_confidence_count[5m])), 1e-9))",
               "legendFormat": "confidence"
             }
           ]

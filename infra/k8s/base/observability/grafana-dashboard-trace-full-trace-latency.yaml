@@ -7,4 +7,160 @@ metadata:
   labels:
     grafana_dashboard: "1"
 data:
-  trace-full-trace-latency.json: "{\"annotations\":{\"list\":[]},\"editable\":true,\"fiscalYearStartMonth\":0,\"graphTooltip\":1,\"id\":null,\"links\":[],\"liveNow\":false,\"panels\":[{\"datasource\":{\"type\":\"prometheus\",\"uid\":\"${DS_PROMETHEUS}\"},\"fieldConfig\":{\"defaults\":{\"color\":{\"mode\":\"palette-classic\"},\"custom\":{\"drawStyle\":\"line\",\"fillOpacity\":12,\"lineWidth\":2},\"unit\":\"ms\"},\"overrides\":[]},\"gridPos\":{\"h\":9,\"w\":24,\"x\":0,\"y\":0},\"id\":1,\"options\":{\"legend\":{\"displayMode\":\"list\",\"placement\":\"bottom\"}},\"targets\":[{\"expr\":\"histogram_quantile(0.95, sum(rate(trace_service_latency_ms_bucket[5m])) by (le, service))\",\"legendFormat\":\"p95 {{service}}\",\"refId\":\"A\"}],\"title\":\"Full-trace downstream latency (p95, ms)\",\"type\":\"timeseries\"},{\"datasource\":{\"type\":\"prometheus\",\"uid\":\"${DS_PROMETHEUS}\"},\"fieldConfig\":{\"defaults\":{\"color\":{\"mode\":\"palette-classic\"},\"custom\":{\"drawStyle\":\"bars\",\"fillOpacity\":80,\"lineWidth\":1},\"unit\":\"ops\"},\"overrides\":[]},\"gridPos\":{\"h\":8,\"w\":24,\"x\":0,\"y\":9},\"id\":2,\"options\":{\"legend\":{\"displayMode\":\"list\",\"placement\":\"bottom\"}},\"targets\":[{\"expr\":\"sum(rate(trace_service_latency_ms_count[5m])) by (service, status)\",\"legendFormat\":\"{{service}} / {{status}}\",\"refId\":\"A\"}],\"title\":\"Full-trace observations / s (by service + status)\",\"type\":\"timeseries\"}],\"refresh\":\"30s\",\"schemaVersion\":38,\"style\":\"dark\",\"tags\":[\"och\",\"api-gateway\",\"full-trace\",\"latency\"],\"templating\":{\"list\":[{\"current\":{\"selected\":false,\"text\":\"Prometheus\",\"value\":\"Prometheus\"},\"hide\":0,\"label\":\"Datasource\",\"name\":\"DS_PROMETHEUS\",\"options\":[],\"query\":\"prometheus\",\"refresh\":1,\"type\":\"datasource\"}]},\"time\":{\"from\":\"now-6h\",\"to\":\"now\"},\"timezone\":\"browser\",\"title\":\"OCH — api-gateway full-trace latency\",\"uid\":\"och-trace-full-trace-latency\",\"version\":1}"
+  trace-full-trace-latency.json: |
+    {
+      "annotations": { "list": [] },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 1,
+      "id": null,
+      "links": [],
+      "liveNow": false,
+      "panels": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+          "id": 100,
+          "targets": [{ "expr": "max(och_trace_smoke_span_count) or vector(0)", "refId": "A" }],
+          "title": "Diagnostic — smoke span count (last push)",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
+          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+          "id": 101,
+          "targets": [{ "expr": "max(och_trace_smoke_service_count) or vector(0)", "refId": "A" }],
+          "title": "Diagnostic — smoke service count",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "dateTimeFromNow" }, "overrides": [] },
+          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+          "id": 102,
+          "targets": [{ "expr": "max(och_trace_smoke_last_success_timestamp_seconds) * 1000 or vector(0)", "refId": "A" }],
+          "title": "Diagnostic — last successful smoke",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
+          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+          "id": 103,
+          "targets": [{ "expr": "count(trace_service_latency_ms_count) or vector(0)", "refId": "A" }],
+          "title": "Diagnostic — api-gateway trace histogram series",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
+          "gridPos": { "h": 4, "w": 24, "x": 0, "y": 4 },
+          "id": 104,
+          "options": { "content": "Run `./scripts/obs-smoke-trace.sh` and open the Jaeger URL from the script output. Last trace id: metric `och_trace_smoke_last_trace_id_info` (Pushgateway). In Jaeger, locate the **api-gateway** HTTP span and confirm tags **`och.edge_proto`**, **`network.protocol.version`**, and **`och.upstream_proto`** (Caddy→gateway hop). Internal **gRPC** child spans should show **`network.protocol.name=grpc`**, **`network.protocol.version=2`**, **`rpc.system=grpc`**. Grafana cannot query Jaeger span tags directly here — use the panel below (Prometheus) for edge-protocol mix.", "mode": "markdown" },
+          "title": "Smoke instructions",
+          "type": "text"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "drawStyle": "line", "fillOpacity": 12, "lineWidth": 2 },
+              "unit": "ms"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 9, "w": 24, "x": 0, "y": 8 },
+          "id": 1,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.5, sum(rate(trace_service_latency_ms_bucket[5m])) by (le, service))",
+              "legendFormat": "p50 {{service}}",
+              "refId": "A"
+            },
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(trace_service_latency_ms_bucket[5m])) by (le, service))",
+              "legendFormat": "p95 {{service}}",
+              "refId": "B"
+            },
+            {
+              "expr": "histogram_quantile(0.99, sum(rate(trace_service_latency_ms_bucket[5m])) by (le, service))",
+              "legendFormat": "p99 {{service}}",
+              "refId": "C"
+            },
+            {
+              "expr": "histogram_quantile(1.0, sum(rate(trace_service_latency_ms_bucket[5m])) by (le, service))",
+              "legendFormat": "p100 {{service}}",
+              "refId": "D"
+            }
+          ],
+          "title": "Full-trace smoke latency (p50/p95/p99/p100, ms)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "drawStyle": "bars", "fillOpacity": 80, "lineWidth": 1 },
+              "unit": "ops"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 17 },
+          "id": 2,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "sum(rate(trace_service_latency_ms_count[5m])) by (service, status)",
+              "legendFormat": "{{service}} / {{status}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Full-trace smoke observations / s (by service + status)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+          "gridPos": { "h": 6, "w": 24, "x": 0, "y": 25 },
+          "id": 105,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "sum(rate(http_requests_total{service=\"api-gateway\"}[5m])) by (proto)",
+              "legendFormat": "{{proto}}",
+              "refId": "A"
+            }
+          ],
+          "title": "API gateway — request rate by edge protocol (Jaeger tag correlate: och.edge_proto)",
+          "type": "timeseries"
+        }
+      ],
+      "refresh": "30s",
+      "schemaVersion": 38,
+      "style": "dark",
+      "tags": ["och", "api-gateway", "full-trace", "latency"],
+      "templating": {
+        "list": [
+          {
+            "current": { "selected": false, "text": "Prometheus", "value": "Prometheus" },
+            "hide": 0,
+            "label": "Datasource",
+            "name": "DS_PROMETHEUS",
+            "options": [],
+            "query": "prometheus",
+            "refresh": 1,
+            "type": "datasource"
+          }
+        ]
+      },
+      "time": { "from": "now-6h", "to": "now" },
+      "timezone": "browser",
+      "title": "OCH — Distributed Tracing (full-trace smoke)",
+      "uid": "och-trace-full-trace-latency",
+      "version": 1
+    }

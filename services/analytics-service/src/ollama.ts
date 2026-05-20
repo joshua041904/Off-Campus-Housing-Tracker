@@ -17,8 +17,27 @@ import { applyDevFastTokenCap, clampNumPredict } from "./intelligence/generation
 import { getOllamaGenerateTimeoutMs } from "./intelligence/ollamaTimeoutBudget.js";
 import { maybeInjectAiChaos } from "./aiChaos.js";
 import { ollamaKeepAliveRequestField } from "./intelligence/ollamaKeepAlive.js";
-import type { ListingIntelligenceGenerationMeta } from "./intelligence/types.js";
+import { withOllamaSerial } from "./ollamaClientSerial.js";
+import type { AnalysisDepth, ListingFeelTiming, ListingIntelligenceGenerationMeta } from "./intelligence/types.js";
 import { getPromptVersion, getRuntimeMode, getRuntimeModel } from "./intelligence/aiControlPlaneRuntime.js";
+
+function parseDepthLabel(raw: unknown): AnalysisDepth {
+  const s = String(raw || "standard").toLowerCase();
+  if (s === "quick" || s === "deep") return s;
+  return "standard";
+}
+
+/**
+ * Listing Intelligence v2 is JSON-heavy (large prompts + strict validation + optional repair).
+ * For `analysis_depth=quick`, default to the legacy bullet path: smaller prompt slice, one `/api/generate`,
+ * and budgets aligned with `listingFeelUpstreamTimeoutMs` — avoids 60s edge/proxy dead air while v2
+ * still used the global Ollama timeout (fixed in listingIntelligenceV2.ts, but quick stays legacy-first).
+ */
+function shouldRunListingIntelligenceV2ForDepth(analysis_depth?: unknown): boolean {
+  if (!isListingIntelligenceV2Enabled()) return false;
+  if (parseDepthLabel(analysis_depth) !== "quick") return true;
+  return process.env.ANALYTICS_LI_V2_QUICK === "1" || process.env.ANALYTICS_LI_V2_QUICK === "true";
+}
 
 function ollamaBaseUrl(): string {
   return (process.env.OLLAMA_BASE_URL || "").replace(/\/$/, "");
@@ -29,6 +48,13 @@ function ollamaModel(): string {
   return getRuntimeModel() || process.env.OLLAMA_MODEL || "llama3.2:1b";
 }
 
+function listingFeelTimingEnvFields(): { ollama_base_url: string; ollama_model: string } {
+  return {
+    ollama_base_url: ollamaBaseUrl(),
+    ollama_model: ollamaModel(),
+  };
+}
+
 /** Cache rows from older builds or manual DB edits should not permanently mask a working Ollama. */
 function isNonLlmListingFeelCacheModel(model: unknown): boolean {
   const m = String(model ?? "").toLowerCase();
@@ -37,6 +63,33 @@ function isNonLlmListingFeelCacheModel(model: unknown): boolean {
 
 function ollamaRequestTimeoutMs(): number {
   return getOllamaGenerateTimeoutMs();
+}
+
+/** Optional UI "quick" passes: cap Ollama wait so optional analytics does not mirror the full 5m job budget. */
+function listingFeelUpstreamTimeoutMs(analysis_depth?: unknown): number {
+  const base = ollamaRequestTimeoutMs();
+  const d = String(analysis_depth || "standard").toLowerCase();
+  if (d !== "quick") return base;
+  /**
+   * Default 120s: k8s listing-feel was timing out when this matched legacy 45–52s caps while Ollama + model
+   * load on CPU still ran (gateway proxy is 300s). Override with ANALYTICS_LISTING_FEEL_QUICK_TIMEOUT_MS.
+   */
+  const cap = Number(process.env.ANALYTICS_LISTING_FEEL_QUICK_TIMEOUT_MS ?? "120000");
+  const c = Number.isFinite(cap) && cap >= 8000 ? Math.floor(cap) : 120_000;
+  return Math.min(base, c);
+}
+
+/** Legacy `/api/generate` path: align token budget with LI v2 depth when v2 falls back. */
+function listingFeelLegacyNumPredict(analysis_depth?: unknown): number {
+  const baseFromEnv = listingFeelNumPredict();
+  const d = String(analysis_depth || "standard").toLowerCase();
+  if (d === "quick") {
+    const q = Number(process.env.ANALYTICS_LISTING_FEEL_NUM_PREDICT_QUICK ?? "48");
+    const cap = Number.isFinite(q) && q >= 32 ? Math.floor(q) : 48;
+    return clampNumPredict(applyDevFastTokenCap(cap));
+  }
+  if (d === "deep") return baseFromEnv;
+  return clampNumPredict(applyDevFastTokenCap(Math.min(560, baseFromEnv)));
 }
 
 /** Total fetch attempts for listing-feel (loop uses `attempt <= n`; must be ≥ 1). */
@@ -70,6 +123,52 @@ function listingFeelNumCtx(): number {
   if (!Number.isFinite(n)) return 2048;
   return Math.min(8192, Math.max(256, Math.floor(n)));
 }
+
+function listingFeelNumCtxForDepth(analysis_depth?: unknown): number {
+  const base = listingFeelNumCtx();
+  const d = String(analysis_depth || "standard").toLowerCase();
+  if (d === "quick") {
+    const q = Number(process.env.ANALYTICS_LISTING_FEEL_NUM_CTX_QUICK ?? "512");
+    const n = Number.isFinite(q) ? Math.floor(q) : 512;
+    return Math.min(base, Math.max(512, Math.min(4096, n)));
+  }
+  if (d === "deep") {
+    return Math.min(8192, Math.max(base, 3072));
+  }
+  return base;
+}
+
+function listingFeelDescriptionMaxChars(analysis_depth?: unknown): number {
+  const d = String(analysis_depth || "standard").toLowerCase();
+  if (d === "quick") {
+    const n = Number(process.env.ANALYTICS_LISTING_FEEL_DESCRIPTION_MAX_CHARS_QUICK ?? "900");
+    if (Number.isFinite(n) && n >= 400) return Math.min(4000, Math.floor(n));
+    return 900;
+  }
+  if (d === "deep") return 8000;
+  return 4000;
+}
+
+function listingFeelLegacyBulletCountLine(analysis_depth?: unknown): string {
+  const d = String(analysis_depth || "standard").toLowerCase();
+  if (d === "quick") {
+    return "Output exactly 7 complete bullet points (one bullet each, no overlap; finish every sentence). Order: (1) price/value, (2) biggest risk or unknown, (3) what to verify before booking, (4) commute/neighborhood fit from stated facts only, (5) lease/fees/utilities gaps, (6) negotiation or leverage, (7) bottom-line recommendation in one sentence.";
+  }
+  return "Output 6–12 bullet points covering (one bullet each, no overlap):";
+}
+
+function listingFeelBulletDepthGuidance(analysis_depth?: unknown): string {
+  const d = String(analysis_depth || "standard").toLowerCase();
+  if (d === "quick") {
+    return "Each bullet: one or two complete sentences (aim under ~220 characters per line). If the listing is silent on a theme, name the information gap instead of inventing specifics. No trailing ellipses or half sentences.";
+  }
+  if (d === "deep") {
+    return "Each bullet: up to three sentences when the listing gives concrete detail; finish every bullet.";
+  }
+  return "Each bullet: one to two sentences; no padding.";
+}
+
+const listingFeelGroundingBlock = `Grounding: only assert fees, distances, policies, or amenities that appear in the title/description above. If unknown, say what is missing (e.g. "Utilities not specified") instead of inventing numbers or comps.`;
 
 function listingFeelTopP(): number {
   const n = Number(process.env.ANALYTICS_LISTING_FEEL_TOP_P || "0.9");
@@ -161,34 +260,39 @@ Each bullet must be a distinct theme: never repeat the same topic label twice (e
 
 Tone: analytical, not friendly. Avoid filler and generic leasing clichés.`;
 
-async function sleep(ms: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, ms));
+function listingFeelFormatRulesForDepth(analysis_depth?: unknown): string {
+  if (parseDepthLabel(analysis_depth) === "quick") {
+    return `Output format (mandatory):
+Respond with exactly 7 lines only. Each line starts with "- " (ASCII hyphen and space) and is one complete point. No blank lines.
+
+Hard rules: plain text only. No Markdown (no ** asterisks **, no # headings, no backticks). Do not use unicode bullet characters. Do not use nested bullets, tab-indented lines, or lines starting with "+".
+
+No preamble or title line: start immediately with the first "- " line.
+
+Tone: analytical, not friendly. Avoid filler and generic leasing clichés.`;
+  }
+  return listingFeelFormatRules;
 }
 
-/** Serialize Ollama HTTP calls — parallel /api/generate from warmup + listing-feel caused 5xx on Colima. */
-let ollamaSerialChain: Promise<unknown> = Promise.resolve();
-function withOllamaSerial<T>(fn: () => Promise<T>): Promise<T> {
-  const next = ollamaSerialChain.then(fn, fn);
-  ollamaSerialChain = next.then(
-    () => undefined,
-    () => undefined,
-  );
-  return next;
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 const ollamaLatencyMs = new client.Histogram({
   name: "analytics_ollama_latency_ms",
   help: "Latency in ms of successful Ollama /api/generate responses",
-  buckets: [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, 60000],
+  // Must end with +Inf: prom-client findBound() returns -1 when value exceeds the largest finite bucket.
+  buckets: [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, 60000, 120000, 300000, 600000, Number.POSITIVE_INFINITY],
   registers: [register],
-  enableExemplars: true,
+  // Exemplars + OTEL sampled spans hit prom-client edge cases (missing bucketExemplars / bound -1) on long runs.
+  enableExemplars: false,
 });
 const listingFeelQualityHist = new client.Histogram({
   name: "analytics_listing_feel_quality_score",
   help: "Heuristic 0–1 listing-feel output quality (bullets, length, anti-slop)",
-  buckets: [0.2, 0.4, 0.6, 0.8, 1],
+  buckets: [0.2, 0.4, 0.6, 0.8, 1, Number.POSITIVE_INFINITY],
   registers: [register],
-  enableExemplars: true,
+  enableExemplars: false,
 });
 const ollamaFailuresTotal = new client.Counter({
   name: "analytics_ollama_failures_total",
@@ -218,21 +322,29 @@ type HistogramExemplar = {
 };
 
 function observeWithTraceExemplar(h: client.Histogram, value: number, labels: Record<string, string> = {}): void {
+  const v = Number(value);
+  if (!Number.isFinite(v)) {
+    console.warn("[metrics] skip histogram observe (non-finite)", { name: (h as { name?: string }).name, value });
+    return;
+  }
   const ex = otelTraceExemplar();
   const hi = h as unknown as HistogramExemplar;
   const lbl = Object.keys(labels).length ? labels : {};
-  if (ex) {
-    hi.observeWithExemplar({ labels: lbl, value, exemplarLabels: ex });
+  const exemplarsOn = (h as { enableExemplars?: boolean }).enableExemplars === true;
+  // Only call prom-client's observeWithExemplar when this histogram was constructed with enableExemplars.
+  // A sampled OTEL trace (ex) must not force exemplar mode on metrics that opted out — that crashes inside prom-client.
+  if (exemplarsOn && ex) {
+    hi.observeWithExemplar({ labels: lbl, value: v, exemplarLabels: ex });
     return;
   }
   // prom-client: when `enableExemplars` is true, `Histogram.observe` is `observeWithExemplar` (single options
   // object). A two-arg call `observe({}, value)` is parsed as one arg, so `value` is lost and observe throws.
-  if ((h as { enableExemplars?: boolean }).enableExemplars === true) {
-    hi.observeWithExemplar({ labels: lbl, value, exemplarLabels: {} });
+  if (exemplarsOn) {
+    hi.observeWithExemplar({ labels: lbl, value: v, exemplarLabels: {} });
     return;
   }
-  if (Object.keys(labels).length) hi.observe(labels, value);
-  else hi.observe(value);
+  if (Object.keys(labels).length) hi.observe(labels, v);
+  else hi.observe(v);
 }
 
 function listingFeelSkipCache(): boolean {
@@ -324,6 +436,7 @@ export async function analyzeListingFeelText(input: {
   intelligence_json?: string;
   confidence_explanation?: string;
   generation_meta?: ListingIntelligenceGenerationMeta;
+  listing_feel_timing?: ListingFeelTiming;
 }> {
   const audience = (input.audience || "renter").toLowerCase() === "landlord" ? "landlord" : "renter";
   const variant = listingFeelCacheVariant(input);
@@ -338,6 +451,7 @@ type ListingFeelResult = {
   intelligence_json?: string;
   confidence_explanation?: string;
   generation_meta?: ListingIntelligenceGenerationMeta;
+  listing_feel_timing?: ListingFeelTiming;
 };
 
 async function analyzeListingFeelTextPipeline(
@@ -354,6 +468,7 @@ async function analyzeListingFeelTextPipeline(
   variant: string,
   hash: string,
 ): Promise<ListingFeelResult> {
+  const pipelineT0 = Date.now();
   const cacheLookup = await runStage("analytics.cache.lookup", async (span) => {
     if (listingFeelSkipCache()) {
       span.setAttribute("och.cache", "policy_skip");
@@ -379,11 +494,21 @@ async function analyzeListingFeelTextPipeline(
   });
 
   if (cacheLookup.kind === "hit") {
-    return listingFeelShortCircuitTail("cache_hit", {
+    const inner = await listingFeelShortCircuitTail("cache_hit", {
       analysis_text: cacheLookup.analysis_text,
       model_used: cacheLookup.model_used,
       quality_score: cacheLookup.quality_score,
     });
+    return {
+      ...inner,
+      listing_feel_timing: {
+        path: "cache_hit",
+        server_ms: Date.now() - pipelineT0,
+        cache_hit: true,
+        analysis_depth: parseDepthLabel(input.analysis_depth),
+        ...listingFeelTimingEnvFields(),
+      },
+    };
   }
 
   if (!ollamaBaseUrl()) {
@@ -403,12 +528,30 @@ async function analyzeListingFeelTextPipeline(
         ? "LLM disabled (set OLLAMA_BASE_URL). Summarize: highlight price vs market, condition, and lease terms."
         : "LLM disabled (set OLLAMA_BASE_URL). Summarize: value, commute fit, and questions to ask the landlord.";
     const quality_score = computeListingFeelQualityScore(analysis_text);
-    return listingFeelShortCircuitTail("no_ollama", { analysis_text, model_used: "none", quality_score });
+    const inner = await listingFeelShortCircuitTail("no_ollama", { analysis_text, model_used: "none", quality_score });
+    return {
+      ...inner,
+      listing_feel_timing: {
+        path: "no_ollama",
+        server_ms: Date.now() - pipelineT0,
+        analysis_depth: parseDepthLabel(input.analysis_depth),
+        ...listingFeelTimingEnvFields(),
+      },
+    };
   }
 
   if (getRuntimeMode() === "legacy") {
     const legacy = ruleBasedListingFeel(audience);
-    return listingFeelShortCircuitTail("runtime_legacy_mode", legacy);
+    const inner = await listingFeelShortCircuitTail("runtime_legacy_mode", legacy);
+    return {
+      ...inner,
+      listing_feel_timing: {
+        path: "runtime_legacy_mode",
+        server_ms: Date.now() - pipelineT0,
+        analysis_depth: parseDepthLabel(input.analysis_depth),
+        ...listingFeelTimingEnvFields(),
+      },
+    };
   }
 
   return runStage("analytics.session.lock", async (lockSpan) => {
@@ -428,11 +571,21 @@ async function analyzeListingFeelTextPipeline(
             const analysis_text = String(retry.rows[0].analysis_text);
             const model_used = String(retry.rows[0].model);
             const quality_score = computeListingFeelQualityScore(analysis_text);
-            return listingFeelShortCircuitTail("cache_hit_after_lock_miss", {
+            const tail = await listingFeelShortCircuitTail("cache_hit_after_lock_miss", {
               analysis_text,
               model_used,
               quality_score,
             });
+            return {
+              ...tail,
+              listing_feel_timing: {
+                path: "cache_hit_after_lock_miss",
+                server_ms: Date.now() - pipelineT0,
+                cache_hit: true,
+                analysis_depth: parseDepthLabel(input.analysis_depth),
+                ...listingFeelTimingEnvFields(),
+              },
+            };
           }
         } catch (e) {
           console.error("[listing-feel] cache retry read failed after lock miss", e);
@@ -444,14 +597,17 @@ async function analyzeListingFeelTextPipeline(
       return await runStage("analytics.routing.model_path", async (routeSpan) => {
         routeSpan.setAttribute("och.li_v2_enabled", isListingIntelligenceV2Enabled());
         return await runStage("analytics.model.generate", async () => {
+          const promptWall0 = Date.now();
           const priceUsd = (input.price_cents / 100).toFixed(2);
     const titleRaw = String(input.title || "");
     const descRaw = String(input.description || "");
     const title = titleRaw.slice(0, 1200);
-    const description = descRaw.slice(0, 4000);
+    const descMax = listingFeelDescriptionMaxChars(input.analysis_depth);
+    const description = descRaw.slice(0, descMax);
     const descriptionForV2 = descRaw;
+    const prompt_build_ms = Date.now() - promptWall0;
 
-    if (isListingIntelligenceV2Enabled()) {
+    if (shouldRunListingIntelligenceV2ForDepth(input.analysis_depth)) {
       try {
         const v2 = await runStage("analytics.upstream.ollama_http", async () =>
           runListingIntelligenceV2({
@@ -464,7 +620,7 @@ async function analyzeListingFeelTextPipeline(
             analysis_depth: input.analysis_depth,
             listingFacts: input.listing_facts,
             listing_id: input.listing_id ?? null,
-            timeoutMs: ollamaRequestTimeoutMs(),
+            timeoutMs: listingFeelUpstreamTimeoutMs(input.analysis_depth),
             fetchOnce: (inputUrl, init) => withOllamaSerial(() => fetch(inputUrl, init)),
           }),
         );
@@ -477,6 +633,7 @@ async function analyzeListingFeelTextPipeline(
           const quality_score = await runStage("analytics.quality.compute", async () =>
             computeListingFeelQualityScore(v2.analysis_text),
           );
+          const postT0 = Date.now();
           let intelligence_json: string;
           try {
             intelligence_json = JSON.stringify({
@@ -492,6 +649,7 @@ async function analyzeListingFeelTextPipeline(
               generation_meta: v2.generation_meta,
             });
           }
+          const post_process_ms = Date.now() - postT0;
           await runStage("analytics.persistence.cache_write", async () => {
             if (!listingFeelSkipCache()) {
               try {
@@ -505,13 +663,28 @@ async function analyzeListingFeelTextPipeline(
               }
             }
           });
+          const gm = v2.generation_meta;
           return {
             analysis_text: v2.analysis_text,
             model_used: `${ollamaModel()}+li-v2`,
             quality_score,
             intelligence_json,
             confidence_explanation: v2.meta.confidence_explanation,
-            generation_meta: v2.generation_meta,
+            generation_meta: gm,
+            listing_feel_timing: {
+              path: "li_v2",
+              server_ms: Date.now() - pipelineT0,
+              li_v2_wall_ms: v2.duration_ms,
+              ollama_sum_ms: gm?.ollama_calls_latency_ms_sum,
+              prompt_build_ms,
+              post_process_ms,
+              prompt_chars: gm?.prompt_chars,
+              truncated: gm?.truncated,
+              max_tokens: gm?.max_tokens,
+              analysis_depth: parseDepthLabel(input.analysis_depth),
+              ollama_warm: "unknown",
+              ...listingFeelTimingEnvFields(),
+            },
           };
         }
       } catch (v2Err) {
@@ -529,47 +702,79 @@ async function analyzeListingFeelTextPipeline(
     }
 
     // /api/generate (not chat) keeps Colima CPU paths predictable; instructions bias toward tradeoffs vs generic bullets.
+    const bulletGuide = listingFeelBulletDepthGuidance(input.analysis_depth);
     const renterBlock = `You are a senior rental market analyst.
 
 Analyze this listing like a serious renter comparing multiple options.
 
-Output 6–12 bullet points covering (one bullet each, no overlap): pricing vs comps, value drivers, risks/red flags, information gaps, lease or fee gotchas, negotiation or next-step leverage.
+${listingFeelLegacyBulletCountLine(input.analysis_depth)} pricing vs comps, value drivers, risks/red flags, information gaps, lease or fee gotchas, negotiation or next-step leverage.
 
 Be analytical, not friendly.
 Avoid filler.
 No markdown.
 Each line must start with "- ".
-Each bullet: 2–4 sentences when the listing warrants detail; finish every bullet (no trailing cut-offs).
+${bulletGuide}
 
-${listingFeelFormatRules}`;
+${listingFeelFormatRulesForDepth(input.analysis_depth)}
+
+${listingFeelGroundingBlock}`;
 
     const landlordBlock = `You are a rental portfolio strategist.
 
 Analyze this listing from the landlord perspective.
 
-Output 6–12 bullet points covering (one bullet each, no overlap): competitive positioning, strengths vs alternatives, conversion weaknesses, pricing risk, presentation gaps, concrete improvements to improve inquiries.
+${listingFeelLegacyBulletCountLine(input.analysis_depth)} competitive positioning, strengths vs alternatives, conversion weaknesses, pricing risk, presentation gaps, concrete improvements to improve inquiries.
 
 Be direct and strategic.
 No fluff.
 Each line must start with "- ".
-Each bullet: 2–4 sentences when warranted; finish every bullet (no trailing cut-offs).
+${bulletGuide}
 
-${listingFeelFormatRules}`;
+${listingFeelFormatRulesForDepth(input.analysis_depth)}
+
+${listingFeelGroundingBlock}`;
 
     const facts = `Listing title: ${titleRaw.slice(0, 800)}
 Description: ${description}
 Asking (USD / month): ${priceUsd}`;
 
+    const quickExtra =
+      parseDepthLabel(input.analysis_depth) === "quick"
+        ? audience === "landlord"
+          ? `
+
+QUICK mode — exactly 7 bullets, each a finished thought (no “…” cliffhangers). Cover in order:
+(1) pricing position vs what the text can support,
+(2) strongest selling angle grounded in the listing,
+(3) likely renter concerns on tour or application,
+(4) fee/utility/lease disclosure gaps,
+(5) positioning vs nearby alternatives without inventing comps (say what data is missing),
+(6) concrete listing copy improvements (headline, opening paragraph, disclosures),
+(7) one-sentence bottom line (double down / adjust rent / rewrite first).
+Avoid generic praise; tie each bullet to text in the listing or label gaps explicitly.`
+          : `
+
+QUICK mode — exactly 7 bullets, each a finished thought (no “…” cliffhangers). Cover in order:
+(1) value vs asking with explicit “insufficient data” if comps are unknown,
+(2) biggest risk or uncertainty,
+(3) what to verify before booking (checklist),
+(4) commute / neighborhood / building fit using only stated facts,
+(5) lease, fees, utilities, roommates, parking gaps,
+(6) negotiation or leverage for the renter,
+(7) bottom-line recommendation in one sentence (book / cautious / pass + why).
+Avoid vague reassurance; each bullet must be actionable or explicitly flag missing info.`
+        : "";
+
     const promptVersion = getPromptVersion();
     const promptEnvelope = `Prompt version: ${promptVersion}\nRuntime mode: ${getRuntimeMode()}`;
     const prompt =
       audience === "landlord"
-        ? `${promptEnvelope}\n\n${landlordBlock}\n\n${facts}`
-        : `${promptEnvelope}\n\n${renterBlock}\n\n${facts}`;
+        ? `${promptEnvelope}\n\n${landlordBlock}${quickExtra}\n\n${facts}`
+        : `${promptEnvelope}\n\n${renterBlock}${quickExtra}\n\n${facts}`;
 
     const t0 = Date.now();
     analyticsGenerationRequestsTotal.inc({ path: "listing_feel_generate" });
-    const timeoutMs = ollamaRequestTimeoutMs();
+    const timeoutMs = listingFeelUpstreamTimeoutMs(input.analysis_depth);
     const retries = listingFeelSingleAttempt() ? 1 : ollamaMaxRetries();
     const fetchNoAbort = listingFeelFetchNoAbort();
     console.log(
@@ -598,8 +803,8 @@ Asking (USD / month): ${priceUsd}`;
             stream: false,
             keep_alive: ollamaKeepAliveRequestField(),
             options: {
-              num_ctx: listingFeelNumCtx(),
-              num_predict: listingFeelNumPredict(),
+              num_ctx: listingFeelNumCtxForDepth(input.analysis_depth),
+              num_predict: listingFeelLegacyNumPredict(input.analysis_depth),
               temperature: listingFeelTemperature(),
               top_p: listingFeelTopP(),
               repeat_penalty: listingFeelRepeatPenalty(),
@@ -676,17 +881,26 @@ Asking (USD / month): ${priceUsd}`;
         throw new Error(`[listing-feel] OLLAMA_GENERATE_FAILED ${JSON.stringify(diag)}`);
       }
       ollamaFailuresTotal.inc();
-      return ruleBasedListingFeel(audience);
+      return {
+        ...ruleBasedListingFeel(audience),
+        listing_feel_timing: {
+          path: "rule_based_fallback",
+          server_ms: Date.now() - pipelineT0,
+          analysis_depth: parseDepthLabel(input.analysis_depth),
+          ...listingFeelTimingEnvFields(),
+        },
+      };
     }
+    const genMs = Date.now() - t0;
+    observeWithTraceExemplar(ollamaLatencyMs, genMs);
+    observeWithTraceExemplar(analyticsGenerationLatencyMs, genMs, { path: "listing_feel_generate" });
+    observeWithTraceExemplar(analyticsGenerationTokensEstimated, Math.ceil(prompt.length / 4));
+    const postLegacyT0 = Date.now();
     const text = await runStage("analytics.model.postprocess", async () =>
       normalizeListingFeelOutput(String(body.response || "")),
     );
     const quality_score = await runStage("analytics.quality.compute", async () => computeListingFeelQualityScore(text));
-    const genMs = Date.now() - t0;
-    observeWithTraceExemplar(ollamaLatencyMs, genMs);
     observeWithTraceExemplar(listingFeelQualityHist, quality_score);
-    observeWithTraceExemplar(analyticsGenerationLatencyMs, genMs, { path: "listing_feel_generate" });
-    observeWithTraceExemplar(analyticsGenerationTokensEstimated, Math.ceil(prompt.length / 4));
     await runStage("analytics.persistence.cache_write", async () => {
       try {
         await pool.query(
@@ -698,7 +912,36 @@ Asking (USD / month): ${priceUsd}`;
         console.error("[listing-feel] legacy cache insert failed (non-fatal; response still returned)", e);
       }
     });
-    return { analysis_text: text, model_used: ollamaModel(), quality_score };
+    const post_process_ms = Date.now() - postLegacyT0;
+    const legacyGenMeta: ListingIntelligenceGenerationMeta = {
+      latency_ms: Date.now() - pipelineT0,
+      prompt_chars: prompt.length,
+      truncated: false,
+      model: ollamaModel(),
+      temperature: listingFeelTemperature(),
+      max_tokens: listingFeelLegacyNumPredict(input.analysis_depth),
+      token_estimate: Math.ceil(prompt.length / 4),
+      ollama_calls_latency_ms_sum: genMs,
+    };
+    return {
+      analysis_text: text,
+      model_used: ollamaModel(),
+      quality_score,
+      generation_meta: legacyGenMeta,
+      listing_feel_timing: {
+        path: "legacy_ollama",
+        server_ms: Date.now() - pipelineT0,
+        legacy_ollama_http_ms: genMs,
+        ollama_sum_ms: genMs,
+        prompt_build_ms,
+        post_process_ms,
+        prompt_chars: prompt.length,
+        max_tokens: legacyGenMeta.max_tokens,
+        analysis_depth: parseDepthLabel(input.analysis_depth),
+        ollama_warm: "unknown",
+        ...listingFeelTimingEnvFields(),
+      },
+    };
         });
       });
     } finally {

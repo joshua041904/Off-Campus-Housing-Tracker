@@ -63,7 +63,7 @@ test("register → search history → watchlist add/remove (needs full stack)", 
   await expect(page.getByTestId("listings-results")).toBeVisible({ timeout: 15_000 });
 
   await page.goto("/trust");
-  await page.getByTestId("trust-reputation-user-id").fill("00000000-0000-4000-8000-000000000001");
+  await page.getByTestId("trust-reputation-query").fill("00000000-0000-4000-8000-000000000001");
   await page.getByTestId("trust-reputation-submit").click();
   await expect(page.getByTestId("trust-reputation-score")).toBeVisible({ timeout: 15_000 });
 });

@@ -8,10 +8,15 @@ import { createUploadUrl } from '../../src/handlers/createUploadUrl'
 import { completeUpload } from '../../src/handlers/completeUpload'
 import { getById, pool } from '../../src/db/mediaRepo'
 
-vi.mock('../../src/storage/s3', () => ({
-  createPresignedPutUrl: () => Promise.resolve('http://fake-presigned-url'),
-  objectExists: () => Promise.resolve(true),
-}))
+vi.mock('../../src/storage/s3', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/storage/s3')>()
+  return {
+    ...actual,
+    createPresignedPutUrl: () => Promise.resolve('http://fake-presigned-url'),
+    objectExists: () => Promise.resolve(true),
+    isS3CredentialsConfigured: () => true,
+  }
+})
 
 describe('Media upload (integration)', () => {
   beforeAll(() => {

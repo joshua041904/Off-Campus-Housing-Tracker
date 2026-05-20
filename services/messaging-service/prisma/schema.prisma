@@ -1,7 +1,8 @@
+// Colima/k3s: Linux + OpenSSL 3 query engines (linux-arm64 + debian bookworm; same as auth-service).
 generator client {
   provider      = "prisma-client-js"
   output        = "../generated/client"
-  binaryTargets = ["native"]
+  binaryTargets = ["native", "linux-arm64-openssl-3.0.x", "debian-openssl-3.0.x"]
 }
 
 datasource db {

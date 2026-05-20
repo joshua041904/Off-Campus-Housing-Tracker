@@ -27,7 +27,10 @@ fi
 
 if kubectl get deployment api-gateway -n "$NS" --request-timeout=15s >/dev/null 2>&1; then
   say "API gateway — rollout + smoke + k6"
-  kubectl rollout status deployment/api-gateway -n "$NS" --timeout=180s
+  if kubectl get deployment auth-service -n "$NS" --request-timeout=15s >/dev/null 2>&1; then
+    kubectl rollout status deployment/auth-service -n "$NS" --timeout="${AUTH_ROLLOUT_TIMEOUT:-300s}"
+  fi
+  kubectl rollout status deployment/api-gateway -n "$NS" --timeout="${API_GATEWAY_ROLLOUT_TIMEOUT:-300s}"
   bash "$REPO_ROOT/scripts/ci/smoke-api-gateway.sh"
   bash "$REPO_ROOT/scripts/ci/k6-smoke-incluster.sh"
 else

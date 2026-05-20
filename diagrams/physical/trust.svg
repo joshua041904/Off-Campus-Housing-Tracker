@@ -58,7 +58,7 @@
 <!-- trust_reputation -->
 <g id="node4" class="node">
 <title>trust_reputation</title>
-<polygon fill="#f1f8e9" stroke="black" points="49,-384.5 49,-497.5 374.25,-497.5 374.25,-384.5 49,-384.5"/>
+<polygon fill="#e8f5e9" stroke="black" points="49,-384.5 49,-497.5 374.25,-497.5 374.25,-384.5 49,-384.5"/>
 <text xml:space="preserve" text-anchor="middle" x="87" y="-435.2" font-family="Helvetica,sans-Serif" font-size="14.00">reputation</text>
 <polyline fill="none" stroke="black" points="125,-384.5 125,-497.5"/>
 <text xml:space="preserve" text-anchor="start" x="133" y="-480.2" font-family="Helvetica,sans-Serif" font-size="14.00">user_id : uuid</text>
@@ -104,7 +104,7 @@
 <!-- trust_user_spam_score -->
 <g id="node7" class="node">
 <title>trust_user_spam_score</title>
-<polygon fill="#f1f8e9" stroke="black" points="25,-841.5 25,-894.5 398.25,-894.5 398.25,-841.5 25,-841.5"/>
+<polygon fill="#e8f5e9" stroke="black" points="25,-841.5 25,-894.5 398.25,-894.5 398.25,-841.5 25,-841.5"/>
 <text xml:space="preserve" text-anchor="middle" x="87" y="-862.2" font-family="Helvetica,sans-Serif" font-size="14.00">user_spam_score</text>
 <polyline fill="none" stroke="black" points="149,-841.5 149,-894.5"/>
 <text xml:space="preserve" text-anchor="start" x="157" y="-877.2" font-family="Helvetica,sans-Serif" font-size="14.00">user_id : uuid</text>

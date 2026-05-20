@@ -17,6 +17,29 @@ export const s3Client = new S3Client({
 
 export const BUCKET = bucket
 
+/** MinIO/S3 needs access keys for presigned URLs; without them, media-service uses DB inline_bytes instead. */
+export function isS3CredentialsConfigured(): boolean {
+  const ak = String(process.env.AWS_ACCESS_KEY_ID || process.env.S3_ACCESS_KEY || '').trim()
+  const sk = String(process.env.AWS_SECRET_ACCESS_KEY || process.env.S3_SECRET_KEY || '').trim()
+  return ak.length > 0 && sk.length > 0
+}
+
+/** Rewrite presigned S3/MinIO URL host for the browser (in-cluster endpoint is not reachable from users). Applies to PUT and GET presigns when `S3_PRESIGN_ENDPOINT` is set. */
+export function rewritePresignedPutUrlForBrowser(url: string): string {
+  const publicBase = String(process.env.S3_PRESIGN_ENDPOINT || '').trim()
+  if (!publicBase) return url
+  try {
+    const u = new URL(url)
+    const pub = new URL(publicBase.includes('://') ? publicBase : `http://${publicBase}`)
+    u.protocol = pub.protocol
+    u.host = pub.host
+    u.port = pub.port
+    return u.toString()
+  } catch {
+    return url
+  }
+}
+
 const PRESIGN_PUT_EXPIRES = 5 * 60 // 5 min
 const PRESIGN_GET_EXPIRES = 60 * 60 // 1 h
 

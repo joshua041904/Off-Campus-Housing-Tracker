@@ -14,72 +14,87 @@ data:
       "version": 1,
       "timezone": "browser",
       "refresh": "1m",
-      "tags": ["och", "coverage", "matrix"],
-      "description": "Populated when Prometheus scrapes textfile / push of export-coverage-integrity-prom.mjs output (bench_logs/coverage-integrity.prom).",
+      "tags": ["och", "coverage", "matrix", "observability"],
+      "description": "Long-form service coverage table backed by live Prometheus series. `webapp` is shown as 0 until it exposes a Prometheus scrape target. Trace coverage comes from the full-trace smoke metric (`/api/debug/full-trace` / `scripts/obs-smoke-trace.sh`), while Jaeger remains the source of truth for raw traces. Edge protocol truth comes from Caddy `X-OCH-Edge-Proto` propagated into gateway `proto` labels.",
       "panels": [
         {
           "id": 1,
-          "type": "stat",
-          "title": "Transport H1/H2/H3 observed (1=yes)",
-          "gridPos": { "h": 4, "w": 24, "x": 0, "y": 0 },
+          "type": "table",
+          "title": "Application Service Signal Coverage",
+          "description": "One row per service + signal. Value 1 means the series exists now; 0 means missing / not scraped. The `traces` signal only flips on after running the full-trace smoke route.",
+          "gridPos": { "h": 12, "w": 24, "x": 0, "y": 0 },
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
           "targets": [
-            { "refId": "A", "expr": "och_transport_protocol_used{protocol=\"h1\"} or on() vector(0)", "legendFormat": "h1" },
-            { "refId": "B", "expr": "och_transport_protocol_used{protocol=\"h2\"} or on() vector(0)", "legendFormat": "h2" },
-            { "refId": "C", "expr": "och_transport_protocol_used{protocol=\"h3\"} or on() vector(0)", "legendFormat": "h3" }
-          ]
+            {
+              "refId": "A",
+              "format": "table",
+              "instant": true,
+              "expr": "label_replace((max by(service) (up{job=~\"housing-pods|housing-.*\",service=~\"api-gateway|auth-service|listings-service|booking-service|messaging-service|notification-service|trust-service|analytics-service|media-service\"} > bool 0) or label_replace(vector(0), \"service\", \"webapp\", \"\", \"\")), \"signal\", \"scraped\", \"\", \"\") or label_replace((count by(service) (http_requests_total{service=~\"api-gateway|auth-service|listings-service|booking-service|messaging-service|notification-service|trust-service|analytics-service|media-service\"}) > bool 0 or label_replace(vector(0), \"service\", \"webapp\", \"\", \"\")), \"signal\", \"request_metric\", \"\", \"\") or label_replace((count by(service) (http_request_duration_seconds_count{service=~\"api-gateway|auth-service|listings-service|booking-service|messaging-service|notification-service|trust-service|analytics-service|media-service\"}) > bool 0 or label_replace(vector(0), \"service\", \"webapp\", \"\", \"\")), \"signal\", \"latency_metric\", \"\", \"\") or label_replace((count by(service) (http_requests_total{service=~\"api-gateway|auth-service|listings-service|booking-service|messaging-service|notification-service|trust-service|analytics-service|media-service\",code=~\"5..\"}) > bool 0 or label_replace(vector(0), \"service\", \"webapp\", \"\", \"\")), \"signal\", \"error_metric\", \"\", \"\") or label_replace(((count by(service) (trace_service_latency_ms_count) > bool 0) or label_replace(vector(0), \"service\", \"webapp\", \"\", \"\")), \"signal\", \"traces\", \"\", \"\")"
+            }
+          ],
+          "options": {
+            "showHeader": true,
+            "sortBy": [{ "displayName": "service", "desc": false }]
+          }
         },
         {
           "id": 2,
-          "type": "timeseries",
-          "title": "Route hits (last export) by suite",
-          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+          "type": "table",
+          "title": "Application Service Last Sample Age (seconds)",
+          "description": "Age since the latest successful scrape sample for the service target.",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
           "targets": [
-            { "refId": "A", "expr": "och_route_hits_last_run or on() vector(0)", "legendFormat": "{{suite}}" }
-          ]
+            {
+              "refId": "A",
+              "format": "table",
+              "instant": true,
+              "expr": "time() - max by(service) (timestamp(up{job=~\"housing-pods|housing-.*\",service=~\"api-gateway|auth-service|listings-service|booking-service|messaging-service|notification-service|trust-service|analytics-service|media-service\"}))"
+            }
+          ],
+          "options": {
+            "showHeader": true,
+            "sortBy": [{ "displayName": "Value", "desc": false }]
+          }
         },
         {
           "id": 3,
-          "type": "stat",
-          "title": "Unknown suite ratio",
-          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 4 },
+          "type": "timeseries",
+          "title": "Gateway Request Rate By Protocol",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-          "fieldConfig": {
-            "defaults": {
-              "unit": "percentunit",
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.03 }, { "color": "red", "value": 0.05 }]
-              }
-            }
-          },
-          "targets": [{ "refId": "A", "expr": "och_suite_unknown_ratio or on() vector(0)" }]
-        },
-        {
-          "id": 4,
-          "type": "stat",
-          "title": "Bash orchestration model OK",
-          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 4 },
-          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-          "fieldConfig": {
-            "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }]
-              }
-            }
-          },
-          "targets": [{ "refId": "A", "expr": "och_bash_orchestration_model_ok or on() vector(0)" }]
+          "targets": [
+            { "refId": "A", "expr": "sum(rate(http_requests_total{service=\"api-gateway\",route!=\"/metrics\"}[5m])) by (proto)", "legendFormat": "{{proto}}" }
+          ]
         },
         {
           "id": 5,
-          "type": "timeseries",
-          "title": "Bash / k6 phase success (last export; 1=ok)",
-          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 12 },
+          "type": "table",
+          "title": "Missing signals by service (instant)",
+          "description": "Rows where expected signal is 0 — run obs-smoke-trace for traces, hit routes for request/latency.",
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 28 },
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
           "targets": [
-            { "refId": "A", "expr": "och_bash_phase_success or on() vector(0)", "legendFormat": "{{suite}} {{phase}}" }
+            {
+              "refId": "A",
+              "format": "table",
+              "instant": true,
+              "expr": "(label_replace((max by(service) (up{job=~\"housing-pods|housing-.*\",service=~\"api-gateway|auth-service|listings-service|booking-service|messaging-service|notification-service|trust-service|analytics-service|media-service\"} > bool 0)), \"signal\", \"scraped\", \"\", \"\") == 0) or (label_replace((count by(service) (http_requests_total{service=~\"api-gateway|auth-service|listings-service|booking-service|messaging-service|notification-service|trust-service|analytics-service|media-service\"}) > bool 0), \"signal\", \"request_metric\", \"\", \"\") == 0) or (label_replace((count by(service) (http_request_duration_seconds_count{service=~\"api-gateway|auth-service|listings-service|booking-service|messaging-service|notification-service|trust-service|analytics-service|media-service\"}) > bool 0), \"signal\", \"latency_metric\", \"\", \"\") == 0) or (label_replace(((count by(service) (trace_service_latency_ms_count) > bool 0)), \"signal\", \"traces\", \"\", \"\") == 0)"
+            }
+          ],
+          "options": { "showHeader": true }
+        },
+        {
+          "id": 4,
+          "type": "timeseries",
+          "title": "Gateway Latency By Protocol (p50/p95/p99/p100, ms) — NaN when no gateway traffic in range",
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 20 },
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "targets": [
+            { "refId": "A", "expr": "1000 * histogram_quantile(0.5, sum(rate(http_request_duration_seconds_bucket{service=\"api-gateway\",route!=\"/metrics\"}[5m])) by (le, proto))", "legendFormat": "p50 {{proto}}" },
+            { "refId": "B", "expr": "1000 * histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{service=\"api-gateway\",route!=\"/metrics\"}[5m])) by (le, proto))", "legendFormat": "p95 {{proto}}" },
+            { "refId": "C", "expr": "1000 * histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{service=\"api-gateway\",route!=\"/metrics\"}[5m])) by (le, proto))", "legendFormat": "p99 {{proto}}" },
+            { "refId": "D", "expr": "1000 * histogram_quantile(1.0, sum(rate(http_request_duration_seconds_bucket{service=\"api-gateway\",route!=\"/metrics\"}[5m])) by (le, proto))", "legendFormat": "p100 {{proto}}" }
           ]
         }
       ],

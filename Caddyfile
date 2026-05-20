@@ -7,7 +7,7 @@
 	admin 0.0.0.0:2019
 	grace_period 15s
 	shutdown_delay 10s
-	# Structured logging for observability; monitor {http.request.proto} {http.request.host} {http.request.tls.version} for H2 vs H3
+	# Structured logging for observability; monitor {http.request.proto} / {http.request.tls.proto} for H2 vs H3
 	log {
 		output stdout
 		format json
@@ -42,6 +42,11 @@ https://off-campus-housing.test {
 		level INFO
 	}
 
+	# Stamp concrete edge metadata onto the in-flight request once, then forward those headers upstream.
+	request_header X-Request-Id {http.request.uuid}
+	# Stamp edge HTTP protocol (HTTP/1.1, HTTP/2.0, HTTP/3.0) — use {http.request.proto}, not {http.request.tls.proto} (TLS version).
+	request_header X-OCH-Edge-Proto {http.request.proto}
+
 	# SNI enforcement: wrong host → 421 Misdirected Request
 	@wrong_host not host off-campus-housing.test
 	handle @wrong_host {
@@ -61,11 +66,11 @@ https://off-campus-housing.test {
 	handle @privacy {
 		reverse_proxy http://auth-service.off-campus-housing-tracker.svc.cluster.local:4011 {
 			header_up Host {http.request.host}
-			header_up X-Request-Id {http.request.id}
+			header_up X-Request-Id {http.request.header.X-Request-Id}
 			header_up traceparent {http.request.header.traceparent}
 			header_up tracestate {http.request.header.tracestate}
 			header_up baggage {http.request.header.baggage}
-			header_up X-OCH-Edge-Proto {http.request.proto}
+			header_up X-OCH-Edge-Proto {http.request.header.X-OCH-Edge-Proto}
 		}
 	}
 
@@ -73,11 +78,11 @@ https://off-campus-housing.test {
 	handle @terms {
 		reverse_proxy http://auth-service.off-campus-housing-tracker.svc.cluster.local:4011 {
 			header_up Host {http.request.host}
-			header_up X-Request-Id {http.request.id}
+			header_up X-Request-Id {http.request.header.X-Request-Id}
 			header_up traceparent {http.request.header.traceparent}
 			header_up tracestate {http.request.header.tracestate}
 			header_up baggage {http.request.header.baggage}
-			header_up X-OCH-Edge-Proto {http.request.proto}
+			header_up X-OCH-Edge-Proto {http.request.header.X-OCH-Edge-Proto}
 		}
 	}
 
@@ -86,11 +91,11 @@ https://off-campus-housing.test {
 	handle @grpc {
 		reverse_proxy envoy-test.envoy-test.svc.cluster.local:10000 {
 			header_up Host {http.request.host}
-			header_up X-Request-Id {http.request.id}
+			header_up X-Request-Id {http.request.header.X-Request-Id}
 			header_up traceparent {http.request.header.traceparent}
 			header_up tracestate {http.request.header.tracestate}
 			header_up baggage {http.request.header.baggage}
-			header_up X-OCH-Edge-Proto {http.request.proto}
+			header_up X-OCH-Edge-Proto {http.request.header.X-OCH-Edge-Proto}
 			transport http {
 				versions h2c
 				dial_timeout 10s
@@ -118,11 +123,11 @@ https://off-campus-housing.test {
 			header_up X-Forwarded-Proto https
 			header_up X-Forwarded-Host {http.request.host}
 			header_up X-Forwarded-For {http.request.remote.host}
-			header_up X-Request-Id {http.request.id}
+			header_up X-Request-Id {http.request.header.X-Request-Id}
 			header_up traceparent {http.request.header.traceparent}
 			header_up tracestate {http.request.header.tracestate}
 			header_up baggage {http.request.header.baggage}
-			header_up X-OCH-Edge-Proto {http.request.proto}
+			header_up X-OCH-Edge-Proto {http.request.header.X-OCH-Edge-Proto}
 			transport http {
 				versions h1 h2
 				dial_timeout 10s
@@ -132,27 +137,20 @@ https://off-campus-housing.test {
 	}
 
 	# Exact path without trailing slash → 308 to slash URL (avoids broken relative assets / API base).
-	@grafana_noslash path /grafana
-	handle @grafana_noslash {
-		redir /grafana/ 308
-	}
-	@prometheus_noslash path /prometheus
-	handle @prometheus_noslash {
-		redir /prometheus/ 308
-	}
-
-	@grafana path /grafana /grafana/*
-	handle @grafana {
+	@grafana_all path /grafana /grafana/ /grafana/*
+	handle @grafana_all {
+		@grafana_noslash path /grafana
+		redir @grafana_noslash /grafana/ 308
 		reverse_proxy http://grafana.observability.svc.cluster.local:3000 {
 			header_up Host {http.request.host}
 			header_up X-Forwarded-Proto https
 			header_up X-Forwarded-Host {http.request.host}
 			header_up X-Forwarded-For {http.request.remote.host}
-			header_up X-Request-Id {http.request.id}
+			header_up X-Request-Id {http.request.header.X-Request-Id}
 			header_up traceparent {http.request.header.traceparent}
 			header_up tracestate {http.request.header.tracestate}
 			header_up baggage {http.request.header.baggage}
-			header_up X-OCH-Edge-Proto {http.request.proto}
+			header_up X-OCH-Edge-Proto {http.request.header.X-OCH-Edge-Proto}
 			flush_interval -1
 			transport http {
 				versions h1 h2
@@ -162,18 +160,25 @@ https://off-campus-housing.test {
 		}
 	}
 
-	@prometheus path /prometheus /prometheus/*
-	handle @prometheus {
+	@prometheus_all path /prometheus /prometheus/ /prometheus/*
+	handle @prometheus_all {
+		@prometheus_noslash path /prometheus
+		redir @prometheus_noslash /prometheus/ 308
+		@prometheus_head_root {
+			method HEAD
+			path /prometheus/
+		}
+		respond @prometheus_head_root 200
 		reverse_proxy http://prometheus.observability.svc.cluster.local:9090 {
 			header_up Host {http.request.host}
 			header_up X-Forwarded-Proto https
 			header_up X-Forwarded-Host {http.request.host}
 			header_up X-Forwarded-For {http.request.remote.host}
-			header_up X-Request-Id {http.request.id}
+			header_up X-Request-Id {http.request.header.X-Request-Id}
 			header_up traceparent {http.request.header.traceparent}
 			header_up tracestate {http.request.header.tracestate}
 			header_up baggage {http.request.header.baggage}
-			header_up X-OCH-Edge-Proto {http.request.proto}
+			header_up X-OCH-Edge-Proto {http.request.header.X-OCH-Edge-Proto}
 			transport http {
 				versions h1 h2
 				dial_timeout 10s
@@ -182,9 +187,33 @@ https://off-campus-housing.test {
 		}
 	}
 
+	# WebSocket realtime (api-gateway). Must not fall through to static nginx (would break upgrade / show HTML).
+	@ws path /ws /ws/*
+	handle @ws {
+		reverse_proxy http://api-gateway.off-campus-housing-tracker.svc.cluster.local:4020 {
+			header_up Host {http.request.host}
+			header_up X-Forwarded-Proto https
+			header_up X-Request-Id {http.request.header.X-Request-Id}
+			header_up traceparent {http.request.header.traceparent}
+			header_up tracestate {http.request.header.tracestate}
+			header_up baggage {http.request.header.baggage}
+			header_up X-OCH-Edge-Proto {http.request.header.X-OCH-Edge-Proto}
+			flush_interval -1
+			transport http {
+				versions h1 h2
+				dial_timeout 10s
+				response_header_timeout 3600s
+				read_buffer 32MiB
+				write_buffer 32MiB
+				keepalive 2m
+			}
+		}
+	}
+
 	# REST API: explicit path list (no regex). Exclude gRPC by Content-Type.
+	# Bare `/listings/*` is the Next.js marketplace UI; API lives under `/api/listings/*`.
 	@api {
-		path /api/* /auth/* /listings/* /booking/* /messaging/* /analytics/* /insights/* /trust/* /media/* /notification/*
+		path /api/* /auth/* /booking/* /bookings/* /messaging/* /analytics/* /insights/* /trust/* /media/* /notification/*
 		not header Content-Type application/grpc*
 	}
 	handle @api {
@@ -193,11 +222,11 @@ https://off-campus-housing.test {
 		reverse_proxy http://api-gateway.off-campus-housing-tracker.svc.cluster.local:4020 {
 			header_up Host {http.request.host}
 			header_up X-Forwarded-Proto https
-			header_up X-Request-Id {http.request.id}
+			header_up X-Request-Id {http.request.header.X-Request-Id}
 			header_up traceparent {http.request.header.traceparent}
 			header_up tracestate {http.request.header.tracestate}
 			header_up baggage {http.request.header.baggage}
-			header_up X-OCH-Edge-Proto {http.request.proto}
+			header_up X-OCH-Edge-Proto {http.request.header.X-OCH-Edge-Proto}
 			# h1 + h2 to gateway: clients still use HTTP/2 and HTTP/3 to Caddy; upstream can speak ALPN h2 where supported.
 			transport http {
 				versions h1 h2
@@ -224,11 +253,11 @@ https://off-campus-housing.test {
 		reverse_proxy http://nginx.off-campus-housing-tracker.svc.cluster.local:8080 {
 			header_up Host {http.request.host}
 			header_up X-Forwarded-Proto https
-			header_up X-Request-Id {http.request.id}
+			header_up X-Request-Id {http.request.header.X-Request-Id}
 			header_up traceparent {http.request.header.traceparent}
 			header_up tracestate {http.request.header.tracestate}
 			header_up baggage {http.request.header.baggage}
-			header_up X-OCH-Edge-Proto {http.request.proto}
+			header_up X-OCH-Edge-Proto {http.request.header.X-OCH-Edge-Proto}
 			transport http {
 				versions h1 h2
 				dial_timeout 10s

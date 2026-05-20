@@ -50,6 +50,7 @@ MIN=$((TOTAL_SEC / 60))
 SEC=$((TOTAL_SEC % 60))
 
 echo "=== [${SUITE}] wall timer done: ${MIN}m ${SEC}s (${DUR} ms), exit=${_wall_timer_exit} (${END_ISO}) ==="
+echo "⏱ ${SUITE} wall clock: ${MIN}m ${SEC}s"
 
 JSON_OUT="${TIMER_JSON_OUT:-$ROOT/bench_logs/${_slug}-last-timing.json}"
 SUITE_WALL_TIMER_EXIT="${_wall_timer_exit}"
@@ -77,5 +78,10 @@ with open(path, "w", encoding="utf-8") as fh:
     fh.write("\n")
 print(f"Timing JSON: {path}")
 PY
+
+if [[ -x "$ROOT/scripts/export-och-wall-clock-prom.sh" ]]; then
+  OCH_PUSH_WALL_CLOCK="${OCH_PUSH_WALL_CLOCK:-1}" \
+    bash "$ROOT/scripts/export-och-wall-clock-prom.sh" "$SUITE" || true
+fi
 
 exit "${_wall_timer_exit}"

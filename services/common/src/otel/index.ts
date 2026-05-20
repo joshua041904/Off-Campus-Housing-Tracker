@@ -31,7 +31,14 @@ export { isOchTraceDebugLogEnabled, logTraceDebug } from "./trace-debug-log.js";
 export {
   canonicalNetProtoFromEdgeHeader,
   decorateHttpSpanWithTransport,
+  decorateIncomingMessageSpanWithTransport,
+  edgeProtoFromIncomingMessage,
+  edgeProtoFromRequestHeaders,
   inferNetProtoForSpan,
+  inferNetProtoFromIncomingMessage,
+  networkProtocolVersionFromEdge,
+  normalizeEdgeProto,
+  upstreamProtoFromExpressHop,
 } from "./net-protocol.js";
 export {
   buildKafkaMessageHeaders,

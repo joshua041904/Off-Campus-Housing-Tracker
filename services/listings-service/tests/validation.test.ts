@@ -72,6 +72,7 @@ describe("validateCreateListingInput", () => {
       expect(r.value.price_cents).toBe(1000);
       expect(r.value.effective_from).toBe("2026-06-01");
       expect(r.value.effective_until).toBe("");
+      expect(r.value.residence_type).toBe("apartment");
     }
   });
 

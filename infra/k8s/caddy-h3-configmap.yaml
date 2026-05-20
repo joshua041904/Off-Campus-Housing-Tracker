@@ -46,6 +46,10 @@ data:
         level INFO
       }
 
+      request_header X-Request-Id {http.request.uuid}
+      # Edge HTTP version (HTTP/1.1, HTTP/2.0, HTTP/3.0) — not {http.request.tls.proto} (TLS version).
+      request_header X-OCH-Edge-Proto {http.request.proto}
+
       @wrong_host not host off-campus-housing.test
       handle @wrong_host {
         respond "Invalid Host" 421
@@ -66,6 +70,7 @@ data:
           header_up traceparent {http.request.header.traceparent}
           header_up tracestate {http.request.header.tracestate}
           header_up baggage {http.request.header.baggage}
+          header_up X-OCH-Edge-Proto {http.request.header.X-OCH-Edge-Proto}
         }
       }
 
@@ -77,6 +82,7 @@ data:
           header_up traceparent {http.request.header.traceparent}
           header_up tracestate {http.request.header.tracestate}
           header_up baggage {http.request.header.baggage}
+          header_up X-OCH-Edge-Proto {http.request.header.X-OCH-Edge-Proto}
         }
       }
 
@@ -88,6 +94,7 @@ data:
           header_up traceparent {http.request.header.traceparent}
           header_up tracestate {http.request.header.tracestate}
           header_up baggage {http.request.header.baggage}
+          header_up X-OCH-Edge-Proto {http.request.header.X-OCH-Edge-Proto}
           transport http {
             versions h2c
             dial_timeout 10s
@@ -116,7 +123,7 @@ data:
           header_up traceparent {http.request.header.traceparent}
           header_up tracestate {http.request.header.tracestate}
           header_up baggage {http.request.header.baggage}
-          header_up X-OCH-Edge-Proto {http.request.proto}
+          header_up X-OCH-Edge-Proto {http.request.header.X-OCH-Edge-Proto}
           transport http {
             versions h1 h2
             dial_timeout 10s
@@ -125,17 +132,10 @@ data:
         }
       }
 
-      @grafana_noslash path /grafana
-      handle @grafana_noslash {
-        redir /grafana/ 308
-      }
-      @prometheus_noslash path /prometheus
-      handle @prometheus_noslash {
-        redir /prometheus/ 308
-      }
-
-      @grafana path /grafana /grafana/*
-      handle @grafana {
+      @grafana_all path /grafana /grafana/ /grafana/*
+      handle @grafana_all {
+        @grafana_noslash path /grafana
+        redir @grafana_noslash /grafana/ 308
         reverse_proxy http://grafana.observability.svc.cluster.local:3000 {
           header_up Host {http.request.host}
           header_up X-Forwarded-Proto https
@@ -145,7 +145,7 @@ data:
           header_up traceparent {http.request.header.traceparent}
           header_up tracestate {http.request.header.tracestate}
           header_up baggage {http.request.header.baggage}
-          header_up X-OCH-Edge-Proto {http.request.proto}
+          header_up X-OCH-Edge-Proto {http.request.header.X-OCH-Edge-Proto}
           flush_interval -1
           transport http {
             versions h1 h2
@@ -155,8 +155,15 @@ data:
         }
       }
 
-      @prometheus path /prometheus /prometheus/*
-      handle @prometheus {
+      @prometheus_all path /prometheus /prometheus/ /prometheus/*
+      handle @prometheus_all {
+        @prometheus_noslash path /prometheus
+        redir @prometheus_noslash /prometheus/ 308
+        @prometheus_head_root {
+          method HEAD
+          path /prometheus/
+        }
+        respond @prometheus_head_root 200
         reverse_proxy http://prometheus.observability.svc.cluster.local:9090 {
           header_up Host {http.request.host}
           header_up X-Forwarded-Proto https
@@ -166,7 +173,7 @@ data:
           header_up traceparent {http.request.header.traceparent}
           header_up tracestate {http.request.header.tracestate}
           header_up baggage {http.request.header.baggage}
-          header_up X-OCH-Edge-Proto {http.request.proto}
+          header_up X-OCH-Edge-Proto {http.request.header.X-OCH-Edge-Proto}
           transport http {
             versions h1 h2
             dial_timeout 10s
@@ -175,19 +182,50 @@ data:
         }
       }
 
+      # WebSocket realtime (api-gateway). Must not fall through to Next.js nginx.
+      @ws path /ws /ws/*
+      handle @ws {
+        reverse_proxy http://api-gateway.off-campus-housing-tracker.svc.cluster.local:4020 {
+          header_up Host {http.request.host}
+          header_up X-Forwarded-Proto https
+          header_up X-Request-Id {http.request.header.X-Request-Id}
+          header_up traceparent {http.request.header.traceparent}
+          header_up tracestate {http.request.header.tracestate}
+          header_up baggage {http.request.header.baggage}
+          header_up X-OCH-Edge-Proto {http.request.header.X-OCH-Edge-Proto}
+          flush_interval -1
+          transport http {
+            versions h1 h2
+            dial_timeout 10s
+            response_header_timeout 3600s
+            read_buffer 32MiB
+            write_buffer 32MiB
+            keepalive 2m
+            keepalive_interval 30s
+            keepalive_idle_conns 256
+            keepalive_idle_conns_per_host 64
+          }
+        }
+      }
+
+      # NOTE: Do not route bare `/listings/*` here — Next.js serves HTML at `/listings` and `/listings/{uuid}`.
+      # Listings HTTP API is under `/api/listings/*` (covered by `/api/*`).
       @api {
-        path /api/* /auth/* /listings/* /booking/* /messaging/* /analytics/* /insights/* /trust/* /media/* /notification/*
+        path /api/* /auth/* /booking/* /bookings/* /messaging/* /analytics/* /insights/* /trust/* /media/* /notification/*
         not header Content-Type application/grpc*
       }
       handle @api {
+        # Advertise HTTP/3 on API responses (browser upgrade); Caddy also negotiates QUIC on UDP/443.
+        header alt-svc "h3=\":443\"; ma=2592000"
         encode gzip zstd
         reverse_proxy http://api-gateway.off-campus-housing-tracker.svc.cluster.local:4020 {
           header_up Host {http.request.host}
           header_up X-Forwarded-Proto https
-          header_up X-Request-Id {http.request.id}
+          header_up X-Request-Id {http.request.header.X-Request-Id}
           header_up traceparent {http.request.header.traceparent}
           header_up tracestate {http.request.header.tracestate}
           header_up baggage {http.request.header.baggage}
+          header_up X-OCH-Edge-Proto {http.request.header.X-OCH-Edge-Proto}
           transport http {
             versions h1 h2
             dial_timeout 10s

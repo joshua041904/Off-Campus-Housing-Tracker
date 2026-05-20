@@ -35,6 +35,16 @@
                     "nullable": false
                 },
                 {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "updated_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
                     "name": "status",
                     "type": "booking.booking_status",
                     "nullable": false
@@ -55,16 +65,6 @@
                     "nullable": true
                 },
                 {
-                    "name": "created_at",
-                    "type": "timestamp with time zone",
-                    "nullable": false
-                },
-                {
-                    "name": "updated_at",
-                    "type": "timestamp with time zone",
-                    "nullable": false
-                },
-                {
                     "name": "confirmed_at",
                     "type": "timestamp with time zone",
                     "nullable": true
@@ -83,6 +83,56 @@
                     "name": "version",
                     "type": "integer",
                     "nullable": false
+                },
+                {
+                    "name": "tenant_notes",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "expires_at",
+                    "type": "timestamp(6) with time zone",
+                    "nullable": true
+                },
+                {
+                    "name": "status_updated_at",
+                    "type": "timestamp(6) with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "fraud_score",
+                    "type": "integer",
+                    "nullable": true
+                },
+                {
+                    "name": "fraud_flagged",
+                    "type": "boolean",
+                    "nullable": false
+                },
+                {
+                    "name": "fraud_signals",
+                    "type": "jsonb",
+                    "nullable": true
+                },
+                {
+                    "name": "listing_title_snapshot",
+                    "type": "character varying(512)",
+                    "nullable": true
+                },
+                {
+                    "name": "tenant_email_snapshot",
+                    "type": "character varying(320)",
+                    "nullable": true
+                },
+                {
+                    "name": "fraud_review_status",
+                    "type": "character varying(32)",
+                    "nullable": true
+                },
+                {
+                    "name": "tenant_archived_at",
+                    "type": "timestamp(6) with time zone",
+                    "nullable": true
                 },
                 {
                     "name": "payment_status",
@@ -117,12 +167,24 @@
                     "name": "idx_booking_tenant"
                 },
                 {
+                    "def": "CREATE INDEX idx_bookings_created_at ON booking.bookings USING btree (created_at)",
+                    "name": "idx_bookings_created_at"
+                },
+                {
+                    "def": "CREATE INDEX idx_bookings_fraud_flagged_landlord ON booking.bookings USING btree (landlord_id, fraud_flagged, created_at DESC)",
+                    "name": "idx_bookings_fraud_flagged_landlord"
+                },
+                {
                     "def": "CREATE INDEX idx_bookings_listing_id ON booking.bookings USING btree (listing_id)",
                     "name": "idx_bookings_listing_id"
                 },
                 {
-                    "def": "CREATE INDEX idx_bookings_status ON booking.bookings USING btree (status)",
-                    "name": "idx_bookings_status"
+                    "def": "CREATE INDEX idx_bookings_listing_status ON booking.bookings USING btree (listing_id, status)",
+                    "name": "idx_bookings_listing_status"
+                },
+                {
+                    "def": "CREATE INDEX idx_bookings_tenant_archived_at ON booking.bookings USING btree (tenant_id, tenant_archived_at)",
+                    "name": "idx_bookings_tenant_archived_at"
                 },
                 {
                     "def": "CREATE INDEX idx_bookings_tenant_id ON booking.bookings USING btree (tenant_id)",
@@ -186,6 +248,28 @@
             ]
         },
         {
+            "name": "processed_events",
+            "schema": "booking",
+            "columns": [
+                {
+                    "name": "event_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "processed_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX processed_events_pkey ON booking.processed_events USING btree (event_id)",
+                    "name": "processed_events_pkey"
+                }
+            ]
+        },
+        {
             "name": "search_history",
             "schema": "booking",
             "columns": [
@@ -238,6 +322,16 @@
                     "name": "created_at",
                     "type": "timestamp with time zone",
                     "nullable": false
+                },
+                {
+                    "name": "alert_on_match",
+                    "type": "boolean",
+                    "nullable": false
+                },
+                {
+                    "name": "max_campus_miles",
+                    "type": "double precision",
+                    "nullable": true
                 }
             ],
             "indexes": [
@@ -305,10 +399,62 @@
                     "name": "watchlist_items_pkey"
                 }
             ]
+        },
+        {
+            "name": "_prisma_migrations",
+            "schema": "public",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "character varying(36)",
+                    "nullable": false
+                },
+                {
+                    "name": "checksum",
+                    "type": "character varying(64)",
+                    "nullable": false
+                },
+                {
+                    "name": "finished_at",
+                    "type": "timestamp with time zone",
+                    "nullable": true
+                },
+                {
+                    "name": "migration_name",
+                    "type": "character varying(255)",
+                    "nullable": false
+                },
+                {
+                    "name": "logs",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "rolled_back_at",
+                    "type": "timestamp with time zone",
+                    "nullable": true
+                },
+                {
+                    "name": "started_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "applied_steps_count",
+                    "type": "integer",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX _prisma_migrations_pkey ON public._prisma_migrations USING btree (id)",
+                    "name": "_prisma_migrations_pkey"
+                }
+            ]
         }
     ],
     "database": "bookings",
     "foreign_keys": [
     ],
-    "generated_at": "2026-04-03T20:12:07.858514+00:00"
+    "generated_at": "2026-05-10T18:39:36.213353+00:00"
 }

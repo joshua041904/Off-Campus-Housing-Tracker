@@ -91,6 +91,8 @@ spec:
               value: "dev"
             - name: LISTING_EVENTS_TOPIC
               value: "dev.listing.events"
+            - name: LISTINGS_TRUST_HTTP_URL
+              value: "http://trust-service:4016"
             # Diagnostics: set to 1 to log slow HTTP requests + optional pool stats (docs/perf/LISTINGS_HTTP_TIMING.md)
             - name: LISTINGS_HTTP_TIMING
               value: "0"

@@ -105,16 +105,20 @@ spec:
               value: "/etc/kafka/secrets/tls.crt"
             - name: KAFKA_CLIENT_KEY
               value: "/etc/kafka/secrets/tls.key"
+            # Must be >= ANALYTICS_LISTING_FEEL_QUICK_TIMEOUT_MS cap used by listing-feel (see app-config).
             - name: ANALYTICS_OLLAMA_TIMEOUT_MS
-              value: "180000"
+              value: "300000"
             - name: ANALYTICS_OLLAMA_RETRIES
               value: "1"
             - name: ANALYTICS_QA_FAST_MODE
               value: "0"
-            # Overrides app-config if stale; must be in-cluster DNS (not MetalLB / localhost).
-            # ollama-gateway proxies /api/generate with batching + cache → ollama:11434.
-            - name: OLLAMA_BASE_URL
-              value: "http://ollama.off-campus-housing-tracker.svc.cluster.local:11434"
+            # Force off in-cluster: app-secrets / older overlays sometimes set dev-fast, which
+            # disables Listing Intelligence v2 entirely (listingIntelligenceV2.ts) and forces
+            # legacy_ollama for listing-feel even when ANALYTICS_LI_V2_QUICK=1.
+            - name: ANALYTICS_DEV_FAST_MODE
+              value: "0"
+            # OLLAMA_BASE_URL: default comes from app-config (in-cluster). Dev overlay patches
+            # host.docker.internal for Metal — do not duplicate here or the last env entry wins.
           volumeMounts:
             - name: service-tls
               mountPath: /etc/certs

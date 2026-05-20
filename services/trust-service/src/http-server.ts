@@ -7,9 +7,21 @@ import {
   httpCounter,
   register,
   createHttpConcurrencyGuard,
+  initOchOutboxSurfaceUnsupported,
 } from "@common/utils";
 import { inferNetProtoForSpan, mountDebugTraceHeaders, tracingMiddleware } from "@common/utils/otel";
 import { pool } from "./db.js";
+import { authReadPool } from "./auth-read-pool.js";
+import { bookingReadPool } from "./booking-read-pool.js";
+import {
+  assertBookingEligibleForPeerReview,
+  loadBookingForPeerReviewGate,
+} from "./peer-review-booking-gate.js";
+import {
+  peerReviewEligibleBookingIdSet,
+  filterReviewRowsByPeerEligibleBookings,
+} from "./review-booking-eligibility.js";
+import { resolvePublicUsersByHandle } from "./resolve-public-user.js";
 
 type AuthedRequest = Request & { userId?: string };
 
@@ -76,6 +88,7 @@ function requireUser(
 
 export function createTrustHttpApp() {
   const app = express();
+  initOchOutboxSurfaceUnsupported();
   app.use(tracingMiddleware);
   mountDebugTraceHeaders(app);
   app.use(express.json({ limit: "512kb" }));
@@ -206,6 +219,25 @@ export function createTrustHttpApp() {
     },
   );
 
+  app.get("/public/users/resolve", async (req, res) => {
+    try {
+      const q = String(req.query.q || req.query.query || "").trim();
+      if (!q) {
+        sendErr(res, 400, "q query parameter required");
+        return;
+      }
+      if (!authReadPool) {
+        sendErr(res, 503, "username lookup unavailable");
+        return;
+      }
+      const matches = await resolvePublicUsersByHandle(authReadPool, q);
+      sendOk(res, { matches });
+    } catch (e) {
+      console.error("[public/users/resolve]", e);
+      sendErr(res, 500, "internal");
+    }
+  });
+
   app.post(
     "/peer-review",
     requireUser,
@@ -225,6 +257,19 @@ export function createTrustHttpApp() {
         ) {
           sendErr(res, 400, "booking_id, reviewee_id, rating 1-5 required");
           return;
+        }
+        const bookingHttp = (process.env.BOOKING_HTTP || "").trim();
+        if (bookingHttp) {
+          const snap = await loadBookingForPeerReviewGate(bookingId, req.userId!);
+          if (!snap) {
+            sendErr(res, 400, "booking not found or inaccessible for this account");
+            return;
+          }
+          const gate = assertBookingEligibleForPeerReview(snap, req.userId!, revieweeId);
+          if (!gate.ok) {
+            sendErr(res, gate.status, gate.message);
+            return;
+          }
         }
         const meta = `[${side}] ${comment}`.slice(0, 4000);
         const r = await pool.query(
@@ -264,10 +309,155 @@ export function createTrustHttpApp() {
         [uid],
       );
       const score = r.rows[0] ? Number(r.rows[0].reputation_score) || 0 : 0;
-      sendOk(res, { user_id: uid, score });
+      let review_count = 0;
+      let avg_rating: number | null = null;
+      try {
+        if (bookingReadPool) {
+          const rv = await pool.query(
+            `SELECT rating::float AS rating, booking_id::text AS booking_id
+             FROM trust.reviews
+             WHERE target_type = 'user'::trust.review_target_type AND target_id = $1::uuid`,
+            [uid],
+          );
+          const rows = rv.rows as { rating: number; booking_id: string }[];
+          const ok = await peerReviewEligibleBookingIdSet(
+            bookingReadPool,
+            rows.map((x) => x.booking_id),
+          );
+          const filtered = rows.filter((row) => ok.has(String(row.booking_id)));
+          review_count = filtered.length;
+          avg_rating =
+            review_count > 0
+              ? Math.round(
+                  (filtered.reduce((a, b) => a + Number(b.rating), 0) / review_count) * 100,
+                ) / 100
+              : null;
+        } else {
+          const rv = await pool.query(
+            `SELECT COUNT(*)::int AS c, AVG(rating)::float AS avg
+             FROM trust.reviews
+             WHERE target_type = 'user'::trust.review_target_type AND target_id = $1::uuid`,
+            [uid],
+          );
+          const row = rv.rows[0] as { c?: number; avg?: number | null } | undefined;
+          review_count = row?.c != null && Number.isFinite(Number(row.c)) ? Math.max(0, Number(row.c)) : 0;
+          const a = row?.avg;
+          avg_rating =
+            a != null && Number.isFinite(Number(a)) && review_count > 0 ? Math.round(Number(a) * 100) / 100 : null;
+        }
+      } catch {
+        /* reviews table missing in some dev DBs — omit aggregates */
+      }
+      sendOk(res, {
+        user_id: uid,
+        score,
+        review_count,
+        avg_rating,
+      });
     } catch (e) {
       console.error("[reputation]", e);
       sendErr(res, 500, "internal");
+    }
+  });
+
+  /**
+   * Public read: peer reviews about a user (`received`) or written by them (`written`).
+   * Used by the profile feedback page; mirrors aggregates from GET /reputation/:userId.
+   */
+  app.get("/user-reviews/:userId", async (req, res) => {
+    try {
+      const uid = String(req.params.userId || "").trim();
+      if (!uid) {
+        sendErr(res, 400, "user_id required");
+        return;
+      }
+      if (!isValidUuid(uid)) {
+        sendErr(res, 400, "invalid user_id", "INVALID_ID");
+        return;
+      }
+      const directionRaw = String(req.query.direction || "received").trim().toLowerCase();
+      const direction = directionRaw === "written" ? "written" : "received";
+      const limRaw = Number(req.query.limit);
+      const limit = Number.isFinite(limRaw) ? Math.min(100, Math.max(1, Math.floor(limRaw))) : 50;
+      const fetchCap = Math.min(250, Math.max(limit * 10, 80));
+
+      const r = await pool.query(
+        direction === "written"
+          ? `SELECT id, booking_id, reviewer_id, target_type::text AS target_type, target_id, rating, comment, created_at
+             FROM trust.reviews
+             WHERE reviewer_id = $1::uuid
+             ORDER BY created_at DESC
+             LIMIT $2::int`
+          : `SELECT id, booking_id, reviewer_id, target_type::text AS target_type, target_id, rating, comment, created_at
+             FROM trust.reviews
+             WHERE target_type = 'user'::trust.review_target_type AND target_id = $1::uuid
+             ORDER BY created_at DESC
+             LIMIT $2::int`,
+        [uid, fetchCap],
+      );
+      let items = r.rows as Record<string, unknown>[];
+      if (bookingReadPool && items.length > 0) {
+        const bids = items.map((row) => String(row.booking_id ?? ""));
+        const ok = await peerReviewEligibleBookingIdSet(bookingReadPool, bids);
+        items = filterReviewRowsByPeerEligibleBookings(items, ok).slice(0, limit);
+      } else {
+        items = items.slice(0, limit);
+      }
+      if (authReadPool && items.length > 0) {
+        const revIds = [
+          ...new Set(
+            items
+              .map((it) => String(it.reviewer_id ?? "").trim().toLowerCase())
+              .filter((id) => isValidUuid(id)),
+          ),
+        ];
+        if (revIds.length) {
+          try {
+            const ar = await authReadPool.query(
+              `SELECT u.id::text AS id,
+                      NULLIF(TRIM(COALESCE(u.username::text, '')), '') AS username,
+                      NULLIF(TRIM(COALESCE(u.display_username::text, '')), '') AS display_name
+               FROM auth.users u
+               WHERE u.id = ANY($1::uuid[])
+                 AND COALESCE(u.is_deleted, false) = false
+                 AND COALESCE(u.deletion_state, 'active') = 'active'`,
+              [revIds],
+            );
+            const map = new Map<string, { username: string | null; display_name: string | null }>();
+            for (const row of ar.rows as {
+              id: string;
+              username: string | null;
+              display_name: string | null;
+            }[]) {
+              map.set(String(row.id).toLowerCase(), { username: row.username, display_name: row.display_name });
+            }
+            items = items.map((it) => {
+              const rid = String(it.reviewer_id ?? "").trim().toLowerCase();
+              const hit = map.get(rid);
+              if (!hit) return it;
+              return {
+                ...it,
+                reviewer_username: hit.username,
+                reviewer_display_name: hit.display_name,
+              };
+            });
+          } catch {
+            /* ignore enrich failures */
+          }
+        }
+      }
+      sendOk(res, {
+        user_id: uid,
+        direction,
+        items,
+      });
+    } catch (e) {
+      console.error("[user-reviews]", e);
+      sendOk(res, {
+        user_id: String(req.params.userId || "").trim(),
+        direction: "received",
+        items: [],
+      });
     }
   });
 

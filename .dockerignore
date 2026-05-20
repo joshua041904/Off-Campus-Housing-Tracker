@@ -13,6 +13,20 @@
 **/test-results
 **/playwright-report
 
+# Prisma generated clients (large); Dockerfiles run prisma generate during image build.
+**/prisma/generated
+
+# Repo areas not needed for pnpm workspace install / Next build inside webapp image
+infra
+docs
+.github
+agent-transcripts
+**/.turbo
+**/.cache
+**/coverage-html
+**/*.sqlite
+**/*.sqlite3
+
 *.log
 preflight-*.log
 raw-metrics-*.txt
@@ -25,3 +39,8 @@ reports
 debug_symbols
 
 Off-Campus-Housing-Tracker.tar.gz
+
+**/bundle-staging
+**/*.tar
+**/*.tar.gz
+**/*.tgz

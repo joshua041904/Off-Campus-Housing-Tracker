@@ -1,7 +1,8 @@
 import { checkMessagingSendRateLimit } from "@common/utils";
 import { getRedis } from "@common/utils/redis";
 
-const PREFIX = "rate:msg:";
+/** Namespaced to avoid collisions with other services using shared Redis. */
+const PREFIX = "messaging:rate:send:";
 const WINDOW_SEC = 60;
 const MAX_PER_MINUTE = 30;
 const MAX_PER_DAY = 500;

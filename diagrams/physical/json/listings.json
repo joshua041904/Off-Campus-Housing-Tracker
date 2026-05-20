@@ -1,6 +1,315 @@
 {
     "tables": [
         {
+            "name": "community_comment_votes",
+            "schema": "listings",
+            "columns": [
+                {
+                    "name": "comment_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "user_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "value",
+                    "type": "smallint",
+                    "nullable": false
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX community_comment_votes_pkey ON listings.community_comment_votes USING btree (comment_id, user_id)",
+                    "name": "community_comment_votes_pkey"
+                },
+                {
+                    "def": "CREATE INDEX idx_community_comment_votes_user ON listings.community_comment_votes USING btree (user_id)",
+                    "name": "idx_community_comment_votes_user"
+                }
+            ]
+        },
+        {
+            "name": "community_comments",
+            "schema": "listings",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "post_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "author_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "parent_comment_id",
+                    "type": "uuid",
+                    "nullable": true
+                },
+                {
+                    "name": "body",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "author_display_name",
+                    "type": "character varying(128)",
+                    "nullable": true
+                },
+                {
+                    "name": "author_username",
+                    "type": "character varying(128)",
+                    "nullable": true
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX community_comments_pkey ON listings.community_comments USING btree (id)",
+                    "name": "community_comments_pkey"
+                },
+                {
+                    "def": "CREATE INDEX idx_community_comments_post ON listings.community_comments USING btree (post_id)",
+                    "name": "idx_community_comments_post"
+                }
+            ]
+        },
+        {
+            "name": "community_post_images",
+            "schema": "listings",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "post_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "image_url",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "alt_text",
+                    "type": "character varying(256)",
+                    "nullable": true
+                },
+                {
+                    "name": "sort_order",
+                    "type": "integer",
+                    "nullable": false
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX community_post_images_pkey ON listings.community_post_images USING btree (id)",
+                    "name": "community_post_images_pkey"
+                },
+                {
+                    "def": "CREATE INDEX idx_community_post_images_post ON listings.community_post_images USING btree (post_id, sort_order, created_at)",
+                    "name": "idx_community_post_images_post"
+                },
+                {
+                    "def": "CREATE INDEX idx_community_post_images_post_sort ON listings.community_post_images USING btree (post_id, sort_order, created_at)",
+                    "name": "idx_community_post_images_post_sort"
+                }
+            ]
+        },
+        {
+            "name": "community_post_votes",
+            "schema": "listings",
+            "columns": [
+                {
+                    "name": "post_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "value",
+                    "type": "smallint",
+                    "nullable": false
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "user_id",
+                    "type": "uuid",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX community_post_votes_pkey ON listings.community_post_votes USING btree (post_id, user_id)",
+                    "name": "community_post_votes_pkey"
+                },
+                {
+                    "def": "CREATE INDEX idx_community_post_votes_user ON listings.community_post_votes USING btree (user_id)",
+                    "name": "idx_community_post_votes_user"
+                },
+                {
+                    "def": "CREATE INDEX idx_community_votes_post ON listings.community_post_votes USING btree (post_id)",
+                    "name": "idx_community_votes_post"
+                }
+            ]
+        },
+        {
+            "name": "community_posts",
+            "schema": "listings",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "author_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "title",
+                    "type": "character varying(512)",
+                    "nullable": false
+                },
+                {
+                    "name": "body",
+                    "type": "text",
+                    "nullable": false
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "updated_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                },
+                {
+                    "name": "flair",
+                    "type": "character varying(32)",
+                    "nullable": false
+                },
+                {
+                    "name": "author_display_name",
+                    "type": "character varying(128)",
+                    "nullable": true
+                },
+                {
+                    "name": "author_username",
+                    "type": "character varying(128)",
+                    "nullable": true
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX community_posts_pkey ON listings.community_posts USING btree (id)",
+                    "name": "community_posts_pkey"
+                },
+                {
+                    "def": "CREATE INDEX idx_community_posts_author_username ON listings.community_posts USING btree (lower((author_username)::text)) WHERE (author_username IS NOT NULL)",
+                    "name": "idx_community_posts_author_username"
+                },
+                {
+                    "def": "CREATE INDEX idx_community_posts_created ON listings.community_posts USING btree (created_at DESC)",
+                    "name": "idx_community_posts_created"
+                },
+                {
+                    "def": "CREATE INDEX idx_community_posts_flair_created ON listings.community_posts USING btree (flair, created_at DESC)",
+                    "name": "idx_community_posts_flair_created"
+                }
+            ]
+        },
+        {
+            "name": "community_reports",
+            "schema": "listings",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "reporter_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "listing_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "reason",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "status",
+                    "type": "character varying(32)",
+                    "nullable": false
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE UNIQUE INDEX community_reports_pkey ON listings.community_reports USING btree (id)",
+                    "name": "community_reports_pkey"
+                },
+                {
+                    "def": "CREATE INDEX idx_community_reports_listing ON listings.community_reports USING btree (listing_id)",
+                    "name": "idx_community_reports_listing"
+                },
+                {
+                    "def": "CREATE INDEX idx_community_reports_listing_status ON listings.community_reports USING btree (listing_id, status)",
+                    "name": "idx_community_reports_listing_status"
+                },
+                {
+                    "def": "CREATE INDEX idx_community_reports_status ON listings.community_reports USING btree (lower((status)::text))",
+                    "name": "idx_community_reports_status"
+                },
+                {
+                    "def": "CREATE INDEX idx_community_reports_status_created ON listings.community_reports USING btree (status, created_at DESC)",
+                    "name": "idx_community_reports_status_created"
+                }
+            ]
+        },
+        {
             "name": "listing_media",
             "schema": "listings",
             "columns": [
@@ -43,6 +352,47 @@
                 {
                     "def": "CREATE UNIQUE INDEX listing_media_pkey ON listings.listing_media USING btree (id)",
                     "name": "listing_media_pkey"
+                }
+            ]
+        },
+        {
+            "name": "listing_revisions",
+            "schema": "listings",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "listing_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "editor_user_id",
+                    "type": "uuid",
+                    "nullable": false
+                },
+                {
+                    "name": "snapshot",
+                    "type": "jsonb",
+                    "nullable": false
+                },
+                {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "nullable": false
+                }
+            ],
+            "indexes": [
+                {
+                    "def": "CREATE INDEX idx_listing_revisions_listing_created ON listings.listing_revisions USING btree (listing_id, created_at DESC)",
+                    "name": "idx_listing_revisions_listing_created"
+                },
+                {
+                    "def": "CREATE UNIQUE INDEX listing_revisions_pkey ON listings.listing_revisions USING btree (id)",
+                    "name": "listing_revisions_pkey"
                 }
             ]
         },
@@ -169,6 +519,61 @@
                     "name": "listing_code",
                     "type": "text",
                     "nullable": true
+                },
+                {
+                    "name": "display_location",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "residence_type",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "address_line1",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "address_line2",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "city",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "state_or_province",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "postal_code",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "country",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "neighborhood",
+                    "type": "text",
+                    "nullable": true
+                },
+                {
+                    "name": "bedrooms",
+                    "type": "integer",
+                    "nullable": true
+                },
+                {
+                    "name": "bathrooms",
+                    "type": "numeric(4,1)",
+                    "nullable": true
                 }
             ],
             "indexes": [
@@ -183,6 +588,14 @@
                 {
                     "def": "CREATE INDEX idx_listings_amenities_gin ON listings.listings USING gin (amenities)",
                     "name": "idx_listings_amenities_gin"
+                },
+                {
+                    "def": "CREATE INDEX idx_listings_bedrooms ON listings.listings USING btree (bedrooms) WHERE ((deleted_at IS NULL) AND (bedrooms IS NOT NULL))",
+                    "name": "idx_listings_bedrooms"
+                },
+                {
+                    "def": "CREATE INDEX idx_listings_city_lower ON listings.listings USING btree (lower(city)) WHERE (deleted_at IS NULL)",
+                    "name": "idx_listings_city_lower"
                 },
                 {
                     "def": "CREATE INDEX idx_listings_effective_dates ON listings.listings USING btree (effective_from, effective_until)",
@@ -205,12 +618,24 @@
                     "name": "idx_listings_price_effective"
                 },
                 {
+                    "def": "CREATE INDEX idx_listings_residence_type ON listings.listings USING btree (residence_type) WHERE (deleted_at IS NULL)",
+                    "name": "idx_listings_residence_type"
+                },
+                {
                     "def": "CREATE INDEX idx_listings_search_norm_gin ON listings.listings USING gin (search_norm gin_trgm_ops)",
                     "name": "idx_listings_search_norm_gin"
                 },
                 {
+                    "def": "CREATE INDEX idx_listings_size_sqft ON listings.listings USING btree (size_sqft) WHERE ((deleted_at IS NULL) AND (size_sqft IS NOT NULL))",
+                    "name": "idx_listings_size_sqft"
+                },
+                {
                     "def": "CREATE INDEX idx_listings_smoke_pet ON listings.listings USING btree (smoke_free, pet_friendly) WHERE ((status = 'active'::listings.listing_status) AND (deleted_at IS NULL))",
                     "name": "idx_listings_smoke_pet"
+                },
+                {
+                    "def": "CREATE INDEX idx_listings_state_lower ON listings.listings USING btree (lower(state_or_province)) WHERE (deleted_at IS NULL)",
+                    "name": "idx_listings_state_lower"
                 },
                 {
                     "def": "CREATE INDEX idx_listings_status_effective_until ON listings.listings USING btree (status, effective_until) WHERE ((status = 'active'::listings.listing_status) AND (deleted_at IS NULL))",
@@ -303,6 +728,84 @@
     "database": "listings",
     "foreign_keys": [
         {
+            "name": "community_comment_votes_comment_id_fkey",
+            "to_cols": [
+                "id"
+            ],
+            "to_table": "community_comments",
+            "from_cols": [
+                "comment_id"
+            ],
+            "to_schema": "listings",
+            "from_table": "community_comment_votes",
+            "from_schema": "listings"
+        },
+        {
+            "name": "community_comments_parent_comment_id_fkey",
+            "to_cols": [
+                "id"
+            ],
+            "to_table": "community_comments",
+            "from_cols": [
+                "parent_comment_id"
+            ],
+            "to_schema": "listings",
+            "from_table": "community_comments",
+            "from_schema": "listings"
+        },
+        {
+            "name": "community_comments_post_id_fkey",
+            "to_cols": [
+                "id"
+            ],
+            "to_table": "community_posts",
+            "from_cols": [
+                "post_id"
+            ],
+            "to_schema": "listings",
+            "from_table": "community_comments",
+            "from_schema": "listings"
+        },
+        {
+            "name": "community_post_images_post_id_fkey",
+            "to_cols": [
+                "id"
+            ],
+            "to_table": "community_posts",
+            "from_cols": [
+                "post_id"
+            ],
+            "to_schema": "listings",
+            "from_table": "community_post_images",
+            "from_schema": "listings"
+        },
+        {
+            "name": "community_post_votes_post_id_fkey",
+            "to_cols": [
+                "id"
+            ],
+            "to_table": "community_posts",
+            "from_cols": [
+                "post_id"
+            ],
+            "to_schema": "listings",
+            "from_table": "community_post_votes",
+            "from_schema": "listings"
+        },
+        {
+            "name": "community_reports_listing_id_fkey",
+            "to_cols": [
+                "id"
+            ],
+            "to_table": "listings",
+            "from_cols": [
+                "listing_id"
+            ],
+            "to_schema": "listings",
+            "from_table": "community_reports",
+            "from_schema": "listings"
+        },
+        {
             "name": "listing_media_listing_id_fkey",
             "to_cols": [
                 "id"
@@ -314,7 +817,20 @@
             "to_schema": "listings",
             "from_table": "listing_media",
             "from_schema": "listings"
+        },
+        {
+            "name": "listing_revisions_listing_id_fkey",
+            "to_cols": [
+                "id"
+            ],
+            "to_table": "listings",
+            "from_cols": [
+                "listing_id"
+            ],
+            "to_schema": "listings",
+            "from_table": "listing_revisions",
+            "from_schema": "listings"
         }
     ],
-    "generated_at": "2026-04-03T20:12:05.296356+00:00"
+    "generated_at": "2026-05-10T18:39:34.028317+00:00"
 }

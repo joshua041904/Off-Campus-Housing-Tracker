@@ -1,0 +1,27 @@
+# Service-wide transactional outbox — apps export och_outbox_* with {service}; legacy auth_outbox_unpublished_count is folded in for alerts only.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules-och-outbox
+  namespace: observability
+  labels:
+    app: prometheus
+    och.dev/role: outbox-rules
+data:
+  och-outbox.yml: |
+    groups:
+      - name: och-outbox-alerts
+        interval: 30s
+        rules:
+          - alert: OchOutboxUnpublishedBacklog
+            expr: |
+              (
+                sum by (service) (och_outbox_unpublished_count)
+                or label_replace(auth_outbox_unpublished_count, "service", "auth-service", "", "")
+              ) > 0
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: Transactional outbox backlog (by service)
+              description: Unpublished outbox rows for 5m — check {{ $labels.service }} publisher and Kafka.

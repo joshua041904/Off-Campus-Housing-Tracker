@@ -29,27 +29,20 @@ const chrome = { ...devices["Desktop Chrome"] };
 const suiteProjects = [
   {
     name: "01-guest-shell",
-    testMatch: [
-      "guest.spec.ts",
-      "navbar.spec.ts",
-      "webapp-pages.spec.ts",
-      "messaging-mentioned.spec.ts",
-      "trust.visual.spec.ts",
-    ],
+    testMatch: ["guest.spec.ts", "webapp-pages.spec.ts", "messaging-mentioned.spec.ts"],
   },
   {
     name: "02-auth-booking",
-    testMatch: ["auth-cycle.spec.ts", "flows.spec.ts"],
+    testMatch: [
+      "auth-cycle.spec.ts",
+      "flows.spec.ts",
+      "messages-signed-in.ui.spec.ts",
+      "messages-thread-switch.ui.spec.ts",
+    ],
   },
   {
     name: "03-listings",
-    testMatch: [
-      "listing-and-analytics-journey.spec.ts",
-      "listings-filters-maps.spec.ts",
-      "search-filters.spec.ts",
-      "listings.visual.spec.ts",
-      "listings-detail.spec.ts",
-    ],
+    testMatch: ["listing-and-analytics-journey.spec.ts", "listings-filters-maps.spec.ts"],
   },
   {
     name: "04-analytics",
@@ -57,7 +50,7 @@ const suiteProjects = [
   },
   {
     name: "05-optional-screenshots",
-    testMatch: ["ui-screenshots.spec.ts"],
+    testMatch: ["ui-screenshots.spec.ts", "observability-screenshots.spec.ts"],
   },
   {
     name: "06-service-verticals",

@@ -1,4 +1,4 @@
-# Transport / edge dashboard (Prometheus recording rules: och:gateway_* ; Envoy stats when scraped).
+# Transport / edge dashboard — policy: prefer H3 when negotiated; H2 default fallback; H1 legacy; unknown diagnostic.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -20,7 +20,7 @@ data:
         {
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
           "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] },
-          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+          "gridPos": { "h": 7, "w": 12, "x": 0, "y": 0 },
           "id": 1,
           "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
           "targets": [
@@ -30,13 +30,13 @@ data:
               "refId": "A"
             }
           ],
-          "title": "API gateway — 5xx ratio (5m)",
+          "title": "API gateway — 5xx ratio (all edge protocols)",
           "type": "timeseries"
         },
         {
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
           "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] },
-          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+          "gridPos": { "h": 7, "w": 12, "x": 12, "y": 0 },
           "id": 2,
           "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
           "targets": [
@@ -46,13 +46,296 @@ data:
               "refId": "A"
             }
           ],
-          "title": "API gateway — 502 ratio (5m)",
+          "title": "API gateway — 502 ratio (all edge protocols)",
           "type": "timeseries"
+        },
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 7 },
+          "id": 100,
+          "panels": [],
+          "title": "1 — Preferred: HTTP/3 (QUIC)",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "none", "decimals": 0 }, "overrides": [] },
+          "gridPos": { "h": 6, "w": 6, "x": 0, "y": 8 },
+          "id": 101,
+          "options": { "colorMode": "value", "graphMode": "none", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+          "targets": [{ "expr": "max(och_gateway_protocol_smoke_success{proto=\"h3\"}) or vector(0)", "refId": "A" }],
+          "title": "H3 — forced smoke success (Pushgateway)",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "none", "decimals": 0 }, "overrides": [] },
+          "gridPos": { "h": 6, "w": 6, "x": 6, "y": 8 },
+          "id": 102,
+          "options": { "colorMode": "value", "graphMode": "none", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+          "targets": [{ "expr": "max(och_quic_forensic_valid{version=\"v7\"}) or vector(0)", "refId": "A" }],
+          "title": "H3 — QUIC forensic v7 valid",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "none", "decimals": 0 }, "overrides": [] },
+          "gridPos": { "h": 6, "w": 6, "x": 12, "y": 8 },
+          "id": 103,
+          "options": { "colorMode": "value", "graphMode": "none", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+          "targets": [{ "expr": "max(och_quic_1rtt_present{version=\"v7\"}) or vector(0)", "refId": "A" }],
+          "title": "H3 — QUIC 1-RTT present (v7)",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "none", "decimals": 0 }, "overrides": [] },
+          "gridPos": { "h": 6, "w": 6, "x": 18, "y": 8 },
+          "id": 104,
+          "options": { "colorMode": "value", "graphMode": "area", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+          "targets": [{ "expr": "max(och_quic_frame_count{version=\"v7\"}) or vector(0)", "refId": "A" }],
+          "title": "H3 — QUIC frame count (v7 capture)",
+          "type": "stat"
         },
         {
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
           "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
-          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+          "gridPos": { "h": 7, "w": 12, "x": 0, "y": 14 },
+          "id": 105,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "sum(rate(http_requests_total{service=\"api-gateway\",proto=\"h3\",route!=\"/metrics\"}[5m])) or on() vector(0)",
+              "legendFormat": "h3 req/s",
+              "refId": "A"
+            }
+          ],
+          "title": "H3 — gateway request rate (edge proto label)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+          "gridPos": { "h": 7, "w": 12, "x": 12, "y": 14 },
+          "id": 106,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "histogram_quantile(1.0, sum(rate(http_request_duration_seconds_bucket{service=\"api-gateway\",proto=\"h3\"}[5m])) by (le)) or on() vector(0)",
+              "legendFormat": "p100 h3",
+              "refId": "A"
+            }
+          ],
+          "title": "H3 — gateway latency p100 (edge proto)",
+          "type": "timeseries"
+        },
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 21 },
+          "id": 110,
+          "panels": [],
+          "title": "2 — Default fallback: HTTP/2",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "none", "decimals": 0 }, "overrides": [] },
+          "gridPos": { "h": 6, "w": 8, "x": 0, "y": 22 },
+          "id": 111,
+          "options": { "colorMode": "value", "graphMode": "none", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+          "targets": [{ "expr": "max(och_gateway_protocol_smoke_success{proto=\"h2\"}) or vector(0)", "refId": "A" }],
+          "title": "H2 — forced smoke success",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+          "gridPos": { "h": 6, "w": 8, "x": 8, "y": 22 },
+          "id": 112,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "sum(rate(http_requests_total{service=\"api-gateway\",proto=\"h2\",route!=\"/metrics\"}[5m])) or on() vector(0)",
+              "legendFormat": "h2 req/s",
+              "refId": "A"
+            }
+          ],
+          "title": "H2 — gateway request rate (edge proto)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+          "gridPos": { "h": 6, "w": 8, "x": 16, "y": 22 },
+          "id": 113,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "histogram_quantile(1.0, sum(rate(http_request_duration_seconds_bucket{service=\"api-gateway\",proto=\"h2\"}[5m])) by (le)) or on() vector(0)",
+              "legendFormat": "p100 h2",
+              "refId": "A"
+            }
+          ],
+          "title": "H2 — gateway latency p100 (edge proto)",
+          "type": "timeseries"
+        },
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 28 },
+          "id": 120,
+          "panels": [],
+          "title": "3 — Legacy fallback: HTTP/1.1",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+          "gridPos": { "h": 6, "w": 8, "x": 0, "y": 29 },
+          "id": 121,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "sum(rate(http_requests_total{service=\"api-gateway\",proto=\"h1\",route!=\"/metrics\"}[5m])) or on() vector(0)",
+              "legendFormat": "h1 req/s",
+              "refId": "A"
+            }
+          ],
+          "title": "H1 — gateway request rate (should be low unless legacy clients)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "none", "decimals": 0 }, "overrides": [] },
+          "gridPos": { "h": 6, "w": 8, "x": 8, "y": 29 },
+          "id": 122,
+          "options": { "colorMode": "value", "graphMode": "none", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+          "targets": [{ "expr": "max(och_gateway_protocol_smoke_success{proto=\"h1\"}) or vector(0)", "refId": "A" }],
+          "title": "H1 — forced smoke success",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+          "gridPos": { "h": 6, "w": 8, "x": 16, "y": 29 },
+          "id": 123,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "histogram_quantile(1.0, sum(rate(http_request_duration_seconds_bucket{service=\"api-gateway\",proto=\"h1\"}[5m])) by (le)) or on() vector(0)",
+              "legendFormat": "p100 h1",
+              "refId": "A"
+            }
+          ],
+          "title": "H1 — gateway latency p100 (edge proto)",
+          "type": "timeseries"
+        },
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 35 },
+          "id": 130,
+          "panels": [],
+          "title": "4 — Unknown edge proto (diagnostic)",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 36 },
+          "id": 131,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "(sum(rate(http_requests_total{service=\"api-gateway\",proto=\"unknown\"}[5m])) / clamp_min(sum(rate(http_requests_total{service=\"api-gateway\"}[5m])), 1e-9)) or on() vector(0)",
+              "legendFormat": "unknown / all requests (5m)",
+              "refId": "A"
+            },
+            {
+              "expr": "vector(0.05)",
+              "legendFormat": "threshold 5%",
+              "refId": "B"
+            }
+          ],
+          "title": "Unknown ratio — request counters (alert OCHApiGatewayHighUnknownEdgeProto if sustained)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 36 },
+          "id": 132,
+          "options": {
+            "content": "**Near-zero target.** In-cluster callers (e.g. kube probes, mesh) may lack `X-OCH-Edge-Proto`; those show as `proto=unknown` on the gateway counter.\n\n**If this spikes:** confirm Caddy sets `X-OCH-Edge-Proto` from `{http.request.proto}` and `header_up X-OCH-Edge-Proto` on the api-gateway `reverse_proxy`. Run `make obs-smoke-gateway-protocols` (forced h1/h2/h3) and compare to browser traffic.\n\nRecording rule: `och:gateway_http_unknown_proto_ratio_5m`.",
+            "mode": "markdown"
+          },
+          "title": "Unknown — what to check",
+          "type": "text"
+        },
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 44 },
+          "id": 140,
+          "panels": [],
+          "title": "Overview — all edge protocols",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 45 },
+          "id": 5,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "sum(rate(http_requests_total{service=\"api-gateway\",route!=\"/metrics\"}[5m])) by (proto)",
+              "legendFormat": "{{proto}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Gateway request rate by edge protocol (excl. /metrics)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+          "gridPos": { "h": 9, "w": 12, "x": 12, "y": 45 },
+          "id": 7,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.5, sum(rate(http_request_duration_seconds_bucket{service=\"api-gateway\"}[5m])) by (le, proto))",
+              "legendFormat": "p50 {{proto}}",
+              "refId": "A"
+            },
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{service=\"api-gateway\"}[5m])) by (le, proto))",
+              "legendFormat": "p95 {{proto}}",
+              "refId": "B"
+            },
+            {
+              "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{service=\"api-gateway\"}[5m])) by (le, proto))",
+              "legendFormat": "p99 {{proto}}",
+              "refId": "C"
+            },
+            {
+              "expr": "histogram_quantile(1.0, sum(rate(http_request_duration_seconds_bucket{service=\"api-gateway\"}[5m])) by (le, proto))",
+              "legendFormat": "p100 {{proto}}",
+              "refId": "D"
+            }
+          ],
+          "title": "Gateway latency by edge protocol (p50 / p95 / p99 / p100)",
+          "type": "timeseries"
+        },
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 54 },
+          "id": 150,
+          "panels": [],
+          "title": "Envoy (optional — when Envoy terminates QUIC / gRPC edge)",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+          "gridPos": { "h": 7, "w": 12, "x": 0, "y": 55 },
           "id": 3,
           "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
           "targets": [
@@ -62,13 +345,13 @@ data:
               "refId": "A"
             }
           ],
-          "title": "Envoy HTTP/3 downstream reset rate (if Envoy terminates QUIC)",
+          "title": "Envoy HTTP/3 downstream reset rate",
           "type": "timeseries"
         },
         {
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
           "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
-          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+          "gridPos": { "h": 7, "w": 12, "x": 12, "y": 55 },
           "id": 4,
           "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
           "targets": [
@@ -85,7 +368,7 @@ data:
       "refresh": "30s",
       "schemaVersion": 38,
       "style": "dark",
-      "tags": ["och", "transport", "http3", "edge"],
+      "tags": ["och", "transport", "http3", "edge", "edge-proto", "h3-prefer"],
       "templating": {
         "list": [
           {
@@ -104,7 +387,7 @@ data:
       "time": { "from": "now-6h", "to": "now" },
       "timepicker": {},
       "timezone": "browser",
-      "title": "OCH — transport / edge",
+      "title": "OCH — transport / edge protocol (H3 prefer → H2 default → H1 legacy)",
       "uid": "och-transport-edge",
-      "version": 1
+      "version": 2
     }

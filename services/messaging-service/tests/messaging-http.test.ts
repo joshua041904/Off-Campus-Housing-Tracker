@@ -5,6 +5,7 @@ import request from 'supertest'
 import { randomUUID } from 'node:crypto'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Express } from 'express'
+import { stableHumanDmThreadId } from '../src/lib/dm-thread-id.js'
 
 const userId = randomUUID()
 const recipientId = randomUUID()
@@ -66,6 +67,10 @@ vi.mock('@common/utils/otel', async (importOriginal) => {
 function defaultPoolHandler(sql: string, params: unknown[] = []): Promise<{ rows: unknown[]; rowCount?: number }> {
   const norm = sql.replace(/\s+/g, ' ').trim()
 
+  if (norm === 'BEGIN' || norm === 'COMMIT' || norm === 'ROLLBACK') {
+    return Promise.resolve({ rows: [] })
+  }
+
   if (norm.includes('INSERT INTO messages.message_reads')) {
     return Promise.resolve({ rows: [] })
   }
@@ -75,6 +80,26 @@ function defaultPoolHandler(sql: string, params: unknown[] = []): Promise<{ rows
   }
 
   if (norm.includes('INSERT INTO messages.user_deleted_threads')) {
+    return Promise.resolve({ rows: [] })
+  }
+
+  // POST /messages/thread/:id/archive|delete — participant access (SELECT 1 WHERE EXISTS …)
+  if (
+    norm.includes('SELECT 1 WHERE') &&
+    norm.includes('FROM messages.messages m') &&
+    norm.includes('m.thread_id::text = $1 OR m.group_id::text = $1')
+  ) {
+    const tid = String(params[0])
+    const uid = String(params[1])
+    if (tid === threadId && (uid === userId || uid === recipientId)) {
+      return Promise.resolve({ rows: [{ '?column?': 1 }] })
+    }
+    return Promise.resolve({ rows: [] })
+  }
+
+  if (
+    norm.includes('SELECT 1 FROM messages.messages WHERE thread_id::text = $1 OR group_id::text = $1 LIMIT 1')
+  ) {
     return Promise.resolve({ rows: [] })
   }
 
@@ -99,8 +124,10 @@ function defaultPoolHandler(sql: string, params: unknown[] = []): Promise<{ rows
   }
 
   if (
-    norm.includes('FROM messages.user_archived_threads WHERE user_id = $1 AND thread_id = $2') &&
-    norm.includes('LIMIT 1')
+    norm.includes('FROM messages.user_archived_threads') &&
+    norm.includes('user_id = $1') &&
+    norm.includes('LIMIT 1') &&
+    (norm.includes('thread_id = $2') || norm.includes('thread_id::text IN'))
   ) {
     return Promise.resolve({ rows: [] })
   }
@@ -265,6 +292,17 @@ function defaultPoolHandler(sql: string, params: unknown[] = []): Promise<{ rows
   }
 
   if (
+    norm.includes('SELECT 1 FROM messages.messages WHERE id = $1') &&
+    norm.includes('sender_id = $2') &&
+    norm.includes('recipient_id = $2') &&
+    norm.includes('group_members')
+  ) {
+    const mid = params[0] as string
+    if (mid === messageId) return Promise.resolve({ rows: [{ '?column?': 1 }] })
+    return Promise.resolve({ rows: [] })
+  }
+
+  if (
     norm.includes('SELECT sender_id, recipient_id, group_id FROM messages.messages WHERE id = $1') &&
     norm.includes('sender_id = $2 OR recipient_id = $2')
   ) {
@@ -273,12 +311,86 @@ function defaultPoolHandler(sql: string, params: unknown[] = []): Promise<{ rows
     })
   }
 
-  if (norm.includes('SELECT 1 FROM messages.messages WHERE id = $1') && norm.includes('sender_id = $2 OR recipient_id')) {
+  if (
+    norm.includes('SELECT 1 FROM messages.messages m') &&
+    norm.includes('m.deleted_at IS NULL') &&
+    norm.includes('sender_id = $2 OR recipient_id')
+  ) {
     return Promise.resolve({ rows: [{ '?column?': 1 }] })
   }
 
-  if (norm.includes('SELECT sender_id FROM messages.messages WHERE id = $1') && !norm.includes('recipient_id')) {
+  if (
+    norm.includes('SELECT 1 FROM messages.messages m') &&
+    norm.includes('m.id = $1::uuid') &&
+    !norm.includes('m.deleted_at IS NULL') &&
+    norm.includes('group_members')
+  ) {
+    return Promise.resolve({ rows: [{ '?column?': 1 }] })
+  }
+
+  if (norm.includes('INSERT INTO messages.user_hidden_messages')) {
+    return Promise.resolve({ rows: [], rowCount: 1 })
+  }
+
+  if (norm.includes('DELETE FROM messages.user_hidden_messages')) {
+    return Promise.resolve({ rows: [], rowCount: 1 })
+  }
+
+  if (norm.includes('INNER JOIN messages.user_hidden_messages')) {
+    return Promise.resolve({ rows: [] })
+  }
+
+  if (
+    norm.includes('SELECT sender_id, deleted_at FROM messages.messages WHERE id = $1::uuid')
+  ) {
+    const mid = params[0] as string
+    if (mid !== messageId) return Promise.resolve({ rows: [] })
+    return Promise.resolve({ rows: [{ sender_id: userId, deleted_at: null }] })
+  }
+
+  if (
+    norm.includes('SELECT sender_id, subject AS cur_subject, content AS cur_content, deleted_at') &&
+    norm.includes('FROM messages.messages WHERE id = $1::uuid')
+  ) {
+    return Promise.resolve({
+      rows: [{ sender_id: userId, cur_subject: 'OldSubj', cur_content: 'OldBody', deleted_at: null }],
+    })
+  }
+
+  // Recall-only precheck (must not match edit/delete SELECT shapes)
+  if (
+    norm.includes('SELECT sender_id FROM messages.messages WHERE id = $1') &&
+    !norm.includes('cur_subject') &&
+    !norm.includes('deleted_at')
+  ) {
     return Promise.resolve({ rows: [{ sender_id: userId }] })
+  }
+
+  if (
+    norm.includes('UPDATE messages.messages') &&
+    norm.includes('edited_at = CASE WHEN') &&
+    norm.includes('WHERE id = $3::uuid AND deleted_at IS NULL')
+  ) {
+    return Promise.resolve({
+      rows: [
+        {
+          id: params[2],
+          sender_id: userId,
+          recipient_id: recipientId,
+          group_id: null,
+          parent_message_id: null,
+          thread_id: null,
+          message_type: 'direct',
+          subject: params[0],
+          content: params[1],
+          is_read: false,
+          created_at: new Date(),
+          updated_at: new Date(),
+          edited_at: new Date(),
+          deleted_at: null,
+        },
+      ],
+    })
   }
 
   if (norm.includes('UPDATE messages.messages') && norm.includes('COALESCE($1, subject)')) {
@@ -408,16 +520,50 @@ function defaultPoolHandler(sql: string, params: unknown[] = []): Promise<{ rows
   }
 
   if (norm.includes('INSERT INTO messages.messages')) {
+    if (params.length === 7) {
+      const row = {
+        id: messageId,
+        sender_id: params[0],
+        recipient_id: params[1],
+        group_id: params[2],
+        parent_message_id: params[3],
+        thread_id: null,
+        message_type: params[4],
+        subject: params[5],
+        content: params[6],
+        is_read: false,
+        created_at: new Date(),
+        updated_at: new Date(),
+      }
+      return Promise.resolve({ rows: [row] })
+    }
+    if (params.length === 6) {
+      const row = {
+        id: messageId,
+        sender_id: params[0],
+        recipient_id: params[1],
+        group_id: null,
+        parent_message_id: null,
+        thread_id: params[2],
+        message_type: params[3],
+        subject: params[4],
+        content: params[5],
+        is_read: false,
+        created_at: new Date(),
+        updated_at: new Date(),
+      }
+      return Promise.resolve({ rows: [row] })
+    }
     const row = {
       id: messageId,
       sender_id: params[0],
       recipient_id: params[1],
       group_id: params[2],
       parent_message_id: params[3],
-      thread_id: null,
-      message_type: params[4],
-      subject: params[5],
-      content: params[6],
+      thread_id: params[4],
+      message_type: params[5],
+      subject: params[6],
+      content: params[7],
       is_read: false,
       created_at: new Date(),
       updated_at: new Date(),
@@ -425,8 +571,20 @@ function defaultPoolHandler(sql: string, params: unknown[] = []): Promise<{ rows
     return Promise.resolve({ rows: [row] })
   }
 
-  if (norm.startsWith('DELETE FROM messages.messages WHERE id = $1')) {
+  if (
+    norm.includes('UPDATE messages.messages') &&
+    norm.includes('deleted_at = now()') &&
+    norm.includes('WHERE id = $1::uuid')
+  ) {
     return Promise.resolve({ rows: [], rowCount: 1 })
+  }
+
+  if (norm.includes('SELECT post_id FROM forum.comments') && norm.includes('WHERE id')) {
+    return Promise.resolve({ rows: [{ post_id: postId }] })
+  }
+
+  if (norm.includes('FROM forum.comments WHERE id = $1') && norm.includes('user_id') && norm.includes('post_id')) {
+    return Promise.resolve({ rows: [{ user_id: userId, post_id: postId }] })
   }
 
   if (norm.includes('SELECT user_id FROM forum.comments WHERE id = $1')) {
@@ -435,6 +593,34 @@ function defaultPoolHandler(sql: string, params: unknown[] = []): Promise<{ rows
 
   if (norm.includes('SELECT user_id FROM forum.posts WHERE id = $1')) {
     return Promise.resolve({ rows: [{ user_id: userId }] })
+  }
+
+  if (norm.includes('FROM forum.posts p WHERE p.id = $1::uuid')) {
+    if (norm.includes('SELECT p.upvotes, p.downvotes')) {
+      return Promise.resolve({
+        rows: [{ upvotes: 3, downvotes: 1, user_vote: 'up' }],
+      })
+    }
+    return Promise.resolve({
+      rows: [
+        {
+          id: params[0],
+          user_id: userId,
+          title: 'Post',
+          content: 'Body',
+          flair: 'housing',
+          upload_type: 'text',
+          upvotes: 2,
+          downvotes: 0,
+          comment_count: 1,
+          is_pinned: false,
+          is_locked: false,
+          created_at: new Date(),
+          updated_at: new Date(),
+          user_vote: null,
+        },
+      ],
+    })
   }
 
   if (
@@ -489,8 +675,20 @@ function defaultPoolHandler(sql: string, params: unknown[] = []): Promise<{ rows
     return Promise.resolve({ rows: [], rowCount: 1 })
   }
 
+  if (norm.includes('SELECT vote_type FROM forum.post_votes WHERE post_id')) {
+    return Promise.resolve({ rows: [] })
+  }
+
   if (norm.includes('INSERT INTO forum.post_votes')) {
     return Promise.resolve({ rows: [] })
+  }
+
+  if (norm.startsWith('DELETE FROM forum.post_votes')) {
+    return Promise.resolve({ rows: [], rowCount: 1 })
+  }
+
+  if (norm.includes('UPDATE forum.posts SET') && norm.includes('upvotes = (SELECT COUNT(*)')) {
+    return Promise.resolve({ rows: [], rowCount: 1 })
   }
 
   if (norm.includes('SELECT upvotes, downvotes FROM forum.posts WHERE id = $1')) {
@@ -555,8 +753,24 @@ function defaultPoolHandler(sql: string, params: unknown[] = []): Promise<{ rows
     return Promise.resolve({ rows: [], rowCount: 1 })
   }
 
+  if (norm.includes('SELECT vote_type FROM forum.comment_votes WHERE comment_id')) {
+    return Promise.resolve({ rows: [] })
+  }
+
   if (norm.includes('INSERT INTO forum.comment_votes')) {
     return Promise.resolve({ rows: [] })
+  }
+
+  if (norm.startsWith('DELETE FROM forum.comment_votes')) {
+    return Promise.resolve({ rows: [], rowCount: 1 })
+  }
+
+  if (norm.includes('UPDATE forum.comments SET') && norm.includes('upvotes = (SELECT COUNT(*)')) {
+    return Promise.resolve({ rows: [], rowCount: 1 })
+  }
+
+  if (norm.includes('SELECT c.upvotes, c.downvotes') && norm.includes('FROM forum.comments c WHERE c.id')) {
+    return Promise.resolve({ rows: [{ upvotes: 1, downvotes: 0, user_vote: 'up' }] })
   }
 
   if (norm.includes('SELECT upvotes, downvotes FROM forum.comments WHERE id = $1')) {
@@ -677,6 +891,16 @@ describe('createMessagingHttpApp (mocked pool + kafka)', () => {
     expect(res.body).toEqual({ ok: true })
   })
 
+  it('GET /threads — missing x-user-id → 401', async () => {
+    const res = await request(app).get('/threads')
+    expect(res.status).toBe(401)
+  })
+
+  it('GET /mine — missing x-user-id → 401', async () => {
+    const res = await request(app).get('/mine')
+    expect(res.status).toBe(401)
+  })
+
   it('GET /messages — missing x-user-id → 401', async () => {
     const res = await request(app).get('/messages')
     expect(res.status).toBe(401)
@@ -687,6 +911,37 @@ describe('createMessagingHttpApp (mocked pool + kafka)', () => {
     expect(res.status).toBe(200)
     expect(res.body.messages).toEqual([])
     expect(res.body.pagination.total).toBe(0)
+  })
+
+  it('GET /messages/users/search — q too short → 400', async () => {
+    const res = await request(app).get('/messages/users/search?q=a').set('x-user-id', userId)
+    expect(res.status).toBe(400)
+    expect(res.body.error).toMatch(/at least 2/)
+  })
+
+  it('GET /messages/users/search — returns users from mirror', async () => {
+    poolQuery.mockImplementation(async (sql: string, params: unknown[] = []) => {
+      const norm = sql.replace(/\s+/g, ' ').trim()
+      if (norm.includes('messaging-users-search')) {
+        expect(params[0]).toBe(userId)
+        return {
+          rows: [
+            {
+              id: recipientId,
+              username: 'peerhandle',
+              display_name: 'Peer Display',
+            },
+          ],
+        }
+      }
+      return defaultPoolHandler(sql, params)
+    })
+    const res = await request(app).get('/messages/users/search?q=peer').set('x-user-id', userId)
+    expect(res.status).toBe(200)
+    expect(Array.isArray(res.body.users)).toBe(true)
+    expect(res.body.users).toHaveLength(1)
+    expect(res.body.users[0].id).toBe(recipientId)
+    expect(res.body.users[0].username).toBe('peerhandle')
   })
 
   it('POST /messages — both recipient_id and group_id → 400', async () => {
@@ -751,8 +1006,22 @@ describe('createMessagingHttpApp (mocked pool + kafka)', () => {
         content: 'World',
       })
     expect(res.status).toBe(201)
-    expect(res.body.subject).toBe('Hello')
+    expect(res.body.subject).toBe('')
+    expect(res.body.thread_id).toBe(stableHumanDmThreadId(userId, recipientId))
     expect(kafkaSend).toHaveBeenCalled()
+  })
+
+  it('POST /messages — direct message without subject → 201 empty subject', async () => {
+    const res = await request(app)
+      .post('/messages')
+      .set('x-user-id', userId)
+      .send({
+        recipient_id: recipientId,
+        message_type: 'direct',
+        content: 'World',
+      })
+    expect(res.status).toBe(201)
+    expect(res.body.subject).toBe('')
   })
 
   it('POST /messages/start — 400 missing fields', async () => {
@@ -804,7 +1073,7 @@ describe('createMessagingHttpApp (mocked pool + kafka)', () => {
   it('DELETE /messages/:id — not found → 404', async () => {
     poolQuery.mockImplementation(async (sql: string, params: unknown[] = []) => {
       const norm = sql.replace(/\s+/g, ' ').trim()
-      if (norm.includes('SELECT sender_id, recipient_id, group_id FROM messages.messages WHERE id = $1')) {
+      if (norm.includes('SELECT sender_id, deleted_at FROM messages.messages WHERE id = $1::uuid')) {
         return { rows: [] }
       }
       return defaultPoolHandler(sql, params)
@@ -817,6 +1086,50 @@ describe('createMessagingHttpApp (mocked pool + kafka)', () => {
     const res = await request(app).delete(`/messages/${messageId}`).set('x-user-id', userId)
     expect(res.status).toBe(204)
     expect(kafkaSend).toHaveBeenCalled()
+  })
+
+  it('POST /messages/:id/hide-for-me — success → 204', async () => {
+    const res = await request(app).post(`/messages/${messageId}/hide-for-me`).set('x-user-id', userId)
+    expect(res.status).toBe(204)
+  })
+
+  it('DELETE /messages/:id/hide-for-me — success → 204', async () => {
+    const res = await request(app).delete(`/messages/${messageId}/hide-for-me`).set('x-user-id', userId)
+    expect(res.status).toBe(204)
+  })
+
+  it('GET /messages/thread/:tid/hidden-for-me — returns JSON', async () => {
+    const tid = randomUUID()
+    poolQuery.mockImplementation(async (sql: string, params: unknown[] = []) => {
+      const norm = sql.replace(/\s+/g, ' ').trim()
+      if (norm.includes('SELECT m.sender_id, m.recipient_id, m.group_id') && norm.includes('WHERE m.id::text = $1')) {
+        return { rows: [] }
+      }
+      if (norm.includes('INNER JOIN messages.user_hidden_messages') && norm.includes('ORDER BY m.created_at ASC')) {
+        expect(params[0]).toBe(tid)
+        return { rows: [] }
+      }
+      return defaultPoolHandler(sql, params)
+    })
+    const res = await request(app).get(`/messages/thread/${tid}/hidden-for-me`).set('x-user-id', userId)
+    expect(res.status).toBe(200)
+    expect(res.body.messages).toEqual([])
+  })
+
+  it('POST /messages/:id/hide-for-me — 404 when message not accessible', async () => {
+    poolQuery.mockImplementation(async (sql: string, params: unknown[] = []) => {
+      const norm = sql.replace(/\s+/g, ' ').trim()
+      if (
+        norm.includes('SELECT 1 FROM messages.messages m') &&
+        norm.includes('m.id = $1::uuid') &&
+        !norm.includes('m.deleted_at IS NULL')
+      ) {
+        return { rows: [] }
+      }
+      return defaultPoolHandler(sql, params)
+    })
+    const res = await request(app).post(`/messages/${messageId}/hide-for-me`).set('x-user-id', userId)
+    expect(res.status).toBe(404)
   })
 
   it('GET /forum/posts — missing x-user-id → 401', async () => {
@@ -891,7 +1204,13 @@ describe('createMessagingHttpApp (mocked pool + kafka)', () => {
     const threadId = randomUUID()
     poolQuery.mockImplementation(async (sql: string, params: unknown[] = []) => {
       const norm = sql.replace(/\s+/g, ' ').trim()
-      if (norm.includes('m.thread_id = $1') && norm.includes('ORDER BY m.created_at ASC')) {
+      if (norm.includes('SELECT m.sender_id, m.recipient_id, m.group_id') && norm.includes('WHERE m.id::text = $1')) {
+        return { rows: [] }
+      }
+      if (
+        norm.includes('ORDER BY m.created_at ASC') &&
+        (norm.includes('m.thread_id::text = $1') || norm.includes('uuid_generate_v5'))
+      ) {
         expect(params[0]).toBe(threadId)
         return {
           rows: [
@@ -901,6 +1220,7 @@ describe('createMessagingHttpApp (mocked pool + kafka)', () => {
               recipient_id: recipientId,
               group_id: null,
               parent_message_id: null,
+              reply_to_message_id: null,
               thread_id: threadId,
               message_type: 'direct',
               subject: 'S',
@@ -908,6 +1228,15 @@ describe('createMessagingHttpApp (mocked pool + kafka)', () => {
               is_read: false,
               created_at: new Date(),
               updated_at: new Date(),
+              deleted_at: null,
+              edited_at: null,
+              recalled_at: null,
+              sender_display_name: null,
+              sender_username: null,
+              recipient_display_name: null,
+              recipient_username: null,
+              reply_to_message: null,
+              reactions: [],
             },
           ],
         }
@@ -924,12 +1253,17 @@ describe('createMessagingHttpApp (mocked pool + kafka)', () => {
     const tid = randomUUID()
     poolQuery.mockImplementation(async (sql: string, params: unknown[] = []) => {
       const norm = sql.replace(/\s+/g, ' ').trim()
+      if (norm.includes('SELECT m.sender_id, m.recipient_id, m.group_id') && norm.includes('WHERE m.id::text = $1')) {
+        return { rows: [] }
+      }
       if (
-        norm.includes('FROM messages.user_archived_threads WHERE user_id = $1 AND thread_id = $2') &&
+        norm.includes('FROM messages.user_archived_threads') &&
+        norm.includes('thread_id::text IN') &&
         norm.includes('LIMIT 1')
       ) {
         expect(params[0]).toBe(userId)
         expect(params[1]).toBe(tid)
+        expect(params[2]).toBe(tid)
         return { rows: [{ '?column?': 1 }] }
       }
       return defaultPoolHandler(sql, params)
@@ -940,7 +1274,13 @@ describe('createMessagingHttpApp (mocked pool + kafka)', () => {
 
     poolQuery.mockImplementation(async (sql: string, params: unknown[] = []) => {
       const norm = sql.replace(/\s+/g, ' ').trim()
-      if (norm.includes('m.thread_id = $1') && norm.includes('ORDER BY m.created_at ASC')) {
+      if (norm.includes('SELECT m.sender_id, m.recipient_id, m.group_id') && norm.includes('WHERE m.id::text = $1')) {
+        return { rows: [] }
+      }
+      if (
+        norm.includes('ORDER BY m.created_at ASC') &&
+        (norm.includes('m.thread_id::text = $1') || norm.includes('uuid_generate_v5'))
+      ) {
         return {
           rows: [
             {
@@ -1231,7 +1571,8 @@ describe('createMessagingHttpApp (mocked pool + kafka)', () => {
     poolQuery.mockImplementation(async (sql: string, params: unknown[] = []) => {
       const norm = sql.replace(/\s+/g, ' ').trim()
       if (
-        norm.includes('FROM messages.user_archived_threads WHERE user_id = $1 AND thread_id = $2') &&
+        norm.includes('FROM messages.user_archived_threads') &&
+        norm.includes('thread_id::text IN') &&
         norm.includes('LIMIT 1')
       ) {
         return Promise.reject(new Error('archived gate boom'))
@@ -1278,10 +1619,10 @@ describe('createMessagingHttpApp (mocked pool + kafka)', () => {
     expect(res.status).toBe(500)
   })
 
-  it('DELETE /messages/:messageId — 500 when DELETE fails', async () => {
+  it('DELETE /messages/:messageId — 500 when soft-delete update fails', async () => {
     poolQuery.mockImplementation(async (sql: string, params: unknown[] = []) => {
       const norm = sql.replace(/\s+/g, ' ').trim()
-      if (norm.startsWith('DELETE FROM messages.messages WHERE id = $1')) {
+      if (norm.includes('UPDATE messages.messages') && norm.includes('deleted_at = now()')) {
         return Promise.reject(new Error('delete failed'))
       }
       return defaultPoolHandler(sql, params)
@@ -1462,7 +1803,12 @@ describe('createMessagingHttpApp (mocked pool + kafka)', () => {
         phase = 1
         return Promise.resolve({ rows: [] })
       }
-      if (phase === 1 && norm.includes('SELECT 1 FROM messages.messages WHERE thread_id = $1')) {
+      if (
+        phase === 1 &&
+        norm.includes('SELECT 1 WHERE') &&
+        norm.includes('FROM messages.messages m') &&
+        norm.includes('m.thread_id::text = $1 OR m.group_id::text = $1')
+      ) {
         phase = 2
         return Promise.reject(new Error('access boom'))
       }
@@ -1498,17 +1844,13 @@ describe('createMessagingHttpApp (mocked pool + kafka)', () => {
     poolQuery.mockImplementation(async (sql: string, params: unknown[] = []) => {
       const norm = sql.replace(/\s+/g, ' ').trim()
       if (
-        norm.includes('SELECT 1 FROM messages.messages WHERE thread_id = $1') &&
-        norm.includes('LIMIT 1') &&
-        (norm.includes('recipient_id = $2') || norm.includes('sender_id = $2'))
+        norm.includes('SELECT 1 WHERE') &&
+        norm.includes('FROM messages.messages m') &&
+        norm.includes('m.thread_id::text = $1 OR m.group_id::text = $1')
       ) {
         return { rows: [] }
       }
-      if (
-        norm.includes('SELECT 1 FROM messages.messages WHERE thread_id = $1') &&
-        norm.includes('LIMIT 1') &&
-        !norm.includes('recipient_id = $2')
-      ) {
+      if (norm.includes('SELECT 1 FROM messages.messages WHERE thread_id::text = $1 OR group_id::text = $1 LIMIT 1')) {
         return { rows: [] }
       }
       return defaultPoolHandler(sql, params)
@@ -1524,17 +1866,13 @@ describe('createMessagingHttpApp (mocked pool + kafka)', () => {
     poolQuery.mockImplementation(async (sql: string, params: unknown[] = []) => {
       const norm = sql.replace(/\s+/g, ' ').trim()
       if (
-        norm.includes('SELECT 1 FROM messages.messages WHERE thread_id = $1') &&
-        norm.includes('LIMIT 1') &&
-        (norm.includes('recipient_id = $2') || norm.includes('sender_id = $2'))
+        norm.includes('SELECT 1 WHERE') &&
+        norm.includes('FROM messages.messages m') &&
+        norm.includes('m.thread_id::text = $1 OR m.group_id::text = $1')
       ) {
         return { rows: [] }
       }
-      if (
-        norm.includes('SELECT 1 FROM messages.messages WHERE thread_id = $1') &&
-        norm.includes('LIMIT 1') &&
-        !norm.includes('recipient_id = $2')
-      ) {
+      if (norm.includes('SELECT 1 FROM messages.messages WHERE thread_id::text = $1 OR group_id::text = $1 LIMIT 1')) {
         return { rows: [{ '?column?': 1 }] }
       }
       return defaultPoolHandler(sql, params)
@@ -1685,8 +2023,11 @@ describe('createMessagingHttpApp (mocked pool + kafka)', () => {
   it('PUT /messages/:messageId — 403 when not sender', async () => {
     poolQuery.mockImplementation(async (sql: string, params: unknown[] = []) => {
       const norm = sql.replace(/\s+/g, ' ').trim()
-      if (norm.includes('SELECT sender_id FROM messages.messages WHERE id = $1') && !norm.includes('recipient_id')) {
-        return { rows: [{ sender_id: recipientId }] }
+      if (
+        norm.includes('SELECT sender_id, subject AS cur_subject, content AS cur_content, deleted_at') &&
+        norm.includes('FROM messages.messages WHERE id = $1::uuid')
+      ) {
+        return { rows: [{ sender_id: recipientId, cur_subject: 's', cur_content: 'c', deleted_at: null }] }
       }
       return defaultPoolHandler(sql, params)
     })
@@ -1866,15 +2207,15 @@ describe('createMessagingHttpApp (mocked pool + kafka)', () => {
   })
 
   it('POST /messages/thread/:threadId/archive — 500 on unexpected DB error', async () => {
-    const tid = randomUUID()
     poolQuery.mockImplementation(async (sql: string, params: unknown[] = []) => {
       const norm = sql.replace(/\s+/g, ' ').trim()
       if (norm === 'BEGIN') return { rows: [] }
       if (norm === 'ROLLBACK') return { rows: [] }
       if (norm.startsWith('COMMIT')) return { rows: [] }
       if (
-        norm.includes('SELECT 1 FROM messages.messages WHERE thread_id = $1') &&
-        norm.includes('recipient_id = $2')
+        norm.includes('SELECT 1 WHERE') &&
+        norm.includes('FROM messages.messages m') &&
+        norm.includes('m.thread_id::text = $1 OR m.group_id::text = $1')
       ) {
         return { rows: [{ '?column?': 1 }] }
       }
@@ -1884,7 +2225,7 @@ describe('createMessagingHttpApp (mocked pool + kafka)', () => {
       return defaultPoolHandler(sql, params)
     })
     const res = await request(app)
-      .post(`/messages/thread/${tid}/archive`)
+      .post(`/messages/thread/${threadId}/archive`)
       .set('x-user-id', userId)
       .send({})
     expect(res.status).toBe(500)
@@ -1898,8 +2239,9 @@ describe('createMessagingHttpApp (mocked pool + kafka)', () => {
       if (norm === 'ROLLBACK') return { rows: [] }
       if (norm.startsWith('COMMIT')) return { rows: [] }
       if (
-        norm.includes('SELECT 1 FROM messages.messages WHERE thread_id = $1') &&
-        norm.includes('recipient_id = $2')
+        norm.includes('SELECT 1 WHERE') &&
+        norm.includes('FROM messages.messages m') &&
+        norm.includes('m.thread_id::text = $1 OR m.group_id::text = $1')
       ) {
         return { rows: [{ '?column?': 1 }] }
       }
@@ -1977,7 +2319,11 @@ describe('createMessagingHttpApp (mocked pool + kafka)', () => {
   it('GET /forum/posts/:postId — 200', async () => {
     poolQuery.mockImplementation(async (sql: string, params: unknown[] = []) => {
       const norm = sql.replace(/\s+/g, ' ').trim()
-      if (norm.includes('FROM forum.posts') && norm.includes('WHERE id = $1') && norm.includes('comment_count')) {
+      if (
+        norm.includes('FROM forum.posts p') &&
+        norm.includes('WHERE p.id = $1::uuid') &&
+        norm.includes('comment_count')
+      ) {
         return {
           rows: [
             {
@@ -1994,6 +2340,7 @@ describe('createMessagingHttpApp (mocked pool + kafka)', () => {
               is_locked: false,
               created_at: new Date(),
               updated_at: new Date(),
+              user_vote: null,
             },
           ],
         }
@@ -2207,7 +2554,10 @@ describe('createMessagingHttpApp (mocked pool + kafka)', () => {
   it('PUT /messages/:messageId — 404 when message missing', async () => {
     poolQuery.mockImplementation(async (sql: string, params: unknown[] = []) => {
       const norm = sql.replace(/\s+/g, ' ').trim()
-      if (norm.includes('SELECT sender_id FROM messages.messages WHERE id = $1') && !norm.includes('recipient_id')) {
+      if (
+        norm.includes('SELECT sender_id, subject AS cur_subject, content AS cur_content, deleted_at') &&
+        norm.includes('FROM messages.messages WHERE id = $1::uuid')
+      ) {
         return { rows: [] }
       }
       return defaultPoolHandler(sql, params)
@@ -2219,8 +2569,11 @@ describe('createMessagingHttpApp (mocked pool + kafka)', () => {
   it('PUT /messages/:messageId — 403 when not sender', async () => {
     poolQuery.mockImplementation(async (sql: string, params: unknown[] = []) => {
       const norm = sql.replace(/\s+/g, ' ').trim()
-      if (norm.includes('SELECT sender_id FROM messages.messages WHERE id = $1') && !norm.includes('recipient_id')) {
-        return { rows: [{ sender_id: otherUserId }] }
+      if (
+        norm.includes('SELECT sender_id, subject AS cur_subject, content AS cur_content, deleted_at') &&
+        norm.includes('FROM messages.messages WHERE id = $1::uuid')
+      ) {
+        return { rows: [{ sender_id: otherUserId, cur_subject: 's', cur_content: 'c', deleted_at: null }] }
       }
       return defaultPoolHandler(sql, params)
     })
@@ -2231,7 +2584,11 @@ describe('createMessagingHttpApp (mocked pool + kafka)', () => {
   it('PUT /messages/:messageId — 500 when update fails', async () => {
     poolQuery.mockImplementation(async (sql: string, params: unknown[] = []) => {
       const norm = sql.replace(/\s+/g, ' ').trim()
-      if (norm.includes('UPDATE messages.messages') && norm.includes('COALESCE($1, subject)')) {
+      if (
+        norm.includes('UPDATE messages.messages') &&
+        norm.includes('edited_at = CASE WHEN') &&
+        norm.includes('WHERE id = $3::uuid AND deleted_at IS NULL')
+      ) {
         return Promise.reject(new Error('update fail'))
       }
       return defaultPoolHandler(sql, params)
@@ -2416,6 +2773,13 @@ describe('createMessagingHttpApp (mocked pool + kafka)', () => {
   })
 
   it('POST /forum/posts/:postId/vote — down vote branch', async () => {
+    poolQuery.mockImplementation(async (sql: string, params: unknown[] = []) => {
+      const norm = sql.replace(/\s+/g, ' ').trim()
+      if (norm.includes('FROM forum.posts p WHERE p.id = $1::uuid') && norm.includes('SELECT p.upvotes')) {
+        return { rows: [{ upvotes: 0, downvotes: 1, user_vote: 'down' }] }
+      }
+      return defaultPoolHandler(sql, params)
+    })
     const res = await request(app)
       .post(`/forum/posts/${postId}/vote`)
       .set('x-user-id', userId)
@@ -2502,6 +2866,13 @@ describe('createMessagingHttpApp (mocked pool + kafka)', () => {
   })
 
   it('POST /forum/comments/:commentId/vote — down vote', async () => {
+    poolQuery.mockImplementation(async (sql: string, params: unknown[] = []) => {
+      const norm = sql.replace(/\s+/g, ' ').trim()
+      if (norm.includes('SELECT c.upvotes, c.downvotes') && norm.includes('FROM forum.comments c WHERE c.id')) {
+        return { rows: [{ upvotes: 0, downvotes: 1, user_vote: 'down' }] }
+      }
+      return defaultPoolHandler(sql, params)
+    })
     const res = await request(app)
       .post(`/forum/comments/${commentId}/vote`)
       .set('x-user-id', userId)
@@ -2524,13 +2895,6 @@ describe('createMessagingHttpApp (mocked pool + kafka)', () => {
   it('POST /messages/thread/:threadId/archive — 501 when user_archived_threads table missing', async () => {
     poolQuery.mockImplementation(async (sql: string, params: unknown[] = []) => {
       const norm = sql.replace(/\s+/g, ' ').trim()
-      if (
-        norm.includes('SELECT 1 FROM messages.messages WHERE thread_id = $1') &&
-        norm.includes('LIMIT 1') &&
-        (norm.includes('recipient_id = $2') || norm.includes('sender_id = $2'))
-      ) {
-        return Promise.resolve({ rows: [{ '?column?': 1 }] })
-      }
       if (norm.includes('INSERT INTO messages.user_archived_threads')) {
         const err = Object.assign(new Error('relation missing'), { code: '42P01' })
         return Promise.reject(err)

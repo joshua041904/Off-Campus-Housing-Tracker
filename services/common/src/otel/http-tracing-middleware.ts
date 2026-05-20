@@ -2,9 +2,15 @@ import type { TextMapGetter } from "@opentelemetry/api";
 import { context, propagation, trace, SpanStatusCode } from "@opentelemetry/api";
 import type { NextFunction, Request, Response } from "express";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { httpRequestDurationSeconds } from "../metrics.js";
 import { logHttpInterceptorFinish } from "./interceptor-log.js";
 import { isOchTraceDebugLogEnabled, logTraceDebug } from "./trace-debug-log.js";
-import { decorateHttpSpanWithTransport, decorateIncomingMessageSpanWithTransport } from "./net-protocol.js";
+import {
+  decorateHttpSpanWithTransport,
+  decorateIncomingMessageSpanWithTransport,
+  edgeProtoFromIncomingMessage,
+  edgeProtoFromRequestHeaders,
+} from "./net-protocol.js";
 import { attachIncomingHttpOtelContext } from "./outgoing-http-propagation.js";
 
 /** Resolve at call time so tests (and any import order) see the registered global `TracerProvider`. */
@@ -96,6 +102,17 @@ export function tracingMiddleware(req: Request, res: Response, next: NextFunctio
       x_trace_id: xTrace,
     });
 
+    httpRequestDurationSeconds.observe(
+      {
+        service: process.env.OTEL_SERVICE_NAME?.trim() || "http",
+        route: req.path,
+        method: req.method,
+        code: String(res.statusCode),
+        proto: edgeProtoFromRequestHeaders(req),
+      },
+      durationMs / 1000,
+    );
+
     span.end();
   });
 
@@ -144,6 +161,17 @@ export async function traceIncomingHttpRequest(
       latencyMs: durationMs,
       span,
     });
+
+    httpRequestDurationSeconds.observe(
+      {
+        service: process.env.OTEL_SERVICE_NAME?.trim() || "http",
+        route: routePath,
+        method,
+        code: String(res.statusCode),
+        proto: edgeProtoFromIncomingMessage(req),
+      },
+      durationMs / 1000,
+    );
 
     span.end();
   });

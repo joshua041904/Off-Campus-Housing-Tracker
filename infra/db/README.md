@@ -5,6 +5,9 @@ Auth (5441) is Prisma + optional restore. Listings (5442), **Booking (5443)**, *
 **One-shot setup (all DBs, ports per table below):**  
 `PGPASSWORD=postgres ./scripts/setup-all-dbs.sh` — runs all ensure-*-schema scripts for listings, bookings, messaging, notification, trust, analytics. Auth is skipped (Prisma/restore). Optional: `DO_DOCKER_UP=1` to start the seven Postgres containers first. **Media (5448)** is optional: run `./scripts/ensure-media-schema.sh` when media-service is used (create DB `media` on port 5448 or add postgres-media to docker-compose).
 
+**After cold bootstrap or restore from `backups/all-8-*` (applies every file in this folder, including 24–27 notification and 28 trust repair):**  
+`PGPASSWORD=postgres ./scripts/apply-all-infra-db-migrations.sh`
+
 ## Auth (5441) — how login works
 
 - **Database:** `auth` on port **5441** (postgres-auth in docker-compose).
@@ -26,6 +29,7 @@ Files:
 - `00-create-listings-database.sql` — Create DB `listings` (optional; docker-compose already creates it).
 - `01-listings-schema-and-tuning.sql` — Schema, tables, indexes (composite, partial, GIN trigram on `search_norm`, hash where useful). Includes `pg_trgm` and `search_norm` + trigger for fuzzy search.
 - `02-listings-pgbench-trigram-knn.sql` — Trigram/KNN-style search: `listings.norm_text()`, `listings.search_listings_fuzzy_ids()`, `listings.search_listings_fuzzy_count()` for pgbench. Optional: commented vector/HNSW for ANN (pgvector).
+- `18-listings-residence-address-structured.sql` — `residence_type`, structured address columns, `neighborhood`, `bedrooms` / `bathrooms`, `search_norm` trigger refresh, and backfills for existing rows.
 
 **pgbench:** After schema is applied, run `./scripts/run_listings_pgbench_sweep.sh` (trigram + search variants). Requires local pgbench (e.g. `brew install postgresql@16`).
 
@@ -56,6 +60,8 @@ Files:
 - **Apply:** `PGPASSWORD=postgres ./scripts/ensure-booking-schema.sh` or `psql -h 127.0.0.1 -p 5443 -U postgres -d bookings -f infra/db/01-booking-schema.sql`
 - **State machine (02):** `infra/db/02-booking-state-machine.sql` enforces legal transitions (created → pending_confirmation | cancelled; pending_confirmation → confirmed | rejected | cancelled | expired; confirmed → completed | cancelled). Terminal states allow no further changes. Applied by ensure-booking-schema.sh after 01.
 - **Events:** booking-service emits `booking.created`, `booking.confirmed`, `booking.rejected`, `booking.cancelled`, `booking.completed`, `booking.expired` (minimal payload). See docs/KAFKA_TOPICS_AND_PARTITIONS.md.
+- **Search history + watchlist (04):** `infra/db/04-booking-search-history.sql` creates `booking.search_history` and `booking.watchlist_items` (required before migration 19 on SQL-only CI bootstrap).
+- **Saved search alerts (19):** `infra/db/19-booking-search-history-alerts.sql` adds `max_campus_miles` and `alert_on_match` on `booking.search_history` for distance-from-campus filters and “notify when a new listing matches this search.” Applied by `scripts/ensure-booking-schema.sh` after prior booking SQL files.
 
 ## Messaging (5444)
 

@@ -1,7 +1,10 @@
 import client from "prom-client";
 import { register } from "@common/utils";
 
-const bucketsLatency = [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 3500, 5000, 10000, 60000];
+// End with +Inf so values above the largest finite bucket do not break internal bucket accounting.
+const bucketsLatency = [
+  5, 10, 25, 50, 100, 250, 500, 1000, 2500, 3500, 5000, 10000, 60000, 120000, 300000, 600000, Number.POSITIVE_INFINITY,
+];
 
 export const analyticsGenerationLatencyMs = new client.Histogram({
   name: "analytics_generation_latency_ms",
@@ -14,7 +17,7 @@ export const analyticsGenerationLatencyMs = new client.Histogram({
 export const analyticsGenerationTokensEstimated = new client.Histogram({
   name: "analytics_generation_tokens_estimated",
   help: "Rough prompt+system token estimate (chars/4)",
-  buckets: [128, 256, 512, 768, 1024, 1536, 2048, 3072, 4096, 6144, 8192],
+  buckets: [128, 256, 512, 768, 1024, 1536, 2048, 3072, 4096, 6144, 8192, Number.POSITIVE_INFINITY],
   registers: [register],
 });
 
@@ -77,7 +80,10 @@ export const analyticsOllamaTimeoutTotal = new client.Counter({
   registers: [register],
 });
 
-const bucketsGenDuration = [50, 100, 250, 500, 1000, 2000, 3500, 5000, 8000, 15000, 30000, 60000, 120000];
+const bucketsGenDuration = [
+  50, 100, 250, 500, 1000, 2000, 3500, 5000, 8000, 15000, 30000, 60000, 120000, 300000, 600000,
+  Number.POSITIVE_INFINITY,
+];
 
 /** Wall-clock duration for a successful listing intelligence v2 run (end-to-end). */
 export const analyticsGenerationDurationMs = new client.Histogram({

@@ -1,5 +1,51 @@
 **Cluster-only focus:** This copy is for Kubernetes cluster operations, TLS/mTLS, Caddy/Envoy, MetalLB, and runbook issues. Application/product specifics are in README.md.
 
+## Edge routing: HTML vs JSON for `/listings/*` (May 2026)
+
+**Symptom:** Browser opens `/listings/{uuid}` and sees **raw JSON** (listing payload) instead of the Next.js listing page.
+
+**Cause:** Caddy (or any edge) must **not** classify **`/listings/*`** as API traffic to **api-gateway**. The marketplace UI uses the same path prefix as the listings HTTP API; **only** paths under **`/api/listings/*`** should hit the gateway for JSON.
+
+**Fix:** In **`infra/k8s/caddy-h3-configmap.yaml`** (and the repo **`Caddyfile`** if used), keep **`/api/*`** in `@api` but **remove** **`/listings/*`**. Reload / rollout Caddy after editing.
+
+**See also:** [RCA.md](./RCA.md) — “Browser `/listings/{uuid}` showed raw JSON…”.
+
+## Redis / Lua readiness (May 2026) — before next messaging / gateway / booking image rebuild
+
+**Goal:** Shared Redis must be safe under deploy races (NOSCRIPT/FLUSHDB), **key namespaces** must not collide across services, and **TTLs** must be intentional. Do **not** skip this checklist before rolling **messaging-service**, **api-gateway**, **auth-service**, **booking-service**, or any service whose diff touches Redis/Lua.
+
+### Per-service inventory (files → purpose → keys → TTL → Lua → notes)
+
+| Service | Files | Purpose | Key patterns (representative) | TTL / expiry | Lua / EVAL | Risks mitigated |
+|---------|--------|---------|------------------------------|--------------|------------|-----------------|
+| **messaging-service** | `src/lib/cache.ts`, `src/lib/singleflight_cache.lua` | Forum/DM JSON cache + singleflight | `messaging:*` (posts, lists, comments, messages, thread), `messaging:sf:lock:<sha1>` | Cache: `psetex` jitter from caller | `EVALSHA` / `EVAL` singleflight; NOSCRIPT → reload + **EVAL fallback** | Deploy race without script; generic `sf:lock` collision |
+| **messaging-service** | `src/rateLimit.ts` + `@common/utils` `redis-lua.ts` | Send rate limit (per minute + per day) | `messaging:rate:send:<userId>`, `messaging:rate:send:day:<userId>` | Minute + day windows from Lua | `redis.eval(LUA_MESSAGING_SEND_RATE, 2, …)` | Ambiguous `rate:msg:` prefix on shared Redis |
+| **api-gateway** | `src/server.ts` | JWT **JTI** revocation check | `och:auth:jti:revoked:<jti>`, `revoked:<jti>` (legacy) | Matches auth logout TTL | none (GET) | Gateway only read legacy key → missed canonical |
+| **api-gateway** | `src/cluster-weight-budget.ts` | Cluster-wide weighted inflight cap | Config key e.g. `och:cluster:weight:sum` | **180s** on counter from Lua | `EVAL` try/release | Fail-open when Redis down (documented) |
+| **api-gateway** | `src/gateway-redis.ts`, tests | Redis client for gateway | same as above | — | — | |
+| **auth-service** | `src/lib/revocation.ts` | Logout / revoke JTI | `och:auth:jti:revoked:<jti>`, `revoked:<jti>` | `EX` from token lifetime | none | Dual-write + readers check both |
+| **auth-service** | `src/lib/redis-cache.ts` | User-by-email cache (Lua GET+EXPIRE, SETEX, DEL) | `user:email:<email>` (legacy; consider `och:auth:` prefix in a later pass) | Script refresh / SETEX | `EVAL` user lookup/update/invalidate | Fail open on Redis errors (warn) |
+| **booking-service** | `src/booking-realtime.ts` | Fraud score, tenant booking ban flag | `booking:<id>:fraud_score`, `booking:tenant:<id>:booking_banned` | Fraud: 24h; ban: **`EX`** default **10y** (`BOOKING_TENANT_BAN_TTL_SEC` optional) | none | Immortal ban key filling Redis / no retention bound |
+| **listings-service** | `src/query-cache.ts` | Search JSON cache, booking count | `listings:search:<hash>`, `listing:<id>:booking_count` | Search: `LISTINGS_CACHE_TTL_SEC`; count on write path | none | |
+| **analytics-service** | `src/intelligence/metaEval.ts` (and related) | Locks / coordination | `och:listing-feel:…` style via shared lock helpers | lock TTL from helper | varies | |
+| **notification-service** | `src/realtime-publisher.ts` | Pub/sub / realtime | service-specific | per design | | |
+| **ollama-worker** | `worker.js` | Job status | `job:<id>` | **3600s** typical | | |
+| **common** | `src/redis-lua.ts`, `src/redis.ts` | Shared Redis + Lua for messaging limits | see messaging | | | |
+
+### Operational checklist
+
+1. **Config:** Same **`REDIS_URL`** / password / DB index across pods that share state; sane **`connectTimeout`**; **`VITEST`** / **`OCH_DISABLE_EXTERNALS`** disable Redis in tests as documented in Vitest runbook row #88.
+2. **After `SCRIPT FLUSH` or new messaging pod:** Messaging cache must recover (**NOSCRIPT** → reload; still broken → **EVAL** body fallback).
+3. **Logout / forced revoke:** Confirm **api-gateway** sees revocation (checks **both** JTI key shapes).
+4. **Tenant fraud ban:** If ban must survive longer than Redis TTL, ensure process to **re-apply** ban from admin/DB before `BOOKING_TENANT_BAN_TTL_SEC` (default 10 years) or raise env intentionally.
+
+### Verification after rollout
+
+- **Edge:** `https://off-campus-housing.test` — listings HTML, community images, messaging (DM + group), archive/hide, rate limits not spuriously blocking.
+- **Spot-check:** Logout → protected route returns **401**; messaging send under spam threshold **200**s.
+
+---
+
 **Colima + kubectl: TLS handshake timeout / flaky API:** If `kubectl` shows `net/http: TLS handshake timeout`, `context deadline exceeded`, or hangs against `127.0.0.1:6443`, re-establish the SSH tunnel and pin kubeconfig: **`./scripts/colima-forward-6443.sh`**. If it still flakes after sleep or heavy apply loops, **`./scripts/colima-forward-6443.sh --restart`**. Before long jobs (reissue, alignment suite, many applies), optional probe: **`./scripts/colima-api-health.sh`**. Full context: [Critical Issue #1](#critical-issue-1-tls-handshake-timeout--api-server-unreachable).
 
 ## OCH edge & gateway debugging (items 83–90)
